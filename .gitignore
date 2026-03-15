@@ -1,0 +1,8 @@
+.pytest_cache/
+__pycache__/
+.venv/
+*.pyc
+data/
+*.db
+pytest-cache-files-*/
+gcm-diagnose.log

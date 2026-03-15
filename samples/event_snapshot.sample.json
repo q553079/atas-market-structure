@@ -1,0 +1,142 @@
+{
+  "schema_version": "1.0.0",
+  "event_snapshot_id": "evt-20260315-093200",
+  "event_type": "liquidity_sweep",
+  "observed_at": "2026-03-15T09:32:00Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "adapter_version": "0.1.0"
+  },
+  "instrument": {
+    "symbol": "NQH6",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "trigger_event": {
+    "event_type": "liquidity_sweep",
+    "observed_at": "2026-03-15T09:31:52Z",
+    "price": 21581.25,
+    "details": {
+      "swept_level": "prior_day_high",
+      "reclaimed_within_bars": 2
+    }
+  },
+  "decision_layers": {
+    "macro_context": [
+      {
+        "timeframe": "1d",
+        "bars_considered": 20,
+        "latest_range": {
+          "open": 21490.0,
+          "high": 21591.0,
+          "low": 21442.5,
+          "close": 21569.0
+        },
+        "swing_points": [],
+        "liquidity_levels": [
+          {
+            "level_type": "prior_day_high",
+            "price": 21580.0,
+            "first_seen_at": "2026-03-15T00:00:00Z",
+            "touch_count": 2,
+            "swept": true
+          }
+        ],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      }
+    ],
+    "intraday_bias": [
+      {
+        "timeframe": "1h",
+        "bars_considered": 12,
+        "latest_range": {
+          "open": 21510.5,
+          "high": 21581.25,
+          "low": 21498.75,
+          "close": 21569.0
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      }
+    ],
+    "setup_context": [
+      {
+        "timeframe": "15m",
+        "bars_considered": 16,
+        "latest_range": {
+          "open": 21535.25,
+          "high": 21581.25,
+          "low": 21528.75,
+          "close": 21569.0
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      }
+    ],
+    "execution_context": [
+      {
+        "timeframe": "footprint",
+        "bars_considered": 1,
+        "latest_range": {
+          "open": 21575.0,
+          "high": 21581.25,
+          "low": 21566.0,
+          "close": 21569.0
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [
+          {
+            "signal_type": "absorption",
+            "side": "sell",
+            "observed_at": "2026-03-15T09:31:52Z",
+            "price": 21580.75,
+            "magnitude": 0.88,
+            "notes": ["seller absorbed sweep above prior day high"]
+          }
+        ],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      },
+      {
+        "timeframe": "dom",
+        "bars_considered": 1,
+        "latest_range": {
+          "open": 21577.25,
+          "high": 21581.25,
+          "low": 21568.5,
+          "close": 21569.0
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [
+          {
+            "signal_type": "initiative_selling",
+            "side": "sell",
+            "observed_at": "2026-03-15T09:31:58Z",
+            "price": 21570.0,
+            "magnitude": 0.71,
+            "notes": ["offers held and price rotated lower"]
+          }
+        ],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      }
+    ]
+  }
+}

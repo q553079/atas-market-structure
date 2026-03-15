@@ -1,0 +1,1212 @@
+{
+  "$defs": {
+    "DecisionLayerSet": {
+      "description": "Decision-layered market context. This is the canonical observed-facts container.",
+      "properties": {
+        "macro_context": {
+          "description": "Higher timeframe context: month, week, day.",
+          "items": {
+            "$ref": "#/$defs/ObservedContextWindow"
+          },
+          "title": "Macro Context",
+          "type": "array"
+        },
+        "intraday_bias": {
+          "description": "Bias context: last 3 days, 1h, 30m.",
+          "items": {
+            "$ref": "#/$defs/ObservedContextWindow"
+          },
+          "title": "Intraday Bias",
+          "type": "array"
+        },
+        "setup_context": {
+          "description": "Setup context: 15m and 5m.",
+          "items": {
+            "$ref": "#/$defs/ObservedContextWindow"
+          },
+          "title": "Setup Context",
+          "type": "array"
+        },
+        "execution_context": {
+          "description": "Execution context: 1m, footprint, DOM.",
+          "items": {
+            "$ref": "#/$defs/ObservedContextWindow"
+          },
+          "title": "Execution Context",
+          "type": "array"
+        }
+      },
+      "title": "DecisionLayerSet",
+      "type": "object"
+    },
+    "EventType": {
+      "enum": [
+        "break_of_structure",
+        "change_of_character",
+        "liquidity_sweep",
+        "value_area_rejection",
+        "orderflow_imbalance",
+        "other"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "InstrumentRef": {
+      "description": "Stable instrument metadata for replay and backtests.",
+      "properties": {
+        "symbol": {
+          "description": "Trading symbol.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Symbol",
+          "type": "string"
+        },
+        "venue": {
+          "description": "Execution or quote venue.",
+          "examples": [
+            "CME"
+          ],
+          "title": "Venue",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Minimum price increment.",
+          "examples": [
+            0.25
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "currency": {
+          "description": "PnL currency.",
+          "examples": [
+            "USD"
+          ],
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "venue",
+        "tick_size",
+        "currency"
+      ],
+      "title": "InstrumentRef",
+      "type": "object"
+    },
+    "LiquidityLevelType": {
+      "enum": [
+        "session_high",
+        "session_low",
+        "prior_day_high",
+        "prior_day_low",
+        "weekly_extreme",
+        "composite_poc",
+        "manual"
+      ],
+      "title": "LiquidityLevelType",
+      "type": "string"
+    },
+    "ObservedContextWindow": {
+      "description": "Observed facts for one timeframe within one decision layer.",
+      "properties": {
+        "timeframe": {
+          "$ref": "#/$defs/Timeframe",
+          "description": "Timeframe for this context window."
+        },
+        "bars_considered": {
+          "description": "Number of bars used by the producer.",
+          "examples": [
+            24
+          ],
+          "minimum": 1,
+          "title": "Bars Considered",
+          "type": "integer"
+        },
+        "latest_range": {
+          "$ref": "#/$defs/ObservedRange",
+          "description": "Latest observed range for the timeframe."
+        },
+        "swing_points": {
+          "description": "Observed swing sequence available to downstream recognizers.",
+          "items": {
+            "$ref": "#/$defs/ObservedSwingPoint"
+          },
+          "title": "Swing Points",
+          "type": "array"
+        },
+        "liquidity_levels": {
+          "description": "Observed liquidity references relevant to the timeframe.",
+          "items": {
+            "$ref": "#/$defs/ObservedLiquidityLevel"
+          },
+          "title": "Liquidity Levels",
+          "type": "array"
+        },
+        "orderflow_signals": {
+          "description": "Observed order-flow events captured for the timeframe.",
+          "items": {
+            "$ref": "#/$defs/ObservedOrderFlowSignal"
+          },
+          "title": "Orderflow Signals",
+          "type": "array"
+        },
+        "value_area": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservedValueArea"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed value area snapshot when available."
+        },
+        "session_stats": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservedSessionStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed session aggregate statistics when available."
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional raw facts for future backward-compatible extensions.",
+          "examples": [
+            {
+              "distance_to_vah_ticks": 8,
+              "opening_drive_up": true
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "timeframe",
+        "bars_considered",
+        "latest_range"
+      ],
+      "title": "ObservedContextWindow",
+      "type": "object"
+    },
+    "ObservedCrossSessionSequence": {
+      "description": "Observed sequence that links process data across multiple sessions.",
+      "properties": {
+        "sequence_id": {
+          "description": "Stable cross-session sequence identifier.",
+          "title": "Sequence Id",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Sequence start time.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "last_observed_at": {
+          "description": "Most recent time the sequence was updated.",
+          "format": "date-time",
+          "title": "Last Observed At",
+          "type": "string"
+        },
+        "session_sequence": {
+          "description": "Sessions already involved in the sequence.",
+          "examples": [
+            [
+              "europe",
+              "us_regular"
+            ]
+          ],
+          "items": {
+            "$ref": "#/$defs/SessionCode"
+          },
+          "title": "Session Sequence",
+          "type": "array"
+        },
+        "price_zone_low": {
+          "description": "Observed lower boundary of the active price zone.",
+          "examples": [
+            21528.75
+          ],
+          "title": "Price Zone Low",
+          "type": "number"
+        },
+        "price_zone_high": {
+          "description": "Observed upper boundary of the active price zone.",
+          "examples": [
+            21548.25
+          ],
+          "title": "Price Zone High",
+          "type": "number"
+        },
+        "start_price": {
+          "description": "Observed price when the sequence started.",
+          "examples": [
+            21533.25
+          ],
+          "title": "Start Price",
+          "type": "number"
+        },
+        "latest_price": {
+          "description": "Most recent observed price for the sequence.",
+          "examples": [
+            21570.25
+          ],
+          "title": "Latest Price",
+          "type": "number"
+        },
+        "linked_episode_ids": {
+          "description": "Liquidity episode identifiers attached to the sequence.",
+          "examples": [
+            [
+              "ep-europe-absorb-01"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Episode Ids",
+          "type": "array"
+        },
+        "linked_event_ids": {
+          "description": "Observed event identifiers attached to the sequence.",
+          "examples": [
+            [
+              "evt-20260315-093200"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Event Ids",
+          "type": "array"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional measured sequence features for replay and scoring.",
+          "examples": [
+            {
+              "release_velocity_ticks_per_minute": 24.5,
+              "zone_hold_seconds": 1380
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "sequence_id",
+        "started_at",
+        "last_observed_at",
+        "price_zone_low",
+        "price_zone_high",
+        "start_price",
+        "latest_price"
+      ],
+      "title": "ObservedCrossSessionSequence",
+      "type": "object"
+    },
+    "ObservedEventMarker": {
+      "description": "Producer-side marker used to attach notable events to a snapshot.",
+      "properties": {
+        "event_type": {
+          "$ref": "#/$defs/EventType",
+          "description": "Observed event category."
+        },
+        "observed_at": {
+          "description": "When the event was observed.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Associated event price if available.",
+          "examples": [
+            21581.25
+          ],
+          "title": "Price"
+        },
+        "details": {
+          "additionalProperties": true,
+          "description": "Additional raw event facts emitted by the producer.",
+          "examples": [
+            {
+              "reclaimed_within_bars": 2,
+              "swept_level": "prior_day_high"
+            }
+          ],
+          "title": "Details",
+          "type": "object"
+        }
+      },
+      "required": [
+        "event_type",
+        "observed_at"
+      ],
+      "title": "ObservedEventMarker",
+      "type": "object"
+    },
+    "ObservedLiquidityEpisode": {
+      "description": "Measured price-band interaction episode, still kept as observed facts.",
+      "properties": {
+        "episode_id": {
+          "description": "Stable episode identifier.",
+          "title": "Episode Id",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Episode start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Episode end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Dominant side associated with the episode."
+        },
+        "price_low": {
+          "description": "Lower bound of the defended or contested zone.",
+          "examples": [
+            21528.75
+          ],
+          "title": "Price Low",
+          "type": "number"
+        },
+        "price_high": {
+          "description": "Upper bound of the defended or contested zone.",
+          "examples": [
+            21534.5
+          ],
+          "title": "Price High",
+          "type": "number"
+        },
+        "executed_volume_against": {
+          "description": "Observed executed volume hitting the zone from the opposite side.",
+          "examples": [
+            1284
+          ],
+          "minimum": 0,
+          "title": "Executed Volume Against",
+          "type": "integer"
+        },
+        "replenishment_count": {
+          "description": "Observed number of replenishment events near the zone.",
+          "examples": [
+            6
+          ],
+          "minimum": 0,
+          "title": "Replenishment Count",
+          "type": "integer"
+        },
+        "pull_count": {
+          "description": "Observed number of liquidity pull events near the zone.",
+          "examples": [
+            1
+          ],
+          "minimum": 0,
+          "title": "Pull Count",
+          "type": "integer"
+        },
+        "price_rejection_ticks": {
+          "description": "Observed rejection distance after interaction, in ticks.",
+          "examples": [
+            18
+          ],
+          "minimum": 0,
+          "title": "Price Rejection Ticks",
+          "type": "integer"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional measured episode features.",
+          "examples": [
+            {
+              "max_resting_bid": 812,
+              "seconds_held": 54
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "episode_id",
+        "started_at",
+        "ended_at",
+        "side",
+        "price_low",
+        "price_high",
+        "executed_volume_against",
+        "replenishment_count",
+        "pull_count",
+        "price_rejection_ticks"
+      ],
+      "title": "ObservedLiquidityEpisode",
+      "type": "object"
+    },
+    "ObservedLiquidityLevel": {
+      "description": "A price level derived by the producer and stored as an observed fact.",
+      "properties": {
+        "level_type": {
+          "$ref": "#/$defs/LiquidityLevelType",
+          "description": "Observed liquidity reference type."
+        },
+        "price": {
+          "description": "Observed level price.",
+          "examples": [
+            21580.0
+          ],
+          "title": "Price",
+          "type": "number"
+        },
+        "first_seen_at": {
+          "description": "When this level first entered the current dataset.",
+          "format": "date-time",
+          "title": "First Seen At",
+          "type": "string"
+        },
+        "touch_count": {
+          "description": "Number of observed touches.",
+          "examples": [
+            1
+          ],
+          "minimum": 0,
+          "title": "Touch Count",
+          "type": "integer"
+        },
+        "swept": {
+          "description": "Whether price traded through the level.",
+          "examples": [
+            false
+          ],
+          "title": "Swept",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "level_type",
+        "price",
+        "first_seen_at",
+        "touch_count",
+        "swept"
+      ],
+      "title": "ObservedLiquidityLevel",
+      "type": "object"
+    },
+    "ObservedOrderFlowSignal": {
+      "description": "Execution-level order-flow signal captured from footprint or DOM.",
+      "properties": {
+        "signal_type": {
+          "$ref": "#/$defs/OrderFlowSignalType",
+          "description": "Observed order-flow signal category."
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Side associated with the signal."
+        },
+        "observed_at": {
+          "description": "Timestamp of the signal.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Associated price if the signal is price-specific.",
+          "examples": [
+            21566.75
+          ],
+          "title": "Price"
+        },
+        "magnitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized producer-side magnitude for filtering or sorting.",
+          "examples": [
+            0.84
+          ],
+          "title": "Magnitude"
+        },
+        "notes": {
+          "description": "Short producer-side annotations explaining the signal.",
+          "examples": [
+            [
+              "three stacked ask imbalances"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "signal_type",
+        "side",
+        "observed_at"
+      ],
+      "title": "ObservedOrderFlowSignal",
+      "type": "object"
+    },
+    "ObservedProcessContext": {
+      "description": "Optional process-aware context spanning seconds to cross-session sequences.",
+      "properties": {
+        "session_windows": {
+          "description": "Observed session windows for longer-horizon context.",
+          "items": {
+            "$ref": "#/$defs/ObservedSessionWindow"
+          },
+          "title": "Session Windows",
+          "type": "array"
+        },
+        "second_features": {
+          "description": "Second-level heatmap and path features.",
+          "items": {
+            "$ref": "#/$defs/ObservedSecondFeature"
+          },
+          "title": "Second Features",
+          "type": "array"
+        },
+        "liquidity_episodes": {
+          "description": "Measured zone-interaction episodes.",
+          "items": {
+            "$ref": "#/$defs/ObservedLiquidityEpisode"
+          },
+          "title": "Liquidity Episodes",
+          "type": "array"
+        },
+        "cross_session_sequences": {
+          "description": "Observed sequences connecting episodes across sessions.",
+          "items": {
+            "$ref": "#/$defs/ObservedCrossSessionSequence"
+          },
+          "title": "Cross Session Sequences",
+          "type": "array"
+        }
+      },
+      "title": "ObservedProcessContext",
+      "type": "object"
+    },
+    "ObservedRange": {
+      "description": "Directly observed price range facts.",
+      "properties": {
+        "open": {
+          "description": "Observed open price.",
+          "examples": [
+            21542.25
+          ],
+          "title": "Open",
+          "type": "number"
+        },
+        "high": {
+          "description": "Observed high price.",
+          "examples": [
+            21578.75
+          ],
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "Observed low price.",
+          "examples": [
+            21518.5
+          ],
+          "title": "Low",
+          "type": "number"
+        },
+        "close": {
+          "description": "Observed close price.",
+          "examples": [
+            21570.25
+          ],
+          "title": "Close",
+          "type": "number"
+        }
+      },
+      "required": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "title": "ObservedRange",
+      "type": "object"
+    },
+    "ObservedSecondFeature": {
+      "description": "One-second microstructure aggregate for heatmap and path reconstruction.",
+      "properties": {
+        "second_started_at": {
+          "description": "Inclusive second window start.",
+          "format": "date-time",
+          "title": "Second Started At",
+          "type": "string"
+        },
+        "second_ended_at": {
+          "description": "Inclusive second window end.",
+          "format": "date-time",
+          "title": "Second Ended At",
+          "type": "string"
+        },
+        "latest_range": {
+          "$ref": "#/$defs/ObservedRange",
+          "description": "Observed price path within the second."
+        },
+        "trade_count": {
+          "description": "Observed trades in the second.",
+          "examples": [
+            42
+          ],
+          "minimum": 0,
+          "title": "Trade Count",
+          "type": "integer"
+        },
+        "volume": {
+          "description": "Observed traded volume in the second.",
+          "examples": [
+            315
+          ],
+          "minimum": 0,
+          "title": "Volume",
+          "type": "integer"
+        },
+        "delta": {
+          "description": "Observed delta in the second.",
+          "examples": [
+            -84
+          ],
+          "title": "Delta",
+          "type": "integer"
+        },
+        "best_bid": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best bid observed near the end of the second.",
+          "examples": [
+            21564.5
+          ],
+          "title": "Best Bid"
+        },
+        "best_ask": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best ask observed near the end of the second.",
+          "examples": [
+            21564.75
+          ],
+          "title": "Best Ask"
+        },
+        "max_bid_depth": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum observed bid depth inside the second.",
+          "examples": [
+            740.0
+          ],
+          "title": "Max Bid Depth"
+        },
+        "max_ask_depth": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum observed ask depth inside the second.",
+          "examples": [
+            910.0
+          ],
+          "title": "Max Ask Depth"
+        },
+        "depth_imbalance": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": -1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized depth imbalance for the second.",
+          "examples": [
+            -0.28
+          ],
+          "title": "Depth Imbalance"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional measured microstructure features for replay.",
+          "examples": [
+            {
+              "absorption_score": 0.81,
+              "sweep_distance_ticks": 6
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "second_started_at",
+        "second_ended_at",
+        "latest_range",
+        "trade_count",
+        "volume",
+        "delta"
+      ],
+      "title": "ObservedSecondFeature",
+      "type": "object"
+    },
+    "ObservedSessionStats": {
+      "description": "Observed session metrics from ATAS or a local adapter.",
+      "properties": {
+        "volume": {
+          "description": "Observed traded volume.",
+          "examples": [
+            182340
+          ],
+          "minimum": 0,
+          "title": "Volume",
+          "type": "integer"
+        },
+        "delta": {
+          "description": "Observed cumulative delta.",
+          "examples": [
+            12450
+          ],
+          "title": "Delta",
+          "type": "integer"
+        },
+        "trades": {
+          "description": "Observed number of trades.",
+          "examples": [
+            28490
+          ],
+          "minimum": 0,
+          "title": "Trades",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "volume",
+        "delta",
+        "trades"
+      ],
+      "title": "ObservedSessionStats",
+      "type": "object"
+    },
+    "ObservedSessionWindow": {
+      "description": "Observed session-level process context for cross-session analysis.",
+      "properties": {
+        "session_code": {
+          "$ref": "#/$defs/SessionCode",
+          "description": "Named trading session."
+        },
+        "started_at": {
+          "description": "Session start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Session end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "latest_range": {
+          "$ref": "#/$defs/ObservedRange",
+          "description": "Observed session price range."
+        },
+        "value_area": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservedValueArea"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed session value area when available."
+        },
+        "session_stats": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservedSessionStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed session statistics when available."
+        },
+        "key_levels": {
+          "description": "Observed session liquidity references.",
+          "items": {
+            "$ref": "#/$defs/ObservedLiquidityLevel"
+          },
+          "title": "Key Levels",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_code",
+        "started_at",
+        "ended_at",
+        "latest_range"
+      ],
+      "title": "ObservedSessionWindow",
+      "type": "object"
+    },
+    "ObservedSwingPoint": {
+      "description": "A price swing directly measured from bars or swing logic on the producer side.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SwingKind",
+          "description": "Whether the swing is a high or a low."
+        },
+        "price": {
+          "description": "Observed swing price.",
+          "examples": [
+            21578.75
+          ],
+          "title": "Price",
+          "type": "number"
+        },
+        "formed_at": {
+          "description": "Timestamp when the swing became valid.",
+          "format": "date-time",
+          "title": "Formed At",
+          "type": "string"
+        },
+        "leg_index": {
+          "description": "Zero-based position in the local swing sequence.",
+          "examples": [
+            2
+          ],
+          "minimum": 0,
+          "title": "Leg Index",
+          "type": "integer"
+        },
+        "tags": {
+          "description": "Observed producer-side labels, not analyst interpretation.",
+          "examples": [
+            [
+              "session_high",
+              "untested"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "price",
+        "formed_at",
+        "leg_index"
+      ],
+      "title": "ObservedSwingPoint",
+      "type": "object"
+    },
+    "ObservedValueArea": {
+      "description": "Observed value area statistics.",
+      "properties": {
+        "low": {
+          "description": "Observed value area low.",
+          "examples": [
+            21534.5
+          ],
+          "title": "Low",
+          "type": "number"
+        },
+        "high": {
+          "description": "Observed value area high.",
+          "examples": [
+            21568.75
+          ],
+          "title": "High",
+          "type": "number"
+        },
+        "point_of_control": {
+          "description": "Observed point of control.",
+          "examples": [
+            21552.25
+          ],
+          "title": "Point Of Control",
+          "type": "number"
+        }
+      },
+      "required": [
+        "low",
+        "high",
+        "point_of_control"
+      ],
+      "title": "ObservedValueArea",
+      "type": "object"
+    },
+    "OrderFlowSignalType": {
+      "enum": [
+        "stacked_imbalance",
+        "absorption",
+        "unfinished_auction",
+        "delta_divergence",
+        "initiative_buying",
+        "initiative_selling"
+      ],
+      "title": "OrderFlowSignalType",
+      "type": "string"
+    },
+    "SessionCode": {
+      "enum": [
+        "asia",
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "title": "SessionCode",
+      "type": "string"
+    },
+    "SourceRef": {
+      "description": "Producer metadata for tracing and support.",
+      "properties": {
+        "system": {
+          "description": "Source system name.",
+          "examples": [
+            "ATAS"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "instance_id": {
+          "description": "Producer instance identifier.",
+          "examples": [
+            "DESKTOP-ATAS-01"
+          ],
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "adapter_version": {
+          "description": "Source adapter version.",
+          "examples": [
+            "0.1.0"
+          ],
+          "title": "Adapter Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "system",
+        "instance_id",
+        "adapter_version"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    },
+    "SwingKind": {
+      "enum": [
+        "high",
+        "low"
+      ],
+      "title": "SwingKind",
+      "type": "string"
+    },
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "Top-level payload sent every 10 minutes from ATAS.",
+  "example": {
+    "decision_layers": {
+      "execution_context": [],
+      "intraday_bias": [],
+      "macro_context": [],
+      "setup_context": []
+    },
+    "instrument": {
+      "currency": "USD",
+      "symbol": "NQH6",
+      "tick_size": 0.25,
+      "venue": "CME"
+    },
+    "observed_at": "2026-03-15T09:30:00Z",
+    "observed_events": [],
+    "process_context": {
+      "cross_session_sequences": [],
+      "liquidity_episodes": [],
+      "second_features": [],
+      "session_windows": []
+    },
+    "schema_version": "1.0.0",
+    "snapshot_id": "ms-20260315-093000",
+    "source": {
+      "adapter_version": "0.1.0",
+      "instance_id": "DESKTOP-ATAS-01",
+      "system": "ATAS"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "description": "Payload schema version.",
+      "examples": [
+        "1.0.0"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "description": "Producer-generated snapshot identifier.",
+      "examples": [
+        "ms-20260315-093000"
+      ],
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "observed_at": {
+      "description": "Timestamp of the complete snapshot.",
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceRef",
+      "description": "Source metadata."
+    },
+    "instrument": {
+      "$ref": "#/$defs/InstrumentRef",
+      "description": "Instrument metadata."
+    },
+    "decision_layers": {
+      "$ref": "#/$defs/DecisionLayerSet",
+      "description": "Decision-layered observed facts."
+    },
+    "process_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ObservedProcessContext"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional process-aware context from seconds to cross-session sequences."
+    },
+    "observed_events": {
+      "description": "Observed event markers associated with this 10-minute snapshot.",
+      "items": {
+        "$ref": "#/$defs/ObservedEventMarker"
+      },
+      "title": "Observed Events",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "observed_at",
+    "source",
+    "instrument",
+    "decision_layers"
+  ],
+  "title": "MarketStructurePayload",
+  "type": "object"
+}

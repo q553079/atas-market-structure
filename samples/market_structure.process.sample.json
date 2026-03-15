@@ -1,0 +1,316 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "ms-20260316-143000",
+  "observed_at": "2026-03-16T14:30:00Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "adapter_version": "0.2.0"
+  },
+  "instrument": {
+    "symbol": "NQH6",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "decision_layers": {
+    "macro_context": [
+      {
+        "timeframe": "1d",
+        "bars_considered": 20,
+        "latest_range": {
+          "open": 21488.75,
+          "high": 21592.5,
+          "low": 21442.5,
+          "close": 21574.25
+        },
+        "swing_points": [
+          {
+            "kind": "low",
+            "price": 21442.5,
+            "formed_at": "2026-03-15T20:00:00Z",
+            "leg_index": 0,
+            "tags": ["prior_day_low"]
+          },
+          {
+            "kind": "high",
+            "price": 21592.5,
+            "formed_at": "2026-03-16T14:10:00Z",
+            "leg_index": 1,
+            "tags": ["session_high"]
+          }
+        ],
+        "liquidity_levels": [],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": {
+          "volume": 198420,
+          "delta": 10220,
+          "trades": 31800
+        },
+        "raw_features": {}
+      }
+    ],
+    "intraday_bias": [
+      {
+        "timeframe": "1h",
+        "bars_considered": 12,
+        "latest_range": {
+          "open": 21512.75,
+          "high": 21576.0,
+          "low": 21501.25,
+          "close": 21574.25
+        },
+        "swing_points": [
+          {
+            "kind": "low",
+            "price": 21506.0,
+            "formed_at": "2026-03-16T12:30:00Z",
+            "leg_index": 0,
+            "tags": []
+          },
+          {
+            "kind": "high",
+            "price": 21576.0,
+            "formed_at": "2026-03-16T14:20:00Z",
+            "leg_index": 1,
+            "tags": []
+          }
+        ],
+        "liquidity_levels": [],
+        "orderflow_signals": [
+          {
+            "signal_type": "initiative_buying",
+            "side": "buy",
+            "observed_at": "2026-03-16T14:18:00Z",
+            "price": 21569.75,
+            "magnitude": 0.79,
+            "notes": ["buyers lifted offers after held support zone"]
+          }
+        ],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      },
+      {
+        "timeframe": "30m",
+        "bars_considered": 20,
+        "latest_range": {
+          "open": 21525.0,
+          "high": 21576.0,
+          "low": 21520.0,
+          "close": 21574.25
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      }
+    ],
+    "setup_context": [
+      {
+        "timeframe": "15m",
+        "bars_considered": 16,
+        "latest_range": {
+          "open": 21531.0,
+          "high": 21576.0,
+          "low": 21524.75,
+          "close": 21574.25
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {
+          "pullback_depth_ticks": 16
+        }
+      },
+      {
+        "timeframe": "5m",
+        "bars_considered": 24,
+        "latest_range": {
+          "open": 21542.75,
+          "high": 21576.0,
+          "low": 21539.0,
+          "close": 21574.25
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      }
+    ],
+    "execution_context": [
+      {
+        "timeframe": "1m",
+        "bars_considered": 20,
+        "latest_range": {
+          "open": 21564.0,
+          "high": 21575.0,
+          "low": 21561.75,
+          "close": 21574.25
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [
+          {
+            "signal_type": "stacked_imbalance",
+            "side": "buy",
+            "observed_at": "2026-03-16T14:29:00Z",
+            "price": 21573.5,
+            "magnitude": 0.86,
+            "notes": ["aggressive ask lifting into release leg"]
+          }
+        ],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {}
+      },
+      {
+        "timeframe": "footprint",
+        "bars_considered": 1,
+        "latest_range": {
+          "open": 21566.25,
+          "high": 21575.0,
+          "low": 21562.5,
+          "close": 21574.25
+        },
+        "swing_points": [],
+        "liquidity_levels": [],
+        "orderflow_signals": [],
+        "value_area": null,
+        "session_stats": null,
+        "raw_features": {
+          "largest_bid_ask_imbalance_ratio": 3.8
+        }
+      }
+    ]
+  },
+  "process_context": {
+    "session_windows": [
+      {
+        "session_code": "europe",
+        "started_at": "2026-03-16T07:00:00Z",
+        "ended_at": "2026-03-16T13:59:59Z",
+        "latest_range": {
+          "open": 21510.0,
+          "high": 21548.25,
+          "low": 21524.0,
+          "close": 21539.5
+        },
+        "value_area": {
+          "low": 21528.75,
+          "high": 21543.25,
+          "point_of_control": 21534.5
+        },
+        "session_stats": {
+          "volume": 121400,
+          "delta": -2140,
+          "trades": 18640
+        },
+        "key_levels": [
+          {
+            "level_type": "manual",
+            "price": 21534.5,
+            "first_seen_at": "2026-03-16T09:12:00Z",
+            "touch_count": 7,
+            "swept": false
+          }
+        ]
+      },
+      {
+        "session_code": "us_regular",
+        "started_at": "2026-03-16T14:30:00Z",
+        "ended_at": "2026-03-16T14:30:59Z",
+        "latest_range": {
+          "open": 21542.0,
+          "high": 21576.0,
+          "low": 21540.75,
+          "close": 21574.25
+        },
+        "value_area": null,
+        "session_stats": {
+          "volume": 8240,
+          "delta": 2260,
+          "trades": 980
+        },
+        "key_levels": []
+      }
+    ],
+    "second_features": [
+      {
+        "second_started_at": "2026-03-16T14:29:12Z",
+        "second_ended_at": "2026-03-16T14:29:12Z",
+        "latest_range": {
+          "open": 21534.75,
+          "high": 21536.0,
+          "low": 21534.5,
+          "close": 21535.75
+        },
+        "trade_count": 51,
+        "volume": 368,
+        "delta": -92,
+        "best_bid": 21534.5,
+        "best_ask": 21534.75,
+        "max_bid_depth": 860.0,
+        "max_ask_depth": 214.0,
+        "depth_imbalance": 0.6,
+        "raw_features": {
+          "absorption_score": 0.84,
+          "sweep_distance_ticks": 5
+        }
+      }
+    ],
+    "liquidity_episodes": [
+      {
+        "episode_id": "ep-europe-absorb-01",
+        "started_at": "2026-03-16T09:12:00Z",
+        "ended_at": "2026-03-16T09:18:41Z",
+        "side": "buy",
+        "price_low": 21528.75,
+        "price_high": 21534.5,
+        "executed_volume_against": 1284,
+        "replenishment_count": 6,
+        "pull_count": 1,
+        "price_rejection_ticks": 18,
+        "raw_features": {
+          "max_resting_bid": 812,
+          "seconds_held": 54
+        }
+      }
+    ],
+    "cross_session_sequences": [
+      {
+        "sequence_id": "seq-eu-us-build-release-01",
+        "started_at": "2026-03-16T09:12:00Z",
+        "last_observed_at": "2026-03-16T14:30:00Z",
+        "session_sequence": ["europe", "us_regular"],
+        "price_zone_low": 21528.75,
+        "price_zone_high": 21548.25,
+        "start_price": 21533.25,
+        "latest_price": 21574.25,
+        "linked_episode_ids": ["ep-europe-absorb-01"],
+        "linked_event_ids": ["evt-us-open-release-01"],
+        "raw_features": {
+          "zone_hold_seconds": 1380,
+          "release_velocity_ticks_per_minute": 24.5
+        }
+      }
+    ]
+  },
+  "observed_events": [
+    {
+      "event_type": "break_of_structure",
+      "observed_at": "2026-03-16T14:29:00Z",
+      "price": 21573.5,
+      "details": {
+        "broken_level": "europe_balance_high"
+      }
+    }
+  ]
+}

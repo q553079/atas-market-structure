@@ -1,0 +1,117 @@
+# ATAS Market Structure
+
+Phase 1 infrastructure for a local ATAS market structure analysis service.
+
+## Scope
+
+- Receive `market structure` snapshots every 10 minutes.
+- Receive additional `event snapshot` payloads on critical events.
+- Optionally receive `process context` spanning seconds, liquidity episodes, and cross-session sequences.
+- Optionally receive `depth snapshot` payloads and retain only significant large-order memory for 3 days.
+- Validate payloads with a stable schema.
+- Persist observed facts and derived interpretation separately.
+- Run a minimal structure recognition and knowledge routing pipeline.
+- Expose REST endpoints for ingestion and review.
+
+This phase does **not** include auto-trading logic.
+
+## Project Layout
+
+- `src/atas_market_structure/models.py`: stable payload and analysis contracts
+- `src/atas_market_structure/repository.py`: SQLite persistence
+- `src/atas_market_structure/services.py`: recognition and routing skeleton
+- `src/atas_market_structure/depth_services.py`: elastic depth tracking and 3-day large-order memory
+- `src/atas_market_structure/app.py`: REST request dispatcher
+- `src/atas_market_structure/server.py`: local HTTP server
+- `docs/architecture.md`: process-aware multi-time-cycle architecture
+- `schemas/`: generated JSON schema files
+- `samples/`: example request payloads
+- `tests/`: minimal regression tests
+
+## Run (PowerShell)
+
+Create the data directory if it does not exist:
+
+```powershell
+New-Item -ItemType Directory -Force -Path .\data | Out-Null
+```
+
+Run the local server without installing the package:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python -m atas_market_structure.server
+```
+
+The server listens on `http://127.0.0.1:8080`.
+
+## Example Requests
+
+Health check:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8080/health
+```
+
+Ingest a market structure snapshot:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/ingestions/market-structure `
+  -ContentType "application/json" `
+  -InFile .\samples\market_structure.sample.json
+```
+
+Ingest an event snapshot:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/ingestions/event-snapshot `
+  -ContentType "application/json" `
+  -InFile .\samples\event_snapshot.sample.json
+```
+
+Ingest a depth snapshot:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/ingestions/depth-snapshot `
+  -ContentType "application/json" `
+  -InFile .\samples\depth_snapshot.sample.json
+```
+
+List active large-order memory:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/liquidity-memory?symbol=ESM6"
+```
+
+## Tests
+
+If `pytest` is installed:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python -m pytest
+```
+
+## Docker
+
+Build and run with Docker Compose:
+
+```powershell
+docker compose up --build -d
+```
+
+The container stores SQLite data in `.\data` on the host.
+
+## Notes
+
+- The service stores data in `.\data\market_structure.db` by default.
+- Observed facts are stored as the validated payload JSON.
+- Derived interpretation is stored as a separate analysis record for future replay or backtest pipelines.
+- `process_context` is optional, but it is the intended bridge from second-level heatmaps and cross-session build/release behavior into the same analysis contract.
+- `depth snapshot` ingestion is elastic: if DOM or depth data is unavailable, the rest of the system still runs; once depth resumes, only significant large-order tracks are retained as 3-day memory instead of storing the full order book.

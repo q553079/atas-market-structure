@@ -1,0 +1,454 @@
+{
+  "$defs": {
+    "DepthCoverageState": {
+      "enum": [
+        "depth_unavailable",
+        "depth_bootstrap",
+        "depth_live",
+        "depth_interrupted"
+      ],
+      "title": "DepthCoverageState",
+      "type": "string"
+    },
+    "InstrumentRef": {
+      "description": "Stable instrument metadata for replay and backtests.",
+      "properties": {
+        "symbol": {
+          "description": "Trading symbol.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Symbol",
+          "type": "string"
+        },
+        "venue": {
+          "description": "Execution or quote venue.",
+          "examples": [
+            "CME"
+          ],
+          "title": "Venue",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Minimum price increment.",
+          "examples": [
+            0.25
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "currency": {
+          "description": "PnL currency.",
+          "examples": [
+            "USD"
+          ],
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "venue",
+        "tick_size",
+        "currency"
+      ],
+      "title": "InstrumentRef",
+      "type": "object"
+    },
+    "LargeLiquidityStatus": {
+      "enum": [
+        "active",
+        "pulled",
+        "filled",
+        "partially_filled",
+        "moved",
+        "expired"
+      ],
+      "title": "LargeLiquidityStatus",
+      "type": "string"
+    },
+    "ObservationOriginMode": {
+      "enum": [
+        "bootstrap",
+        "live"
+      ],
+      "title": "ObservationOriginMode",
+      "type": "string"
+    },
+    "ObservedLargeLiquidityLevel": {
+      "description": "Observed summary for one significant large order track.",
+      "properties": {
+        "track_id": {
+          "description": "Stable track identifier from the adapter.",
+          "title": "Track Id",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Book side where the large order is observed."
+        },
+        "price": {
+          "description": "Observed price of the large order.",
+          "examples": [
+            4292.0
+          ],
+          "title": "Price",
+          "type": "number"
+        },
+        "current_size": {
+          "description": "Current displayed size.",
+          "examples": [
+            245
+          ],
+          "minimum": 0,
+          "title": "Current Size",
+          "type": "integer"
+        },
+        "max_seen_size": {
+          "description": "Largest displayed size seen for this track.",
+          "examples": [
+            812
+          ],
+          "minimum": 0,
+          "title": "Max Seen Size",
+          "type": "integer"
+        },
+        "distance_from_price_ticks": {
+          "description": "Distance from the current traded price in ticks.",
+          "examples": [
+            5
+          ],
+          "minimum": 0,
+          "title": "Distance From Price Ticks",
+          "type": "integer"
+        },
+        "first_observed_at": {
+          "description": "When this track was first observed.",
+          "format": "date-time",
+          "title": "First Observed At",
+          "type": "string"
+        },
+        "last_observed_at": {
+          "description": "Most recent update for this track.",
+          "format": "date-time",
+          "title": "Last Observed At",
+          "type": "string"
+        },
+        "first_seen_mode": {
+          "$ref": "#/$defs/ObservationOriginMode",
+          "description": "Whether the track already existed at bootstrap or originated during live tracking."
+        },
+        "status": {
+          "$ref": "#/$defs/LargeLiquidityStatus",
+          "description": "Latest observed status for this track."
+        },
+        "touch_count": {
+          "description": "How many times price touched or nearly touched the level.",
+          "examples": [
+            3
+          ],
+          "minimum": 0,
+          "title": "Touch Count",
+          "type": "integer"
+        },
+        "executed_volume_estimate": {
+          "description": "Observed executed volume estimate at the tracked price or zone.",
+          "examples": [
+            96
+          ],
+          "minimum": 0,
+          "title": "Executed Volume Estimate",
+          "type": "integer"
+        },
+        "replenishment_count": {
+          "description": "Observed replenishment count.",
+          "examples": [
+            4
+          ],
+          "minimum": 0,
+          "title": "Replenishment Count",
+          "type": "integer"
+        },
+        "pull_count": {
+          "description": "Observed pull or cancel count.",
+          "examples": [
+            1
+          ],
+          "minimum": 0,
+          "title": "Pull Count",
+          "type": "integer"
+        },
+        "move_count": {
+          "description": "Observed repricing count for the track.",
+          "examples": [
+            0
+          ],
+          "minimum": 0,
+          "title": "Move Count",
+          "type": "integer"
+        },
+        "price_reaction_ticks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Measured reaction after interaction with the level, in ticks.",
+          "examples": [
+            12
+          ],
+          "title": "Price Reaction Ticks"
+        },
+        "heat_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized prominence score for the level in the local order book.",
+          "examples": [
+            0.91
+          ],
+          "title": "Heat Score"
+        },
+        "notes": {
+          "description": "Short adapter-side observations about the track.",
+          "examples": [
+            [
+              "large ask wall remained visible for 41 seconds"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional observed metrics for replay and later modeling.",
+          "examples": [
+            {
+              "near_touch_without_fill": true,
+              "seconds_visible": 41
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "track_id",
+        "side",
+        "price",
+        "current_size",
+        "max_seen_size",
+        "distance_from_price_ticks",
+        "first_observed_at",
+        "last_observed_at",
+        "first_seen_mode",
+        "status",
+        "touch_count",
+        "executed_volume_estimate",
+        "replenishment_count",
+        "pull_count",
+        "move_count"
+      ],
+      "title": "ObservedLargeLiquidityLevel",
+      "type": "object"
+    },
+    "SourceRef": {
+      "description": "Producer metadata for tracing and support.",
+      "properties": {
+        "system": {
+          "description": "Source system name.",
+          "examples": [
+            "ATAS"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "instance_id": {
+          "description": "Producer instance identifier.",
+          "examples": [
+            "DESKTOP-ATAS-01"
+          ],
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "adapter_version": {
+          "description": "Source adapter version.",
+          "examples": [
+            "0.1.0"
+          ],
+          "title": "Adapter Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "system",
+        "instance_id",
+        "adapter_version"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    }
+  },
+  "description": "Observed depth snapshot for elastic tracking of significant large orders.",
+  "example": {
+    "best_ask": 4292.0,
+    "best_bid": 4291.75,
+    "coverage_started_at": "2026-03-16T13:58:11Z",
+    "coverage_state": "depth_live",
+    "depth_snapshot_id": "depth-20260316-143001",
+    "instrument": {
+      "currency": "USD",
+      "symbol": "ESM6",
+      "tick_size": 0.25,
+      "venue": "CME"
+    },
+    "observed_at": "2026-03-16T14:30:01Z",
+    "reference_price": 4291.75,
+    "schema_version": "1.0.0",
+    "significant_levels": [],
+    "source": {
+      "adapter_version": "0.3.0",
+      "instance_id": "DESKTOP-ATAS-01",
+      "system": "ATAS"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "description": "Payload schema version.",
+      "examples": [
+        "1.0.0"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "depth_snapshot_id": {
+      "description": "Producer-generated depth snapshot identifier.",
+      "title": "Depth Snapshot Id",
+      "type": "string"
+    },
+    "observed_at": {
+      "description": "Timestamp of the snapshot.",
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceRef",
+      "description": "Source metadata."
+    },
+    "instrument": {
+      "$ref": "#/$defs/InstrumentRef",
+      "description": "Instrument metadata."
+    },
+    "coverage_state": {
+      "$ref": "#/$defs/DepthCoverageState",
+      "description": "Depth feed availability state at this moment."
+    },
+    "coverage_started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "When the current uninterrupted depth coverage started, if known.",
+      "title": "Coverage Started At"
+    },
+    "best_bid": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Observed best bid at snapshot time.",
+      "examples": [
+        4291.75
+      ],
+      "title": "Best Bid"
+    },
+    "best_ask": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Observed best ask at snapshot time.",
+      "examples": [
+        4292.0
+      ],
+      "title": "Best Ask"
+    },
+    "reference_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Reference traded price used by the adapter when computing distance.",
+      "examples": [
+        4291.75
+      ],
+      "title": "Reference Price"
+    },
+    "significant_levels": {
+      "description": "Only the significant large order tracks selected by the adapter or local filter.",
+      "items": {
+        "$ref": "#/$defs/ObservedLargeLiquidityLevel"
+      },
+      "title": "Significant Levels",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "depth_snapshot_id",
+    "observed_at",
+    "source",
+    "instrument",
+    "coverage_state"
+  ],
+  "title": "DepthSnapshotPayload",
+  "type": "object"
+}

@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0.0",
+  "depth_snapshot_id": "depth-20260316-143001",
+  "observed_at": "2026-03-16T14:30:01Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "adapter_version": "0.3.0"
+  },
+  "instrument": {
+    "symbol": "ESM6",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "coverage_state": "depth_live",
+  "coverage_started_at": "2026-03-16T13:58:11Z",
+  "best_bid": 4291.75,
+  "best_ask": 4292.0,
+  "reference_price": 4291.75,
+  "significant_levels": [
+    {
+      "track_id": "ask-4292-spoof-01",
+      "side": "sell",
+      "price": 4292.0,
+      "current_size": 0,
+      "max_seen_size": 340,
+      "distance_from_price_ticks": 1,
+      "first_observed_at": "2026-03-16T14:28:20Z",
+      "last_observed_at": "2026-03-16T14:29:12Z",
+      "first_seen_mode": "bootstrap",
+      "status": "pulled",
+      "touch_count": 2,
+      "executed_volume_estimate": 0,
+      "replenishment_count": 0,
+      "pull_count": 1,
+      "move_count": 0,
+      "price_reaction_ticks": 10,
+      "heat_score": 0.93,
+      "notes": [
+        "large ask wall stayed above price and disappeared before meaningful execution"
+      ],
+      "raw_features": {
+        "seconds_visible": 52,
+        "near_touch_without_fill": true
+      }
+    },
+    {
+      "track_id": "bid-4280-absorb-01",
+      "side": "buy",
+      "price": 4280.0,
+      "current_size": 0,
+      "max_seen_size": 320,
+      "distance_from_price_ticks": 7,
+      "first_observed_at": "2026-03-16T14:12:00Z",
+      "last_observed_at": "2026-03-16T14:14:40Z",
+      "first_seen_mode": "live",
+      "status": "filled",
+      "touch_count": 1,
+      "executed_volume_estimate": 214,
+      "replenishment_count": 3,
+      "pull_count": 0,
+      "move_count": 0,
+      "price_reaction_ticks": 18,
+      "heat_score": 0.88,
+      "notes": [
+        "large bid absorbed selling and price rotated higher after fill"
+      ],
+      "raw_features": {
+        "seconds_visible": 34,
+        "revisit_count": 1
+      }
+    }
+  ]
+}
