@@ -13,3 +13,13 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+  strategy-library-ocr:
+    profiles:
+      - ocr
+    build:
+      context: .
+      dockerfile: Dockerfile.ocr
+    volumes:
+      - ./data:/workspace/data
+      - ./docs:/workspace/docs
+    restart: "no"

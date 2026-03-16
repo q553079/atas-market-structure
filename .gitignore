@@ -6,3 +6,12 @@ data/
 *.db
 pytest-cache-files-*/
 gcm-diagnose.log
+tools/ffmpeg.exe
+src-csharp/**/bin/
+src-csharp/**/obj/
+logs/
+*.pid
+tmp_*.cs
+.env.local.ps1
+/bin/
+/obj/

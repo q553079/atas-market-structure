@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "ReplayOperatorEntryRecord": {
+      "description": "Operator-recorded entry bound to one replay packet for later review.",
+      "properties": {
+        "entry_id": {
+          "description": "Stable operator-entry identifier.",
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "replay_ingestion_id": {
+          "description": "Replay-workbench ingestion identifier.",
+          "title": "Replay Ingestion Id",
+          "type": "string"
+        },
+        "replay_snapshot_id": {
+          "description": "Replay snapshot identifier.",
+          "title": "Replay Snapshot Id",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart-instance identifier when known.",
+          "title": "Chart Instance Id"
+        },
+        "executed_at": {
+          "description": "When the operator opened the position.",
+          "format": "date-time",
+          "title": "Executed At",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Entry direction."
+        },
+        "entry_price": {
+          "description": "Entry price.",
+          "title": "Entry Price",
+          "type": "number"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Position size or quantity.",
+          "title": "Quantity"
+        },
+        "stop_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Initial stop price when recorded.",
+          "title": "Stop Price"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Initial target price when recorded.",
+          "title": "Target Price"
+        },
+        "timeframe_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Timeframe"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary timeframe the operator used for this entry."
+        },
+        "thesis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short thesis captured at entry time.",
+          "title": "Thesis"
+        },
+        "context_notes": {
+          "description": "Additional context notes captured with the entry.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Context Notes",
+          "type": "array"
+        },
+        "tags": {
+          "description": "Operator tags such as scalp, continuation, reversal.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "stored_at": {
+          "description": "Persistence timestamp.",
+          "format": "date-time",
+          "title": "Stored At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_id",
+        "replay_ingestion_id",
+        "replay_snapshot_id",
+        "instrument_symbol",
+        "executed_at",
+        "side",
+        "entry_price",
+        "stored_at"
+      ],
+      "title": "ReplayOperatorEntryRecord",
+      "type": "object"
+    },
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    },
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "REST response listing operator entries for one replay packet.",
+  "properties": {
+    "replay_ingestion_id": {
+      "description": "Replay-workbench ingestion identifier.",
+      "title": "Replay Ingestion Id",
+      "type": "string"
+    },
+    "entries": {
+      "description": "Stored operator entries for this replay.",
+      "items": {
+        "$ref": "#/$defs/ReplayOperatorEntryRecord"
+      },
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "replay_ingestion_id"
+  ],
+  "title": "ReplayOperatorEntryEnvelope",
+  "type": "object"
+}

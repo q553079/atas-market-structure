@@ -1,0 +1,661 @@
+{
+  "$defs": {
+    "AdapterBookmark": {
+      "description": "Replay bookmark attached to a burst window.",
+      "properties": {
+        "kind": {
+          "description": "Bookmark type.",
+          "examples": [
+            "ema20_reclaim"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "event_time": {
+          "description": "When the bookmarked moment occurred.",
+          "format": "date-time",
+          "title": "Event Time",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Associated bookmark price when available.",
+          "title": "Price"
+        },
+        "notes": {
+          "description": "Short bookmark notes.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "event_time"
+      ],
+      "title": "AdapterBookmark",
+      "type": "object"
+    },
+    "AdapterBurstWindow": {
+      "description": "One burst sub-window around a trigger event.",
+      "properties": {
+        "trade_events": {
+          "description": "Raw trade events for the sub-window.",
+          "items": {
+            "$ref": "#/$defs/AdapterTradeEvent"
+          },
+          "title": "Trade Events",
+          "type": "array"
+        },
+        "depth_events": {
+          "description": "Raw depth events for the sub-window.",
+          "items": {
+            "$ref": "#/$defs/AdapterDepthEvent"
+          },
+          "title": "Depth Events",
+          "type": "array"
+        },
+        "second_features": {
+          "description": "Compact second-level features for the sub-window.",
+          "items": {
+            "$ref": "#/$defs/AdapterSecondFeature"
+          },
+          "title": "Second Features",
+          "type": "array"
+        },
+        "price_levels": {
+          "description": "Optional compact price-level summaries when footprint data is attached.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Price Levels",
+          "type": "array"
+        },
+        "bookmarks": {
+          "description": "Replay bookmarks for the sub-window.",
+          "items": {
+            "$ref": "#/$defs/AdapterBookmark"
+          },
+          "title": "Bookmarks",
+          "type": "array"
+        }
+      },
+      "title": "AdapterBurstWindow",
+      "type": "object"
+    },
+    "AdapterDepthEvent": {
+      "description": "Compact depth lifecycle event preserved inside a burst window.",
+      "properties": {
+        "event_time": {
+          "description": "Depth-event timestamp.",
+          "format": "date-time",
+          "title": "Event Time",
+          "type": "string"
+        },
+        "track_id": {
+          "description": "Referenced significant-liquidity track identifier.",
+          "title": "Track Id",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Book side of the tracked liquidity."
+        },
+        "price": {
+          "description": "Tracked price for the liquidity event.",
+          "examples": [
+            21576.0
+          ],
+          "title": "Price",
+          "type": "number"
+        },
+        "size_before": {
+          "description": "Displayed size before the event.",
+          "examples": [
+            286
+          ],
+          "minimum": 0,
+          "title": "Size Before",
+          "type": "integer"
+        },
+        "size_after": {
+          "description": "Displayed size after the event.",
+          "examples": [
+            244
+          ],
+          "minimum": 0,
+          "title": "Size After",
+          "type": "integer"
+        },
+        "status_before": {
+          "$ref": "#/$defs/LargeLiquidityStatus",
+          "description": "Track status before the event."
+        },
+        "status_after": {
+          "$ref": "#/$defs/LargeLiquidityStatus",
+          "description": "Track status after the event."
+        },
+        "distance_from_price_ticks": {
+          "description": "Distance from current price in ticks at event time.",
+          "examples": [
+            10
+          ],
+          "minimum": 0,
+          "title": "Distance From Price Ticks",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event_time",
+        "track_id",
+        "side",
+        "price",
+        "size_before",
+        "size_after",
+        "status_before",
+        "status_after",
+        "distance_from_price_ticks"
+      ],
+      "title": "AdapterDepthEvent",
+      "type": "object"
+    },
+    "AdapterSecondFeature": {
+      "description": "Compact one-second summary emitted inside a burst window.",
+      "properties": {
+        "second_started_at": {
+          "description": "Inclusive second start timestamp.",
+          "format": "date-time",
+          "title": "Second Started At",
+          "type": "string"
+        },
+        "second_ended_at": {
+          "description": "Inclusive second end timestamp.",
+          "format": "date-time",
+          "title": "Second Ended At",
+          "type": "string"
+        },
+        "open": {
+          "description": "Observed open price in the second.",
+          "title": "Open",
+          "type": "number"
+        },
+        "high": {
+          "description": "Observed high price in the second.",
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "Observed low price in the second.",
+          "title": "Low",
+          "type": "number"
+        },
+        "close": {
+          "description": "Observed close price in the second.",
+          "title": "Close",
+          "type": "number"
+        },
+        "trade_count": {
+          "description": "Trade count inside the second.",
+          "minimum": 0,
+          "title": "Trade Count",
+          "type": "integer"
+        },
+        "volume": {
+          "description": "Traded volume inside the second.",
+          "minimum": 0,
+          "title": "Volume",
+          "type": "integer"
+        },
+        "delta": {
+          "description": "Net delta inside the second.",
+          "title": "Delta",
+          "type": "integer"
+        },
+        "best_bid": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best bid at the end of the second.",
+          "title": "Best Bid"
+        },
+        "best_ask": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best ask at the end of the second.",
+          "title": "Best Ask"
+        },
+        "depth_imbalance": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": -1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized depth imbalance for the second.",
+          "examples": [
+            0.24
+          ],
+          "title": "Depth Imbalance"
+        }
+      },
+      "required": [
+        "second_started_at",
+        "second_ended_at",
+        "open",
+        "high",
+        "low",
+        "close",
+        "trade_count",
+        "volume",
+        "delta"
+      ],
+      "title": "AdapterSecondFeature",
+      "type": "object"
+    },
+    "AdapterTradeEvent": {
+      "description": "Raw aggressive-trade event preserved inside a burst window.",
+      "properties": {
+        "event_time": {
+          "description": "Trade timestamp.",
+          "format": "date-time",
+          "title": "Event Time",
+          "type": "string"
+        },
+        "local_sequence": {
+          "description": "Monotonic local sequence for ordering.",
+          "minimum": 0,
+          "title": "Local Sequence",
+          "type": "integer"
+        },
+        "price": {
+          "description": "Executed trade price.",
+          "examples": [
+            21573.5
+          ],
+          "title": "Price",
+          "type": "number"
+        },
+        "size": {
+          "description": "Executed size.",
+          "examples": [
+            31
+          ],
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "aggressor_side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Aggressor side for the trade."
+        },
+        "best_bid_before": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best bid immediately before the trade.",
+          "title": "Best Bid Before"
+        },
+        "best_ask_before": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best ask immediately before the trade.",
+          "title": "Best Ask Before"
+        },
+        "best_bid_after": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best bid immediately after the trade.",
+          "title": "Best Bid After"
+        },
+        "best_ask_after": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best ask immediately after the trade.",
+          "title": "Best Ask After"
+        }
+      },
+      "required": [
+        "event_time",
+        "local_sequence",
+        "price",
+        "size",
+        "aggressor_side"
+      ],
+      "title": "AdapterTradeEvent",
+      "type": "object"
+    },
+    "AdapterTriggerInfo": {
+      "description": "Trigger metadata for a high-fidelity adapter burst.",
+      "properties": {
+        "trigger_id": {
+          "description": "Unique trigger identifier.",
+          "title": "Trigger Id",
+          "type": "string"
+        },
+        "trigger_type": {
+          "$ref": "#/$defs/AdapterTriggerType",
+          "description": "Trigger family."
+        },
+        "triggered_at": {
+          "description": "When the trigger fired.",
+          "format": "date-time",
+          "title": "Triggered At",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Associated trigger price when applicable.",
+          "examples": [
+            21574.0
+          ],
+          "title": "Price"
+        },
+        "reason_codes": {
+          "description": "Compact reason labels explaining why the burst was emitted.",
+          "examples": [
+            [
+              "upper_liquidity_near_touch",
+              "renewed_aggressive_buying"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "trigger_id",
+        "trigger_type",
+        "triggered_at"
+      ],
+      "title": "AdapterTriggerInfo",
+      "type": "object"
+    },
+    "AdapterTriggerType": {
+      "enum": [
+        "significant_liquidity_near_touch",
+        "liquidity_pull",
+        "liquidity_fill",
+        "gap_first_touch",
+        "gap_partial_fill",
+        "measured_move_threshold",
+        "probe_reversal_candidate",
+        "failed_overhead_capping",
+        "offer_reversal_release",
+        "harvest_completed",
+        "post_harvest_pullback",
+        "post_harvest_reversal"
+      ],
+      "title": "AdapterTriggerType",
+      "type": "string"
+    },
+    "InstrumentRef": {
+      "description": "Stable instrument metadata for replay and backtests.",
+      "properties": {
+        "symbol": {
+          "description": "Trading symbol.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Symbol",
+          "type": "string"
+        },
+        "venue": {
+          "description": "Execution or quote venue.",
+          "examples": [
+            "CME"
+          ],
+          "title": "Venue",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Minimum price increment.",
+          "examples": [
+            0.25
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "currency": {
+          "description": "PnL currency.",
+          "examples": [
+            "USD"
+          ],
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "venue",
+        "tick_size",
+        "currency"
+      ],
+      "title": "InstrumentRef",
+      "type": "object"
+    },
+    "LargeLiquidityStatus": {
+      "enum": [
+        "active",
+        "pulled",
+        "filled",
+        "partially_filled",
+        "moved",
+        "expired"
+      ],
+      "title": "LargeLiquidityStatus",
+      "type": "string"
+    },
+    "SourceRef": {
+      "description": "Producer metadata for tracing and support.",
+      "properties": {
+        "system": {
+          "description": "Source system name.",
+          "examples": [
+            "ATAS"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "instance_id": {
+          "description": "Producer instance identifier.",
+          "examples": [
+            "DESKTOP-ATAS-01"
+          ],
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart or indicator-instance identifier used to separate multiple live ATAS charts.",
+          "examples": [
+            "NQM6-7fa31b2c"
+          ],
+          "title": "Chart Instance Id"
+        },
+        "adapter_version": {
+          "description": "Source adapter version.",
+          "examples": [
+            "0.1.0"
+          ],
+          "title": "Adapter Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "system",
+        "instance_id",
+        "adapter_version"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    }
+  },
+  "description": "High-fidelity adapter burst emitted only around meaningful triggers.",
+  "properties": {
+    "schema_version": {
+      "description": "Payload schema version.",
+      "examples": [
+        "1.0.0"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "message_id": {
+      "description": "Unique adapter message identifier.",
+      "examples": [
+        "adapter-msg-20260316-143001"
+      ],
+      "title": "Message Id",
+      "type": "string"
+    },
+    "emitted_at": {
+      "description": "When the adapter emitted this message.",
+      "format": "date-time",
+      "title": "Emitted At",
+      "type": "string"
+    },
+    "observed_window_start": {
+      "description": "Inclusive start of the observed window.",
+      "format": "date-time",
+      "title": "Observed Window Start",
+      "type": "string"
+    },
+    "observed_window_end": {
+      "description": "Inclusive end of the observed window.",
+      "format": "date-time",
+      "title": "Observed Window End",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceRef",
+      "description": "Source metadata."
+    },
+    "instrument": {
+      "$ref": "#/$defs/InstrumentRef",
+      "description": "Instrument metadata."
+    },
+    "message_type": {
+      "const": "trigger_burst",
+      "description": "Adapter message family for event-driven raw bursts.",
+      "title": "Message Type",
+      "type": "string"
+    },
+    "trigger": {
+      "$ref": "#/$defs/AdapterTriggerInfo",
+      "description": "Trigger metadata for this burst."
+    },
+    "pre_window": {
+      "$ref": "#/$defs/AdapterBurstWindow",
+      "description": "Short raw window before the trigger."
+    },
+    "event_window": {
+      "$ref": "#/$defs/AdapterBurstWindow",
+      "description": "Raw window around the trigger itself."
+    },
+    "post_window": {
+      "$ref": "#/$defs/AdapterBurstWindow",
+      "description": "Short raw window after the trigger."
+    }
+  },
+  "required": [
+    "schema_version",
+    "message_id",
+    "emitted_at",
+    "observed_window_start",
+    "observed_window_end",
+    "source",
+    "instrument",
+    "message_type",
+    "trigger",
+    "pre_window",
+    "event_window",
+    "post_window"
+  ],
+  "title": "AdapterTriggerBurstPayload",
+  "type": "object"
+}

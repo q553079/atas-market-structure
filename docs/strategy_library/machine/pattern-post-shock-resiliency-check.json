@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-post-shock-resiliency-check",
+  "title": "Post-Shock Resiliency Check",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/post_shock_resiliency_check.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "post_shock",
+    "resiliency",
+    "first_pullback",
+    "shock_repair",
+    "shock_rebuild"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "post_harvest_response"
+  ],
+  "reason_codes": [
+    "post_shock_resiliency",
+    "spread_depth_rebuilt",
+    "shock_repair_not_continuation",
+    "first_pullback_hold_quality"
+  ],
+  "focus_questions": [
+    "After the shock, did the market rebuild for continuation or repair toward balance?",
+    "Did the first pullback hold the new ground or give it back?"
+  ],
+  "summary": {
+    "thesis": "The shock itself is not the main edge; the real edge is whether the market rebuilds under the new side or repairs after the emotional burst is over.",
+    "operator_translation": "Do not chase the first shock. Read the first pullback and the rebuilt-versus-repair branch after it.",
+    "ai_usage_note": "Use this card after bursts, sweeps, harvests, or fast releases where the next branch matters more than the initiating event.",
+    "ai_brief": "Environment: a burst, sweep, harvest, or release has already happened. Required evidence: post-shock hold quality, first pullback behavior, and whether the market rebuilds or repairs afterward. Do not trade: by chasing the shock itself or by calling the first pause failure too early. Real trigger: rebuilt continuation after the first pullback holds, or failure after the new ground cannot hold. Failure point: the market proves the opposite branch after the first readable retest."
+  },
+  "when_relevant": [
+    "A burst, sweep, harvest, or fast release just occurred.",
+    "The operator needs to know whether continuation still exists after the emotional phase ends.",
+    "Post-shock hold quality is more important than the original event label."
+  ],
+  "required_evidence": [
+    "a clear initiating shock or burst happened first",
+    "the first pullback after the shock can be observed",
+    "there is enough post-shock behavior to tell whether the market rebuilt or repaired"
+  ],
+  "confirmation_signals": [
+    "the first shock completes and the next pullback becomes readable",
+    "price either holds the gained ground and re-accelerates or loses it and repairs",
+    "post-shock behavior becomes cleaner than the shock itself"
+  ],
+  "invalidation_signals": [
+    "the post-shock branch is still unresolved and the card is being forced too early",
+    "there is no usable first pullback or hold-quality read yet",
+    "the market clearly proves the opposite post-shock branch"
+  ],
+  "no_trade_conditions": [
+    "Do not chase the first shock before the first pullback is visible.",
+    "Do not auto-fade a shock only because spread widened during the event.",
+    "Do not call the first pause a failure without checking whether the new ground is still defended."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "rebuilt continuation",
+      "description": "Enter after the first pullback holds and the market rebuilds under the new side.",
+      "risk_note": "Avoid if the rebuilt branch is still thin and unproven."
+    },
+    {
+      "name": "post-shock repair failure",
+      "description": "Enter when the post-shock branch clearly fails and the market starts repairing back toward balance.",
+      "risk_note": "Avoid if the shock still holds the gained ground and has not truly failed."
+    }
+  ],
+  "management_notes": [
+    "The first pullback is usually the best diagnostic checkpoint.",
+    "If gained ground cannot hold after the shock, downgrade the continuation read quickly.",
+    "If depth and trade continue rebuilding under the new side, continuation quality improves."
+  ],
+  "review_questions": [
+    "Did the operator trade the shock instead of the post-shock branch?",
+    "After the burst, did the market rebuild or repair?",
+    "Where exactly did continuation stop being obvious or start becoming obvious?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.91,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "post_shock_resiliency",
+        "spread_depth_rebuilt",
+        "shock_repair_not_continuation",
+        "first_pullback_hold_quality"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "failed_break_zone",
+        "post_harvest_zone"
+      ]
+    },
+    "disqualifiers": [
+      "post_shock_branch_not_yet_visible",
+      "no_first_pullback_observation"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "failed_break_zone",
+      "post_harvest_zone"
+    ],
+    "entry_review_bias": [
+      "chasing_first_shock",
+      "calling_first_pause_failure",
+      "ignoring_post_shock_hold_quality"
+    ]
+  }
+}

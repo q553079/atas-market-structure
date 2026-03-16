@@ -1,0 +1,19 @@
+{
+  "replay_ingestion_id": "ing-demo-replay-workbench",
+  "executed_at": "2026-03-17T01:05:00Z",
+  "side": "buy",
+  "entry_price": 21524.25,
+  "quantity": 1,
+  "stop_price": 21518.25,
+  "target_price": 21534.25,
+  "timeframe_context": "1m",
+  "thesis": "micro trend continuation",
+  "context_notes": [
+    "defended bid held twice",
+    "upper liquidity still open"
+  ],
+  "tags": [
+    "scalp",
+    "continuation"
+  ]
+}

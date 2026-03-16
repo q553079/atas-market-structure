@@ -1,0 +1,1815 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-17T00:00:00+08:00",
+  "strategies": [
+    {
+      "strategy_id": "pattern-nq-europe-large-offer-breakdown",
+      "title": "NQ Europe Large Offer Breakdown",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/nq_europe_large_offer_breakdown.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-europe-large-offer-breakdown.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe"
+      ],
+      "preferred_presets": [
+        "recent_20_minutes",
+        "focus_regions",
+        "live_depth"
+      ],
+      "event_kinds": [
+        "significant_liquidity",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "overhead_sell_wall",
+        "downside_release",
+        "resistance_memory"
+      ],
+      "candidate_priority": 0.72
+    },
+    {
+      "strategy_id": "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+      "title": "NQ Europe Offer Reversal Into Upper Liquidity",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/nq_europe_offer_reversal_into_upper_liquidity.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-europe-offer-reversal-into-upper-liquidity.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "focus_regions",
+        "live_depth"
+      ],
+      "event_kinds": [
+        "significant_liquidity",
+        "initiative_drive",
+        "offer_reversal_release"
+      ],
+      "reason_codes": [
+        "upper_band_suppression",
+        "lower_support_response",
+        "upper_liquidity_harvest"
+      ],
+      "candidate_priority": 0.74
+    },
+    {
+      "strategy_id": "pattern-nq-failed-overhead-capping-in-ascent",
+      "title": "NQ Failed Overhead Capping In Ascent",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/nq_failed_overhead_capping_in_ascent.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-failed-overhead-capping-in-ascent.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "significant_liquidity",
+        "initiative_drive",
+        "failed_overhead_capping"
+      ],
+      "reason_codes": [
+        "failed_cap",
+        "shallow_pullback",
+        "trend_continuation"
+      ],
+      "candidate_priority": 0.71
+    },
+    {
+      "strategy_id": "pattern-nq-probe-reversal-toward-upper-liquidity",
+      "title": "NQ Probe Reversal Toward Upper Liquidity",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/nq_probe_reversal_toward_upper_liquidity.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-probe-reversal-toward-upper-liquidity.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "probe_reversal_candidate",
+        "measured_move_threshold"
+      ],
+      "reason_codes": [
+        "liquidity_attractor",
+        "probe_entry",
+        "ema20_reclaim"
+      ],
+      "candidate_priority": 0.69
+    },
+    {
+      "strategy_id": "pattern-nq-replenished-bid-launchpad",
+      "title": "NQ Replenished Bid Launchpad Into Upper Liquidity",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/nq_replenished_bid_launchpad_into_upper_liquidity.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-replenished-bid-launchpad.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "focus_regions",
+        "trapped_large_orders",
+        "live_depth"
+      ],
+      "event_kinds": [
+        "same_price_replenishment",
+        "significant_liquidity",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "defended_bid",
+        "repeated_replenishment",
+        "support_upgrade",
+        "upper_liquidity_target"
+      ],
+      "candidate_priority": 0.82
+    },
+    {
+      "strategy_id": "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+      "title": "NQ Upper Liquidity Harvest Then Lower Relocation",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/nq_upper_liquidity_harvest_then_lower_relocation.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-upper-liquidity-harvest-then-lower-relocation.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "focus_regions",
+        "recent_20_bars",
+        "recent_20_minutes"
+      ],
+      "event_kinds": [
+        "post_harvest_response",
+        "harvest_completed",
+        "post_harvest_pullback",
+        "post_harvest_reversal"
+      ],
+      "reason_codes": [
+        "upper_objective_completed",
+        "post_harvest_balance",
+        "post_harvest_reversal_risk"
+      ],
+      "candidate_priority": 0.78
+    },
+    {
+      "strategy_id": "pattern-gap-fill-balance-reclaim",
+      "title": "NQ Gap Fill Balance Reclaim",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/nq_gap_fill_balance_reclaim.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-gap-fill-balance-reclaim.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "gap_fill_watch",
+        "gap_fully_filled",
+        "gap_first_touch",
+        "gap_partial_fill"
+      ],
+      "reason_codes": [
+        "gap_opening_context",
+        "gap_partial_fill",
+        "post_fill_acceptance",
+        "filled_and_rejected"
+      ],
+      "candidate_priority": 0.76
+    },
+    {
+      "strategy_id": "pattern-nq-manipulation-leg-context",
+      "title": "NQ Manipulation Leg Context",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/nq_manipulation_leg_context.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-manipulation-leg-context.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "measured_move_threshold"
+      ],
+      "reason_codes": [
+        "manipulation_leg",
+        "secondary_objective",
+        "key_position"
+      ],
+      "candidate_priority": 0.57
+    },
+    {
+      "strategy_id": "pattern-nq-measured-move-ladder-context",
+      "title": "NQ Measured Move Ladder Context",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/nq_measured_move_ladder_context.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-nq-measured-move-ladder-context.json",
+      "instrument_scope": [
+        "NQ"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes"
+      ],
+      "event_kinds": [
+        "measured_move_threshold",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "measurement_ladder",
+        "leg_continuity",
+        "body_confirmation"
+      ],
+      "candidate_priority": 0.61
+    },
+    {
+      "strategy_id": "pattern-large-order-lifecycle-diagnosis",
+      "title": "Large Order Lifecycle Diagnosis",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/large_order_lifecycle_diagnosis.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-large-order-lifecycle-diagnosis.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "trapped_large_orders",
+        "live_depth",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "significant_liquidity",
+        "same_price_replenishment",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "trapped_large_order",
+        "unwinding_large_order",
+        "continuing_large_order",
+        "spoof_risk"
+      ],
+      "candidate_priority": 0.8
+    },
+    {
+      "strategy_id": "pattern-trapped-inventory-release",
+      "title": "Trapped Inventory Release",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/trapped_inventory_release.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-trapped-inventory-release.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "focus_regions",
+        "trapped_large_orders"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "post_harvest_response"
+      ],
+      "reason_codes": [
+        "trapped_inventory",
+        "failed_reclaim",
+        "forced_exit_release",
+        "inventory_flip"
+      ],
+      "candidate_priority": 0.79
+    },
+    {
+      "strategy_id": "pattern-failed-break-acceptance-reentry",
+      "title": "Failed Break Acceptance Re-Entry",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/failed_break_acceptance_reentry.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-failed-break-acceptance-reentry.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "focus_regions",
+        "recent_20_minutes"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "gap_fill_watch"
+      ],
+      "reason_codes": [
+        "failed_break",
+        "outside_hold_failed",
+        "returned_to_old_auction",
+        "reentry_rotation"
+      ],
+      "candidate_priority": 0.77
+    },
+    {
+      "strategy_id": "pattern-control-handoff-after-harvest",
+      "title": "Control Handoff After Harvest",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/control_handoff_after_harvest.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-control-handoff-after-harvest.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "focus_regions",
+        "recent_20_bars",
+        "recent_20_minutes"
+      ],
+      "event_kinds": [
+        "post_harvest_response",
+        "harvest_completed",
+        "post_harvest_pullback",
+        "post_harvest_reversal"
+      ],
+      "reason_codes": [
+        "control_handoff",
+        "old_winner_lost_control",
+        "first_failed_defense",
+        "temporary_pause_not_handoff"
+      ],
+      "candidate_priority": 0.73
+    },
+    {
+      "strategy_id": "pattern-false-liquidity-and-pull-behavior",
+      "title": "False Liquidity And Pull Behavior",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/false_liquidity_and_pull_behavior.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-false-liquidity-and-pull-behavior.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "live_depth",
+        "trapped_large_orders",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "significant_liquidity",
+        "same_price_replenishment",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "false_liquidity",
+        "pull_before_touch",
+        "displayed_size_without_defense",
+        "visual_bait"
+      ],
+      "candidate_priority": 0.75
+    },
+    {
+      "strategy_id": "pattern-no-trade-garbage-time-context",
+      "title": "No-Trade Garbage Time Context",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/no_trade_garbage_time_context.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-no-trade-garbage-time-context.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "gap_fill_watch",
+        "post_harvest_response"
+      ],
+      "reason_codes": [
+        "no_trade_garbage_time",
+        "middle_of_auction_risk",
+        "cross_timeframe_conflict",
+        "event_noise_without_result"
+      ],
+      "candidate_priority": 0.9
+    },
+    {
+      "strategy_id": "pattern-cross-session-inventory-transfer",
+      "title": "Cross-Session Inventory Transfer",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/cross_session_inventory_transfer.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-cross-session-inventory-transfer.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "cross_session"
+      ],
+      "preferred_presets": [
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "post_harvest_response"
+      ],
+      "reason_codes": [
+        "cross_session_inventory_transfer",
+        "session_handoff_inherited_control",
+        "prior_session_inventory_correction",
+        "prior_session_zone_still_active"
+      ],
+      "candidate_priority": 0.7
+    },
+    {
+      "strategy_id": "pattern-opening-inventory-correction-vs-continuation",
+      "title": "Opening Inventory Correction Vs Continuation",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/opening_inventory_correction_vs_continuation.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-opening-inventory-correction-vs-continuation.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_minutes",
+        "recent_20_bars",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "gap_fill_watch",
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "opening_inventory_correction",
+        "opening_inventory_continuation",
+        "overnight_imbalance_unwind",
+        "first_drive_failed"
+      ],
+      "candidate_priority": 0.81
+    },
+    {
+      "strategy_id": "pattern-anchor-market-leadership",
+      "title": "Anchor Market Leadership",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/anchor_market_leadership.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-anchor-market-leadership.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "cross_session"
+      ],
+      "preferred_presets": [
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "gap_fill_watch"
+      ],
+      "reason_codes": [
+        "anchor_market_leadership",
+        "anchor_market_clearer_than_execution",
+        "cross_symbol_confirmation",
+        "lagger_should_not_lead"
+      ],
+      "candidate_priority": 0.74
+    },
+    {
+      "strategy_id": "pattern-leader-failure-divergence-trap",
+      "title": "Leader Failure Divergence Trap",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/leader_failure_divergence_trap.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-leader-failure-divergence-trap.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "cross_session"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "gap_fill_watch"
+      ],
+      "reason_codes": [
+        "leader_failure_divergence_trap",
+        "anchor_market_failed_break",
+        "lagger_false_follow",
+        "cross_symbol_divergence_trap"
+      ],
+      "candidate_priority": 0.72
+    },
+    {
+      "strategy_id": "pattern-liquidity-raid-vs-breakout-acceptance",
+      "title": "Liquidity Raid Vs Breakout Acceptance",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/liquidity_raid_vs_breakout_acceptance.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-liquidity-raid-vs-breakout-acceptance.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions",
+        "live_depth"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "gap_fill_watch"
+      ],
+      "reason_codes": [
+        "liquidity_raid_only",
+        "stop_run_not_breakout",
+        "breakout_acceptance_confirmed",
+        "returned_to_balance_after_sweep"
+      ],
+      "candidate_priority": 0.83
+    },
+    {
+      "strategy_id": "pattern-forced-exit-burst-vs-initiative-continuation",
+      "title": "Forced Exit Burst Vs Initiative Continuation",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/forced_exit_burst_vs_initiative_continuation.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-forced-exit-burst-vs-initiative-continuation.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "cross_session"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions",
+        "trapped_large_orders"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "post_harvest_response"
+      ],
+      "reason_codes": [
+        "forced_exit_burst",
+        "short_covering_not_new_buying",
+        "long_liquidation_not_new_selling",
+        "initiative_takeover_confirmed"
+      ],
+      "candidate_priority": 0.8
+    },
+    {
+      "strategy_id": "pattern-post-shock-resiliency-check",
+      "title": "Post-Shock Resiliency Check",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/post_shock_resiliency_check.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-post-shock-resiliency-check.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "post_harvest_response"
+      ],
+      "reason_codes": [
+        "post_shock_resiliency",
+        "spread_depth_rebuilt",
+        "shock_repair_not_continuation",
+        "first_pullback_hold_quality"
+      ],
+      "candidate_priority": 0.91
+    },
+    {
+      "strategy_id": "pattern-fake-depth-signature-context",
+      "title": "Fake Depth Signature Context",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/fake_depth_signature_context.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-fake-depth-signature-context.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "live_depth",
+        "trapped_large_orders",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "significant_liquidity",
+        "same_price_replenishment",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "false_depth_signature",
+        "near_touch_cancellation",
+        "opposite_fill_then_cancel",
+        "pull_rate_elevated"
+      ],
+      "candidate_priority": 0.9
+    },
+    {
+      "strategy_id": "pattern-stop-cluster-cascade-exhaustion",
+      "title": "Stop-Cluster Cascade Exhaustion",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/stop_cluster_cascade_exhaustion.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-stop-cluster-cascade-exhaustion.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity",
+        "gap_fill_watch"
+      ],
+      "reason_codes": [
+        "stop_cluster_cascade",
+        "outside_acceptance_after_cascade",
+        "cascade_exhaustion",
+        "stop_release_without_rebuild"
+      ],
+      "candidate_priority": 0.88
+    },
+    {
+      "strategy_id": "pattern-order-flow-imbalance-without-price-progress",
+      "title": "Order-Flow Imbalance Without Price Progress",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/order_flow_imbalance_without_price_progress.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-order-flow-imbalance-without-price-progress.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "focus_regions",
+        "live_depth"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "imbalance_without_progress",
+        "price_progress_failure",
+        "aggression_absorbed",
+        "travel_efficiency_decay"
+      ],
+      "candidate_priority": 0.86
+    },
+    {
+      "strategy_id": "pattern-liquidity-provider-retreat-under-toxicity",
+      "title": "Liquidity Provider Retreat Under Toxicity",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/liquidity_provider_retreat_under_toxicity.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-liquidity-provider-retreat-under-toxicity.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular",
+        "us_after_hours"
+      ],
+      "preferred_presets": [
+        "live_depth",
+        "trapped_large_orders",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "significant_liquidity",
+        "same_price_replenishment",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "liquidity_provider_retreat",
+        "adverse_selection_risk",
+        "defense_to_retreat_transition",
+        "reprice_under_toxicity"
+      ],
+      "candidate_priority": 0.84
+    },
+    {
+      "strategy_id": "pattern-initial-balance-extension-vs-true-breakout",
+      "title": "Initial Balance Extension Vs True Breakout",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/initial_balance_extension_vs_true_breakout.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-initial-balance-extension-vs-true-breakout.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_minutes",
+        "recent_20_bars",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "gap_fill_watch",
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "initial_balance_extension",
+        "initial_balance_breakout_confirmed",
+        "ib_extension_without_acceptance",
+        "ib_false_break_return"
+      ],
+      "candidate_priority": 0.79
+    },
+    {
+      "strategy_id": "pattern-gap-bar-retracement-continuation",
+      "title": "Gap Bar Retracement Continuation",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/gap_bar_retracement_continuation.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-gap-bar-retracement-continuation.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "gap_bar_retracement_continuation",
+        "first_retracement_after_displacement",
+        "implicit_gap_supply_demand",
+        "continuation_reaction_zone"
+      ],
+      "candidate_priority": 0.78
+    },
+    {
+      "strategy_id": "pattern-major-trend-reversal-trap-confirmation",
+      "title": "Major Trend Reversal Trap Confirmation",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/major_trend_reversal_trap_confirmation.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-major-trend-reversal-trap-confirmation.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "focus_regions",
+        "recent_20_minutes",
+        "trapped_large_orders"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "major_trend_reversal_trap_confirmation",
+        "breakout_trader_trapped",
+        "confirmation_close_beyond_signal_origin",
+        "failed_rescue_after_trap"
+      ],
+      "candidate_priority": 0.84
+    },
+    {
+      "strategy_id": "pattern-mother-bar-auction-zones",
+      "title": "Mother Bar Auction Zones",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/mother_bar_auction_zones.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-mother-bar-auction-zones.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "focus_regions",
+        "recent_20_bars",
+        "recent_20_minutes"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "mother_bar_auction",
+        "mother_bar_trap_zone",
+        "mother_bar_context_switch",
+        "mother_bar_breakout_confirmation"
+      ],
+      "candidate_priority": 0.76
+    },
+    {
+      "strategy_id": "pattern-caveman-failed-signal-bar-trigger",
+      "title": "Caveman Failed Signal Bar Trigger",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/caveman_failed_signal_bar_trigger.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-caveman-failed-signal-bar-trigger.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "focus_regions",
+        "trapped_large_orders"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "caveman_failed_signal_bar",
+        "strong_signal_fully_negated",
+        "trigger_close_beyond_signal_extreme",
+        "failed_breakout_scalp_reversal"
+      ],
+      "candidate_priority": 0.72
+    },
+    {
+      "strategy_id": "pattern-h2-l2-pullback-continuation-framework",
+      "title": "H2 L2 Pullback Continuation Framework",
+      "status": "doctrine_accepted",
+      "source_path": "docs/strategy_library/patterns/h2_l2_pullback_continuation_framework.md",
+      "machine_card_path": "docs/strategy_library/machine/pattern-h2-l2-pullback-continuation-framework.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_premarket",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions"
+      ],
+      "event_kinds": [
+        "initiative_drive",
+        "significant_liquidity"
+      ],
+      "reason_codes": [
+        "h2_l2_pullback_continuation",
+        "second_attempt_trend_entry",
+        "pullback_count_valid",
+        "trend_origin_still_intact"
+      ],
+      "candidate_priority": 0.8
+    }
+  ],
+  "event_kind_strategy_map": {
+    "same_price_replenishment": [
+      "pattern-nq-replenished-bid-launchpad",
+      "pattern-large-order-lifecycle-diagnosis",
+      "pattern-false-liquidity-and-pull-behavior",
+      "pattern-fake-depth-signature-context",
+      "pattern-liquidity-provider-retreat-under-toxicity"
+    ],
+    "significant_liquidity": [
+      "pattern-nq-europe-large-offer-breakdown",
+      "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+      "pattern-nq-failed-overhead-capping-in-ascent",
+      "pattern-nq-probe-reversal-toward-upper-liquidity",
+      "pattern-nq-replenished-bid-launchpad",
+      "pattern-large-order-lifecycle-diagnosis",
+      "pattern-trapped-inventory-release",
+      "pattern-failed-break-acceptance-reentry",
+      "pattern-false-liquidity-and-pull-behavior",
+      "pattern-no-trade-garbage-time-context",
+      "pattern-cross-session-inventory-transfer",
+      "pattern-opening-inventory-correction-vs-continuation",
+      "pattern-anchor-market-leadership",
+      "pattern-leader-failure-divergence-trap",
+      "pattern-liquidity-raid-vs-breakout-acceptance",
+      "pattern-forced-exit-burst-vs-initiative-continuation",
+      "pattern-post-shock-resiliency-check",
+      "pattern-fake-depth-signature-context",
+      "pattern-stop-cluster-cascade-exhaustion",
+      "pattern-order-flow-imbalance-without-price-progress",
+      "pattern-liquidity-provider-retreat-under-toxicity",
+      "pattern-initial-balance-extension-vs-true-breakout",
+      "pattern-gap-bar-retracement-continuation",
+      "pattern-major-trend-reversal-trap-confirmation",
+      "pattern-mother-bar-auction-zones",
+      "pattern-caveman-failed-signal-bar-trigger",
+      "pattern-h2-l2-pullback-continuation-framework"
+    ],
+    "initiative_drive": [
+      "pattern-nq-europe-large-offer-breakdown",
+      "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+      "pattern-nq-failed-overhead-capping-in-ascent",
+      "pattern-nq-probe-reversal-toward-upper-liquidity",
+      "pattern-nq-replenished-bid-launchpad",
+      "pattern-nq-manipulation-leg-context",
+      "pattern-nq-measured-move-ladder-context",
+      "pattern-large-order-lifecycle-diagnosis",
+      "pattern-trapped-inventory-release",
+      "pattern-failed-break-acceptance-reentry",
+      "pattern-false-liquidity-and-pull-behavior",
+      "pattern-no-trade-garbage-time-context",
+      "pattern-cross-session-inventory-transfer",
+      "pattern-opening-inventory-correction-vs-continuation",
+      "pattern-anchor-market-leadership",
+      "pattern-leader-failure-divergence-trap",
+      "pattern-liquidity-raid-vs-breakout-acceptance",
+      "pattern-forced-exit-burst-vs-initiative-continuation",
+      "pattern-post-shock-resiliency-check",
+      "pattern-fake-depth-signature-context",
+      "pattern-stop-cluster-cascade-exhaustion",
+      "pattern-order-flow-imbalance-without-price-progress",
+      "pattern-liquidity-provider-retreat-under-toxicity",
+      "pattern-initial-balance-extension-vs-true-breakout",
+      "pattern-gap-bar-retracement-continuation",
+      "pattern-major-trend-reversal-trap-confirmation",
+      "pattern-mother-bar-auction-zones",
+      "pattern-caveman-failed-signal-bar-trigger",
+      "pattern-h2-l2-pullback-continuation-framework"
+    ],
+    "gap_fill_watch": [
+      "pattern-gap-fill-balance-reclaim",
+      "pattern-failed-break-acceptance-reentry",
+      "pattern-no-trade-garbage-time-context",
+      "pattern-opening-inventory-correction-vs-continuation",
+      "pattern-anchor-market-leadership",
+      "pattern-leader-failure-divergence-trap",
+      "pattern-liquidity-raid-vs-breakout-acceptance",
+      "pattern-stop-cluster-cascade-exhaustion",
+      "pattern-initial-balance-extension-vs-true-breakout"
+    ],
+    "gap_fully_filled": [
+      "pattern-gap-fill-balance-reclaim"
+    ],
+    "gap_first_touch": [
+      "pattern-gap-fill-balance-reclaim"
+    ],
+    "gap_partial_fill": [
+      "pattern-gap-fill-balance-reclaim"
+    ],
+    "measured_move_threshold": [
+      "pattern-nq-probe-reversal-toward-upper-liquidity",
+      "pattern-nq-manipulation-leg-context",
+      "pattern-nq-measured-move-ladder-context"
+    ],
+    "probe_reversal_candidate": [
+      "pattern-nq-probe-reversal-toward-upper-liquidity"
+    ],
+    "failed_overhead_capping": [
+      "pattern-nq-failed-overhead-capping-in-ascent"
+    ],
+    "offer_reversal_release": [
+      "pattern-nq-europe-offer-reversal-into-upper-liquidity"
+    ],
+    "harvest_completed": [
+      "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+      "pattern-control-handoff-after-harvest"
+    ],
+    "post_harvest_response": [
+      "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+      "pattern-trapped-inventory-release",
+      "pattern-control-handoff-after-harvest",
+      "pattern-no-trade-garbage-time-context",
+      "pattern-cross-session-inventory-transfer",
+      "pattern-forced-exit-burst-vs-initiative-continuation",
+      "pattern-post-shock-resiliency-check"
+    ],
+    "post_harvest_pullback": [
+      "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+      "pattern-control-handoff-after-harvest"
+    ],
+    "post_harvest_reversal": [
+      "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+      "pattern-control-handoff-after-harvest"
+    ]
+  },
+  "reason_code_strategy_map": {
+    "defended_bid": [
+      "pattern-nq-replenished-bid-launchpad"
+    ],
+    "repeated_replenishment": [
+      "pattern-nq-replenished-bid-launchpad"
+    ],
+    "support_upgrade": [
+      "pattern-nq-replenished-bid-launchpad"
+    ],
+    "upper_liquidity_target": [
+      "pattern-nq-replenished-bid-launchpad"
+    ],
+    "overhead_sell_wall": [
+      "pattern-nq-europe-large-offer-breakdown"
+    ],
+    "downside_release": [
+      "pattern-nq-europe-large-offer-breakdown"
+    ],
+    "resistance_memory": [
+      "pattern-nq-europe-large-offer-breakdown"
+    ],
+    "upper_band_suppression": [
+      "pattern-nq-europe-offer-reversal-into-upper-liquidity"
+    ],
+    "lower_support_response": [
+      "pattern-nq-europe-offer-reversal-into-upper-liquidity"
+    ],
+    "upper_liquidity_harvest": [
+      "pattern-nq-europe-offer-reversal-into-upper-liquidity"
+    ],
+    "failed_cap": [
+      "pattern-nq-failed-overhead-capping-in-ascent"
+    ],
+    "shallow_pullback": [
+      "pattern-nq-failed-overhead-capping-in-ascent"
+    ],
+    "trend_continuation": [
+      "pattern-nq-failed-overhead-capping-in-ascent"
+    ],
+    "liquidity_attractor": [
+      "pattern-nq-probe-reversal-toward-upper-liquidity"
+    ],
+    "probe_entry": [
+      "pattern-nq-probe-reversal-toward-upper-liquidity"
+    ],
+    "ema20_reclaim": [
+      "pattern-nq-probe-reversal-toward-upper-liquidity"
+    ],
+    "upper_objective_completed": [
+      "pattern-nq-upper-liquidity-harvest-then-lower-relocation"
+    ],
+    "post_harvest_balance": [
+      "pattern-nq-upper-liquidity-harvest-then-lower-relocation"
+    ],
+    "post_harvest_reversal_risk": [
+      "pattern-nq-upper-liquidity-harvest-then-lower-relocation"
+    ],
+    "gap_opening_context": [
+      "pattern-gap-fill-balance-reclaim"
+    ],
+    "gap_partial_fill": [
+      "pattern-gap-fill-balance-reclaim"
+    ],
+    "post_fill_acceptance": [
+      "pattern-gap-fill-balance-reclaim"
+    ],
+    "filled_and_rejected": [
+      "pattern-gap-fill-balance-reclaim"
+    ],
+    "manipulation_leg": [
+      "pattern-nq-manipulation-leg-context"
+    ],
+    "secondary_objective": [
+      "pattern-nq-manipulation-leg-context"
+    ],
+    "key_position": [
+      "pattern-nq-manipulation-leg-context"
+    ],
+    "measurement_ladder": [
+      "pattern-nq-measured-move-ladder-context"
+    ],
+    "leg_continuity": [
+      "pattern-nq-measured-move-ladder-context"
+    ],
+    "body_confirmation": [
+      "pattern-nq-measured-move-ladder-context"
+    ],
+    "trapped_large_order": [
+      "pattern-large-order-lifecycle-diagnosis"
+    ],
+    "unwinding_large_order": [
+      "pattern-large-order-lifecycle-diagnosis"
+    ],
+    "continuing_large_order": [
+      "pattern-large-order-lifecycle-diagnosis"
+    ],
+    "spoof_risk": [
+      "pattern-large-order-lifecycle-diagnosis"
+    ],
+    "trapped_inventory": [
+      "pattern-trapped-inventory-release"
+    ],
+    "failed_reclaim": [
+      "pattern-trapped-inventory-release"
+    ],
+    "forced_exit_release": [
+      "pattern-trapped-inventory-release"
+    ],
+    "inventory_flip": [
+      "pattern-trapped-inventory-release"
+    ],
+    "failed_break": [
+      "pattern-failed-break-acceptance-reentry"
+    ],
+    "outside_hold_failed": [
+      "pattern-failed-break-acceptance-reentry"
+    ],
+    "returned_to_old_auction": [
+      "pattern-failed-break-acceptance-reentry"
+    ],
+    "reentry_rotation": [
+      "pattern-failed-break-acceptance-reentry"
+    ],
+    "control_handoff": [
+      "pattern-control-handoff-after-harvest"
+    ],
+    "old_winner_lost_control": [
+      "pattern-control-handoff-after-harvest"
+    ],
+    "first_failed_defense": [
+      "pattern-control-handoff-after-harvest"
+    ],
+    "temporary_pause_not_handoff": [
+      "pattern-control-handoff-after-harvest"
+    ],
+    "false_liquidity": [
+      "pattern-false-liquidity-and-pull-behavior"
+    ],
+    "pull_before_touch": [
+      "pattern-false-liquidity-and-pull-behavior"
+    ],
+    "displayed_size_without_defense": [
+      "pattern-false-liquidity-and-pull-behavior"
+    ],
+    "visual_bait": [
+      "pattern-false-liquidity-and-pull-behavior"
+    ],
+    "no_trade_garbage_time": [
+      "pattern-no-trade-garbage-time-context"
+    ],
+    "middle_of_auction_risk": [
+      "pattern-no-trade-garbage-time-context"
+    ],
+    "cross_timeframe_conflict": [
+      "pattern-no-trade-garbage-time-context"
+    ],
+    "event_noise_without_result": [
+      "pattern-no-trade-garbage-time-context"
+    ],
+    "cross_session_inventory_transfer": [
+      "pattern-cross-session-inventory-transfer"
+    ],
+    "session_handoff_inherited_control": [
+      "pattern-cross-session-inventory-transfer"
+    ],
+    "prior_session_inventory_correction": [
+      "pattern-cross-session-inventory-transfer"
+    ],
+    "prior_session_zone_still_active": [
+      "pattern-cross-session-inventory-transfer"
+    ],
+    "opening_inventory_correction": [
+      "pattern-opening-inventory-correction-vs-continuation"
+    ],
+    "opening_inventory_continuation": [
+      "pattern-opening-inventory-correction-vs-continuation"
+    ],
+    "overnight_imbalance_unwind": [
+      "pattern-opening-inventory-correction-vs-continuation"
+    ],
+    "first_drive_failed": [
+      "pattern-opening-inventory-correction-vs-continuation"
+    ],
+    "anchor_market_leadership": [
+      "pattern-anchor-market-leadership"
+    ],
+    "anchor_market_clearer_than_execution": [
+      "pattern-anchor-market-leadership"
+    ],
+    "cross_symbol_confirmation": [
+      "pattern-anchor-market-leadership"
+    ],
+    "lagger_should_not_lead": [
+      "pattern-anchor-market-leadership"
+    ],
+    "leader_failure_divergence_trap": [
+      "pattern-leader-failure-divergence-trap"
+    ],
+    "anchor_market_failed_break": [
+      "pattern-leader-failure-divergence-trap"
+    ],
+    "lagger_false_follow": [
+      "pattern-leader-failure-divergence-trap"
+    ],
+    "cross_symbol_divergence_trap": [
+      "pattern-leader-failure-divergence-trap"
+    ],
+    "liquidity_raid_only": [
+      "pattern-liquidity-raid-vs-breakout-acceptance"
+    ],
+    "stop_run_not_breakout": [
+      "pattern-liquidity-raid-vs-breakout-acceptance"
+    ],
+    "breakout_acceptance_confirmed": [
+      "pattern-liquidity-raid-vs-breakout-acceptance"
+    ],
+    "returned_to_balance_after_sweep": [
+      "pattern-liquidity-raid-vs-breakout-acceptance"
+    ],
+    "forced_exit_burst": [
+      "pattern-forced-exit-burst-vs-initiative-continuation"
+    ],
+    "short_covering_not_new_buying": [
+      "pattern-forced-exit-burst-vs-initiative-continuation"
+    ],
+    "long_liquidation_not_new_selling": [
+      "pattern-forced-exit-burst-vs-initiative-continuation"
+    ],
+    "initiative_takeover_confirmed": [
+      "pattern-forced-exit-burst-vs-initiative-continuation"
+    ],
+    "post_shock_resiliency": [
+      "pattern-post-shock-resiliency-check"
+    ],
+    "spread_depth_rebuilt": [
+      "pattern-post-shock-resiliency-check"
+    ],
+    "shock_repair_not_continuation": [
+      "pattern-post-shock-resiliency-check"
+    ],
+    "first_pullback_hold_quality": [
+      "pattern-post-shock-resiliency-check"
+    ],
+    "false_depth_signature": [
+      "pattern-fake-depth-signature-context"
+    ],
+    "near_touch_cancellation": [
+      "pattern-fake-depth-signature-context"
+    ],
+    "opposite_fill_then_cancel": [
+      "pattern-fake-depth-signature-context"
+    ],
+    "pull_rate_elevated": [
+      "pattern-fake-depth-signature-context"
+    ],
+    "stop_cluster_cascade": [
+      "pattern-stop-cluster-cascade-exhaustion"
+    ],
+    "outside_acceptance_after_cascade": [
+      "pattern-stop-cluster-cascade-exhaustion"
+    ],
+    "cascade_exhaustion": [
+      "pattern-stop-cluster-cascade-exhaustion"
+    ],
+    "stop_release_without_rebuild": [
+      "pattern-stop-cluster-cascade-exhaustion"
+    ],
+    "imbalance_without_progress": [
+      "pattern-order-flow-imbalance-without-price-progress"
+    ],
+    "price_progress_failure": [
+      "pattern-order-flow-imbalance-without-price-progress"
+    ],
+    "aggression_absorbed": [
+      "pattern-order-flow-imbalance-without-price-progress"
+    ],
+    "travel_efficiency_decay": [
+      "pattern-order-flow-imbalance-without-price-progress"
+    ],
+    "liquidity_provider_retreat": [
+      "pattern-liquidity-provider-retreat-under-toxicity"
+    ],
+    "adverse_selection_risk": [
+      "pattern-liquidity-provider-retreat-under-toxicity"
+    ],
+    "defense_to_retreat_transition": [
+      "pattern-liquidity-provider-retreat-under-toxicity"
+    ],
+    "reprice_under_toxicity": [
+      "pattern-liquidity-provider-retreat-under-toxicity"
+    ],
+    "initial_balance_extension": [
+      "pattern-initial-balance-extension-vs-true-breakout"
+    ],
+    "initial_balance_breakout_confirmed": [
+      "pattern-initial-balance-extension-vs-true-breakout"
+    ],
+    "ib_extension_without_acceptance": [
+      "pattern-initial-balance-extension-vs-true-breakout"
+    ],
+    "ib_false_break_return": [
+      "pattern-initial-balance-extension-vs-true-breakout"
+    ],
+    "gap_bar_retracement_continuation": [
+      "pattern-gap-bar-retracement-continuation"
+    ],
+    "first_retracement_after_displacement": [
+      "pattern-gap-bar-retracement-continuation"
+    ],
+    "implicit_gap_supply_demand": [
+      "pattern-gap-bar-retracement-continuation"
+    ],
+    "continuation_reaction_zone": [
+      "pattern-gap-bar-retracement-continuation"
+    ],
+    "major_trend_reversal_trap_confirmation": [
+      "pattern-major-trend-reversal-trap-confirmation"
+    ],
+    "breakout_trader_trapped": [
+      "pattern-major-trend-reversal-trap-confirmation"
+    ],
+    "confirmation_close_beyond_signal_origin": [
+      "pattern-major-trend-reversal-trap-confirmation"
+    ],
+    "failed_rescue_after_trap": [
+      "pattern-major-trend-reversal-trap-confirmation"
+    ],
+    "mother_bar_auction": [
+      "pattern-mother-bar-auction-zones"
+    ],
+    "mother_bar_trap_zone": [
+      "pattern-mother-bar-auction-zones"
+    ],
+    "mother_bar_context_switch": [
+      "pattern-mother-bar-auction-zones"
+    ],
+    "mother_bar_breakout_confirmation": [
+      "pattern-mother-bar-auction-zones"
+    ],
+    "caveman_failed_signal_bar": [
+      "pattern-caveman-failed-signal-bar-trigger"
+    ],
+    "strong_signal_fully_negated": [
+      "pattern-caveman-failed-signal-bar-trigger"
+    ],
+    "trigger_close_beyond_signal_extreme": [
+      "pattern-caveman-failed-signal-bar-trigger"
+    ],
+    "failed_breakout_scalp_reversal": [
+      "pattern-caveman-failed-signal-bar-trigger"
+    ],
+    "h2_l2_pullback_continuation": [
+      "pattern-h2-l2-pullback-continuation-framework"
+    ],
+    "second_attempt_trend_entry": [
+      "pattern-h2-l2-pullback-continuation-framework"
+    ],
+    "pullback_count_valid": [
+      "pattern-h2-l2-pullback-continuation-framework"
+    ],
+    "trend_origin_still_intact": [
+      "pattern-h2-l2-pullback-continuation-framework"
+    ]
+  },
+  "preset_strategy_filters": {
+    "recent_20_bars": {
+      "preferred_strategy_ids": [
+        "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+        "pattern-nq-failed-overhead-capping-in-ascent",
+        "pattern-nq-probe-reversal-toward-upper-liquidity",
+        "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+        "pattern-nq-manipulation-leg-context",
+        "pattern-nq-measured-move-ladder-context",
+        "pattern-trapped-inventory-release",
+        "pattern-failed-break-acceptance-reentry",
+        "pattern-control-handoff-after-harvest",
+        "pattern-no-trade-garbage-time-context",
+        "pattern-opening-inventory-correction-vs-continuation",
+        "pattern-leader-failure-divergence-trap",
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-forced-exit-burst-vs-initiative-continuation",
+        "pattern-post-shock-resiliency-check",
+        "pattern-stop-cluster-cascade-exhaustion",
+        "pattern-order-flow-imbalance-without-price-progress",
+        "pattern-initial-balance-extension-vs-true-breakout",
+        "pattern-gap-bar-retracement-continuation",
+        "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-mother-bar-auction-zones",
+        "pattern-caveman-failed-signal-bar-trigger",
+        "pattern-h2-l2-pullback-continuation-framework"
+      ],
+      "event_kinds_any": [
+        "initiative_drive",
+        "probe_reversal_candidate",
+        "post_harvest_response",
+        "measured_move_threshold",
+        "gap_fill_watch",
+        "significant_liquidity"
+      ],
+      "reason_codes_any": [
+        "trend_continuation",
+        "probe_entry",
+        "post_harvest_balance",
+        "measurement_ladder",
+        "failed_reclaim",
+        "failed_break",
+        "control_handoff",
+        "cross_timeframe_conflict",
+        "opening_inventory_correction",
+        "opening_inventory_continuation",
+        "first_drive_failed",
+        "leader_failure_divergence_trap",
+        "lagger_false_follow",
+        "stop_run_not_breakout",
+        "forced_exit_burst",
+        "initiative_takeover_confirmed",
+        "post_shock_resiliency",
+        "stop_cluster_cascade",
+        "imbalance_without_progress",
+        "initial_balance_extension",
+        "ib_extension_without_acceptance",
+        "gap_bar_retracement_continuation",
+        "first_retracement_after_displacement",
+        "major_trend_reversal_trap_confirmation",
+        "breakout_trader_trapped",
+        "mother_bar_auction",
+        "mother_bar_context_switch",
+        "caveman_failed_signal_bar",
+        "failed_breakout_scalp_reversal",
+        "h2_l2_pullback_continuation",
+        "second_attempt_trend_entry"
+      ]
+    },
+    "recent_20_minutes": {
+      "preferred_strategy_ids": [
+        "pattern-nq-europe-large-offer-breakdown",
+        "pattern-nq-failed-overhead-capping-in-ascent",
+        "pattern-nq-probe-reversal-toward-upper-liquidity",
+        "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+        "pattern-gap-fill-balance-reclaim",
+        "pattern-nq-measured-move-ladder-context",
+        "pattern-failed-break-acceptance-reentry",
+        "pattern-control-handoff-after-harvest",
+        "pattern-no-trade-garbage-time-context",
+        "pattern-cross-session-inventory-transfer",
+        "pattern-opening-inventory-correction-vs-continuation",
+        "pattern-anchor-market-leadership",
+        "pattern-leader-failure-divergence-trap",
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-forced-exit-burst-vs-initiative-continuation",
+        "pattern-post-shock-resiliency-check",
+        "pattern-stop-cluster-cascade-exhaustion",
+        "pattern-order-flow-imbalance-without-price-progress",
+        "pattern-initial-balance-extension-vs-true-breakout",
+        "pattern-gap-bar-retracement-continuation",
+        "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-mother-bar-auction-zones",
+        "pattern-h2-l2-pullback-continuation-framework"
+      ],
+      "event_kinds_any": [
+        "gap_fill_watch",
+        "initiative_drive",
+        "post_harvest_response",
+        "failed_overhead_capping",
+        "harvest_completed",
+        "significant_liquidity"
+      ],
+      "reason_codes_any": [
+        "gap_opening_context",
+        "downside_release",
+        "post_harvest_reversal_risk",
+        "body_confirmation",
+        "outside_hold_failed",
+        "temporary_pause_not_handoff",
+        "event_noise_without_result",
+        "cross_session_inventory_transfer",
+        "opening_inventory_correction",
+        "overnight_imbalance_unwind",
+        "anchor_market_leadership",
+        "anchor_market_clearer_than_execution",
+        "anchor_market_failed_break",
+        "returned_to_balance_after_sweep",
+        "forced_exit_burst",
+        "short_covering_not_new_buying",
+        "post_shock_resiliency",
+        "outside_acceptance_after_cascade",
+        "price_progress_failure",
+        "initial_balance_extension",
+        "initial_balance_breakout_confirmed",
+        "ib_false_break_return",
+        "continuation_reaction_zone",
+        "confirmation_close_beyond_signal_origin",
+        "failed_rescue_after_trap",
+        "mother_bar_auction",
+        "mother_bar_breakout_confirmation",
+        "h2_l2_pullback_continuation",
+        "pullback_count_valid",
+        "trend_origin_still_intact"
+      ]
+    },
+    "focus_regions": {
+      "preferred_strategy_ids": [
+        "pattern-nq-europe-large-offer-breakdown",
+        "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+        "pattern-nq-failed-overhead-capping-in-ascent",
+        "pattern-nq-replenished-bid-launchpad",
+        "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+        "pattern-gap-fill-balance-reclaim",
+        "pattern-nq-manipulation-leg-context",
+        "pattern-large-order-lifecycle-diagnosis",
+        "pattern-trapped-inventory-release",
+        "pattern-failed-break-acceptance-reentry",
+        "pattern-control-handoff-after-harvest",
+        "pattern-false-liquidity-and-pull-behavior",
+        "pattern-no-trade-garbage-time-context",
+        "pattern-cross-session-inventory-transfer",
+        "pattern-opening-inventory-correction-vs-continuation",
+        "pattern-anchor-market-leadership",
+        "pattern-leader-failure-divergence-trap",
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-forced-exit-burst-vs-initiative-continuation",
+        "pattern-post-shock-resiliency-check",
+        "pattern-fake-depth-signature-context",
+        "pattern-stop-cluster-cascade-exhaustion",
+        "pattern-order-flow-imbalance-without-price-progress",
+        "pattern-liquidity-provider-retreat-under-toxicity",
+        "pattern-initial-balance-extension-vs-true-breakout",
+        "pattern-gap-bar-retracement-continuation",
+        "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-mother-bar-auction-zones",
+        "pattern-caveman-failed-signal-bar-trigger",
+        "pattern-h2-l2-pullback-continuation-framework"
+      ],
+      "event_kinds_any": [
+        "significant_liquidity",
+        "gap_fill_watch",
+        "post_harvest_response",
+        "same_price_replenishment",
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "resistance_memory",
+        "lower_support_response",
+        "support_upgrade",
+        "gap_opening_context",
+        "trapped_large_order",
+        "failed_reclaim",
+        "returned_to_old_auction",
+        "first_failed_defense",
+        "visual_bait",
+        "middle_of_auction_risk",
+        "session_handoff_inherited_control",
+        "opening_inventory_continuation",
+        "opening_inventory_correction",
+        "anchor_market_leadership",
+        "cross_symbol_confirmation",
+        "leader_failure_divergence_trap",
+        "stop_run_not_breakout",
+        "breakout_acceptance_confirmed",
+        "initiative_takeover_confirmed",
+        "post_shock_resiliency",
+        "false_depth_signature",
+        "outside_acceptance_after_cascade",
+        "imbalance_without_progress",
+        "liquidity_provider_retreat",
+        "initial_balance_extension",
+        "initial_balance_breakout_confirmed",
+        "ib_false_break_return",
+        "implicit_gap_supply_demand",
+        "major_trend_reversal_trap_confirmation",
+        "breakout_trader_trapped",
+        "mother_bar_trap_zone",
+        "mother_bar_breakout_confirmation",
+        "trigger_close_beyond_signal_extreme",
+        "failed_breakout_scalp_reversal",
+        "h2_l2_pullback_continuation",
+        "trend_origin_still_intact"
+      ]
+    },
+    "trapped_large_orders": {
+      "preferred_strategy_ids": [
+        "pattern-nq-replenished-bid-launchpad",
+        "pattern-large-order-lifecycle-diagnosis",
+        "pattern-trapped-inventory-release",
+        "pattern-false-liquidity-and-pull-behavior",
+        "pattern-forced-exit-burst-vs-initiative-continuation",
+        "pattern-fake-depth-signature-context",
+        "pattern-liquidity-provider-retreat-under-toxicity",
+        "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-caveman-failed-signal-bar-trigger"
+      ],
+      "event_kinds_any": [
+        "same_price_replenishment",
+        "significant_liquidity",
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "defended_bid",
+        "trapped_large_order",
+        "spoof_risk",
+        "trapped_inventory",
+        "pull_before_touch",
+        "false_liquidity",
+        "forced_exit_burst",
+        "short_covering_not_new_buying",
+        "long_liquidation_not_new_selling",
+        "false_depth_signature",
+        "liquidity_provider_retreat",
+        "adverse_selection_risk",
+        "breakout_trader_trapped",
+        "failed_rescue_after_trap",
+        "caveman_failed_signal_bar",
+        "strong_signal_fully_negated"
+      ]
+    },
+    "live_depth": {
+      "preferred_strategy_ids": [
+        "pattern-nq-europe-large-offer-breakdown",
+        "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+        "pattern-nq-replenished-bid-launchpad",
+        "pattern-large-order-lifecycle-diagnosis",
+        "pattern-false-liquidity-and-pull-behavior",
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-fake-depth-signature-context",
+        "pattern-order-flow-imbalance-without-price-progress",
+        "pattern-liquidity-provider-retreat-under-toxicity"
+      ],
+      "event_kinds_any": [
+        "significant_liquidity",
+        "same_price_replenishment"
+      ],
+      "reason_codes_any": [
+        "overhead_sell_wall",
+        "upper_band_suppression",
+        "defended_bid",
+        "continuing_large_order",
+        "spoof_risk",
+        "false_liquidity",
+        "pull_before_touch",
+        "liquidity_raid_only",
+        "stop_run_not_breakout",
+        "false_depth_signature",
+        "opposite_fill_then_cancel",
+        "imbalance_without_progress",
+        "liquidity_provider_retreat"
+      ]
+    }
+  }
+}

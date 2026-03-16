@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-europe-large-offer-breakdown",
+  "title": "NQ Europe Large Offer Breakdown",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_europe_large_offer_breakdown.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "recent_20_minutes",
+    "focus_regions",
+    "live_depth"
+  ],
+  "context_tags": [
+    "offer_pressure",
+    "displayed_liquidity",
+    "initiative_drive",
+    "downside_release",
+    "revisit_resistance"
+  ],
+  "event_kinds": [
+    "significant_liquidity",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "overhead_sell_wall",
+    "downside_release",
+    "resistance_memory"
+  ],
+  "focus_questions": [
+    "Is the sell wall still controlling price on revisit?",
+    "Did the breakdown produce real downside travel or only visual pressure?"
+  ],
+  "summary": {
+    "thesis": "A persistent upper sell wall plus real downside initiative can create a measured Europe-session breakdown whose origin later matters as resistance memory.",
+    "operator_translation": "Only treat the wall as actionable if price actually releases lower and the cap still matters on revisit.",
+    "ai_usage_note": "Surface this card when overhead liquidity, downside drive, and later revisit logic all appear in the same replay window.",
+    "ai_brief": "Environment: Europe-session pressure with a visible upper cap. Required evidence: persistent overhead liquidity plus downside initiative and measurable travel. Do not trade: if the wall is only visual or price is still balancing. Real trigger: release away from the cap with later revisit value. Failure point: acceptance above the old cap without renewed sell control."
+  },
+  "when_relevant": [
+    "A significant ask-side liquidity band remains above price during Europe trade.",
+    "Initiative selling expands price away from that cap.",
+    "The original cap zone is likely to matter again on revisit."
+  ],
+  "required_evidence": [
+    "significant_liquidity remains active above price",
+    "initiative_drive shows downside travel instead of immediate stall",
+    "the market leaves enough distance from the origin to create later revisit value"
+  ],
+  "confirmation_signals": [
+    "the wall stays close enough to keep capping price during the release",
+    "downside travel expands into measurable follow-through",
+    "revisit shows renewed rejection or rebuilt sell liquidity"
+  ],
+  "invalidation_signals": [
+    "price begins accepting above the original cap",
+    "the wall disappears without renewed rejection",
+    "downside initiative fails to produce meaningful travel"
+  ],
+  "no_trade_conditions": [
+    "Do not short only because a bright wall is visible if price has not actually released lower.",
+    "Do not short in the middle of balance when there is no clean downside travel away from the cap.",
+    "Do not keep pressing the short if price is already accepting above the old cap and the wall is no longer rebuilding."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "release away from cap",
+      "description": "Short after initiative selling proves the cap is producing actual downside travel.",
+      "risk_note": "Avoid if price has not yet separated from the cap zone."
+    },
+    {
+      "name": "failed revisit of cap",
+      "description": "Short on revisit when the old cap rebuilds and price fails to accept above it.",
+      "risk_note": "Avoid if the revisit is already accepting above the prior wall."
+    }
+  ],
+  "management_notes": [
+    "Track how far the breakdown traveled before looking for continuation.",
+    "A revisit matters more than the first move if the cap zone still has memory.",
+    "If the cap is reclaimed and accepted, resistance logic must be downgraded."
+  ],
+  "review_questions": [
+    "Did the wall produce a real downside outcome, or did it only look heavy on screen?",
+    "Was the short taken after most of the measurable travel was already complete?",
+    "When price revisited the cap, did it reject again or begin accepting above it?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.72,
+    "match_requirements": {
+      "event_kinds_all": [
+        "significant_liquidity",
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "overhead_sell_wall",
+        "downside_release"
+      ],
+      "focus_region_role_any": [
+        "resistance",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "accepted_above_cap",
+      "no_downside_release"
+    ],
+    "focus_region_bias": [
+      "resistance",
+      "revisit_zone"
+    ],
+    "entry_review_bias": [
+      "middle_of_balance_short",
+      "late_breakdown_chase",
+      "ignoring_acceptance_above_cap"
+    ]
+  }
+}

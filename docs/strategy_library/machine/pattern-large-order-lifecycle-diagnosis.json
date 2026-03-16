@@ -1,0 +1,132 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-large-order-lifecycle-diagnosis",
+  "title": "Large Order Lifecycle Diagnosis",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/large_order_lifecycle_diagnosis.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "trapped_large_orders",
+    "live_depth",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "large_order_lifecycle",
+    "trap_diagnosis",
+    "spoof_risk",
+    "order_absorption"
+  ],
+  "event_kinds": [
+    "significant_liquidity",
+    "same_price_replenishment",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "trapped_large_order",
+    "unwinding_large_order",
+    "continuing_large_order",
+    "spoof_risk"
+  ],
+  "focus_questions": [
+    "Is the large order trapped, unwinding, still controlling, or likely fake?",
+    "Did the order produce a result in price, or only visual noise?"
+  ],
+  "summary": {
+    "thesis": "Large displayed size matters only when its lifecycle and price outcome show whether it is defending, trapped, unwinding, or fake.",
+    "operator_translation": "Do not trade the brightness of the order; trade what happened to it when price interacted with it.",
+    "ai_usage_note": "Prefer this card when large-liquidity tracks, replenishment, and price outcome all matter for the current replay or live-depth review.",
+    "ai_brief": "Environment: large displayed size near the active decision zone. Required evidence: lifecycle state such as stayed, replenished, pulled, or got traded through, plus price outcome. Do not trade: from visibility alone or before acceptance proves trap or defense. Real trigger: a confirmed lifecycle state with price response. Failure point: the order's state is still ambiguous and price has not chosen a side."
+  },
+  "when_relevant": [
+    "A large order track remains close enough to matter.",
+    "The operator needs to know whether the order is real, trapped, unwinding, or fake.",
+    "Price interaction with the order is part of the active replay script."
+  ],
+  "required_evidence": [
+    "a significant_liquidity track exists near price",
+    "the order lifecycle can be described as stayed, replenished, pulled, moved, or traded through",
+    "price response after interaction is measurable"
+  ],
+  "confirmation_signals": [
+    "a real defending order stays, absorbs, and produces price outcome",
+    "a trapped order gets traded through and price accepts beyond it",
+    "a spoof candidate pulls before meaningful interaction or repeatedly disappears on pressure"
+  ],
+  "invalidation_signals": [
+    "the lifecycle state remains ambiguous and price has not chosen a side",
+    "the order appears large but never produces any measurable price outcome",
+    "the supposed trap snaps back immediately without acceptance through the level"
+  ],
+  "no_trade_conditions": [
+    "Do not trust a large order only because it is bright or large on the screen.",
+    "Do not call an order trapped before price has actually accepted through it.",
+    "Do not assume fake liquidity if the order keeps staying, reloading, and producing real price rejection."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "acceptance through failed wall",
+      "description": "Trade after a previously controlling order is traded through and price accepts beyond it.",
+      "risk_note": "Avoid if the move still snaps back under the level immediately."
+    },
+    {
+      "name": "rejection from real defense",
+      "description": "Trade with the defense only when the order stays, reloads, and produces repeatable rejection.",
+      "risk_note": "Avoid if the order keeps pulling or shifting before meaningful interaction."
+    }
+  ],
+  "management_notes": [
+    "Track state transitions rather than static labels.",
+    "The same order can evolve from defending to trapped, or from relevant to irrelevant.",
+    "This card is most useful with trapped-order and live-depth presets."
+  ],
+  "review_questions": [
+    "What happened to the order when price first interacted with it?",
+    "Did the order produce a result in price, or only visual noise?",
+    "Was the operator trading lifecycle evidence, or just reacting to the size display?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.8,
+    "match_requirements": {
+      "event_kinds_all": [
+        "significant_liquidity"
+      ],
+      "reason_codes_any": [
+        "trapped_large_order",
+        "continuing_large_order",
+        "spoof_risk"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "resistance",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "lifecycle_state_unknown",
+      "no_price_outcome"
+    ],
+    "focus_region_bias": [
+      "support",
+      "resistance",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "trading_brightness_only",
+      "calling_trap_without_acceptance",
+      "calling_spoof_too_early"
+    ]
+  }
+}

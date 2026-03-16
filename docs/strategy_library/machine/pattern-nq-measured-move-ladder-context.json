@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-measured-move-ladder-context",
+  "title": "NQ Measured Move Ladder Context",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/nq_measured_move_ladder_context.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes"
+  ],
+  "context_tags": [
+    "measurement_ladder",
+    "body_confirmation",
+    "leg_continuity",
+    "target_upgrade"
+  ],
+  "event_kinds": [
+    "measured_move_threshold",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "measurement_ladder",
+    "leg_continuity",
+    "body_confirmation"
+  ],
+  "focus_questions": [
+    "Is the market still carrying the same real leg?",
+    "What threshold was actually body-confirmed before the target was upgraded?"
+  ],
+  "summary": {
+    "thesis": "Measured move works best as a ladder of body-confirmed thresholds inside one continuous leg, not as a random wick-based projection.",
+    "operator_translation": "Measure the real leg, not the noise, and do not upgrade targets before confirmation.",
+    "ai_usage_note": "Use this card to filter measured-move claims and keep only the ones supported by leg continuity and body confirmation.",
+    "ai_brief": "Environment: an active continuous leg with measurable threshold progress. Required evidence: one real leg, body-confirmed threshold clears, and continuity of the campaign. Do not trade: if the market is choppy, overlapping, or only printing wick noise. Real trigger: confirmed progression through the next ladder stage. Failure point: the next threshold never confirms and the leg loses continuity."
+  },
+  "when_relevant": [
+    "The market is still carrying one real impulsive leg.",
+    "Target decisions depend on whether the next threshold is truly confirmed.",
+    "The operator needs to know whether to escalate or reduce the target ladder."
+  ],
+  "required_evidence": [
+    "the leg being measured is continuous enough to count as one campaign",
+    "threshold clears are body-confirmed instead of wick-only",
+    "the move can still be tracked through distinct ladder stages"
+  ],
+  "confirmation_signals": [
+    "the leg remains continuous while price progresses through thresholds",
+    "body closes confirm the next stage before the target ladder is upgraded",
+    "reaction near each threshold makes it clear whether expansion is alive or stalling"
+  ],
+  "invalidation_signals": [
+    "the leg breaks into overlapping chop and loses continuity",
+    "the next threshold never body-confirms",
+    "the market shifts into a different script before target escalation is justified"
+  ],
+  "no_trade_conditions": [
+    "Do not measure random wicks, overlapping chop, or unrelated fragments as one clean leg.",
+    "Do not upgrade the target ladder before body confirmation appears.",
+    "Do not force measured-move logic when the broader script has already shifted into balance or reversal."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "confirmed threshold continuation",
+      "description": "Stay with the move only after the next threshold is body-confirmed.",
+      "risk_note": "Avoid if the confirmation is only a wick touch without close quality."
+    },
+    {
+      "name": "failed threshold downgrade",
+      "description": "Reduce ambition or flatten when the next ladder stage fails to confirm.",
+      "risk_note": "Avoid inventing a larger target after failed confirmation."
+    }
+  ],
+  "management_notes": [
+    "Keep the active ladder stage explicit in review.",
+    "If the next threshold fails to confirm, downgrade the script instead of forcing projection.",
+    "Measured move should support context and management, not replace location logic."
+  ],
+  "review_questions": [
+    "Was the operator measuring the real leg or just reacting to screen noise?",
+    "What body-confirmed threshold actually justified target escalation?",
+    "Did the market keep the same leg alive, or had it already transitioned into a different script?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.61,
+    "match_requirements": {
+      "event_kinds_all": [
+        "measured_move_threshold"
+      ],
+      "reason_codes_any": [
+        "measurement_ladder",
+        "body_confirmation"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "extension_target"
+      ]
+    },
+    "disqualifiers": [
+      "wick_only_projection",
+      "leg_continuity_broken"
+    ],
+    "focus_region_bias": [
+      "extension_target",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "measuring_noise",
+      "upgrading_without_confirmation",
+      "ignoring_script_change"
+    ]
+  }
+}

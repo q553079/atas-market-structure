@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-h2-l2-pullback-continuation-framework",
+  "title": "H2 L2 Pullback Continuation Framework",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/h2_l2_pullback_continuation_framework.md",
+  "instrument_scope": ["NQ", "ES"],
+  "session_scope": ["europe", "us_premarket", "us_regular"],
+  "timeframe_scope": ["intraday_bias", "setup_context", "execution_context", "cross_timeframe"],
+  "preferred_presets": ["recent_20_bars", "recent_20_minutes", "focus_regions"],
+  "context_tags": ["h2_l2", "pullback_counting", "trend_continuation", "second_entry", "bull_flag_bear_flag"],
+  "event_kinds": ["initiative_drive", "significant_liquidity"],
+  "reason_codes": ["h2_l2_pullback_continuation", "second_attempt_trend_entry", "pullback_count_valid", "trend_origin_still_intact"],
+  "focus_questions": [
+    "Is this still a valid trend pullback, or has the market already degraded into range behavior?",
+    "Is the second entry forming at a meaningful continuation location, or is the count being forced inside noise?"
+  ],
+  "summary": {
+    "thesis": "H2 and L2 continuation entries work when the trend is still intact, the pullback is still corrective, and the second attempt comes from a meaningful location.",
+    "operator_translation": "Do not count bars blindly. Count only when the trend still exists and the second attempt is testing a real continuation location.",
+    "ai_usage_note": "Use this card when pullback counting helps separate valid continuation from broad-channel degradation or range recycling.",
+    "ai_brief": "Environment: established trend or clear trend leg in range. Required evidence: real prior trend, corrective pullback, valid second attempt, and intact trend origin. Do not trade: by counting endlessly in chop, from the middle of a range, or after trend origin already broke. Real trigger: trend-aligned second entry from a meaningful location. Failure point: the second attempt also fails and the pullback degrades into range or reversal."
+  },
+  "when_relevant": [
+    "A clear trend or trend leg existed before the pullback began.",
+    "The pullback is still acting corrective rather than accepted reversal.",
+    "The operator is deciding whether a first or second continuation attempt is still valid."
+  ],
+  "required_evidence": [
+    "there is a clear prior trend, breakout leg, or bull-bear leg in a range",
+    "the pullback remains corrective instead of becoming broad and fully overlapping",
+    "the counted H2 or L2 is based on a real failed first attempt rather than random bar labeling",
+    "trend origin or key structural support-resistance has not been objectively broken"
+  ],
+  "confirmation_signals": [
+    "the second attempt forms from a meaningful location such as EMA, breakout point, channel edge, or prior swing reference",
+    "the signal bar is aligned with the trend direction and continuation begins to resume",
+    "trend travel restarts without immediate collapse back into the pullback"
+  ],
+  "invalidation_signals": [
+    "trend origin is broken and the pullback has already become a deeper reversal candidate",
+    "the count keeps extending into H3 or L3 wedge behavior without resumption",
+    "the market broadens into range behavior and the counted entry loses location advantage"
+  ],
+  "no_trade_conditions": [
+    "Do not count endlessly inside chop and call it H2 or L2.",
+    "Do not treat a weak H1 or L1 as if it were equal to a strong H2 or L2.",
+    "Do not use this framework after trend origin is already broken.",
+    "Do not open from the middle of a range just because a count exists."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "second entry breakout",
+      "description": "Enter as the trend-aligned second attempt triggers from a corrective pullback.",
+      "risk_note": "Avoid if the signal bar is weak or the pullback already looks broad and range-like."
+    },
+    {
+      "name": "continuation retest after second attempt",
+      "description": "Enter on the first retest after H2 or L2 has already triggered and continuation proves it can hold.",
+      "risk_note": "Avoid if the retest immediately breaks trend origin or collapses back into deep overlap."
+    }
+  ],
+  "management_notes": [
+    "Second entries are often better than first entries because the first countertrend attempt already failed.",
+    "If the second attempt also fails, reassess whether the market is transitioning into range or reversal.",
+    "The best versions usually test a meaningful continuation reference instead of forming in open-space noise."
+  ],
+  "review_questions": [
+    "Was the market still in valid continuation context or already in range?",
+    "Was the H2 or L2 count based on real attempts, or was it forced onto noise?",
+    "Did the entry come from a meaningful continuation location?",
+    "Did the operator confuse second entry logic with certainty?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.8,
+    "match_requirements": {
+      "event_kinds_all": ["initiative_drive"],
+      "reason_codes_any": ["h2_l2_pullback_continuation", "second_attempt_trend_entry", "pullback_count_valid", "trend_origin_still_intact"],
+      "focus_region_role_any": ["support", "resistance", "pivot", "breakout_point"]
+    },
+    "disqualifiers": ["trend_origin_broken", "counting_inside_chop", "second_entry_after_channel_already_degraded"],
+    "focus_region_bias": ["support", "resistance", "pivot", "breakout_point", "ema_test"],
+    "entry_review_bias": ["endless_h1_h2_counting_in_range", "using_weak_signal_bar", "ignoring_broken_trend_origin"]
+  }
+}

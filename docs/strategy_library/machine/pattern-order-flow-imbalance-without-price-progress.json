@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-order-flow-imbalance-without-price-progress",
+  "title": "Order-Flow Imbalance Without Price Progress",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/order_flow_imbalance_without_price_progress.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "focus_regions",
+    "live_depth"
+  ],
+  "context_tags": [
+    "imbalance_without_progress",
+    "aggression_absorbed",
+    "travel_efficiency",
+    "stalled_initiative"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity"
+  ],
+  "reason_codes": [
+    "imbalance_without_progress",
+    "price_progress_failure",
+    "aggression_absorbed",
+    "travel_efficiency_decay"
+  ],
+  "focus_questions": [
+    "Is the aggressive flow actually moving price, or only making noise?",
+    "Is travel efficiency improving or decaying over repeated attempts?"
+  ],
+  "summary": {
+    "thesis": "One-sided flow is not enough by itself; if imbalance cannot create travel, the market is often absorbing, stalling, or losing edge.",
+    "operator_translation": "Do not trade delta color alone. Judge flow by what it accomplishes in price.",
+    "ai_usage_note": "Use this card when the tape looks one-sided but price cannot clear the nearby level or keep making progress.",
+    "ai_brief": "Environment: repeated same-side aggression or imbalance is visible. Required evidence: weak price progress per burst, repeated stalls at the same boundary, or decaying travel efficiency over time. Do not trade: from flow intensity alone when price cannot travel. Real trigger: either renewed progress that revives continuation, or failure that confirms absorption and stalled edge. Failure point: the market starts converting the same-side aggression into clean travel again."
+  },
+  "when_relevant": [
+    "Aggressive flow looks clearly one-sided.",
+    "Price is failing to travel relative to the apparent aggression.",
+    "The operator is tempted to equate strong flow with strong edge."
+  ],
+  "required_evidence": [
+    "there is visible same-side aggression or imbalance",
+    "price progress per burst can be compared across attempts",
+    "the nearby boundary or target is not being cleared despite the aggression"
+  ],
+  "confirmation_signals": [
+    "repeated same-side aggression fails to create meaningful travel",
+    "price stalls at the same boundary despite continued imbalance",
+    "later attempts become less efficient than earlier attempts"
+  ],
+  "invalidation_signals": [
+    "price starts clearing the same boundary with clean progress",
+    "travel efficiency improves instead of decaying",
+    "the supposed absorption branch disappears as same-side progress becomes durable"
+  ],
+  "no_trade_conditions": [
+    "Do not open from delta color or imbalance count alone.",
+    "Do not keep adding when travel efficiency is shrinking.",
+    "Do not call continuation healthy if aggression is being absorbed at the same edge."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "absorption failure read",
+      "description": "Enter after repeated same-side aggression keeps failing and the stall turns into a usable failure branch.",
+      "risk_note": "Avoid if price progress is starting to improve again."
+    },
+    {
+      "name": "revived travel confirmation",
+      "description": "Enter only after the market proves that the earlier absorbed aggression has turned back into real travel.",
+      "risk_note": "Avoid if the renewed burst still cannot clear the same boundary."
+    }
+  ],
+  "management_notes": [
+    "Flow should be judged by what it accomplishes, not only by how loud it looks.",
+    "Poor price progress often matters more than another burst of same-side aggression.",
+    "Once price progress improves again, hand the read off to a real continuation card."
+  ],
+  "review_questions": [
+    "Did the operator trade aggression or actual travel?",
+    "Was the market progressing less with each new burst?",
+    "Where did absorption start dominating the narrative?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.86,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "imbalance_without_progress",
+        "price_progress_failure",
+        "aggression_absorbed",
+        "travel_efficiency_decay"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "resistance",
+        "pivot",
+        "range_edge"
+      ]
+    },
+    "disqualifiers": [
+      "no_clear_same_side_aggression",
+      "price_progress_still_improving"
+    ],
+    "focus_region_bias": [
+      "support",
+      "resistance",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "trading_delta_color_only",
+      "adding_into_decay",
+      "ignoring_absorption_at_edge"
+    ]
+  }
+}

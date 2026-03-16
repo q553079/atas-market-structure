@@ -1,0 +1,134 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-stop-cluster-cascade-exhaustion",
+  "title": "Stop-Cluster Cascade Exhaustion",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/stop_cluster_cascade_exhaustion.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "stop_cluster",
+    "cascade",
+    "outside_acceptance",
+    "cascade_exhaustion"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "gap_fill_watch"
+  ],
+  "reason_codes": [
+    "stop_cluster_cascade",
+    "outside_acceptance_after_cascade",
+    "cascade_exhaustion",
+    "stop_release_without_rebuild"
+  ],
+  "focus_questions": [
+    "Did the stop cascade become accepted outside trade, or only an exhaustion burst?",
+    "After the cascade, did the first retest hold or fail?"
+  ],
+  "summary": {
+    "thesis": "A stop cascade can create impressive extension without creating durable new value, so the real edge comes from reading the post-cascade branch.",
+    "operator_translation": "Do not chase the stop release itself; wait to see whether the cascade rebuilt or exhausted.",
+    "ai_usage_note": "Use this card when a visible stop area is breached and the resulting release looks powerful enough to tempt immediate continuation assumptions.",
+    "ai_brief": "Environment: a stop cluster is likely triggered and price extends quickly. Required evidence: cascade release, outside hold quality, and the first meaningful retest after the release. Do not trade: by chasing the first cascade or by fading it before hold quality fails. Real trigger: accepted outside trade after the retest or clear cascade exhaustion after rebuild fails. Failure point: the market proves the opposite branch on the first readable retest."
+  },
+  "when_relevant": [
+    "A likely stop area is breached and price accelerates sharply.",
+    "The extension looks strong enough to invite late chasing or emotional fading.",
+    "The operator needs to know whether the cascade became accepted trade or only stop fuel."
+  ],
+  "required_evidence": [
+    "a plausible stop cluster was actually triggered",
+    "the release through the stop area can be separated from the retest after it",
+    "post-cascade outside hold quality can be judged"
+  ],
+  "confirmation_signals": [
+    "the cascade releases quickly once the stop area is breached",
+    "outside trade either stays accepted or loses hold quality on the first meaningful retest",
+    "the post-cascade branch becomes clearer than the initial burst"
+  ],
+  "invalidation_signals": [
+    "there is no meaningful stop area and the burst is being over-labeled",
+    "outside hold quality is still unresolved and the card is being forced too early",
+    "the market clearly proves the opposite post-cascade branch"
+  ],
+  "no_trade_conditions": [
+    "Do not chase the first stop cascade before outside acceptance is visible.",
+    "Do not fade the cascade immediately before outside hold quality actually fails.",
+    "Do not assume that a violent extension automatically created new accepted value."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "post-cascade hold and continue",
+      "description": "Enter after the cascade retest holds and outside trade proves accepted.",
+      "risk_note": "Avoid if the outside hold is still thin and unresolved."
+    },
+    {
+      "name": "cascade exhaustion reversion",
+      "description": "Enter after the cascade fails to rebuild and the market starts repairing back toward old auction.",
+      "risk_note": "Avoid if the cascade still holds outside and rebuilds cleanly."
+    }
+  ],
+  "management_notes": [
+    "Stop fuel can create distance faster than true initiative can create structure.",
+    "The best continuation usually comes after the first retest holds.",
+    "If the cascade cannot rebuild after release, the move often slips into repair."
+  ],
+  "review_questions": [
+    "Was the operator trading stop fuel or accepted continuation?",
+    "After the cascade, did outside trade hold or fail?",
+    "Where did the market prove exhaustion or prove rebuild?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.88,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "stop_cluster_cascade",
+        "outside_acceptance_after_cascade",
+        "cascade_exhaustion",
+        "stop_release_without_rebuild"
+      ],
+      "focus_region_role_any": [
+        "range_edge",
+        "gap_edge",
+        "failed_break_zone",
+        "resistance",
+        "support"
+      ]
+    },
+    "disqualifiers": [
+      "no_meaningful_stop_cluster_context",
+      "post_cascade_retest_not_yet_visible"
+    ],
+    "focus_region_bias": [
+      "range_edge",
+      "gap_edge",
+      "failed_break_zone"
+    ],
+    "entry_review_bias": [
+      "chasing_stop_release",
+      "fading_before_outside_failure",
+      "confusing_cascade_with_new_value"
+    ]
+  }
+}

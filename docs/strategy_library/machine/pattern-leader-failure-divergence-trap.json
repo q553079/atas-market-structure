@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-leader-failure-divergence-trap",
+  "title": "Leader Failure Divergence Trap",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/leader_failure_divergence_trap.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "cross_session"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "leader_failure",
+    "cross_symbol_divergence",
+    "lagger_trap",
+    "false_follow"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "gap_fill_watch"
+  ],
+  "reason_codes": [
+    "leader_failure_divergence_trap",
+    "anchor_market_failed_break",
+    "lagger_false_follow",
+    "cross_symbol_divergence_trap"
+  ],
+  "focus_questions": [
+    "Has the original leader already failed while the lagger still prices the old story?",
+    "Are lagger followers now trapped by leader failure?"
+  ],
+  "summary": {
+    "thesis": "A divergence trap appears when the market that led first fails its own hold, while the lagging market is still being traded as if the original story remains valid.",
+    "operator_translation": "Do not keep trading the lagging market in the old direction once the leader has clearly failed.",
+    "ai_usage_note": "Use this card when one market led the move, then lost hold quality while the related market still looks late and extended in the old direction.",
+    "ai_brief": "Environment: cross-symbol move with one market clearly leading first. Required evidence: the leader loses hold quality, the lagger is still late in the old direction, and divergence becomes visible. Do not trade: by clinging to the lagger's late follow-through after the leader has failed. Real trigger: confirmed leader failure plus lagger non-confirmation or reversal. Failure point: the leader never actually loses hold quality or quickly regains it."
+  },
+  "when_relevant": [
+    "One market led the move or break first.",
+    "The other market followed late or emotionally.",
+    "The leader then starts failing while the lagger still prices the old move."
+  ],
+  "required_evidence": [
+    "a clear leader existed first",
+    "the leader loses hold quality or fails its break",
+    "the lagging market remains late, extended, or falsely confirmatory while divergence appears"
+  ],
+  "confirmation_signals": [
+    "the leader first appears valid, then loses hold quality or fails its break",
+    "the lagging market continues to price the old story longer than the leader",
+    "once divergence becomes obvious, the lagging market reverses or releases trapped followers"
+  ],
+  "invalidation_signals": [
+    "the leader never actually fails its hold quality",
+    "the lagger resets quickly and synchronizes again without trapping followers",
+    "divergence is being called before the leader's failure is visible"
+  ],
+  "no_trade_conditions": [
+    "Do not keep trading the lagging market in the old direction once the leader has clearly failed.",
+    "Do not call divergence actionable before the leader's failure is actually visible.",
+    "Do not fade the lagger too early if the leader has not yet lost its hold quality."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "leader-failure lagger unwind",
+      "description": "Enter after the lagger begins unwinding the old move once the leader has already failed.",
+      "risk_note": "Avoid if the leader failure is still ambiguous."
+    },
+    {
+      "name": "late-follow trap release",
+      "description": "Enter after the lagger proves its late confirmation was invalid and starts releasing trapped followers.",
+      "risk_note": "Avoid if the lagger has already fully reset and the trap edge is gone."
+    }
+  ],
+  "management_notes": [
+    "This card is strongest after a prior leader already signaled the move and then failed.",
+    "The edge is usually in the lagger unwind, not in the first tiny divergence tick.",
+    "Once the lagger fully resets and synchronizes again, the divergence trap is mostly over."
+  ],
+  "review_questions": [
+    "Did the leader really fail, or was the read simply early?",
+    "Was the lagging market still being traded as if confirmation remained valid?",
+    "When divergence appeared, did the operator react to the leader failure or cling to the late follow-through story?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.72,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "leader_failure_divergence_trap",
+        "anchor_market_failed_break",
+        "lagger_false_follow",
+        "cross_symbol_divergence_trap"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "anchor_zone"
+      ]
+    },
+    "disqualifiers": [
+      "leader_not_failed",
+      "lagger_already_resynchronized"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "anchor_zone",
+      "failed_break_zone"
+    ],
+    "entry_review_bias": [
+      "clinging_to_late_confirmation",
+      "fading_before_leader_failure",
+      "ignoring_anchor_failure"
+    ]
+  }
+}

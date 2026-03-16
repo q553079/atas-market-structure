@@ -1,0 +1,839 @@
+{
+  "$defs": {
+    "InstrumentRef": {
+      "description": "Stable instrument metadata for replay and backtests.",
+      "properties": {
+        "symbol": {
+          "description": "Trading symbol.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Symbol",
+          "type": "string"
+        },
+        "venue": {
+          "description": "Execution or quote venue.",
+          "examples": [
+            "CME"
+          ],
+          "title": "Venue",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Minimum price increment.",
+          "examples": [
+            0.25
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "currency": {
+          "description": "PnL currency.",
+          "examples": [
+            "USD"
+          ],
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "venue",
+        "tick_size",
+        "currency"
+      ],
+      "title": "InstrumentRef",
+      "type": "object"
+    },
+    "ReplayAcquisitionMode": {
+      "enum": [
+        "cache_reuse",
+        "atas_fetch"
+      ],
+      "title": "ReplayAcquisitionMode",
+      "type": "string"
+    },
+    "ReplayAiBriefing": {
+      "description": "Compact AI briefing packet derived from replay events and strategy-library matches.",
+      "properties": {
+        "objective": {
+          "description": "What the AI should decide or highlight for the operator.",
+          "examples": [
+            "Identify the most defensible support and resistance zones from the last 5 sessions."
+          ],
+          "title": "Objective",
+          "type": "string"
+        },
+        "focus_questions": {
+          "description": "Specific questions that the AI should answer.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Focus Questions",
+          "type": "array"
+        },
+        "required_outputs": {
+          "description": "Expected output sections for the AI response.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Outputs",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Additional operator instructions preserved in the packet.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "objective"
+      ],
+      "title": "ReplayAiBriefing",
+      "type": "object"
+    },
+    "ReplayCachePolicy": {
+      "description": "Replay cache policy controlling when ATAS should be queried and when snapshots become durable.",
+      "properties": {
+        "fetch_only_when_missing": {
+          "default": true,
+          "description": "Only fetch from ATAS when the replay packet is missing from local storage.",
+          "title": "Fetch Only When Missing",
+          "type": "boolean"
+        },
+        "max_verifications_per_day": {
+          "default": 1,
+          "description": "Maximum number of verification passes allowed per day.",
+          "minimum": 1,
+          "title": "Max Verifications Per Day",
+          "type": "integer"
+        },
+        "verification_passes_to_lock": {
+          "default": 3,
+          "description": "How many successful verifications are required before the replay packet is locked as durable.",
+          "minimum": 1,
+          "title": "Verification Passes To Lock",
+          "type": "integer"
+        },
+        "manual_reimport_required_after_invalidation": {
+          "default": true,
+          "description": "Whether replay acquisition must stay disabled until the operator explicitly re-enables it after invalidation.",
+          "title": "Manual Reimport Required After Invalidation",
+          "type": "boolean"
+        }
+      },
+      "title": "ReplayCachePolicy",
+      "type": "object"
+    },
+    "ReplayChartBar": {
+      "description": "Chart bar reconstructed for the standalone replay workbench UI.",
+      "properties": {
+        "started_at": {
+          "description": "Inclusive bar start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Inclusive bar end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "open": {
+          "description": "Bar open.",
+          "examples": [
+            21540.25
+          ],
+          "title": "Open",
+          "type": "number"
+        },
+        "high": {
+          "description": "Bar high.",
+          "examples": [
+            21548.0
+          ],
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "Bar low.",
+          "examples": [
+            21535.5
+          ],
+          "title": "Low",
+          "type": "number"
+        },
+        "close": {
+          "description": "Bar close.",
+          "examples": [
+            21544.75
+          ],
+          "title": "Close",
+          "type": "number"
+        },
+        "volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional total volume for the bar.",
+          "examples": [
+            842
+          ],
+          "title": "Volume"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional net delta for the bar.",
+          "examples": [
+            121
+          ],
+          "title": "Delta"
+        },
+        "bid_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional bid-side traded volume.",
+          "examples": [
+            360
+          ],
+          "title": "Bid Volume"
+        },
+        "ask_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional ask-side traded volume.",
+          "examples": [
+            481
+          ],
+          "title": "Ask Volume"
+        }
+      },
+      "required": [
+        "started_at",
+        "ended_at",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "title": "ReplayChartBar",
+      "type": "object"
+    },
+    "ReplayEventAnnotation": {
+      "description": "Structured event marker rendered as an overlay on the replay UI.",
+      "properties": {
+        "event_id": {
+          "description": "Stable event identifier.",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_kind": {
+          "description": "Event family or pattern key.",
+          "examples": [
+            "initiative_drive",
+            "gap_first_touch"
+          ],
+          "title": "Event Kind",
+          "type": "string"
+        },
+        "source_kind": {
+          "description": "Where this event came from, for example collector, strategy_library, manual_review, or ai_review.",
+          "examples": [
+            "collector"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "observed_at": {
+          "description": "Timestamp of the event marker.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary event price.",
+          "examples": [
+            21544.75
+          ],
+          "title": "Price"
+        },
+        "price_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lower bound when the event spans a zone.",
+          "examples": [
+            21542.0
+          ],
+          "title": "Price Low"
+        },
+        "price_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upper bound when the event spans a zone.",
+          "examples": [
+            21545.0
+          ],
+          "title": "Price High"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StructureSide"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Associated directional side when applicable."
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional source-side confidence.",
+          "examples": [
+            0.74
+          ],
+          "title": "Confidence"
+        },
+        "linked_ids": {
+          "description": "Linked event, drive, zone, or strategy identifiers.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Ids",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Short render-ready notes shown in the UI.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "event_id",
+        "event_kind",
+        "source_kind",
+        "observed_at"
+      ],
+      "title": "ReplayEventAnnotation",
+      "type": "object"
+    },
+    "ReplayFocusRegion": {
+      "description": "Price region highlighted for operator review and AI focus.",
+      "properties": {
+        "region_id": {
+          "description": "Stable focus-region identifier.",
+          "title": "Region Id",
+          "type": "string"
+        },
+        "label": {
+          "description": "Short UI label for the region.",
+          "examples": [
+            "Europe defended bid"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "When this region became relevant.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When this region stopped being relevant, if known.",
+          "title": "Ended At"
+        },
+        "price_low": {
+          "description": "Lower boundary of the highlighted region.",
+          "examples": [
+            21538.0
+          ],
+          "title": "Price Low",
+          "type": "number"
+        },
+        "price_high": {
+          "description": "Upper boundary of the highlighted region.",
+          "examples": [
+            21544.0
+          ],
+          "title": "Price High",
+          "type": "number"
+        },
+        "priority": {
+          "description": "Priority for UI emphasis.",
+          "examples": [
+            8
+          ],
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Priority",
+          "type": "integer"
+        },
+        "reason_codes": {
+          "description": "Compact reason tags behind the focus region.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "linked_event_ids": {
+          "description": "Events that justify this focus region.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Event Ids",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Human-readable notes for the workbench sidebar.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "region_id",
+        "label",
+        "started_at",
+        "price_low",
+        "price_high",
+        "priority"
+      ],
+      "title": "ReplayFocusRegion",
+      "type": "object"
+    },
+    "ReplayStrategyCandidate": {
+      "description": "Strategy-library item matched to the current replay window.",
+      "properties": {
+        "strategy_id": {
+          "description": "Stable strategy-library candidate identifier.",
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "title": {
+          "description": "Short title displayed in the UI.",
+          "examples": [
+            "NQ replenished bid launchpad"
+          ],
+          "title": "Title",
+          "type": "string"
+        },
+        "source_path": {
+          "description": "Strategy-library document path or reference.",
+          "title": "Source Path",
+          "type": "string"
+        },
+        "matched_event_ids": {
+          "description": "Event ids that caused this candidate to be attached.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Matched Event Ids",
+          "type": "array"
+        },
+        "why_relevant": {
+          "description": "Short statements explaining why the candidate is attached.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Why Relevant",
+          "type": "array"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "title",
+        "source_path"
+      ],
+      "title": "ReplayStrategyCandidate",
+      "type": "object"
+    },
+    "ReplayVerificationState": {
+      "description": "Current verification state of the replay packet stored in the workbench cache.",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/ReplayVerificationStatus",
+          "default": "unverified",
+          "description": "Verification state of the cached replay packet."
+        },
+        "verification_count": {
+          "default": 0,
+          "description": "How many successful verification passes have been completed for this replay packet.",
+          "minimum": 0,
+          "title": "Verification Count",
+          "type": "integer"
+        },
+        "last_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the replay packet was last verified against ATAS or other trusted source.",
+          "title": "Last Verified At"
+        },
+        "next_verification_due_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Next time a verification pass is allowed or required.",
+          "title": "Next Verification Due At"
+        },
+        "invalidated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the replay packet was manually invalidated, if it was invalidated.",
+          "title": "Invalidated At"
+        },
+        "invalidation_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional operator note explaining why the replay packet was invalidated.",
+          "title": "Invalidation Reason"
+        },
+        "locked_until_manual_reset": {
+          "default": false,
+          "description": "Whether this replay packet should remain durable until the operator manually invalidates it.",
+          "title": "Locked Until Manual Reset",
+          "type": "boolean"
+        }
+      },
+      "title": "ReplayVerificationState",
+      "type": "object"
+    },
+    "ReplayVerificationStatus": {
+      "enum": [
+        "unverified",
+        "verified",
+        "durable",
+        "invalidated"
+      ],
+      "title": "ReplayVerificationStatus",
+      "type": "string"
+    },
+    "SourceRef": {
+      "description": "Producer metadata for tracing and support.",
+      "properties": {
+        "system": {
+          "description": "Source system name.",
+          "examples": [
+            "ATAS"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "instance_id": {
+          "description": "Producer instance identifier.",
+          "examples": [
+            "DESKTOP-ATAS-01"
+          ],
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart or indicator-instance identifier used to separate multiple live ATAS charts.",
+          "examples": [
+            "NQM6-7fa31b2c"
+          ],
+          "title": "Chart Instance Id"
+        },
+        "adapter_version": {
+          "description": "Source adapter version.",
+          "examples": [
+            "0.1.0"
+          ],
+          "title": "Adapter Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "system",
+        "instance_id",
+        "adapter_version"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    },
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "Standalone replay-workbench packet used by the future UI and AI review loop.",
+  "properties": {
+    "schema_version": {
+      "description": "Payload schema version.",
+      "examples": [
+        "1.0.0"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "replay_snapshot_id": {
+      "description": "Replay packet identifier.",
+      "examples": [
+        "replay-20260317-nq-europe-01"
+      ],
+      "title": "Replay Snapshot Id",
+      "type": "string"
+    },
+    "cache_key": {
+      "description": "Stable cache key used to decide whether the replay packet should be reused or reacquired.",
+      "examples": [
+        "NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z"
+      ],
+      "title": "Cache Key",
+      "type": "string"
+    },
+    "acquisition_mode": {
+      "$ref": "#/$defs/ReplayAcquisitionMode",
+      "description": "Whether the packet came from local cache reuse or a fresh ATAS acquisition."
+    },
+    "created_at": {
+      "description": "When the replay packet was generated.",
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceRef",
+      "description": "Source metadata."
+    },
+    "instrument": {
+      "$ref": "#/$defs/InstrumentRef",
+      "description": "Instrument metadata."
+    },
+    "display_timeframe": {
+      "$ref": "#/$defs/Timeframe",
+      "description": "Primary bar timeframe used by the UI replay chart."
+    },
+    "window_start": {
+      "description": "Inclusive replay window start.",
+      "format": "date-time",
+      "title": "Window Start",
+      "type": "string"
+    },
+    "window_end": {
+      "description": "Inclusive replay window end.",
+      "format": "date-time",
+      "title": "Window End",
+      "type": "string"
+    },
+    "cache_policy": {
+      "$ref": "#/$defs/ReplayCachePolicy",
+      "description": "Cache policy controlling replay reacquisition and verification cadence."
+    },
+    "verification_state": {
+      "$ref": "#/$defs/ReplayVerificationState",
+      "description": "Current verification state for this replay packet."
+    },
+    "candles": {
+      "description": "Reconstructed bar series used by the standalone replay UI.",
+      "items": {
+        "$ref": "#/$defs/ReplayChartBar"
+      },
+      "title": "Candles",
+      "type": "array"
+    },
+    "event_annotations": {
+      "description": "Structured event overlays rendered on the replay chart.",
+      "items": {
+        "$ref": "#/$defs/ReplayEventAnnotation"
+      },
+      "title": "Event Annotations",
+      "type": "array"
+    },
+    "focus_regions": {
+      "description": "High-priority regions highlighted for operator and AI review.",
+      "items": {
+        "$ref": "#/$defs/ReplayFocusRegion"
+      },
+      "title": "Focus Regions",
+      "type": "array"
+    },
+    "strategy_candidates": {
+      "description": "Strategy-library candidates attached to this replay window.",
+      "items": {
+        "$ref": "#/$defs/ReplayStrategyCandidate"
+      },
+      "title": "Strategy Candidates",
+      "type": "array"
+    },
+    "ai_briefing": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReplayAiBriefing"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional AI briefing assembled from events, focus regions, and strategy-library matches."
+    },
+    "raw_features": {
+      "additionalProperties": true,
+      "description": "Additional replay metadata such as history depth or ATAS workspace info.",
+      "title": "Raw Features",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "replay_snapshot_id",
+    "cache_key",
+    "acquisition_mode",
+    "created_at",
+    "source",
+    "instrument",
+    "display_timeframe",
+    "window_start",
+    "window_end"
+  ],
+  "title": "ReplayWorkbenchSnapshotPayload",
+  "type": "object"
+}

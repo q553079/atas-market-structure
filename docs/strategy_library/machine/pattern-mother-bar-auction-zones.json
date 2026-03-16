@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-mother-bar-auction-zones",
+  "title": "Mother Bar Auction Zones",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/mother_bar_auction_zones.md",
+  "instrument_scope": ["NQ", "ES"],
+  "session_scope": ["europe", "us_premarket", "us_regular"],
+  "timeframe_scope": ["intraday_bias", "setup_context", "execution_context"],
+  "preferred_presets": ["focus_regions", "recent_20_bars", "recent_20_minutes"],
+  "context_tags": ["mother_bar", "inside_bar_auction", "trap_zone", "range_fade", "leg_context"],
+  "event_kinds": ["initiative_drive", "significant_liquidity"],
+  "reason_codes": ["mother_bar_auction", "mother_bar_trap_zone", "mother_bar_context_switch", "mother_bar_breakout_confirmation"],
+  "focus_questions": [
+    "Is the Mother Bar sitting inside a trading range, early trend continuation, or third-leg exhaustion?",
+    "Did price test an outer zone or trap zone, or is the operator trying to trade the middle of the micro-auction?"
+  ],
+  "summary": {
+    "thesis": "A Mother Bar is a micro-auction map, not a universal trigger. Its outer zones, trap zones, and breakout odds only make sense after environment is classified.",
+    "operator_translation": "Do not trade the Mother Bar blindly. First decide whether the environment wants range fade, trend continuation, or late-leg reversal.",
+    "ai_usage_note": "Use this card when price is compressing inside a Mother Bar and the AI needs to explain which side of the range is actionable and which side should be suppressed.",
+    "ai_brief": "Environment: a Mother Bar defines a short-term micro-auction inside range, early trend pullback, or late wedge context. Required evidence: clear Mother Bar, context classification, and test of an outer zone or accepted breakout. Do not trade: from the middle of the range or by fading an already accepted breakout. Real trigger: outer-zone rejection in range context, trend-side hold in leg-one/leg-two context, or accepted breakout after competition-point confirmation. Failure point: context was misread or outside trade is clearly accepted against the chosen script."
+  },
+  "when_relevant": [
+    "A Mother Bar plus inside balance is defining a temporary micro-auction.",
+    "The operator needs to know whether to fade the edge, continue with trend, or prepare for late-leg reversal.",
+    "Price is approaching outer zones or competition points rather than remaining in the middle."
+  ],
+  "required_evidence": [
+    "a clear Mother Bar defines the range being used",
+    "the environment can be classified as trading range, early trend, or late third-leg exhaustion",
+    "price tests an outer zone, trap zone, or accepted breakout condition instead of only hovering in the middle"
+  ],
+  "confirmation_signals": [
+    "outer-zone tests reject cleanly when the broader context is range-like",
+    "trend-side zone holds during leg-one or leg-two continuation context",
+    "body closes beyond the key competition point and later outside-hold quality supports breakout continuation"
+  ],
+  "invalidation_signals": [
+    "the market keeps trading in the middle of the mother range with no edge",
+    "range-fade logic is being used while outside trade is already accepted",
+    "the environment classification was wrong and the chosen side loses contextual support"
+  ],
+  "no_trade_conditions": [
+    "Do not open from the middle of the Mother Bar range.",
+    "Do not apply range-fade logic if the market is already accepting outside the Mother Bar.",
+    "Do not ignore whether the market is in early trend, late wedge, or plain chop."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "outer-zone range fade",
+      "description": "Enter from the outer trap zone when range context supports rejection back into the auction.",
+      "risk_note": "Avoid if body closes and outside-hold quality start proving breakout acceptance."
+    },
+    {
+      "name": "trend-side mother bar hold",
+      "description": "Enter from the trend-side zone when a leg-one or leg-two pullback uses the Mother Bar as continuation structure.",
+      "risk_note": "Avoid if the pullback is already deep enough to question continuation."
+    },
+    {
+      "name": "accepted mother bar breakout",
+      "description": "Enter after competition-point confirmation and accepted outside trade beyond the Mother Bar.",
+      "risk_note": "Avoid if breakout is only a poke and not an accepted outside branch."
+    }
+  ],
+  "management_notes": [
+    "The Mother Bar is a map, not a trade by itself.",
+    "The middle of the Mother Bar is usually poor location until breakout acceptance becomes clear.",
+    "As context shifts from range to trend or from trend to exhaustion, the valid side of the Mother Bar shifts too."
+  ],
+  "review_questions": [
+    "Was the Mother Bar interpreted in the correct environment?",
+    "Did the operator trade an outer zone with edge, or the middle of the micro-auction?",
+    "Was breakout assumed before body closes and outside-hold quality proved it?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.76,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": ["mother_bar_auction", "mother_bar_trap_zone", "mother_bar_context_switch", "mother_bar_breakout_confirmation"],
+      "focus_region_role_any": ["support", "resistance", "pivot", "range_edge", "opening_zone"]
+    },
+    "disqualifiers": ["mother_bar_middle_only", "outside_trade_already_accepted_against_script"],
+    "focus_region_bias": ["support", "resistance", "pivot", "range_edge", "opening_zone"],
+    "entry_review_bias": ["trading_mother_bar_middle", "wrong_context_for_mother_bar", "assuming_breakout_before_acceptance"]
+  }
+}

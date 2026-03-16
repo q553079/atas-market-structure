@@ -1,0 +1,295 @@
+{
+  "$defs": {
+    "ReplayAiEntryReview": {
+      "description": "AI review over one operator-recorded entry inside the replay window.",
+      "properties": {
+        "entry_id": {
+          "description": "Operator-entry identifier being reviewed.",
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "Compact verdict such as valid, weak, late, or avoid.",
+          "title": "Verdict",
+          "type": "string"
+        },
+        "context_alignment_score": {
+          "description": "How well the entry aligned with broader and local context.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Context Alignment Score",
+          "type": "number"
+        },
+        "rationale": {
+          "description": "Evidence supporting the verdict.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Rationale",
+          "type": "array"
+        },
+        "mistakes": {
+          "description": "Specific mistakes or weaknesses in the entry.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Mistakes",
+          "type": "array"
+        },
+        "better_conditions": {
+          "description": "What the operator should have waited for instead.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Better Conditions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entry_id",
+        "verdict",
+        "context_alignment_score"
+      ],
+      "title": "ReplayAiEntryReview",
+      "type": "object"
+    },
+    "ReplayAiInvalidationReview": {
+      "description": "AI-specified invalidation level tied to the replay context.",
+      "properties": {
+        "label": {
+          "description": "Short invalidation label.",
+          "title": "Label",
+          "type": "string"
+        },
+        "price": {
+          "description": "Invalidation price.",
+          "title": "Price",
+          "type": "number"
+        },
+        "reason": {
+          "description": "Why a break of this price matters.",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "price",
+        "reason"
+      ],
+      "title": "ReplayAiInvalidationReview",
+      "type": "object"
+    },
+    "ReplayAiReviewContent": {
+      "description": "Structured AI output returned for one replay packet.",
+      "properties": {
+        "narrative_summary": {
+          "description": "Compact narrative summary of the replay context.",
+          "title": "Narrative Summary",
+          "type": "string"
+        },
+        "key_zones": {
+          "description": "Ranked support, resistance, or pivot zones.",
+          "items": {
+            "$ref": "#/$defs/ReplayAiZoneReview"
+          },
+          "title": "Key Zones",
+          "type": "array"
+        },
+        "script_review": {
+          "$ref": "#/$defs/ReplayAiScriptReview",
+          "description": "Continuation versus reversal review."
+        },
+        "entry_reviews": {
+          "description": "Per-entry review for operator-recorded openings.",
+          "items": {
+            "$ref": "#/$defs/ReplayAiEntryReview"
+          },
+          "title": "Entry Reviews",
+          "type": "array"
+        },
+        "invalidations": {
+          "description": "Invalidation levels to monitor.",
+          "items": {
+            "$ref": "#/$defs/ReplayAiInvalidationReview"
+          },
+          "title": "Invalidations",
+          "type": "array"
+        },
+        "no_trade_guidance": {
+          "description": "Conditions or zones where the operator should avoid opening.",
+          "items": {
+            "type": "string"
+          },
+          "title": "No Trade Guidance",
+          "type": "array"
+        },
+        "unresolved_conflicts": {
+          "description": "Conflicts or ambiguities the operator should watch.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Unresolved Conflicts",
+          "type": "array"
+        },
+        "operator_focus": {
+          "description": "Short operator-facing reminders.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Operator Focus",
+          "type": "array"
+        }
+      },
+      "required": [
+        "narrative_summary",
+        "script_review"
+      ],
+      "title": "ReplayAiReviewContent",
+      "type": "object"
+    },
+    "ReplayAiScriptReview": {
+      "description": "AI comparison of continuation and reversal scripts for the replay window.",
+      "properties": {
+        "preferred_script": {
+          "description": "Preferred script label, for example continuation, reversal, or neutral.",
+          "title": "Preferred Script",
+          "type": "string"
+        },
+        "continuation_case": {
+          "description": "Evidence supporting the continuation case.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Continuation Case",
+          "type": "array"
+        },
+        "reversal_case": {
+          "description": "Evidence supporting the reversal case.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Reversal Case",
+          "type": "array"
+        },
+        "preferred_rationale": {
+          "description": "Why the preferred script currently dominates.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Preferred Rationale",
+          "type": "array"
+        }
+      },
+      "required": [
+        "preferred_script"
+      ],
+      "title": "ReplayAiScriptReview",
+      "type": "object"
+    },
+    "ReplayAiZoneReview": {
+      "description": "AI-ranked key zone derived from replay context.",
+      "properties": {
+        "label": {
+          "description": "Short label for the reviewed zone.",
+          "title": "Label",
+          "type": "string"
+        },
+        "zone_low": {
+          "description": "Lower zone boundary.",
+          "title": "Zone Low",
+          "type": "number"
+        },
+        "zone_high": {
+          "description": "Upper zone boundary.",
+          "title": "Zone High",
+          "type": "number"
+        },
+        "role": {
+          "description": "Zone role such as support, resistance, pivot, or liquidity magnet.",
+          "title": "Role",
+          "type": "string"
+        },
+        "strength_score": {
+          "description": "AI-ranked zone strength.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Strength Score",
+          "type": "number"
+        },
+        "evidence": {
+          "description": "Observed evidence backing the zone.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "zone_low",
+        "zone_high",
+        "role",
+        "strength_score"
+      ],
+      "title": "ReplayAiZoneReview",
+      "type": "object"
+    }
+  },
+  "description": "Stored result of an AI review over one replay-workbench packet.",
+  "properties": {
+    "ingestion_id": {
+      "description": "Stored AI-review ingestion identifier.",
+      "title": "Ingestion Id",
+      "type": "string"
+    },
+    "replay_ingestion_id": {
+      "description": "Replay-workbench ingestion identifier reviewed by the model.",
+      "title": "Replay Ingestion Id",
+      "type": "string"
+    },
+    "replay_snapshot_id": {
+      "description": "Replay snapshot identifier reviewed by the model.",
+      "title": "Replay Snapshot Id",
+      "type": "string"
+    },
+    "stored_at": {
+      "description": "Persistence timestamp.",
+      "format": "date-time",
+      "title": "Stored At",
+      "type": "string"
+    },
+    "provider": {
+      "description": "AI provider identifier.",
+      "title": "Provider",
+      "type": "string"
+    },
+    "model": {
+      "description": "Model name used to generate the review.",
+      "title": "Model",
+      "type": "string"
+    },
+    "review": {
+      "$ref": "#/$defs/ReplayAiReviewContent",
+      "description": "Structured AI review content."
+    },
+    "raw_text": {
+      "description": "Provider raw text output preserved for debugging and audit.",
+      "title": "Raw Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ingestion_id",
+    "replay_ingestion_id",
+    "replay_snapshot_id",
+    "stored_at",
+    "provider",
+    "model",
+    "review",
+    "raw_text"
+  ],
+  "title": "ReplayAiReviewResponse",
+  "type": "object"
+}

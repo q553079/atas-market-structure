@@ -1,0 +1,134 @@
+{
+  "schema_version": "1.0.0",
+  "message_id": "collector-history-footprint-20260317090100000-chunk-000",
+  "message_type": "history_footprint",
+  "emitted_at": "2026-03-17T09:01:00Z",
+  "observed_window_start": "2026-03-17T08:59:00Z",
+  "observed_window_end": "2026-03-17T09:00:59Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "chart_instance_id": "NQ-03d4a876",
+    "adapter_version": "0.10.0-shell"
+  },
+  "instrument": {
+    "symbol": "NQ",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "batch_id": "history-footprint-nq-20260317090100",
+  "bar_timeframe": "1m",
+  "chunk_index": 0,
+  "chunk_count": 1,
+  "bars": [
+    {
+      "started_at": "2026-03-17T08:59:00Z",
+      "ended_at": "2026-03-17T08:59:59Z",
+      "open": 21502.75,
+      "high": 21504.0,
+      "low": 21502.5,
+      "close": 21503.5,
+      "volume": 230,
+      "delta": 71,
+      "bid_volume": 79,
+      "ask_volume": 151,
+      "price_levels": [
+        {
+          "price": 21502.5,
+          "bid_volume": 18,
+          "ask_volume": 12,
+          "total_volume": 30,
+          "delta": -6,
+          "trade_count": 4
+        },
+        {
+          "price": 21502.75,
+          "bid_volume": 14,
+          "ask_volume": 22,
+          "total_volume": 36,
+          "delta": 8,
+          "trade_count": 5
+        },
+        {
+          "price": 21503.0,
+          "bid_volume": 19,
+          "ask_volume": 46,
+          "total_volume": 65,
+          "delta": 27,
+          "trade_count": 7
+        },
+        {
+          "price": 21503.25,
+          "bid_volume": 11,
+          "ask_volume": 29,
+          "total_volume": 40,
+          "delta": 18,
+          "trade_count": 5
+        },
+        {
+          "price": 21503.5,
+          "bid_volume": 7,
+          "ask_volume": 42,
+          "total_volume": 49,
+          "delta": 35,
+          "trade_count": 6
+        }
+      ]
+    },
+    {
+      "started_at": "2026-03-17T09:00:00Z",
+      "ended_at": "2026-03-17T09:00:59Z",
+      "open": 21503.5,
+      "high": 21504.75,
+      "low": 21503.0,
+      "close": 21504.25,
+      "volume": 220,
+      "delta": 60,
+      "bid_volume": 80,
+      "ask_volume": 140,
+      "price_levels": [
+        {
+          "price": 21503.0,
+          "bid_volume": 20,
+          "ask_volume": 14,
+          "total_volume": 34,
+          "delta": -6,
+          "trade_count": 4
+        },
+        {
+          "price": 21503.25,
+          "bid_volume": 16,
+          "ask_volume": 28,
+          "total_volume": 44,
+          "delta": 12,
+          "trade_count": 5
+        },
+        {
+          "price": 21503.5,
+          "bid_volume": 13,
+          "ask_volume": 35,
+          "total_volume": 48,
+          "delta": 22,
+          "trade_count": 6
+        },
+        {
+          "price": 21503.75,
+          "bid_volume": 10,
+          "ask_volume": 33,
+          "total_volume": 43,
+          "delta": 23,
+          "trade_count": 5
+        },
+        {
+          "price": 21504.0,
+          "bid_volume": 8,
+          "ask_volume": 30,
+          "total_volume": 38,
+          "delta": 22,
+          "trade_count": 4
+        }
+      ]
+    }
+  ]
+}

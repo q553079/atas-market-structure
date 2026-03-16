@@ -7,6 +7,7 @@ Phase 1 infrastructure for a local ATAS market structure analysis service.
 - Receive `market structure` snapshots every 10 minutes.
 - Receive additional `event snapshot` payloads on critical events.
 - Optionally receive `process context` spanning seconds, liquidity episodes, and cross-session sequences.
+- Record initiative-drive and exertion-zone context so later analysis can reason about who pushed, where they pushed from, and what happened on revisit.
 - Optionally receive `depth snapshot` payloads and retain only significant large-order memory for 3 days.
 - Validate payloads with a stable schema.
 - Persist observed facts and derived interpretation separately.
@@ -20,12 +21,23 @@ This phase does **not** include auto-trading logic.
 - `src/atas_market_structure/models.py`: stable payload and analysis contracts
 - `src/atas_market_structure/repository.py`: SQLite persistence
 - `src/atas_market_structure/services.py`: recognition and routing skeleton
+- `src/atas_market_structure/adapter_services.py`: adapter payload storage plus automatic bridge into durable market-structure and event-snapshot ingestions
+- `src/atas_market_structure/adapter_bridge.py`: synthetic adapter-to-domain bridge for durable snapshots
 - `src/atas_market_structure/depth_services.py`: elastic depth tracking and 3-day large-order memory
 - `src/atas_market_structure/app.py`: REST request dispatcher
 - `src/atas_market_structure/server.py`: local HTTP server
 - `docs/architecture.md`: process-aware multi-time-cycle architecture
+- `docs/market_script_driven_architecture.md`: market-script-driven design doctrine for environment, key zones, and live reaction
+- `docs/fabio_system_absorption_checklist.md`: Fabio line distilled into system-design doctrine
+- `docs/shuyin_gap_fill_system_absorption_checklist.md`: gap-fill opening-auction doctrine for index futures
+- `docs/atas_required_fields_checklist.md`: concrete ATAS collector field checklist mapped to current domain objects and pattern coverage
+- `docs/atas_adapter_payload_contract.md`: formal adapter-facing payload contract for continuous state, trigger bursts, and durable snapshots
+- `docs/replay_workbench_architecture.md`: standalone replay UI architecture for 3-7 day windows, event overlays, strategy-library matching, and AI briefing
+- `docs/strategy_library/README.md`: local video and creator doctrine library
+- `src-csharp/README.md`: ATAS-side C# collector build notes and current runtime intent
 - `schemas/`: generated JSON schema files
 - `samples/`: example request payloads
+  - includes adapter contract examples such as `atas_adapter.continuous_state.sample.json` and `atas_adapter.trigger_burst.sample.json`
 - `tests/`: minimal regression tests
 
 ## Run (PowerShell)
@@ -43,6 +55,39 @@ $env:PYTHONPATH = "$PWD\src"
 python -m atas_market_structure.server
 ```
 
+Or start it in the background with log files:
+
+```powershell
+.\scripts\start-service-background.ps1
+```
+
+Start the whole local stack for replay review:
+
+```powershell
+.\scripts\start-atas-workbench.ps1 -AtasExePath "C:\Path\To\OFT.Platform.exe"
+```
+
+What the launcher does:
+- deploy the latest collector DLL
+- start the backend service
+- wait for `/health`
+- open the replay workbench page
+- start ATAS if `-AtasExePath` or `ATAS_EXE_PATH` is configured
+- wait for the first fresh `adapter_continuous_state` message
+
+Stop the background server:
+
+```powershell
+.\scripts\stop-service.ps1
+```
+
+Report dirty pre-fix adapter samples and, if needed, remove them after creating a backup:
+
+```powershell
+python .\tools\cleanup_dirty_adapter_samples.py
+python .\tools\cleanup_dirty_adapter_samples.py --apply
+```
+
 The server listens on `http://127.0.0.1:8080`.
 
 ## Example Requests
@@ -52,6 +97,20 @@ Health check:
 ```powershell
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8080/health
 ```
+
+Open the standalone replay workbench UI:
+
+```text
+http://127.0.0.1:8080/workbench/replay
+```
+
+Replay Workbench page actions:
+- `Build / Reuse Replay`: build from cache or local adapter history
+- `记录开仓`: bind one operator entry to the current replay packet
+- `AI 分析`: send the current replay packet to the backend AI briefing/review flow
+- `AI Chat`: run preset or free-form replay chat against strategy-library cards, replay events, and live adapter context
+- `Lookup Cache`: inspect replay cache state
+- `Invalidate Cache`: force manual invalidation before reimport
 
 Ingest a market structure snapshot:
 
@@ -89,6 +148,139 @@ List active large-order memory:
 Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/liquidity-memory?symbol=ESM6"
 ```
 
+Ingest an adapter continuous-state message:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/adapter/continuous-state `
+  -ContentType "application/json" `
+  -InFile .\samples\atas_adapter.continuous_state.sample.json
+```
+
+The response now includes:
+- raw adapter `ingestion_id`
+- `durable_outputs` with synthetic `market_structure` ingestion and analysis ids
+- `bridge_errors` if raw storage succeeded but durable bridging failed
+
+Ingest an adapter trigger-burst message:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/adapter/trigger-burst `
+  -ContentType "application/json" `
+  -InFile .\samples\atas_adapter.trigger_burst.sample.json
+```
+
+The response now includes:
+- raw adapter `ingestion_id`
+- `durable_outputs` with synthetic `event_snapshot` ingestion and analysis ids
+- `bridge_errors` if raw storage succeeded but durable bridging failed
+
+Store a replay-workbench packet for the future standalone UI:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-snapshots `
+  -ContentType "application/json" `
+  -InFile .\samples\replay_workbench.snapshot.sample.json
+```
+
+Build or reuse a replay-workbench packet from cache and local adapter history:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-builder/build `
+  -ContentType "application/json" `
+  -InFile .\samples\replay_workbench.build_request.sample.json
+```
+
+Run AI review for one stored replay-workbench packet:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-ai-review `
+  -ContentType "application/json" `
+  -InFile .\samples\replay_workbench.ai_review_request.sample.json
+```
+
+AI review requires:
+- `OPENAI_API_KEY`
+- optional `OPENAI_BASE_URL`
+- optional `ATAS_MS_AI_PROVIDER`
+- optional `ATAS_MS_AI_MODEL`
+- optional `ATAS_MS_AI_TIMEOUT_SECONDS`
+
+Run one replay AI chat turn:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-ai-chat `
+  -ContentType "application/json" `
+  -InFile .\samples\replay_workbench.ai_chat_request.sample.json
+```
+
+The replay AI chat flow now reads machine-readable strategy cards from:
+- `docs/strategy_library/strategy_index.json`
+- `docs/strategy_library/cards/*.json`
+
+It filters cards by:
+- replay `strategy_candidates`
+- instrument symbol
+- selected chat preset
+
+Record one operator entry against the current replay packet:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/workbench/operator-entries `
+  -ContentType "application/json" `
+  -InFile .\samples\replay_workbench.operator_entry.sample.json
+```
+
+List recorded operator entries for one replay packet:
+
+```powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri "http://127.0.0.1:8080/api/v1/workbench/operator-entries?replay_ingestion_id=<INGESTION_ID>"
+```
+
+Local AI provider profile:
+- `.env.local.ps1` is loaded automatically by `start-service-background.ps1`
+- current active profile is `deepseek`
+- `claude_third_party` is scaffolded as a second profile for an OpenAI-compatible Claude gateway
+
+Replay workbench caching policy:
+- only fetch from ATAS when the local replay packet is missing
+- verify cached replay packets at most once per day
+- after 3 successful verification passes, keep the replay packet durable until manual invalidation
+- reacquisition after invalidation is manual by design
+
+Look up the current replay cache state for one window:
+
+```powershell
+Invoke-RestMethod `
+  -Method Get `
+  -Uri "http://127.0.0.1:8080/api/v1/workbench/replay-cache?cache_key=NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z"
+```
+
+Manually invalidate one replay cache record:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-cache/invalidate `
+  -ContentType "application/json" `
+  -Body '{"cache_key":"NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z","invalidation_reason":"operator requested replay refresh"}'
+```
+
 ## Tests
 
 If `pytest` is installed:
@@ -96,6 +288,18 @@ If `pytest` is installed:
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
 python -m pytest
+```
+
+## Build The ATAS Collector
+
+```powershell
+dotnet build .\src-csharp\AtasMarketStructure.Adapter\AtasMarketStructure.Adapter.csproj
+```
+
+Deploy the freshly built collector into `%APPDATA%\ATAS\Indicators`:
+
+```powershell
+.\scripts\deploy-collector.ps1 -WaitForAtasExit
 ```
 
 ## Docker
@@ -114,4 +318,8 @@ The container stores SQLite data in `.\data` on the host.
 - Observed facts are stored as the validated payload JSON.
 - Derived interpretation is stored as a separate analysis record for future replay or backtest pipelines.
 - `process_context` is optional, but it is the intended bridge from second-level heatmaps and cross-session build/release behavior into the same analysis contract.
+- `process_context` can now also carry `initiative_drives` and `exertion_zones`, which are the minimum viable objects for tracking aggressive effort, consumption, historical push zones, re-engagement, and trapped-inventory watch scenarios.
+- the adapter layer now accepts low-latency `continuous_state` and `trigger_burst` payloads and automatically bridges them into durable higher-level snapshots for the existing recognizer stack.
+- Derived analysis now emits `key_levels`, which is the current support and resistance view built from exertion zones, revisit behavior, and post-break follow-through.
 - `depth snapshot` ingestion is elastic: if DOM or depth data is unavailable, the rest of the system still runs; once depth resumes, only significant large-order tracks are retained as 3-day memory instead of storing the full order book.
+- replay-workbench packets are now cache-aware: they carry explicit acquisition mode, verification state, and the lock-after-3-verifications policy required for longer-lived historical review windows.

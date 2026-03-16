@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "ReplayAiChatPreset": {
+      "enum": [
+        "general",
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions",
+        "trapped_large_orders",
+        "live_depth"
+      ],
+      "title": "ReplayAiChatPreset",
+      "type": "string"
+    }
+  },
+  "description": "Stored result of one replay-workbench AI conversation turn.",
+  "properties": {
+    "ingestion_id": {
+      "description": "Stored AI-chat ingestion identifier.",
+      "title": "Ingestion Id",
+      "type": "string"
+    },
+    "replay_ingestion_id": {
+      "description": "Replay-workbench ingestion identifier.",
+      "title": "Replay Ingestion Id",
+      "type": "string"
+    },
+    "replay_snapshot_id": {
+      "description": "Replay snapshot identifier.",
+      "title": "Replay Snapshot Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "description": "Persistence timestamp.",
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "provider": {
+      "description": "AI provider identifier.",
+      "title": "Provider",
+      "type": "string"
+    },
+    "model": {
+      "description": "Model name used to generate the answer.",
+      "title": "Model",
+      "type": "string"
+    },
+    "preset": {
+      "$ref": "#/$defs/ReplayAiChatPreset",
+      "description": "Preset analysis lens used for this turn."
+    },
+    "request_message": {
+      "description": "Latest user prompt submitted for this turn.",
+      "title": "Request Message",
+      "type": "string"
+    },
+    "reply_text": {
+      "description": "Assistant reply shown in the UI.",
+      "title": "Reply Text",
+      "type": "string"
+    },
+    "live_context_summary": {
+      "description": "Short live-context facts attached to this turn.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Live Context Summary",
+      "type": "array"
+    },
+    "referenced_strategy_ids": {
+      "description": "Strategy-library candidates considered for this turn.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Referenced Strategy Ids",
+      "type": "array"
+    },
+    "follow_up_suggestions": {
+      "description": "Suggested follow-up prompts for the operator.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Follow Up Suggestions",
+      "type": "array"
+    },
+    "raw_text": {
+      "description": "Provider raw text output preserved for debugging and audit.",
+      "title": "Raw Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ingestion_id",
+    "replay_ingestion_id",
+    "replay_snapshot_id",
+    "generated_at",
+    "provider",
+    "model",
+    "preset",
+    "request_message",
+    "reply_text",
+    "raw_text"
+  ],
+  "title": "ReplayAiChatResponse",
+  "type": "object"
+}

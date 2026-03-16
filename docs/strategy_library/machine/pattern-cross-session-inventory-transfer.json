@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-cross-session-inventory-transfer",
+  "title": "Cross-Session Inventory Transfer",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/cross_session_inventory_transfer.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "cross_session"
+  ],
+  "timeframe_scope": [
+    "intraday_bias",
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "cross_session",
+    "inventory_transfer",
+    "session_handoff",
+    "inherited_control"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "post_harvest_response"
+  ],
+  "reason_codes": [
+    "cross_session_inventory_transfer",
+    "session_handoff_inherited_control",
+    "prior_session_inventory_correction",
+    "prior_session_zone_still_active"
+  ],
+  "focus_questions": [
+    "Did the new session inherit control from the prior session or begin correcting it?",
+    "Was the prior-session zone still active on first handoff interaction?"
+  ],
+  "summary": {
+    "thesis": "A new session often inherits unfinished control, trapped inventory, or active zones from the prior session rather than starting from zero.",
+    "operator_translation": "Do not read the new session in isolation when the prior-session build is still close and active.",
+    "ai_usage_note": "Use this card when the replay spans session handoff and prior-session zones remain relevant at the new open or first active rotation.",
+    "ai_brief": "Environment: one session hands off unfinished inventory or control into the next. Required evidence: a prior-session build or level near price, plus first handoff interaction showing inheritance or correction. Do not trade: if the new session opens too far away for prior inventory to matter or before handoff acceptance is known. Real trigger: first successful defense, continuation, or accepted correction through the inherited zone. Failure point: the prior-session zone proves irrelevant on first real interaction."
+  },
+  "when_relevant": [
+    "A prior session built a meaningful level, campaign, or trapped-inventory area.",
+    "The next session opens close enough for that prior work to matter.",
+    "The operator needs to know whether the new session inherits or corrects the old session's inventory."
+  ],
+  "required_evidence": [
+    "a prior-session level or build is still near current price",
+    "the new session interacts with that inherited zone early enough for handoff logic to matter",
+    "acceptance or rejection on the first handoff interaction can be reviewed"
+  ],
+  "confirmation_signals": [
+    "the new session opens close enough to the inherited zone for it to matter immediately",
+    "the first meaningful interaction proves whether the prior session side still controls the level",
+    "continuation or correction after the handoff is supported by real acceptance, not just the first burst"
+  ],
+  "invalidation_signals": [
+    "the new session opens too far away for prior-session inventory to matter",
+    "the inherited zone produces no outcome on first real interaction",
+    "the supposed handoff read ignores a complete session reset in location and context"
+  ],
+  "no_trade_conditions": [
+    "Do not assume the new session starts from zero when prior-session inventory is still nearby and active.",
+    "Do not force prior-session logic when the new session opens too far away for that inventory to matter.",
+    "Do not call inheritance or correction before the first meaningful handoff interaction shows acceptance or rejection."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "inherited defense",
+      "description": "Enter after the new session proves it is defending and using the prior-session level rather than ignoring it.",
+      "risk_note": "Avoid if defense is only visual and not yet producing outcome."
+    },
+    {
+      "name": "accepted correction through inherited zone",
+      "description": "Enter with correction after the new session accepts through the prior-session zone and invalidates inherited control.",
+      "risk_note": "Avoid if the move is only testing through with no acceptance."
+    }
+  ],
+  "management_notes": [
+    "Session handoff is strongest when the open occurs near a prior-session build, suppressor, or launchpad.",
+    "Inherited control is more credible after first defense or first accepted continuation, not before.",
+    "If the handoff fails quickly, prior-session work can become correction fuel rather than continuation support."
+  ],
+  "review_questions": [
+    "What exactly did the prior session hand off into the new one: control, trapped inventory, or only a visible level?",
+    "Did the new session inherit and use that inventory, or immediately start correcting it?",
+    "Was the trade opened before the session handoff actually showed who was in control?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.7,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "cross_session_inventory_transfer",
+        "session_handoff_inherited_control",
+        "prior_session_inventory_correction"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "session_handoff_zone"
+      ]
+    },
+    "disqualifiers": [
+      "session_gap_too_far_from_prior_work",
+      "no_meaningful_handoff_interaction"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "session_handoff_zone"
+    ],
+    "entry_review_bias": [
+      "reading_new_session_in_isolation",
+      "forcing_prior_session_logic_from_far_away",
+      "trading_before_handoff_resolution"
+    ]
+  }
+}

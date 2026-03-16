@@ -1,0 +1,92 @@
+[
+  {
+    "page": 1,
+    "char_count": 716,
+    "text": "交易的灰度与确定性：\n爆仓大王的市场逻辑\n3,28\nS.28\n$.38\n$.09\n5:23\n3.28\n$,23\n4.65\n$.26\n1.23\n3.80 4.86\ns.33\n4:.68\n1.65\n5.23\n3.50\n0.89 5.27\n5:35\n3.89\n3.75\n深度解析树隐直播精华：\non 4.23\n1.08\nS.23\n1.36\nS.42\n6.20\n1.75\n1.88\n$.33\n0.03\n1.26\n1.85\n5.83\n1.52\n$.2S\n1.20\n1.85\nS:2S\n1.36\n1.88\n3.38\n1.93\n从期权库存到订单流实战\n8.23\n0..58\n1.37\n0.\n$120\n$.23\n8.56\n1.85\nS.25\n1.50\n1.99\n8:22\n3.6\n1.73\nS:26\n5.83\n8126\n1.99\n2080\n3126\n1.89\n3.85\n1.05\n$:28\n0325\n.93\n3.33\n2.3\n1.05\n3:373.60\n6.3\n1.85\n1.03\n$.29 9.00\n6.3\n3:3612-30\n1.88\n3:252.20\n3.93\n1.5\n3.323.00\n1,05\n3:379.60\n1.95\n3.268.30\n1.05\n1.50\n3:26505\n$:28S:26\n交易是一个灰度的东西如果你在寻\n1.05\n1.88\n3.255.05\n3.293.00\n1.09\n3.293.00\n1.09\n3:253.86\n3.85\n找100%的确定性，你已经输了。\n$:233.20\n1.03\n3.321.70\n1.81\n3.33\n1.03\n3.49\n2.05\n3.40\n1.02\n3.49\n1.57\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_01.png"
+  },
+  {
+    "page": 2,
+    "char_count": 201,
+    "text": "核心哲学：交易没有圣杯，只有'灰度\n入场时机\n你的预期\n市场反应\n(Entry Signal)\n(YourExpectation)\n(MarketReaction)\n打破幻想\n灰度博奔\n核心逻辑\n不要预测未来。要在不确定的\n只有当'剧本'与现场发生共振\n如果你在寻找100%的确定性，\n你已经翁了。市场本后是不确\n环境中寻找大概率的重叠。\n时，才是真正的交易机会。\n定的概率博奔。\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_02.png"
+  },
+  {
+    "page": 3,
+    "char_count": 162,
+    "text": "交易的一体两面：剧本与应对\n上半部书：盘前分析 (The Setup)\n下半部书：盘中执行(The Reaction)\n(震荡vs趋势)\n预测今日走势\n观察订单流反应\n，确认入场信号\n计算多空概率\n标记关键区域 (Key Zones)\n设定止损与止盈\n这是大多数人沉迷的部分。\n这是大多数人缺失的部分。\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_03.png"
+  },
+  {
+    "page": 4,
+    "char_count": 202,
+    "text": "第一幕：每一周的行情都在讲一个连续的故事\n周一 (Mon)\n周三 (Wed)\n周四 (Thu)\n周五 (Fri)\n周二 (Tue)\n铺垫与筹码分布（Setup）\n震荡与吸收（Chop/Absorption）\n高潮/爆发（Climax）\n利用前几日的震荡作\n观察早期筹码堆积。\n不要只看单日K线，这是为爆发做准备。\n为燃料。\n警示：3\n如果你只看ATAS搞动能，不管背景，你只是在赌博\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_04.png"
+  },
+  {
+    "page": 5,
+    "char_count": 279,
+    "text": "Exposure）决定环境\n看不见的手：期权库存\n(Gamma\nES(标普）白\n的核心驱动并非仅仅是K线，而是期权做市商的对冲行为。\n库存环境决定了你是该\"高抛低吸\"还是\"追涨杀跌\"。\n7050+\n正Gamma (Positive GEX)-垃圾时间\nCall Wall\n高抛低吸，行情粘滞，机器震荡。\n7000\nCall Wall\n6986\n负Gamma(Negative GEX)-趋势加速\n6950+\n波动率放大，多空双杀。\nPut Wall\nPut Wall\n6900+\nPut Wall\n68501\nOptions Walls\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_05.png"
+  },
+  {
+    "page": 6,
+    "char_count": 216,
+    "text": "第二幕：透过K线看本质\n(微观订单流)\n订单流是你的扳机，是你的瞄准镜。\n吸收(Absorption)\n真空(Vacuum)\n陷阱 (The Trap)\n50\n10\n30\n30\n1500\n30\n1200\n800\n1000\n750\n200\n150\n10\n10\n10\n价格不涨，卖单狂砸。被动\n突破挤压区(Squeeze)后，流\n突破失败。被套的多头成为下\n跌的燃料。\n买单吸收主动卖单。\n动性枯竭，价格瞬间穿越。\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_06.png"
+  },
+  {
+    "page": 7,
+    "char_count": 228,
+    "text": "FinancialJournalBlueprint\n具体工具：未完成拍卖\n(Unfinished Auctions)\n作为止盈目标\n未完成拍卖（Unfinished Auction)\n(Take Profit)\n不要作为反转进场信号！\n未完成拍卖（UnfinishedAuction）\n(趋势常以此开始)\n(1:1)。\n定义：M5周期上的买/卖失衡点\n，逻辑：市场倾向于回补效率低下的区域，但不是立即回补。如果以此逆势进场，会被深套。\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_07.png"
+  },
+  {
+    "page": 8,
+    "char_count": 284,
+    "text": "FinancialJournalBlueprint\n心理博奔：缺口回补（Gap Fill)\n的双向收割\n1.劝退 (Dissuasion)\n2. 诱敌 (The Trap)\n3. 收割 (The Kill)\n让空头以为缺口不会补。\nPrice aggressively rallies back\nPrice reverses, breaks\nup, fills the gap completely.\nthe previous low.\n(Pivot + Gap Fill)。利用Gap Fill制造假象，先杀多头，再杀空头\n案例：ES 6961\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_08.png"
+  },
+  {
+    "page": 9,
+    "char_count": 264,
+    "text": "Financial Journal Blueprint\n跨品种联动：看着ES做NQ\nES (标普 S&P 500)\n·为什么？NQ噪音太大，结构\nData: JetBrains Mono\n不清。ES流动性更强，期权\n结构更清晰。\nGEXWall\n·策略：当ES触碰关键期权位\nClean Technical Bounce\n时，往往是NQ的最佳反转\n点。\nNQ (纳指 Nasdaq)\nData: JetBrains Mono\nMNQ技巧：观察微型合约\n(MNQ)有时更能看清散户与\n机器人的痕迹。\nTime\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_09.png"
+  },
+  {
+    "page": 10,
+    "char_count": 306,
+    "text": "FinancialJournalBlueprint\n实战复盘：黄金（GC）交割日的真空杀跌\nZone 3 (Top Target)\n16-23 (流动性池)\nZone 2 (Middle)\n85\n85 (Squeeze Point)\n多头放弃->价格真空（Vacuum）->直奔空头止盈位\nZone 1 (Bottom)\n31-50（流动性搭）\n31-50\n(JetBrains Mono)\n09:28\n21:1 (JetBrains Mono)\n09:27\n09:11\n09:18\n13:08\n18:28\nInsight:\n一旦Squeeze区域被突破，且上方无筹码阻挡，价格将瞬间穿越。\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_10.png"
+  },
+  {
+    "page": 11,
+    "char_count": 274,
+    "text": "Financial Journal Blueprint\n警示案例：白银博奔与贪婪代价\nEquity Curve (Account Balance)\nData:JetBrains Mono\n贪婪目标：$20,000\nJetBrains Mono\n·逻辑：突破后的二腿\n浮盈$6.000+\n（极窄止损博奔）\n(Second Leg)\n预期。\nJetBrains Mono\n·教训：这种极高盈亏比的交\n易本质是“赌”。浮盈加仓\n会放大想平仓的欲望，最终\n导致心态崩溃。\n爆仓(Liquidation)\nJetBrains Mono\n@NotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_11.png"
+  },
+  {
+    "page": 12,
+    "char_count": 136,
+    "text": "FinancialJournalBlueprint\n识别\"垃圾时间\"：机器人的绞肉机\n特征：窄幅震荡，毫无规律\n的上下影线。\n高频机器翼法（HFTAlgorithms）－正Gamma环境\n策略：不做。怎么分析一\n坨垃圾？你没法分析。去\n下棋，去睡觉。\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_12.png"
+  },
+  {
+    "page": 13,
+    "char_count": 230,
+    "text": "Financial Journal Blueprint\n考试盘策略：以小博大的游戏规则\n考试阶段\n真实资金\n多账号管理\n(Funded)\n(Evaluation)\n(Multi-Accounts)\n利用Topstep/Apex多账\n重仓博奔\n(All-in)。\n稳健种田\n(Farming)\n号分散风险。\n时间拖越久，通过率越低。\n保护本金。\n爆仓是常态，盈利靠爆发。\n目标是快速通过或快速失\n败。\nTopstep/Apex\nFunded\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_13.png"
+  },
+  {
+    "page": 14,
+    "char_count": 267,
+    "text": "Financial Journal Blueprint\n摒弃杂音：工具清单Check\n[X]失效/低效工具\n门有效工具（Signal）\n(Noise)\n期权库存\nX 单纯的标准差\n(GEX/Gamma Exposure)\n(Standard Deviation)\nX机械算点\n(Footprint/Order Flow)\n订单流\n(在ES上不如期权数据精准)\nX 复杂的数学测量\n未完成拍卖 (作为目标位)\n(Math Measurement)\n跨品种参照(ES->NQ)\n建立你自己的统计学优势，少看视频多复盘\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_14.png"
+  },
+  {
+    "page": 15,
+    "char_count": 121,
+    "text": "Financial Journal Blueprint\n成为自己的老师\n盘前定剧本\n(期权/结构)\n(订单流)\n盘中看反应\n怎么分析一坨垃圾？你没法分析。\n但在垃圾之外，寻找你的确定性。\n树隐（\n(Shuyin）一仓大王\nNotebookLM",
+    "image_path": "D:/docker/atas-market-structure/docs/strategy_library/_source_extracts/ocr/blastking_page_15.png"
+  }
+]

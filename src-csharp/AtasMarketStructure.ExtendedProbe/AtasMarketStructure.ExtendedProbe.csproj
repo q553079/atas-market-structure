@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AtasMarketStructure.ExtendedProbe</AssemblyName>
+    <RootNamespace>AtasMarketStructure.ExtendedProbe</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AtasInstallDir Condition="'$(AtasInstallDir)' == ''">C:\Program Files (x86)\ATAS Platform</AtasInstallDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="ATAS.Indicators">
+      <HintPath>$(AtasInstallDir)\ATAS.Indicators.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ATAS.DataFeedsCore">
+      <HintPath>$(AtasInstallDir)\ATAS.DataFeedsCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ATAS.Types">
+      <HintPath>$(AtasInstallDir)\ATAS.Types.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ValidateAtasInstall" BeforeTargets="Build">
+    <Error
+      Condition="!Exists('$(AtasInstallDir)\ATAS.Indicators.dll')"
+      Text="ATAS installation was not found at '$(AtasInstallDir)'. Set the AtasInstallDir MSBuild property to your local ATAS Platform path."
+    />
+  </Target>
+</Project>

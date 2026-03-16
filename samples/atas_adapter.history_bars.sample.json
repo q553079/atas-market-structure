@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0.0",
+  "message_id": "collector-history-20260317090000000",
+  "message_type": "history_bars",
+  "emitted_at": "2026-03-17T09:01:00Z",
+  "observed_window_start": "2026-03-16T01:00:00Z",
+  "observed_window_end": "2026-03-17T09:00:59Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "chart_instance_id": "NQ-03d4a876",
+    "adapter_version": "0.8.4-shell"
+  },
+  "instrument": {
+    "symbol": "NQ",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "bar_timeframe": "1m",
+  "bars": [
+    {
+      "started_at": "2026-03-17T08:55:00Z",
+      "ended_at": "2026-03-17T08:55:59Z",
+      "open": 21498.0,
+      "high": 21500.0,
+      "low": 21497.75,
+      "close": 21499.25,
+      "volume": 210,
+      "delta": 42,
+      "bid_volume": 84,
+      "ask_volume": 126
+    },
+    {
+      "started_at": "2026-03-17T08:56:00Z",
+      "ended_at": "2026-03-17T08:56:59Z",
+      "open": 21499.25,
+      "high": 21501.25,
+      "low": 21499.0,
+      "close": 21500.75,
+      "volume": 240,
+      "delta": 68,
+      "bid_volume": 86,
+      "ask_volume": 154
+    },
+    {
+      "started_at": "2026-03-17T08:57:00Z",
+      "ended_at": "2026-03-17T08:57:59Z",
+      "open": 21500.75,
+      "high": 21502.25,
+      "low": 21500.5,
+      "close": 21501.75,
+      "volume": 198,
+      "delta": 35,
+      "bid_volume": 81,
+      "ask_volume": 116
+    },
+    {
+      "started_at": "2026-03-17T08:58:00Z",
+      "ended_at": "2026-03-17T08:58:59Z",
+      "open": 21501.75,
+      "high": 21503.0,
+      "low": 21501.25,
+      "close": 21502.75,
+      "volume": 205,
+      "delta": 54,
+      "bid_volume": 75,
+      "ask_volume": 129
+    },
+    {
+      "started_at": "2026-03-17T08:59:00Z",
+      "ended_at": "2026-03-17T08:59:59Z",
+      "open": 21502.75,
+      "high": 21504.0,
+      "low": 21502.5,
+      "close": 21503.5,
+      "volume": 230,
+      "delta": 71,
+      "bid_volume": 79,
+      "ask_volume": 151
+    },
+    {
+      "started_at": "2026-03-17T09:00:00Z",
+      "ended_at": "2026-03-17T09:00:59Z",
+      "open": 21503.5,
+      "high": 21504.75,
+      "low": 21503.0,
+      "close": 21504.25,
+      "volume": 220,
+      "delta": 60,
+      "bid_volume": 80,
+      "ask_volume": 140
+    }
+  ]
+}

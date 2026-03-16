@@ -3,7 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from atas_market_structure.models import DepthSnapshotPayload, EventSnapshotPayload, MarketStructurePayload
+from atas_market_structure.models import (
+    AdapterContinuousStatePayload,
+    AdapterHistoryBarsPayload,
+    AdapterHistoryFootprintPayload,
+    AdapterTriggerBurstPayload,
+    DepthSnapshotPayload,
+    EventSnapshotPayload,
+    MarketStructurePayload,
+    ReplayAiChatRequest,
+    ReplayAiChatResponse,
+    ReplayAiReviewRequest,
+    ReplayAiReviewResponse,
+    ReplayOperatorEntryRequest,
+    ReplayOperatorEntryEnvelope,
+    ReplayWorkbenchBuildRequest,
+    ReplayWorkbenchSnapshotPayload,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +36,18 @@ def main() -> None:
     write_schema("market_structure.schema.json", MarketStructurePayload.model_json_schema())
     write_schema("event_snapshot.schema.json", EventSnapshotPayload.model_json_schema())
     write_schema("depth_snapshot.schema.json", DepthSnapshotPayload.model_json_schema())
+    write_schema("atas_adapter.continuous_state.schema.json", AdapterContinuousStatePayload.model_json_schema())
+    write_schema("atas_adapter.history_bars.schema.json", AdapterHistoryBarsPayload.model_json_schema())
+    write_schema("atas_adapter.history_footprint.schema.json", AdapterHistoryFootprintPayload.model_json_schema())
+    write_schema("atas_adapter.trigger_burst.schema.json", AdapterTriggerBurstPayload.model_json_schema())
+    write_schema("replay_workbench.operator_entry_request.schema.json", ReplayOperatorEntryRequest.model_json_schema())
+    write_schema("replay_workbench.operator_entry_envelope.schema.json", ReplayOperatorEntryEnvelope.model_json_schema())
+    write_schema("replay_workbench.ai_review_request.schema.json", ReplayAiReviewRequest.model_json_schema())
+    write_schema("replay_workbench.ai_review_response.schema.json", ReplayAiReviewResponse.model_json_schema())
+    write_schema("replay_workbench.ai_chat_request.schema.json", ReplayAiChatRequest.model_json_schema())
+    write_schema("replay_workbench.ai_chat_response.schema.json", ReplayAiChatResponse.model_json_schema())
+    write_schema("replay_workbench.build_request.schema.json", ReplayWorkbenchBuildRequest.model_json_schema())
+    write_schema("replay_workbench.snapshot.schema.json", ReplayWorkbenchSnapshotPayload.model_json_schema())
 
 
 if __name__ == "__main__":

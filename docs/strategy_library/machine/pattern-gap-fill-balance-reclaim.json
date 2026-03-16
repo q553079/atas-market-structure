@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-gap-fill-balance-reclaim",
+  "title": "NQ Gap Fill Balance Reclaim",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_gap_fill_balance_reclaim.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "intraday_bias",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "gap_opening_context",
+    "gap_repair",
+    "post_fill_acceptance",
+    "old_value_reclaim"
+  ],
+  "event_kinds": [
+    "gap_fill_watch",
+    "gap_fully_filled",
+    "gap_first_touch",
+    "gap_partial_fill"
+  ],
+  "reason_codes": [
+    "gap_opening_context",
+    "gap_partial_fill",
+    "post_fill_acceptance",
+    "filled_and_rejected"
+  ],
+  "focus_questions": [
+    "Did the market only touch the gap, or did it actually accept back into old value?",
+    "Is the gap still the active script anchor after the first fill attempt?"
+  ],
+  "summary": {
+    "thesis": "A meaningful U.S. session gap becomes actionable when the repair path back into old value is supported by post-fill acceptance rather than a one-touch fill.",
+    "operator_translation": "Trade the reaction after the fill or deep partial fill, not the headline that a gap exists.",
+    "ai_usage_note": "Prefer this card when the replay contains opening-gap context, fill progression, and post-fill acceptance or rejection evidence.",
+    "ai_brief": "Environment: U.S. session gap acting as the opening script anchor. Required evidence: first touch or fill progression plus clear post-fill acceptance or rejection. Do not trade: just because a gap exists or because price touched the fill level once. Real trigger: accepted return into old value or confirmed rejection after partial or full fill. Failure point: the gap stops mattering or post-fill behavior stays noisy and contradictory."
+  },
+  "when_relevant": [
+    "The session opens with a meaningful RTH gap relative to prior close or value.",
+    "Price begins repairing back toward the gap in an organized way.",
+    "The operator needs to know whether the fill becomes balance reclaim or rejection."
+  ],
+  "required_evidence": [
+    "gap_opening_context remains active in the replay window",
+    "first touch, partial fill, and full fill are distinguishable",
+    "post-fill acceptance or rejection is observable after the fill attempt"
+  ],
+  "confirmation_signals": [
+    "approach quality into the gap is organized rather than random drift only",
+    "trade begins holding inside old value after the fill or deep partial fill",
+    "follow-through confirms that the gap acted as a path back into balance rather than a one-touch magnet"
+  ],
+  "invalidation_signals": [
+    "the gap stops acting as the dominant script anchor",
+    "post-fill acceptance never appears after the fill attempt",
+    "the market fills and immediately rejects without any balance reclaim"
+  ],
+  "no_trade_conditions": [
+    "Do not trade just because a gap exists; the gap must still be the active script anchor.",
+    "Do not fade or follow the fill blindly if post-fill acceptance is not visible yet.",
+    "Do not treat overnight noise and U.S. regular-session gap behavior as the same thing without session context."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "accepted return into old value",
+      "description": "Trade after the fill or deep partial fill is accepted back into prior value.",
+      "risk_note": "Avoid if price only tags old value and rejects immediately."
+    },
+    {
+      "name": "partial-fill rejection",
+      "description": "Trade the rejection only when the partial fill clearly fails and the open script remains dominant.",
+      "risk_note": "Avoid if the fill depth is shallow and still likely to continue repairing."
+    }
+  ],
+  "management_notes": [
+    "Keep fill depth and post-fill acceptance separate in analysis.",
+    "If price accepts inside old value, shift the target logic toward balance rotation.",
+    "If price rejects after the fill, the script is no longer balance reclaim and should be relabeled."
+  ],
+  "review_questions": [
+    "Was the operator trading the gap itself, or the post-fill acceptance or rejection?",
+    "Did price truly accept back into old value after the fill, or only tag it briefly?",
+    "Was the opening context strong enough to keep the gap as the main script anchor?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.76,
+    "match_requirements": {
+      "event_kinds_all": [
+        "gap_fill_watch"
+      ],
+      "reason_codes_any": [
+        "gap_opening_context",
+        "post_fill_acceptance"
+      ],
+      "focus_region_role_any": [
+        "gap_edge",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "gap_no_longer_anchor",
+      "no_post_fill_reaction"
+    ],
+    "focus_region_bias": [
+      "gap_edge",
+      "pivot",
+      "balance_edge"
+    ],
+    "entry_review_bias": [
+      "trading_gap_headline_only",
+      "ignoring_post_fill_acceptance",
+      "mixing_overnight_and_rth_gap_logic"
+    ]
+  }
+}

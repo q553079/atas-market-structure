@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-gap-bar-retracement-continuation",
+  "title": "Gap Bar Retracement Continuation",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/gap_bar_retracement_continuation.md",
+  "instrument_scope": ["NQ", "ES"],
+  "session_scope": ["europe", "us_premarket", "us_regular"],
+  "timeframe_scope": ["intraday_bias", "setup_context", "execution_context"],
+  "preferred_presets": ["recent_20_bars", "recent_20_minutes", "focus_regions"],
+  "context_tags": ["gap_bar", "impulse_bar", "first_pullback", "implicit_supply_demand", "retracement_entry"],
+  "event_kinds": ["initiative_drive", "significant_liquidity"],
+  "reason_codes": ["gap_bar_retracement_continuation", "first_retracement_after_displacement", "implicit_gap_supply_demand", "continuation_reaction_zone"],
+  "focus_questions": [
+    "Was the displacement leg clean enough to justify first-pullback continuation logic?",
+    "Is this truly the first retracement, or a late recycled retest after edge decay?"
+  ],
+  "summary": {
+    "thesis": "A Gap Bar continuation setup is strongest on the first meaningful pullback after clean displacement, not on late retests or emotional chasing.",
+    "operator_translation": "Do not chase the impulse. Trade the first defended retracement if the market still refuses to accept back into prior balance.",
+    "ai_usage_note": "Use this card when a clean impulse leaves balance and the first pullback tests whether continuation sponsors still defend the move.",
+    "ai_brief": "Environment: clean displacement or strong trend leg away from balance. Required evidence: low-overlap impulse, first meaningful retracement, and defense inside the reaction band. Do not trade: from messy overlap, late recycled retests, or deep pullbacks that already accept back into balance. Real trigger: defended first pullback and resumed directional travel. Failure point: pullback keeps accepting back into prior balance or the supposed impulse proves noisy."
+  },
+  "when_relevant": [
+    "A strong impulse bar or short impulse sequence has just left balance.",
+    "The operator is looking for first-pullback continuation rather than breakout chasing.",
+    "The retest is arriving at a meaningful reaction zone instead of auction middle."
+  ],
+  "required_evidence": [
+    "the initial displacement leaves prior balance or pullback structure clearly",
+    "the retracement is the first meaningful retest after the impulse",
+    "the retest reaches a continuation reaction zone and does not instantly collapse through it"
+  ],
+  "confirmation_signals": [
+    "the first retracement stalls and holds in the reaction zone",
+    "price reclaims the local pivot or resumes travel in the direction of the original impulse",
+    "the market does not accept back into the prior balance that preceded the impulse"
+  ],
+  "invalidation_signals": [
+    "the retracement keeps accepting back into prior balance",
+    "the supposed first pullback is actually a late recycled retest",
+    "continuation cannot resume and the original displacement loses travel efficiency quickly"
+  ],
+  "no_trade_conditions": [
+    "Do not label overlapping chop a Gap Bar continuation environment.",
+    "Do not trade a late retest as if it were the first pullback.",
+    "Do not use continuation logic if the pullback is already becoming accepted balance recovery."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "first defended retracement",
+      "description": "Enter after the first meaningful pullback holds in the reaction band and continuation begins to resume.",
+      "risk_note": "Avoid if the retracement is already deep enough to look like balance recovery instead of pullback defense."
+    },
+    {
+      "name": "pivot reclaim after first pullback",
+      "description": "Enter after the market reclaims the local pivot that confirms the first pullback has finished.",
+      "risk_note": "Avoid if the reclaim happens only after multiple recycled retests and edge decay."
+    }
+  ],
+  "management_notes": [
+    "First-pullback logic weakens quickly after repeated retests.",
+    "If the retracement becomes too deep, downgrade continuation and reassess balance recovery risk.",
+    "Once continuation resumes, watch whether travel efficiency confirms the original displacement was real."
+  ],
+  "review_questions": [
+    "Was the original impulse clean enough to justify first-pullback continuation?",
+    "Did the operator enter on the first retest or on a recycled retest after edge decay?",
+    "Did the pullback stay corrective, or was it already accepting back into prior balance?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.78,
+    "match_requirements": {
+      "event_kinds_all": ["initiative_drive"],
+      "reason_codes_any": ["gap_bar_retracement_continuation", "first_retracement_after_displacement", "implicit_gap_supply_demand", "continuation_reaction_zone"],
+      "focus_region_role_any": ["support", "resistance", "pivot", "balance_edge"]
+    },
+    "disqualifiers": ["late_retest_not_first_pullback", "balance_reacceptance_already_visible"],
+    "focus_region_bias": ["support", "resistance", "pivot", "balance_edge"],
+    "entry_review_bias": ["chasing_impulse_bar", "late_recycled_retest", "calling_balance_recovery_continuation"]
+  }
+}

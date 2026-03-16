@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-opening-inventory-correction-vs-continuation",
+  "title": "Opening Inventory Correction Vs Continuation",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/opening_inventory_correction_vs_continuation.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "intraday_bias",
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "recent_20_minutes",
+    "recent_20_bars",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "opening_inventory",
+    "overnight_imbalance",
+    "opening_correction",
+    "opening_continuation"
+  ],
+  "event_kinds": [
+    "gap_fill_watch",
+    "initiative_drive",
+    "significant_liquidity"
+  ],
+  "reason_codes": [
+    "opening_inventory_correction",
+    "opening_inventory_continuation",
+    "overnight_imbalance_unwind",
+    "first_drive_failed"
+  ],
+  "focus_questions": [
+    "Was the first opening drive correction or true continuation?",
+    "Did the opening burst actually hold acceptance?"
+  ],
+  "summary": {
+    "thesis": "The open often decides whether overnight inventory is corrected first or continued further, and the first burst is frequently misread.",
+    "operator_translation": "Do not chase the open until you know whether it is unwinding inventory or truly extending it.",
+    "ai_usage_note": "Use this card when open location, overnight inventory, and first-drive quality are central to the replay.",
+    "ai_brief": "Environment: U.S. open with meaningful overnight or prior-session inventory context. Required evidence: open location relative to prior value, first-drive quality, and whether correction or continuation is accepted. Do not trade: by chasing the first burst before its purpose is clear. Real trigger: accepted opening correction or accepted opening continuation after hold quality is proven. Failure point: the first drive quickly loses acceptance and flips the script."
+  },
+  "when_relevant": [
+    "The U.S. open occurs after a directional overnight or prior-session inventory build.",
+    "The operator needs to know whether the first opening move is correction or continuation.",
+    "Opening location versus prior value and overnight range matters to the next decision."
+  ],
+  "required_evidence": [
+    "meaningful overnight or prior-session directional inventory exists",
+    "the open can be placed relative to prior close, value, and overnight range",
+    "the first opening drive and its hold quality can be reviewed"
+  ],
+  "confirmation_signals": [
+    "the open clearly corrects back toward old value or clearly accepts further in the prior direction",
+    "the first opening drive produces follow-through consistent with correction or continuation rather than random spike behavior",
+    "later trade confirms that the first opening move was inventory logic, not just opening noise"
+  ],
+  "invalidation_signals": [
+    "the first drive immediately loses hold quality and flips",
+    "the open is being read without reference to prior value or overnight positioning",
+    "correction or continuation is being assumed before acceptance is visible"
+  ],
+  "no_trade_conditions": [
+    "Do not chase the first opening burst before determining whether it is correction or true continuation.",
+    "Do not call correction complete if price has not yet shown acceptance back into old value or back through the correcting path.",
+    "Do not assume continuation is real if the first drive extends but immediately loses hold quality."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "accepted opening correction",
+      "description": "Enter after the open clearly unwinds inventory and price accepts the correction path.",
+      "risk_note": "Avoid if correction is only a sharp flush with no acceptance."
+    },
+    {
+      "name": "held opening continuation",
+      "description": "Enter after the opening drive proves it is real continuation by holding outside and building there.",
+      "risk_note": "Avoid if continuation is only emotional opening flow."
+    }
+  ],
+  "management_notes": [
+    "Treat the open as an inventory decision point rather than an automatic signal.",
+    "If the first drive fails, the opposite opening script often becomes stronger than the first burst.",
+    "Once correction is complete and accepted, shift attention from opening emotion to session structure."
+  ],
+  "review_questions": [
+    "Was the operator trading real opening continuation or only an overnight inventory unwind?",
+    "Did the first drive hold acceptance, or did it fail after the first emotional burst?",
+    "Was the open interpreted in relation to prior value and overnight positioning, or in isolation?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.81,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "opening_inventory_correction",
+        "opening_inventory_continuation",
+        "overnight_imbalance_unwind",
+        "first_drive_failed"
+      ],
+      "focus_region_role_any": [
+        "gap_edge",
+        "pivot",
+        "opening_zone"
+      ]
+    },
+    "disqualifiers": [
+      "no_meaningful_overnight_inventory_context",
+      "opening_drive_not_yet_resolved"
+    ],
+    "focus_region_bias": [
+      "opening_zone",
+      "gap_edge",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "chasing_first_opening_burst",
+      "ignoring_prior_value_location",
+      "mistaking_inventory_unwind_for_continuation"
+    ]
+  }
+}

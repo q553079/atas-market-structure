@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "gap-fill-opening-auction-doctrine",
+  "title": "Gap Fill Opening-Auction Doctrine",
+  "status": "doctrine_accepted",
+  "source_path": "docs/shuyin_gap_fill_system_absorption_checklist.md",
+  "instrument_scope": [
+    "NQ",
+    "ES",
+    "YM",
+    "RTY"
+  ],
+  "session_scope": [
+    "us_regular",
+    "cross_session"
+  ],
+  "timeframe_scope": [
+    "intraday_bias",
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "general",
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "gap_fill",
+    "opening_auction",
+    "acceptance_rejection",
+    "prior_value",
+    "day_type"
+  ],
+  "event_kinds": [
+    "gap_fill_watch",
+    "gap_fully_filled"
+  ],
+  "reason_codes": [
+    "gap_edge",
+    "partial_fill",
+    "full_fill",
+    "acceptance_back_into_value"
+  ],
+  "summary": {
+    "thesis": "The gap is an opening-auction context anchor. What matters is not only whether it fills, but whether price is accepted or rejected after entering the gap and prior value.",
+    "operator_translation": "Do not treat a gap as a blind target or blind reversal trigger. Watch how the auction behaves as it approaches, fills, and either accepts or rejects the old value.",
+    "ai_usage_note": "Use this card to frame replay analysis around gap context, fill attempts, and post-fill acceptance or rejection."
+  },
+  "when_relevant": [
+    "The session opened with a meaningful RTH gap relative to prior close, range, or value.",
+    "Price is approaching the gap edge or already interacting with it.",
+    "The opening auction is still resolving whether old value will be reaccepted."
+  ],
+  "required_evidence": [
+    "gap boundaries are defined",
+    "fill depth is measurable",
+    "first touch, partial fill, or full fill can be identified",
+    "post-fill acceptance or rejection behavior can be described"
+  ],
+  "confirmation_signals": [
+    "Price is accepted back into the gap and prior value.",
+    "Price fills the gap and holds rather than instantly rejecting.",
+    "The opening auction tempo supports re-acceptance of old value."
+  ],
+  "invalidation_signals": [
+    "Gap is only touched and strongly rejected.",
+    "Partial fill fails and the market resumes the original imbalance away from the gap.",
+    "Price cannot hold inside prior value after the fill."
+  ],
+  "no_trade_conditions": [
+    "Do not assume every gap should fill.",
+    "Do not trade just because the gap is almost filled if acceptance is still unclear.",
+    "Do not ignore prior value placement and opening tempo when judging the gap script."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "accepted fill continuation",
+      "description": "Trade in the direction of acceptance only after price is actually held inside the repaired area.",
+      "risk_note": "Skip if the fill is only a brief touch and rejection starts immediately."
+    },
+    {
+      "name": "failed fill reversal",
+      "description": "Fade the fill only after rejection from the gap area is clear and the market reasserts the original imbalance.",
+      "risk_note": "Skip if price is still negotiating inside prior value."
+    }
+  ],
+  "management_notes": [
+    "Gap fill is context, not a blind setup.",
+    "Treat full fill and accepted fill as different states.",
+    "Partial fills carry information and should be measured, not hand-waved."
+  ],
+  "review_questions": [
+    "Was the market actually accepted back into the gap or only tagged it?",
+    "Did the operator confuse full fill with re-acceptance?",
+    "Was the opening tempo compatible with a fill-and-hold or fill-and-reject script?",
+    "Where should the operator have stayed out because the gap context was unresolved?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.84,
+    "match_requirements": {
+      "event_kinds_all": [
+        "gap_fill_watch"
+      ],
+      "reason_codes_any": [
+        "gap_edge",
+        "partial_fill",
+        "full_fill"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "support",
+        "resistance"
+      ]
+    },
+    "disqualifiers": [
+      "gap_context_missing"
+    ],
+    "focus_region_bias": [
+      "gap_edge",
+      "prior_value",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "blind_gap_fill_trade",
+      "confusing_fill_with_acceptance",
+      "ignoring_opening_tempo"
+    ]
+  }
+}

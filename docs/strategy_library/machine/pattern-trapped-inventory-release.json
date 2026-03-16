@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-trapped-inventory-release",
+  "title": "Trapped Inventory Release",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/trapped_inventory_release.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "focus_regions",
+    "trapped_large_orders"
+  ],
+  "context_tags": [
+    "trapped_inventory",
+    "failed_reclaim",
+    "forced_exit",
+    "inventory_flip"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "post_harvest_response"
+  ],
+  "reason_codes": [
+    "trapped_inventory",
+    "failed_reclaim",
+    "forced_exit_release",
+    "inventory_flip"
+  ],
+  "focus_questions": [
+    "Which side is actually trapped, and where did that become true?",
+    "Did the trapped side get a reclaim chance and still fail?"
+  ],
+  "summary": {
+    "thesis": "A trapped-inventory release occurs when one side loses acceptance beyond its failure point and then fuels the move in the opposite direction by being forced out.",
+    "operator_translation": "Do not call inventory trapped until the market accepts beyond the failure point and the failed side cannot recover.",
+    "ai_usage_note": "Use this card when failure, failed reclaim, and acceleration away from the old level appear together.",
+    "ai_brief": "Environment: one side previously committed near a meaningful level and is now losing control. Required evidence: acceptance beyond the failure point, failed reclaim, and opposite-side acceleration. Do not trade: if the market is still rotating around the level or the failed side can still recover it. Real trigger: failed reclaim after acceptance beyond the failure point. Failure point: immediate recovery and hold back through the failed level."
+  },
+  "when_relevant": [
+    "A prior defending or breakout side is now under pressure.",
+    "Price accepts beyond the level that side needed to hold.",
+    "The failed side gets a reclaim attempt and still cannot recover."
+  ],
+  "required_evidence": [
+    "initiative_drive or equivalent pressure moves beyond the failure point",
+    "price shows acceptance beyond the failed level instead of only a wick-through",
+    "the failed side cannot recover the level on the next meaningful retest"
+  ],
+  "confirmation_signals": [
+    "price accepts beyond the original defended or breakout level",
+    "the trapped side gets a reclaim chance and still fails",
+    "the opposite side accelerates after the failed reclaim"
+  ],
+  "invalidation_signals": [
+    "the failed side immediately reclaims and holds the level again",
+    "price never stabilizes beyond the failure point",
+    "the opposite side cannot accelerate after the failed reclaim"
+  ],
+  "no_trade_conditions": [
+    "Do not call inventory trapped before price has actually accepted beyond the failed level.",
+    "Do not chase the release if the market is still rotating around the failed level with no clear acceptance.",
+    "Do not assume trapped inventory if the side that supposedly failed can immediately reclaim and hold its level again."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "failed reclaim release",
+      "description": "Enter with the opposite side after the trapped side fails its first meaningful reclaim.",
+      "risk_note": "Avoid if reclaim failure still happens inside unresolved chop."
+    },
+    {
+      "name": "acceptance beyond failure point",
+      "description": "Enter after the market proves acceptance beyond the point where the trapped side had to hold.",
+      "risk_note": "Avoid if acceptance is only a brief overshoot."
+    }
+  ],
+  "management_notes": [
+    "Separate discomfort from true trapped inventory.",
+    "The best release often comes from the failed reclaim, not the first break itself.",
+    "Once the forced exit has already traveled far, late chasing often hands off into balance."
+  ],
+  "review_questions": [
+    "Where exactly did the original side become wrong, not just uncomfortable?",
+    "Did the market truly accept beyond the failure point, or only test it briefly?",
+    "Was the trade taken on real trapped inventory release, or just on a fast move without inventory evidence?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.79,
+    "match_requirements": {
+      "event_kinds_all": [
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "failed_reclaim",
+        "trapped_inventory",
+        "inventory_flip"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "support",
+        "resistance"
+      ]
+    },
+    "disqualifiers": [
+      "failure_point_not_accepted",
+      "immediate_full_recovery"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "failed_level"
+    ],
+    "entry_review_bias": [
+      "calling_trap_too_early",
+      "chasing_first_break",
+      "ignoring_failed_reclaim_requirement"
+    ]
+  }
+}

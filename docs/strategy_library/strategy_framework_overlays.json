@@ -1,0 +1,327 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-17T03:20:00+08:00",
+  "note": "Framework overlays are heuristic translations for AI and replay analysis. They supplement existing strategy cards and do not replace base doctrine.",
+  "overlays": [
+    {
+      "strategy_id": "pattern-nq-europe-large-offer-breakdown",
+      "title": "NQ Europe Large Offer Breakdown",
+      "price_action": "Repeated failure above a ceiling transitions into clean downside expansion away from that ceiling.",
+      "order_flow": "Offer absorption and reloads keep capping price until initiative sellers gain real downside travel.",
+      "ict_smc": "Buy-side liquidity near the highs is raided and bearish displacement leaves the local supply area in control.",
+      "chanlun": "A failed upward departure from a local center flips into a continuation sell segment.",
+      "main_trap": "Shorting too early while the market is still rotating under the cap without accepted downside travel.",
+      "ai_focus": "Did the cap actually produce lower acceptance, or only visual heaviness without real release?"
+    },
+    {
+      "strategy_id": "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+      "title": "NQ Europe Offer Reversal Into Upper Liquidity",
+      "price_action": "A failed breakdown converts into reversal structure toward upper liquidity.",
+      "order_flow": "Sellers fail to gain lower acceptance and responsive buyers reclaim the path higher.",
+      "ict_smc": "Sell-side liquidity is swept first, then bullish shift and displacement target buy-side liquidity above.",
+      "chanlun": "The lower test behaves like a failed sell departure and a second-buy style recovery through the center.",
+      "main_trap": "Buying before the reclaim is visible or buying directly into an intact upper suppressor.",
+      "ai_focus": "Was the lower sweep rejected strongly enough to justify a reversal script toward upper liquidity?"
+    },
+    {
+      "strategy_id": "pattern-nq-failed-overhead-capping-in-ascent",
+      "title": "NQ Failed Overhead Capping In Ascent",
+      "price_action": "Overhead supply creates only a pause before trend continuation.",
+      "order_flow": "The cap absorbs briefly, yet buyers retain initiative and the counter-response never deepens enough to reverse control.",
+      "ict_smc": "A bearish order-block style cap fails to deliver reversal and becomes a continuation checkpoint.",
+      "chanlun": "The rising segment has not shown real bearish divergence, so the pause stays corrective rather than terminal.",
+      "main_trap": "Fading the first visible cap before deeper acceptance lower is proven.",
+      "ai_focus": "Did the cap force deeper acceptance lower, or did buyers quickly re-engage and preserve continuation?"
+    },
+    {
+      "strategy_id": "pattern-nq-probe-reversal-toward-upper-liquidity",
+      "title": "NQ Probe Reversal Toward Upper Liquidity",
+      "price_action": "A failed downside probe transitions into upward reclaim and rotation.",
+      "order_flow": "Aggressive selling cannot extend and responsive buyers reclaim the path higher after the probe.",
+      "ict_smc": "A sell-side sweep turns into bullish shift and displacement toward upper draw-on-liquidity.",
+      "chanlun": "The failed probe behaves like a weakening down segment with second-buy style recovery after structure is reclaimed.",
+      "main_trap": "Treating the first probe as a full reversal before reclaim evidence exists.",
+      "ai_focus": "Did the probe actually fail with reclaim evidence, or was it only a brief bounce inside ongoing downside acceptance?"
+    },
+    {
+      "strategy_id": "pattern-nq-replenished-bid-launchpad",
+      "title": "NQ Replenished Bid Launchpad Into Upper Liquidity",
+      "price_action": "A defended low forms the base for continuation once higher lows begin to print.",
+      "order_flow": "Same-price bid replenishment absorbs sell pressure until buyers can lift away from the defended zone.",
+      "ict_smc": "A discount-area defense or bullish order block holds while sell-side liquidity fails to break it.",
+      "chanlun": "A lower center edge holds and can produce second-buy or third-buy style continuation.",
+      "main_trap": "Buying from one visible bid or buying in auction middle without edge location.",
+      "ai_focus": "Was there true same-price defense with structure reclaim, or only a large bid without reliable hold quality?"
+    },
+    {
+      "strategy_id": "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+      "title": "NQ Upper Liquidity Harvest Then Lower Relocation",
+      "price_action": "After target completion, the market balances, pulls back, or relocates lower.",
+      "order_flow": "The buy drive exhausts at target and post-harvest delta quality weakens.",
+      "ict_smc": "Buy-side liquidity is taken and attention shifts to premium exhaustion, distribution, or reversal watch.",
+      "chanlun": "An upward segment reaches objective and then risks divergence and return toward the center.",
+      "main_trap": "Continuing to chase longs after the primary objective has already been harvested.",
+      "ai_focus": "After harvest, did the market only pause, or did it begin a genuine lower relocation process?"
+    },
+    {
+      "strategy_id": "pattern-gap-fill-balance-reclaim",
+      "title": "NQ Gap Fill Balance Reclaim",
+      "price_action": "Gap repair matters only if price can also re-enter and hold prior balance or value.",
+      "order_flow": "A fill is just the path; the real information is whether post-fill trade is accepted or rejected.",
+      "ict_smc": "The gap behaves like imbalance repair, but reclaim of the old dealing range is the real signal.",
+      "chanlun": "Price first leaves the prior center, then tests whether it can return and stabilize back inside it.",
+      "main_trap": "Trading the gap fill itself rather than the hold quality after the fill.",
+      "ai_focus": "Did the fill become true balance reclaim, or did price only touch the gap objective and reject?"
+    },
+    {
+      "strategy_id": "pattern-nq-manipulation-leg-context",
+      "title": "NQ Manipulation Leg Context",
+      "price_action": "A true manipulation leg is a forcing move that changes later structure, not just a random fast bar sequence.",
+      "order_flow": "The move must show genuine displacement from origin and matter for later continuation, trap, or distribution logic.",
+      "ict_smc": "This is the displacement leg that sweeps liquidity and defines the next draw-on-liquidity narrative.",
+      "chanlun": "It resembles a dominant segment that resets structural expectation for the next move.",
+      "main_trap": "Labeling every sharp impulse as a manipulation leg when it started in the middle of balance.",
+      "ai_focus": "Did this leg truly reset the script, or was it just a fast bar sequence inside noise?"
+    },
+    {
+      "strategy_id": "pattern-nq-measured-move-ladder-context",
+      "title": "NQ Measured Move Ladder Context",
+      "price_action": "Extension should be measured against a meaningful prior unit and not forced inside random chop.",
+      "order_flow": "The move deserves ladder logic only when initiative and body confirmation keep validating the extension.",
+      "ict_smc": "This is distance-to-liquidity tracking after displacement, not a guarantee that every multiple must be hit.",
+      "chanlun": "It is a segment-length comparison tool for judging continuation quality versus exhaustion.",
+      "main_trap": "Applying measured-move logic after the market has already shifted back into balance.",
+      "ai_focus": "Is the measured ladder still alive in trend context, or is the market already transitioning into exhaustion or balance?"
+    },
+    {
+      "strategy_id": "pattern-large-order-lifecycle-diagnosis",
+      "title": "Large Order Lifecycle Diagnosis",
+      "price_action": "A level is only meaningful if revisits still produce usable reaction quality.",
+      "order_flow": "Separate defended size, trapped size, unwinding size, continuing size, and spoof-risk behavior.",
+      "ict_smc": "An order block is valid only if it still creates displacement or defense; otherwise it can degrade or flip.",
+      "chanlun": "A key center edge or segment origin only stays important if revisits still confirm it structurally.",
+      "main_trap": "Trusting displayed size without diagnosing its lifecycle branch.",
+      "ai_focus": "Is the large order still defending, already trapped, unwinding, or merely visual bait?"
+    },
+    {
+      "strategy_id": "pattern-trapped-inventory-release",
+      "title": "Trapped Inventory Release",
+      "price_action": "The failed level becomes fuel once the wrong side cannot recover.",
+      "order_flow": "Acceptance beyond the failure point plus failed reclaim converts trapped inventory into forced exit energy.",
+      "ict_smc": "The original breakout or defense fails, then the broken area behaves like a breaker as trapped holders fuel the opposite move.",
+      "chanlun": "A failed departure from the center flips and accelerates into the opposite segment once rescue attempts fail.",
+      "main_trap": "Calling inventory trapped before price has truly accepted beyond the failure point.",
+      "ai_focus": "Where did the trapped side become objectively wrong, and did failed reclaim confirm the release?"
+    },
+    {
+      "strategy_id": "pattern-failed-break-acceptance-reentry",
+      "title": "Failed Break Acceptance Re-Entry",
+      "price_action": "A breakout becomes a failure only after price returns inside and re-accepts the prior auction.",
+      "order_flow": "Outside hold collapses, re-entry is accepted, and rotation back through the old area becomes likely.",
+      "ict_smc": "The initial break behaves like a false BOS or sweep, and the real signal is accepted trade back inside range.",
+      "chanlun": "The move fails to stay outside the center and returns into the center instead of starting a durable new segment.",
+      "main_trap": "Fading the first break before re-entry is accepted.",
+      "ai_focus": "Was the re-entry actually accepted back inside the old auction, or only touched briefly?"
+    },
+    {
+      "strategy_id": "pattern-control-handoff-after-harvest",
+      "title": "Control Handoff After Harvest",
+      "price_action": "After the target is hit, determine whether the pullback is only a pause or the first real handoff.",
+      "order_flow": "The previous winner loses control only if it cannot defend the first meaningful revisit after harvest.",
+      "ict_smc": "After external liquidity is taken, watch whether the old side still owns continuation or whether a new side takes control.",
+      "chanlun": "An objective-complete segment transitions into the opposite side only if a new segment can actually dominate.",
+      "main_trap": "Forcing a major reversal immediately after harvest without proof of handoff.",
+      "ai_focus": "Did the old winner fail its first defense after harvest, or is the market only pausing before continuation?"
+    },
+    {
+      "strategy_id": "pattern-false-liquidity-and-pull-behavior",
+      "title": "False Liquidity And Pull Behavior",
+      "price_action": "Visible walls mean little if they do not survive the approach and create actual reaction.",
+      "order_flow": "The key distinction is refill and hold near touch versus flashing and pulling before touch.",
+      "ict_smc": "This is inducement and false liquidity presentation, not genuine defense, until the order behaves like a defended level.",
+      "chanlun": "Treat it as a false edge rather than a real center boundary until structure confirms it.",
+      "main_trap": "Trading displayed size as if it were already bona fide support or resistance.",
+      "ai_focus": "Did the displayed size survive near touch and defend, or did it mostly flash and pull?"
+    },
+    {
+      "strategy_id": "pattern-no-trade-garbage-time-context",
+      "title": "No-Trade Garbage Time Context",
+      "price_action": "Many active candles inside the middle of a wider auction still do not create real edge.",
+      "order_flow": "Repeated micro-events without durable acceptance usually mean noise, recycling, and poor asymmetry.",
+      "ict_smc": "Internal range inducement without displacement or clear liquidity draw should suppress entries.",
+      "chanlun": "This is center-inside oscillation rather than a valid departure or return setup.",
+      "main_trap": "Inventing a trade because the market is moving inside non-edge territory.",
+      "ai_focus": "Is there a real edge boundary and accepted branch, or only event noise inside a larger auction?"
+    },
+    {
+      "strategy_id": "pattern-cross-session-inventory-transfer",
+      "title": "Cross-Session Inventory Transfer",
+      "price_action": "A prior-session zone can stay active and govern the next session's reaction or release.",
+      "order_flow": "Old inventory can be defended, unwound, inherited, or weaponized by the next session.",
+      "ict_smc": "Prior-session liquidity pools and dealing ranges remain active reference points for the next session handoff.",
+      "chanlun": "A previous segment center or edge can continue to organize the next session's internal structure.",
+      "main_trap": "Treating each session as isolated when inventory is obviously being transferred.",
+      "ai_focus": "Is the next session accepting new control, or merely processing inherited inventory from the prior session?"
+    },
+    {
+      "strategy_id": "pattern-opening-inventory-correction-vs-continuation",
+      "title": "Opening Inventory Correction Vs Continuation",
+      "price_action": "The open often first corrects overnight imbalance before the true session direction appears.",
+      "order_flow": "The first drive only matters if it can hold acceptance instead of acting as emotional opening flow.",
+      "ict_smc": "This is the opening raid versus true session displacement distinction, not a blind reaction to the first burst.",
+      "chanlun": "The first opening segment may only be a corrective sub-segment rather than the start of a major directional segment.",
+      "main_trap": "Chasing the first opening burst without knowing whether it is correction or continuation.",
+      "ai_focus": "Was the opening burst real session control, or only overnight inventory being corrected?"
+    },
+    {
+      "strategy_id": "pattern-anchor-market-leadership",
+      "title": "Anchor Market Leadership",
+      "price_action": "Trade from the clearer chart when one related market is structurally cleaner than the other.",
+      "order_flow": "The better anchor is the market that shows cleaner acceptance or rejection first.",
+      "ict_smc": "Correlated-market confirmation is useful only when the anchor market truly leads the narrative.",
+      "chanlun": "The cleaner segment structure should guide interpretation while the noisier market remains secondary.",
+      "main_trap": "Forcing the noisier or lagging market into leadership just because it is moving faster.",
+      "ai_focus": "Which related market is actually clearer right now, and did the lagger genuinely confirm or only follow late?"
+    },
+    {
+      "strategy_id": "pattern-leader-failure-divergence-trap",
+      "title": "Leader Failure Divergence Trap",
+      "price_action": "Once the prior leader fails, the lagger often becomes a trap for late followers.",
+      "order_flow": "Divergence becomes actionable only after the leader clearly loses hold quality.",
+      "ict_smc": "The leader's failed break or failed displacement invalidates the lagger's late confirmation story.",
+      "chanlun": "The leading segment is already weakening or ending while the lagging market still extends the old story.",
+      "main_trap": "Continuing to trust lagger follow-through after the leader has already failed.",
+      "ai_focus": "Has the leader already invalidated the move while the lagger still invites late confirmation?"
+    },
+    {
+      "strategy_id": "pattern-liquidity-raid-vs-breakout-acceptance",
+      "title": "Liquidity Raid Vs Breakout Acceptance",
+      "price_action": "The sweep itself is not the trade; the hold quality after the sweep is the trade.",
+      "order_flow": "Stop release creates the burst, but continuation or failure is decided by outside hold and the first pullback.",
+      "ict_smc": "This is the difference between a liquidity sweep and a true accepted BOS or continuation displacement.",
+      "chanlun": "The move only counts as a real departure from the center if it can stand outside; otherwise it returns to the center.",
+      "main_trap": "Chasing the first sweep or fading it before outside hold quality is resolved.",
+      "ai_focus": "Did the market convert the raid into accepted outside trade, or did it only sweep liquidity and return?"
+    },
+    {
+      "strategy_id": "pattern-forced-exit-burst-vs-initiative-continuation",
+      "title": "Forced Exit Burst Vs Initiative Continuation",
+      "price_action": "A squeeze or flush can be a one-shot release or the beginning of true continuation.",
+      "order_flow": "Once trapped exits are mostly done, the new side still needs to defend gained ground and re-accelerate.",
+      "ict_smc": "Short covering or long liquidation is not automatically true displacement continuation by fresh initiative.",
+      "chanlun": "Forced acceleration can be exhaustion-prone if no new segment continuity appears after the release.",
+      "main_trap": "Confusing trapped-side exit fuel with durable initiative takeover.",
+      "ai_focus": "After the burst, did the new side defend and re-accelerate, or was the move mostly exit fuel?"
+    },
+    {
+      "strategy_id": "pattern-post-shock-resiliency-check",
+      "title": "Post-Shock Resiliency Check",
+      "price_action": "The shock itself is not the edge; the first readable pullback decides rebuild versus repair.",
+      "order_flow": "Post-shock hold quality and rebuilt depth matter more than the initiating burst.",
+      "ict_smc": "After displacement or liquidity take, the real question is whether the new side can keep the new dealing range.",
+      "chanlun": "A burst only matters if a new segment can continue after the first corrective pause.",
+      "main_trap": "Chasing the shock instead of reading the branch after it.",
+      "ai_focus": "After the event, did the market rebuild under the new side or repair back toward balance?"
+    },
+    {
+      "strategy_id": "pattern-fake-depth-signature-context",
+      "title": "Fake Depth Signature Context",
+      "price_action": "Visible walls matter only if they survive the approach and create actual reaction.",
+      "order_flow": "Near-touch cancellation and opposite-side real fills reveal unreliable depth.",
+      "ict_smc": "This is inducement by displayed liquidity rather than genuine support or resistance.",
+      "chanlun": "Treat it as a false edge until structure proves a real center boundary.",
+      "main_trap": "Trusting brightness instead of survival and outcome.",
+      "ai_focus": "Did the displayed depth actually survive near touch and defend, or did it disappear when pressure arrived?"
+    },
+    {
+      "strategy_id": "pattern-stop-cluster-cascade-exhaustion",
+      "title": "Stop-Cluster Cascade Exhaustion",
+      "price_action": "A violent stop release is only useful after outside hold quality is known.",
+      "order_flow": "Stop fuel can create distance quickly, but continuation needs rebuild after the first retest.",
+      "ict_smc": "A liquidity sweep and cascade are not automatically accepted BOS continuation.",
+      "chanlun": "Forced acceleration can end as exhaustion if no new segment continuity appears after the sweep.",
+      "main_trap": "Assuming violent extension automatically means durable continuation.",
+      "ai_focus": "After the cascade, did outside trade hold and rebuild, or did the release exhaust into repair?"
+    },
+    {
+      "strategy_id": "pattern-order-flow-imbalance-without-price-progress",
+      "title": "Order-Flow Imbalance Without Price Progress",
+      "price_action": "Loud tape without travel usually signals absorption, stall, or weakening edge.",
+      "order_flow": "Same-side aggression is not enough if price progress per burst keeps deteriorating.",
+      "ict_smc": "Displacement is not real if imbalance cannot clear the nearby boundary or keep extending.",
+      "chanlun": "The segment loses efficiency when repeated effort no longer creates actual departure.",
+      "main_trap": "Trading delta color or imbalance count instead of actual price progress.",
+      "ai_focus": "Is the aggression still producing travel, or is the market absorbing it at the same boundary?"
+    },
+    {
+      "strategy_id": "pattern-liquidity-provider-retreat-under-toxicity",
+      "title": "Liquidity Provider Retreat Under Toxicity",
+      "price_action": "A previously real defended level can lose authority once the defender reprices under pressure.",
+      "order_flow": "Passive size may retreat or stand deeper when adverse-selection pressure rises.",
+      "ict_smc": "This is not always fake depth; sometimes the old order block or defense price simply loses viability under toxic flow.",
+      "chanlun": "The old center edge loses authority once the defending side shifts to a new reference price.",
+      "main_trap": "Treating every retreat as spoofing or still trusting the old price after repricing.",
+      "ai_focus": "Did the provider actually change state and defend a new price, or is the old price still the real reference?"
+    },
+    {
+      "strategy_id": "pattern-initial-balance-extension-vs-true-breakout",
+      "title": "Initial Balance Extension Vs True Breakout",
+      "price_action": "An IB extension is only the first observation; a true breakout requires accepted outside trade after it.",
+      "order_flow": "Outside hold quality and the first retest matter more than the first poke beyond IB.",
+      "ict_smc": "An opening-range extension is not real breakout acceptance until the market keeps the new dealing range outside IB.",
+      "chanlun": "A move beyond the opening center only matters if it can stand outside instead of returning into the old opening structure.",
+      "main_trap": "Promoting the first IB extension into a breakout without accepted outside trade.",
+      "ai_focus": "Did the market only extend beyond IB, or did it actually accept outside and build there?"
+    },
+    {
+      "strategy_id": "pattern-gap-bar-retracement-continuation",
+      "title": "Gap Bar Retracement Continuation",
+      "price_action": "A clean displacement becomes tradable on the first disciplined pullback, not on emotional chase after the impulse bar.",
+      "order_flow": "Initiative wins the first release, then the key read is whether the pullback stays shallow enough to prove continuation demand still owns the lane.",
+      "ict_smc": "This behaves like a displacement leg followed by a qualified mitigation into the reaction zone before continuation resumes.",
+      "chanlun": "A fresh departure segment stays valid only if the first pullback remains corrective instead of collapsing back into the old center.",
+      "main_trap": "Treating late recycled retests or overlapping chop as if they were the first clean retracement after true displacement.",
+      "ai_focus": "Was the impulse genuinely clean and is this still the first pullback, or has the move already recycled back toward balance?"
+    },
+    {
+      "strategy_id": "pattern-major-trend-reversal-trap-confirmation",
+      "title": "Major Trend Reversal Trap Confirmation",
+      "price_action": "A reversal becomes real when the prior breakout side is trapped and confirmation closes beyond the level they needed to defend.",
+      "order_flow": "The reversal edge is not the signal bar alone but the failed rescue of trapped participants after their breakout loses hold quality.",
+      "ict_smc": "This is a false breakout or failed continuation that turns into real market-structure shift only after confirmation through the trapped side's origin zone.",
+      "chanlun": "The prior segment fails to extend, then a confirmed opposite segment begins only after the old side cannot recover its critical defense point.",
+      "main_trap": "Front-running the reversal before trapped breakout traders are objectively wrong and before confirmation proves the rescue attempt failed.",
+      "ai_focus": "Who is trapped, where did they become wrong, and did the confirmation close actually remove their rescue path?"
+    },
+    {
+      "strategy_id": "pattern-mother-bar-auction-zones",
+      "title": "Mother Bar Auction Zones",
+      "price_action": "A mother bar is an internal auction map whose edges behave differently in ranges, early trends, and late exhaustion.",
+      "order_flow": "The useful information is whether outer mother-bar zones attract rejection, breakout acceptance, or only dead-space rotation through the middle.",
+      "ict_smc": "The mother bar acts like a compact dealing range where edge reaction matters more than the visual pattern itself.",
+      "chanlun": "This is a local center-within-center structure, and the real edge comes from how price responds at its boundary rather than in its middle.",
+      "main_trap": "Opening from the middle of the mother bar or fading an edge after outside trade has already become accepted.",
+      "ai_focus": "Is price testing an outer mother-bar boundary with context support, or is it just rotating in the middle without real edge?"
+    },
+    {
+      "strategy_id": "pattern-caveman-failed-signal-bar-trigger",
+      "title": "Caveman Failed Signal Bar Trigger",
+      "price_action": "A strong breakout or continuation bar is immediately reversed by an even stronger opposite trigger bar.",
+      "order_flow": "Aggressive participation on the signal bar gets trapped immediately, and the opposite side exploits the failed move before rescue can form.",
+      "ict_smc": "This behaves like a false breakout or failed continuation where the decisive clue is immediate displacement back through the signal bar control point.",
+      "chanlun": "A fresh attempted departure fails instantly and flips into a fast opposite sub-segment before the old side can stabilize.",
+      "main_trap": "Treating any two-bar reversal as Caveman when the signal bar was weak or the trigger did not truly negate it.",
+      "ai_focus": "Was there a real committed signal bar that got fully negated, or is this only visual bar drama inside noise?"
+    },
+    {
+      "strategy_id": "pattern-h2-l2-pullback-continuation-framework",
+      "title": "H2 L2 Pullback Continuation Framework",
+      "price_action": "A second-entry pullback is valuable only when the trend is still intact and the pullback remains corrective.",
+      "order_flow": "The first countertrend push fails, then the second continuation attempt tests whether the dominant side still owns initiative from a meaningful location.",
+      "ict_smc": "This is continuation after mitigation, not blind counting, and the best versions reclaim from EMA, breakout point, or structural support-resistance.",
+      "chanlun": "A corrective sub-segment ends and the main segment attempts to resume, but only while the original structural origin still holds.",
+      "main_trap": "Counting endlessly inside chop and calling it H2 or L2 after the market has already degraded into range behavior.",
+      "ai_focus": "Is this still a valid corrective pullback in trend context, or has the market already become broad, overlapping, and count-invalid?"
+    }
+  ]
+}

@@ -1,0 +1,2898 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>盘前复盘工作台</title>
+  <style>
+    :root {
+      --ink: #d6deeb;
+      --ink-soft: #8d98ab;
+      --paper: #131722;
+      --paper-strong: #1b2130;
+      --line: #2a3142;
+      --accent: #3b82f6;
+      --accent-soft: rgba(59, 130, 246, 0.16);
+      --bull: #22ab94;
+      --bear: #f23645;
+      --focus: rgba(59, 130, 246, 0.14);
+      --warn: #ef4444;
+      --card: rgba(19, 23, 34, 0.94);
+      --shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #0f131d 0%, #121722 100%);
+      min-height: 100vh;
+    }
+
+    .shell {
+      --left-panel-width: 320px;
+      --left-handle-width: 10px;
+      --right-panel-width: 340px;
+      --right-handle-width: 10px;
+      --chat-thread-height: 420px;
+      display: grid;
+      grid-template-columns: var(--left-panel-width) var(--left-handle-width) minmax(0, 1fr) var(--right-handle-width) var(--right-panel-width);
+      gap: 18px;
+      padding: 20px;
+      align-items: start;
+      position: relative;
+    }
+
+    .shell.left-collapsed {
+      --left-panel-width: 0px;
+      --left-handle-width: 0px;
+    }
+
+    .shell.right-collapsed {
+      --right-panel-width: 0px;
+      --right-handle-width: 0px;
+    }
+
+    .shell.left-collapsed #leftResizeHandle,
+    .shell.right-collapsed #rightResizeHandle {
+      display: none;
+    }
+
+    .panel,
+    .workspace,
+    .sidebar {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-header,
+    .workspace-header,
+    .sidebar-header {
+      padding: 18px 20px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: linear-gradient(180deg, rgba(24, 31, 45, 0.98), rgba(20, 25, 36, 0.96));
+      color: #eff4fb;
+    }
+
+    .header-bar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .panel-toggle {
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.04);
+      color: #eff4fb;
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      border-radius: 999px;
+      min-width: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      font-size: 16px;
+    }
+
+    .panel-header h1,
+    .workspace-header h2,
+    .sidebar-header h2 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .panel-header p,
+    .workspace-header p,
+    .sidebar-header p {
+      margin: 6px 0 0;
+      color: rgba(215, 221, 231, 0.82);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .panel-body,
+    .workspace-body,
+    .sidebar-body {
+      padding: 18px 20px 20px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field.span-2 {
+      grid-column: span 2;
+    }
+
+    label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #93a0b5;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      font: inherit;
+    }
+
+    input,
+    select,
+    textarea {
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: var(--paper-strong);
+      color: var(--ink);
+      border-radius: 12px;
+      padding: 10px 12px;
+      min-height: 44px;
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 12px;
+      background: var(--paper-strong);
+      min-height: 44px;
+    }
+
+    .toggle-row input {
+      min-height: auto;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 11px 16px;
+      cursor: pointer;
+      background: #2563eb;
+      color: #eff4fb;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    button.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--ink);
+    }
+
+    button.warn {
+      background: var(--warn);
+      color: #fff2ee;
+    }
+
+    .status-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .chip.emphasis {
+      background: rgba(191, 111, 47, 0.14);
+      color: #93c5fd;
+    }
+
+    .chip.good {
+      background: rgba(31, 138, 92, 0.14);
+      color: #86efac;
+    }
+
+    .chip.warn {
+      background: rgba(139, 47, 47, 0.15);
+      color: #fecaca;
+    }
+
+    .chart-frame {
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(59, 130, 246, 0.04), rgba(19, 23, 34, 0.0)),
+        #131722;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      min-height: 760px;
+      position: relative;
+    }
+
+    .chart-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .chart-toolbar button {
+      padding: 9px 14px;
+    }
+
+    .chart-toolbar .meta {
+      font-size: 12px;
+      color: var(--ink-soft);
+      letter-spacing: 0.03em;
+    }
+
+    .chart-frame.region-mode {
+      outline: 2px dashed rgba(14, 111, 178, 0.45);
+      outline-offset: 3px;
+    }
+
+    #chartSvg {
+      width: 100%;
+      height: 760px;
+      display: block;
+    }
+
+    .placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 760px;
+      color: var(--ink-soft);
+      text-align: center;
+      padding: 24px;
+      line-height: 1.6;
+    }
+
+    .panel.collapsed .panel-body,
+    .sidebar.collapsed .sidebar-body {
+      display: none;
+    }
+
+    .panel.collapsed,
+    .sidebar.collapsed {
+      overflow: hidden;
+      visibility: hidden;
+      min-width: 0;
+      border-width: 0;
+      box-shadow: none;
+    }
+
+    .panel.collapsed .panel-header,
+    .sidebar.collapsed .sidebar-header {
+      padding-bottom: 18px;
+    }
+
+    .panel.collapsed .panel-header p,
+    .sidebar.collapsed .sidebar-header p {
+      display: none;
+    }
+
+    .panel.collapsed .panel-header,
+    .sidebar.collapsed .sidebar-header {
+      min-height: 120px;
+    }
+
+    .panel.collapsed .panel-header h1,
+    .sidebar.collapsed .sidebar-header h2 {
+      display: none;
+    }
+
+    .resize-handle {
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+      align-self: stretch;
+      min-height: 100%;
+      cursor: col-resize;
+      transition: background 120ms ease;
+    }
+
+    .resize-handle:hover,
+    .resize-handle.dragging {
+      background: rgba(59, 130, 246, 0.22);
+      border-color: rgba(59, 130, 246, 0.32);
+    }
+
+    .resize-handle::after {
+      content: "";
+      position: absolute;
+      inset: 25% 3px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(147, 197, 253, 0.10), rgba(147, 197, 253, 0.36), rgba(147, 197, 253, 0.10));
+    }
+
+    .panel-restore {
+      position: absolute;
+      top: 28px;
+      z-index: 8;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border-radius: 999px;
+      background: rgba(18, 24, 36, 0.96);
+      color: #eff4fb;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      font-size: 16px;
+    }
+
+    .panel-restore.left {
+      left: 26px;
+    }
+
+    .panel-restore.right {
+      right: 26px;
+    }
+
+    .shell.left-collapsed .panel-restore.left {
+      display: inline-flex;
+    }
+
+    .shell.right-collapsed .panel-restore.right {
+      display: inline-flex;
+    }
+
+    .workspace-header .header-actions {
+      color: var(--ink-soft);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .section {
+      margin-bottom: 18px;
+    }
+
+    .section.compact {
+      margin-bottom: 14px;
+    }
+
+    .section h3 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-soft);
+    }
+
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .info-card {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(27, 33, 48, 0.88);
+    }
+
+    .info-card h4 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      color: var(--ink);
+    }
+
+    .info-card p,
+    .info-card li {
+      margin: 0;
+      color: var(--ink-soft);
+      line-height: 1.5;
+      font-size: 13px;
+    }
+
+    .info-card ul {
+      margin: 6px 0 0 18px;
+      padding: 0;
+    }
+
+    .ladder {
+      display: grid;
+      grid-template-columns: 72px 1fr 1fr 1fr;
+      gap: 6px;
+      align-items: center;
+      font-size: 12px;
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .ladder-header,
+    .ladder-row {
+      display: contents;
+    }
+
+    .ladder-header > span {
+      font-weight: 700;
+      color: var(--ink-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+    }
+
+    .ladder-row > span {
+      padding: 6px 8px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .ladder-row .bid {
+      color: var(--bear);
+    }
+
+    .ladder-row .ask {
+      color: var(--bull);
+    }
+
+    .ladder-row .price {
+      font-family: Consolas, "Cascadia Mono", monospace;
+    }
+
+    .mono {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 12px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .empty-note {
+      color: var(--ink-soft);
+      font-size: 13px;
+      line-height: 1.5;
+      border: 1px dashed rgba(255, 255, 255, 0.14);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .preset-grid button {
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: left;
+    }
+
+    .chat-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      height: var(--chat-thread-height);
+      min-height: 180px;
+      max-height: 760px;
+      overflow-y: auto;
+      padding-right: 4px;
+      margin-bottom: 12px;
+    }
+
+    .chat-resize-handle {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      margin: 8px 0 12px;
+      cursor: row-resize;
+      position: relative;
+    }
+
+    .chat-resize-handle::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 44px;
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(147, 197, 253, 0.55);
+      transform: translate(-50%, -50%);
+    }
+
+    .thread-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .thread-tabs {
+      display: flex;
+      gap: 8px;
+      flex: 1;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .thread-tab {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--ink-soft);
+      border-radius: 999px;
+      padding: 8px 12px;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .thread-tab.active {
+      background: rgba(59, 130, 246, 0.16);
+      border-color: rgba(59, 130, 246, 0.34);
+      color: #dbeafe;
+    }
+
+    .thread-add-button {
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--ink);
+      flex-shrink: 0;
+    }
+
+    .chat-bubble {
+      border-radius: 14px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .chat-bubble.user {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.24);
+    }
+
+    .chat-bubble.assistant {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .chat-bubble h4 {
+      margin: 0 0 6px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-soft);
+    }
+
+    .chat-bubble p {
+      margin: 0;
+      white-space: pre-wrap;
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    .chat-meta {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chat-input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .chat-input-row textarea {
+      flex: 1;
+      min-height: 84px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .section-header h3 {
+      margin: 0;
+    }
+
+    .section-toggle {
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink-soft);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .section.collapsed .section-content {
+      display: none;
+    }
+
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--ink-soft);
+      font-size: 12px;
+    }
+
+    .legend-symbol {
+      width: 10px;
+      height: 10px;
+      display: inline-block;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .legend-symbol.circle {
+      border-radius: 999px;
+      background: rgba(34, 171, 148, 0.28);
+    }
+
+    .legend-symbol.diamond {
+      transform: rotate(45deg);
+      background: rgba(242, 54, 69, 0.22);
+    }
+
+    @media (max-width: 1440px) {
+      .shell {
+        grid-template-columns: var(--left-panel-width) var(--left-handle-width) minmax(0, 1fr);
+      }
+
+      .sidebar {
+        grid-column: 1 / -1;
+      }
+
+      #rightResizeHandle {
+        display: none;
+      }
+    }
+
+    @media (max-width: 1024px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        grid-column: auto;
+      }
+
+      .field-grid,
+      .meta-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .field.span-2 {
+        grid-column: auto;
+      }
+
+      .resize-handle,
+      .panel-restore {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell" id="shellLayout">
+    <section class="panel" id="leftPanel">
+      <div class="panel-header">
+        <div class="header-bar">
+          <div>
+            <h1>回放构建器</h1>
+            <p>优先复用本地缓存，其次用 ATAS 已加载历史重建。只有历史覆盖不足时，才回到实时连续流。</p>
+          </div>
+          <div class="header-actions">
+            <button id="toggleLeftPanelButton" class="panel-toggle" type="button" title="折叠左侧面板">◀</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="field-grid">
+          <div class="field span-2">
+            <label for="cacheKey">缓存键</label>
+            <input id="cacheKey" type="text" value="">
+          </div>
+          <div class="field">
+            <label for="instrumentSymbol">品种</label>
+            <input id="instrumentSymbol" type="text" value="NQ">
+          </div>
+          <div class="field">
+            <label for="displayTimeframe">显示周期</label>
+            <select id="displayTimeframe">
+              <option value="1m">1分</option>
+              <option value="5m" selected>5分</option>
+              <option value="15m">15分</option>
+              <option value="30m">30分</option>
+              <option value="1h">1小时</option>
+              <option value="1d">日线</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="windowStart">开始时间</label>
+            <input id="windowStart" type="datetime-local" value="">
+          </div>
+          <div class="field">
+            <label for="windowEnd">结束时间</label>
+            <input id="windowEnd" type="datetime-local" value="">
+          </div>
+          <div class="field span-2">
+            <label for="chartInstanceId">图表实例 ID（可选）</label>
+            <input id="chartInstanceId" type="text" value="" placeholder="默认按同品种合并历史，不区分图表">
+          </div>
+          <div class="field">
+            <label for="minContinuousMessages">最少本地消息数</label>
+            <input id="minContinuousMessages" type="number" min="1" step="1" value="10">
+          </div>
+          <div class="field">
+            <label>构建模式</label>
+            <div class="toggle-row">
+              <input id="forceRebuild" type="checkbox" checked>
+              <span>优先用最新历史强制重建，不直接复用旧快照</span>
+            </div>
+          </div>
+          <div class="field span-2">
+            <label for="invalidateReason">失效原因</label>
+            <textarea id="invalidateReason">操作员要求重新刷新回放</textarea>
+          </div>
+          <div class="field">
+            <label for="aiModelOverride">AI 模型覆盖</label>
+            <input id="aiModelOverride" type="text" placeholder="默认使用服务端模型">
+          </div>
+          <div class="field">
+            <label>AI 刷新</label>
+            <div class="toggle-row">
+              <input id="forceAiRefresh" type="checkbox">
+              <span>忽略已存分析并重新生成</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="entryExecutedAt">开仓时间</label>
+            <input id="entryExecutedAt" type="datetime-local">
+          </div>
+          <div class="field">
+            <label for="entrySide">开仓方向</label>
+            <select id="entrySide">
+              <option value="buy">做多</option>
+              <option value="sell">做空</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="entryPrice">开仓价格</label>
+            <input id="entryPrice" type="number" step="0.01" placeholder="开仓价">
+          </div>
+          <div class="field">
+            <label for="entryStopPrice">止损价格</label>
+            <input id="entryStopPrice" type="number" step="0.01" placeholder="可选止损">
+          </div>
+          <div class="field">
+            <label for="entryQuantity">数量</label>
+            <input id="entryQuantity" type="number" step="0.01" value="1">
+          </div>
+          <div class="field">
+            <label for="entryTimeframe">开仓周期</label>
+            <select id="entryTimeframe">
+              <option value="">未设置</option>
+              <option value="1m">1m</option>
+              <option value="5m">5m</option>
+              <option value="15m">15m</option>
+              <option value="30m">30m</option>
+              <option value="1h">1h</option>
+            </select>
+          </div>
+          <div class="field span-2">
+            <label for="entryThesis">开仓逻辑</label>
+            <textarea id="entryThesis">微趋势延续 / 剥头皮逻辑</textarea>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="buildButton" type="button">构建 / 复用回放</button>
+          <button id="preset7d1mButton" class="secondary" type="button">7天 5分</button>
+          <button id="preset3d5mButton" class="secondary" type="button">7天 1分</button>
+          <button id="preset1d1mButton" class="secondary" type="button">1天 1分</button>
+          <button id="aiReviewButton" type="button">AI 分析</button>
+          <button id="recordEntryButton" class="secondary" type="button">记录开仓</button>
+          <button id="lookupButton" class="secondary" type="button">查询缓存</button>
+          <button id="invalidateButton" class="warn" type="button">作废缓存</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="resize-handle" id="leftResizeHandle" title="拖动调整左侧面板宽度"></div>
+
+    <main class="workspace">
+      <div class="workspace-header">
+        <div class="header-bar">
+          <div>
+            <h2>复盘图表</h2>
+            <p>中心图表优先接近 ATAS 的看盘方式：时间轴、价格轴、成交量、EMA、大单气泡、足迹细节和手工区域同屏。</p>
+          </div>
+          <div class="header-actions">ATAS 风格工作台</div>
+        </div>
+      </div>
+      <div class="workspace-body">
+        <div class="status-strip" id="statusStrip"></div>
+        <div class="chart-toolbar">
+          <button id="zoomInButton" class="secondary" type="button">放大</button>
+          <button id="zoomOutButton" class="secondary" type="button">缩小</button>
+          <button id="resetViewButton" class="secondary" type="button">重置视图</button>
+          <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
+          <span class="legend-chip"><span class="legend-symbol circle"></span>短时聚合大单</span>
+          <span class="legend-chip"><span class="legend-symbol diamond"></span>独立大单 / 极端 Delta</span>
+          <span class="meta" id="chartViewportMeta">视图未初始化</span>
+        </div>
+        <div class="chart-frame" id="chartFrame">
+          <div class="placeholder" id="chartPlaceholder">先点击“构建 / 复用回放”。<br>如果本地已有 ATAS 历史，就直接重建完整图表；如果不足，页面会明确提示当前缺口。</div>
+          <svg id="chartSvg" viewBox="0 0 1200 560" preserveAspectRatio="none" style="display:none"></svg>
+        </div>
+      </div>
+    </main>
+
+    <div class="resize-handle" id="rightResizeHandle" title="拖动调整右侧面板宽度"></div>
+
+    <aside class="sidebar" id="rightPanel">
+      <div class="sidebar-header">
+        <div class="header-bar">
+          <div>
+            <h2>上下文与 AI</h2>
+            <p>右侧集中放焦点区域、足迹细节、策略匹配、手工区域、AI 对话和战术复盘。</p>
+          </div>
+          <div class="header-actions">
+            <button id="toggleRightPanelButton" class="panel-toggle" type="button" title="折叠右侧面板">▶</button>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar-body">
+        <div class="section">
+          <h3>构建摘要</h3>
+          <div id="buildSummary" class="empty-note">还没有 build 结果。</div>
+        </div>
+        <div class="section">
+          <h3>选中 K 线</h3>
+          <div id="selectedCandle" class="empty-note">点击图上的 K 线，查看该 bar 的 OHLC、bid/ask、delta 和 footprint 细节。</div>
+        </div>
+        <div class="section">
+          <h3>足迹梯子</h3>
+          <div id="footprintLadder" class="empty-note">历史 footprint 细节会在选中 K 线后加载。</div>
+        </div>
+        <div class="section">
+          <h3>手工区域</h3>
+          <div class="field-grid">
+            <div class="field span-2">
+              <label for="regionLabel">区域标题</label>
+              <input id="regionLabel" type="text" value="多头防守候选区">
+            </div>
+            <div class="field span-2">
+              <label for="regionThesis">区域观点</label>
+              <textarea id="regionThesis">这里可能是多头买入区域，若回到此区出现承接和反应，可以考虑反转开仓。</textarea>
+            </div>
+            <div class="field">
+              <label for="regionSideBias">方向偏向</label>
+              <select id="regionSideBias">
+                <option value="">中性</option>
+                <option value="buy">偏多</option>
+                <option value="sell">偏空</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="regionTags">区域标签</label>
+              <input id="regionTags" type="text" value="support, trapped_inventory, review">
+            </div>
+            <div class="field span-2">
+              <label for="regionNotes">区域备注</label>
+              <textarea id="regionNotes">若价格回到此区，需要观察主动单、补单、delta 与拒绝反应，不要预判直接开。</textarea>
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="saveRegionButton" class="secondary" type="button">保存当前框选区域</button>
+          </div>
+          <div id="manualRegions" class="card-list"></div>
+        </div>
+        <div class="section">
+          <h3>重点区域</h3>
+          <div id="focusRegions" class="card-list"></div>
+        </div>
+        <div class="section compact">
+          <h3>策略候选</h3>
+          <div id="strategyCandidates" class="card-list"></div>
+        </div>
+        <div class="section">
+          <h3>开仓记录</h3>
+          <div id="operatorEntries" class="card-list"></div>
+        </div>
+        <div class="section">
+          <h3>AI 复盘</h3>
+          <div id="aiReview" class="empty-note">当前还没有 AI 复盘。先构建回放，再点击“AI 分析”。</div>
+        </div>
+        <div class="section">
+          <h3>AI 对话</h3>
+          <div class="preset-grid">
+            <button id="refreshAllButton" class="secondary" type="button">马上更新所有数据</button>
+            <button id="recent20BarsButton" class="secondary" type="button">分析最近20根K线</button>
+            <button id="recent20MinutesButton" class="secondary" type="button">分析最近20分钟K线</button>
+            <button id="focusRegionsButton" class="secondary" type="button">分析重点价格区域</button>
+            <button id="trappedOrdersButton" class="secondary" type="button">分析大单是否被套</button>
+            <button id="liveDepthButton" class="secondary" type="button">分析实时挂单数据</button>
+            <button id="manualRegionButton" class="secondary" type="button">分析已标注区域</button>
+            <button id="selectedBarButton" class="secondary" type="button">分析选中K线足迹</button>
+          </div>
+          <div class="thread-bar">
+            <div class="thread-tabs" id="aiThreadTabs"></div>
+            <button id="aiNewThreadButton" class="thread-add-button" type="button">新线程</button>
+          </div>
+          <div id="aiChatThread" class="chat-thread">
+            <div class="empty-note">当前还没有 AI 对话。先构建回放，然后点击预设按钮或直接提问。</div>
+          </div>
+          <div id="aiChatResizeHandle" class="chat-resize-handle" title="拖动调整聊天窗口高度"></div>
+          <div class="chat-input-row">
+            <textarea id="aiChatInput" placeholder="输入你要复盘的问题，例如：这笔开仓为什么不该开？"></textarea>
+            <button id="aiChatSendButton" type="button">发送</button>
+          </div>
+        </div>
+        <div class="section">
+          <h3>AI 简报</h3>
+          <div id="aiBriefing" class="empty-note">当前 replay 还没有 AI briefing。</div>
+        </div>
+        <div class="section">
+          <h3>事件时间线</h3>
+          <div id="eventTimeline" class="card-list"></div>
+        </div>
+      </div>
+    </aside>
+    <button id="restoreLeftPanelButton" class="panel-restore left" type="button" title="展开左侧面板">▶</button>
+    <button id="restoreRightPanelButton" class="panel-restore right" type="button" title="展开右侧面板">◀</button>
+  </div>
+
+  <script>
+    const state = {
+      buildResponse: null,
+      snapshot: null,
+      operatorEntries: [],
+      manualRegions: [],
+      aiReview: null,
+      aiThreads: [],
+      activeAiThreadId: null,
+      currentReplayIngestionId: null,
+      selectedCandleIndex: null,
+      selectedFootprintBar: null,
+      chartView: null,
+      chartMetrics: null,
+      chartInteraction: {
+        regionMode: false,
+        draftRegion: null,
+        panStartX: null,
+        panStartY: null,
+        panStartView: null,
+        panStartPriceRange: null,
+      },
+    };
+
+    const els = {
+      cacheKey: document.getElementById("cacheKey"),
+      instrumentSymbol: document.getElementById("instrumentSymbol"),
+      displayTimeframe: document.getElementById("displayTimeframe"),
+      windowStart: document.getElementById("windowStart"),
+      windowEnd: document.getElementById("windowEnd"),
+      chartInstanceId: document.getElementById("chartInstanceId"),
+      minContinuousMessages: document.getElementById("minContinuousMessages"),
+      forceRebuild: document.getElementById("forceRebuild"),
+      invalidateReason: document.getElementById("invalidateReason"),
+      aiModelOverride: document.getElementById("aiModelOverride"),
+      forceAiRefresh: document.getElementById("forceAiRefresh"),
+      shellLayout: document.getElementById("shellLayout"),
+      leftPanel: document.getElementById("leftPanel"),
+      rightPanel: document.getElementById("rightPanel"),
+      toggleLeftPanelButton: document.getElementById("toggleLeftPanelButton"),
+      toggleRightPanelButton: document.getElementById("toggleRightPanelButton"),
+      restoreLeftPanelButton: document.getElementById("restoreLeftPanelButton"),
+      restoreRightPanelButton: document.getElementById("restoreRightPanelButton"),
+      leftResizeHandle: document.getElementById("leftResizeHandle"),
+      rightResizeHandle: document.getElementById("rightResizeHandle"),
+      entryExecutedAt: document.getElementById("entryExecutedAt"),
+      entrySide: document.getElementById("entrySide"),
+      entryPrice: document.getElementById("entryPrice"),
+      entryStopPrice: document.getElementById("entryStopPrice"),
+      entryQuantity: document.getElementById("entryQuantity"),
+      entryTimeframe: document.getElementById("entryTimeframe"),
+      entryThesis: document.getElementById("entryThesis"),
+      regionLabel: document.getElementById("regionLabel"),
+      regionThesis: document.getElementById("regionThesis"),
+      regionSideBias: document.getElementById("regionSideBias"),
+      regionTags: document.getElementById("regionTags"),
+      regionNotes: document.getElementById("regionNotes"),
+      buildButton: document.getElementById("buildButton"),
+      preset7d1mButton: document.getElementById("preset7d1mButton"),
+      preset3d5mButton: document.getElementById("preset3d5mButton"),
+      preset1d1mButton: document.getElementById("preset1d1mButton"),
+      aiReviewButton: document.getElementById("aiReviewButton"),
+      refreshAllButton: document.getElementById("refreshAllButton"),
+      recent20BarsButton: document.getElementById("recent20BarsButton"),
+      recent20MinutesButton: document.getElementById("recent20MinutesButton"),
+      focusRegionsButton: document.getElementById("focusRegionsButton"),
+      trappedOrdersButton: document.getElementById("trappedOrdersButton"),
+      liveDepthButton: document.getElementById("liveDepthButton"),
+      manualRegionButton: document.getElementById("manualRegionButton"),
+      selectedBarButton: document.getElementById("selectedBarButton"),
+      aiChatSendButton: document.getElementById("aiChatSendButton"),
+      zoomInButton: document.getElementById("zoomInButton"),
+      zoomOutButton: document.getElementById("zoomOutButton"),
+      resetViewButton: document.getElementById("resetViewButton"),
+      armRegionButton: document.getElementById("armRegionButton"),
+      saveRegionButton: document.getElementById("saveRegionButton"),
+      recordEntryButton: document.getElementById("recordEntryButton"),
+      lookupButton: document.getElementById("lookupButton"),
+      invalidateButton: document.getElementById("invalidateButton"),
+      statusStrip: document.getElementById("statusStrip"),
+      chartFrame: document.getElementById("chartFrame"),
+      chartViewportMeta: document.getElementById("chartViewportMeta"),
+      chartPlaceholder: document.getElementById("chartPlaceholder"),
+      chartSvg: document.getElementById("chartSvg"),
+      buildSummary: document.getElementById("buildSummary"),
+      selectedCandle: document.getElementById("selectedCandle"),
+      footprintLadder: document.getElementById("footprintLadder"),
+      manualRegions: document.getElementById("manualRegions"),
+      focusRegions: document.getElementById("focusRegions"),
+      strategyCandidates: document.getElementById("strategyCandidates"),
+      operatorEntries: document.getElementById("operatorEntries"),
+      aiReview: document.getElementById("aiReview"),
+      aiThreadTabs: document.getElementById("aiThreadTabs"),
+      aiNewThreadButton: document.getElementById("aiNewThreadButton"),
+      aiChatThread: document.getElementById("aiChatThread"),
+      aiChatResizeHandle: document.getElementById("aiChatResizeHandle"),
+      aiChatInput: document.getElementById("aiChatInput"),
+      aiBriefing: document.getElementById("aiBriefing"),
+      eventTimeline: document.getElementById("eventTimeline"),
+    };
+
+    state.layout = {
+      leftWidth: 320,
+      rightWidth: 340,
+      chatHeight: 420,
+      dragKind: null,
+      dragStartX: null,
+      dragStartY: null,
+      dragStartLeftWidth: null,
+      dragStartRightWidth: null,
+      dragStartChatHeight: null,
+    };
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.detail || payload.error || "request failed");
+      }
+      return payload;
+    }
+
+    function toUtcString(localValue) {
+      if (!localValue) {
+        return null;
+      }
+      return new Date(localValue).toISOString();
+    }
+
+    function toLocalInputValue(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const hour = String(date.getHours()).padStart(2, "0");
+      const minute = String(date.getMinutes()).padStart(2, "0");
+      return `${year}-${month}-${day}T${hour}:${minute}`;
+    }
+
+    function buildCacheKey() {
+      const symbol = (els.instrumentSymbol.value.trim() || "UNKNOWN").toUpperCase();
+      const timeframe = els.displayTimeframe.value;
+      const windowStart = toUtcString(els.windowStart.value) || "missing-start";
+      const windowEnd = toUtcString(els.windowEnd.value) || "missing-end";
+      return `${symbol}|${timeframe}|${windowStart}|${windowEnd}`;
+    }
+
+    function syncCacheKey() {
+      els.cacheKey.value = buildCacheKey();
+    }
+
+    function applyWindowPreset(timeframe, lookbackDays) {
+      const now = new Date();
+      const start = new Date(now.getTime() - (lookbackDays * 24 * 60 * 60 * 1000));
+      els.displayTimeframe.value = timeframe;
+      els.windowStart.value = toLocalInputValue(start);
+      els.windowEnd.value = toLocalInputValue(now);
+      syncCacheKey();
+    }
+
+    function timeframeLabel(value) {
+      return {
+        "1m": "1分",
+        "5m": "5分",
+        "15m": "15分",
+        "30m": "30分",
+        "1h": "1小时",
+        "1d": "日线",
+      }[value] || value;
+    }
+
+    function translateAction(action) {
+      return {
+        cache_hit: "命中缓存",
+        built_from_local_history: "已从本地连续流重建",
+        built_from_atas_history: "已从 ATAS 历史重建",
+        atas_fetch_required: "需要补抓 ATAS 历史",
+      }[action] || action;
+    }
+
+    function translateVerificationStatus(status) {
+      return {
+        unverified: "未核对",
+        verified: "已核对",
+        durable: "已固化",
+        invalidated: "已作废",
+      }[status] || status;
+    }
+
+    function translateAcquisitionMode(mode) {
+      return {
+        cache_reuse: "缓存复用",
+        local_history: "本地连续流",
+        atas_fetch: "ATAS 历史",
+      }[mode] || mode;
+    }
+
+    function createThreadId() {
+      return `thread-${Math.random().toString(16).slice(2, 10)}`;
+    }
+
+    function ensureThread(threadId, title) {
+      let thread = state.aiThreads.find((item) => item.id === threadId);
+      if (!thread) {
+        thread = {
+          id: threadId,
+          title,
+          messages: [],
+          turns: [],
+        };
+        state.aiThreads.push(thread);
+      }
+      return thread;
+    }
+
+    function getActiveThread() {
+      if (!state.activeAiThreadId) {
+        state.activeAiThreadId = "main";
+      }
+      return ensureThread(state.activeAiThreadId, "主线程");
+    }
+
+    function setActiveThread(threadId, title = "主线程") {
+      const thread = ensureThread(threadId, title);
+      state.activeAiThreadId = thread.id;
+      renderAiThreadTabs();
+      renderAiChat();
+      return thread;
+    }
+
+    function getPresetThreadMeta(preset) {
+      return {
+        recent_20_bars: { id: "recent-20-bars", title: "最近20根K线" },
+        recent_20_minutes: { id: "recent-20-minutes", title: "最近20分钟" },
+        focus_regions: { id: "focus-regions", title: "重点区域" },
+        trapped_large_orders: { id: "trapped-large-orders", title: "被套大单" },
+        live_depth: { id: "live-depth", title: "实时挂单" },
+        general: { id: "main", title: "主线程" },
+      }[preset] || { id: createThreadId(), title: "新线程" };
+    }
+
+    function renderAiThreadTabs() {
+      const activeThread = getActiveThread();
+      els.aiThreadTabs.innerHTML = "";
+      state.aiThreads.forEach((thread) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `thread-tab ${thread.id === activeThread.id ? "active" : ""}`.trim();
+        button.textContent = thread.title;
+        button.addEventListener("click", () => {
+          state.activeAiThreadId = thread.id;
+          renderAiThreadTabs();
+          renderAiChat();
+        });
+        els.aiThreadTabs.appendChild(button);
+      });
+    }
+
+    function appendAiChatMessage(role, content, meta = {}, threadId = null, threadTitle = "主线程") {
+      const thread = ensureThread(threadId || state.activeAiThreadId || "main", threadTitle);
+      thread.messages.push({ role, content, meta });
+      if (!state.activeAiThreadId) {
+        state.activeAiThreadId = thread.id;
+      }
+      renderAiThreadTabs();
+      renderAiChat();
+    }
+
+    function applyLayoutWidths() {
+      els.shellLayout.style.setProperty("--left-panel-width", `${state.layout.leftWidth}px`);
+      els.shellLayout.style.setProperty("--right-panel-width", `${state.layout.rightWidth}px`);
+      els.shellLayout.style.setProperty("--chat-thread-height", `${state.layout.chatHeight}px`);
+    }
+
+    function setLeftPanelCollapsed(collapsed) {
+      els.leftPanel.classList.toggle("collapsed", collapsed);
+      els.shellLayout.classList.toggle("left-collapsed", collapsed);
+      els.toggleLeftPanelButton.textContent = collapsed ? "▶" : "◀";
+      els.restoreLeftPanelButton.setAttribute("aria-hidden", collapsed ? "false" : "true");
+    }
+
+    function setRightPanelCollapsed(collapsed) {
+      els.rightPanel.classList.toggle("collapsed", collapsed);
+      els.shellLayout.classList.toggle("right-collapsed", collapsed);
+      els.toggleRightPanelButton.textContent = collapsed ? "◀" : "▶";
+      els.restoreRightPanelButton.setAttribute("aria-hidden", collapsed ? "false" : "true");
+    }
+
+    function beginLayoutDrag(kind, event) {
+      event.preventDefault();
+      event.stopPropagation();
+      state.layout.dragKind = kind;
+      state.layout.dragStartX = event.clientX;
+      state.layout.dragStartY = event.clientY;
+      state.layout.dragStartLeftWidth = state.layout.leftWidth;
+      state.layout.dragStartRightWidth = state.layout.rightWidth;
+      state.layout.dragStartChatHeight = state.layout.chatHeight;
+      if (kind === "left") {
+        els.leftResizeHandle.classList.add("dragging");
+      } else if (kind === "right") {
+        els.rightResizeHandle.classList.add("dragging");
+      } else if (kind === "chat") {
+        els.aiChatResizeHandle.classList.add("dragging");
+      }
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = kind === "chat" ? "row-resize" : "col-resize";
+    }
+
+    function updateLayoutDrag(event) {
+      if (!state.layout.dragKind) {
+        return false;
+      }
+      if (state.layout.dragKind === "left") {
+        const nextWidth = state.layout.dragStartLeftWidth + (event.clientX - state.layout.dragStartX);
+        state.layout.leftWidth = Math.max(260, Math.min(520, nextWidth));
+      } else if (state.layout.dragKind === "right") {
+        const nextWidth = state.layout.dragStartRightWidth - (event.clientX - state.layout.dragStartX);
+        state.layout.rightWidth = Math.max(280, Math.min(560, nextWidth));
+      } else if (state.layout.dragKind === "chat") {
+        const nextHeight = state.layout.dragStartChatHeight + (event.clientY - state.layout.dragStartY);
+        state.layout.chatHeight = Math.max(220, Math.min(760, nextHeight));
+      }
+      applyLayoutWidths();
+      return true;
+    }
+
+    function finishLayoutDrag() {
+      if (!state.layout.dragKind) {
+        return;
+      }
+      els.leftResizeHandle.classList.remove("dragging");
+      els.rightResizeHandle.classList.remove("dragging");
+      els.aiChatResizeHandle.classList.remove("dragging");
+      state.layout.dragKind = null;
+      state.layout.dragStartX = null;
+      state.layout.dragStartY = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    }
+
+    function initializePanelToggles() {
+      applyLayoutWidths();
+      setLeftPanelCollapsed(false);
+      setRightPanelCollapsed(false);
+
+      els.toggleLeftPanelButton.addEventListener("click", () => {
+        setLeftPanelCollapsed(!els.leftPanel.classList.contains("collapsed"));
+      });
+      els.toggleRightPanelButton.addEventListener("click", () => {
+        setRightPanelCollapsed(!els.rightPanel.classList.contains("collapsed"));
+      });
+      els.restoreLeftPanelButton.addEventListener("click", () => {
+        setLeftPanelCollapsed(false);
+      });
+      els.restoreRightPanelButton.addEventListener("click", () => {
+        setRightPanelCollapsed(false);
+      });
+      els.leftResizeHandle.addEventListener("mousedown", (event) => beginLayoutDrag("left", event));
+      els.rightResizeHandle.addEventListener("mousedown", (event) => beginLayoutDrag("right", event));
+      els.aiChatResizeHandle.addEventListener("mousedown", (event) => beginLayoutDrag("chat", event));
+    }
+
+    function initializeSectionToggles() {
+      document.querySelectorAll(".sidebar .section").forEach((section, index) => {
+        if (section.dataset.toggleReady === "true") {
+          return;
+        }
+        const heading = section.querySelector(":scope > h3");
+        if (!heading) {
+          return;
+        }
+        const content = document.createElement("div");
+        content.className = "section-content";
+        while (heading.nextSibling) {
+          content.appendChild(heading.nextSibling);
+        }
+        const header = document.createElement("div");
+        header.className = "section-header";
+        const title = document.createElement("h3");
+        title.textContent = heading.textContent;
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "section-toggle";
+        toggle.textContent = "收起";
+        toggle.addEventListener("click", () => {
+          const collapsed = section.classList.toggle("collapsed");
+          toggle.textContent = collapsed ? "展开" : "收起";
+        });
+        header.appendChild(title);
+        header.appendChild(toggle);
+        section.innerHTML = "";
+        section.appendChild(header);
+        section.appendChild(content);
+        section.dataset.toggleReady = "true";
+        if (index >= 4) {
+          section.classList.add("collapsed");
+          toggle.textContent = "展开";
+        }
+      });
+    }
+
+    function renderStatusStrip(items) {
+      els.statusStrip.innerHTML = "";
+      items.forEach((item) => {
+        const chip = document.createElement("div");
+        chip.className = `chip ${item.variant || ""}`.trim();
+        chip.textContent = item.label;
+        els.statusStrip.appendChild(chip);
+      });
+    }
+
+    function buildRequestPayload() {
+      syncCacheKey();
+      return {
+        cache_key: els.cacheKey.value.trim(),
+        instrument_symbol: els.instrumentSymbol.value.trim(),
+        display_timeframe: els.displayTimeframe.value,
+        window_start: toUtcString(els.windowStart.value),
+        window_end: toUtcString(els.windowEnd.value),
+        chart_instance_id: els.chartInstanceId.value.trim() || null,
+        force_rebuild: els.forceRebuild.checked,
+        min_continuous_messages: Number(els.minContinuousMessages.value || 10),
+      };
+    }
+
+    async function loadSnapshotByIngestionId(ingestionId) {
+      const ingestion = await fetchJson(`/api/v1/ingestions/${encodeURIComponent(ingestionId)}`);
+      state.currentReplayIngestionId = ingestionId;
+      state.snapshot = ingestion.observed_payload;
+      state.operatorEntries = [];
+      state.manualRegions = [];
+      state.aiReview = null;
+      state.aiThreads = [];
+      state.activeAiThreadId = "main";
+      state.selectedCandleIndex = null;
+      state.selectedFootprintBar = null;
+      state.chartView = null;
+      ensureThread("main", "主线程");
+      await loadOperatorEntries();
+      await loadManualRegions();
+      syncEntryDefaultsFromSnapshot();
+      renderSnapshot();
+    }
+
+    async function loadOperatorEntries() {
+      if (!state.currentReplayIngestionId) {
+        state.operatorEntries = [];
+        return;
+      }
+      const result = await fetchJson(`/api/v1/workbench/operator-entries?replay_ingestion_id=${encodeURIComponent(state.currentReplayIngestionId)}`);
+      state.operatorEntries = result.entries || [];
+    }
+
+    async function loadManualRegions() {
+      if (!state.currentReplayIngestionId) {
+        state.manualRegions = [];
+        return;
+      }
+      const result = await fetchJson(`/api/v1/workbench/manual-regions?replay_ingestion_id=${encodeURIComponent(state.currentReplayIngestionId)}`);
+      state.manualRegions = result.regions || [];
+    }
+
+    async function loadFootprintBarDetail(barStartedAt) {
+      if (!state.currentReplayIngestionId || !barStartedAt) {
+        state.selectedFootprintBar = null;
+        return;
+      }
+      try {
+        const result = await fetchJson(
+          `/api/v1/workbench/footprint-bar?replay_ingestion_id=${encodeURIComponent(state.currentReplayIngestionId)}&bar_started_at=${encodeURIComponent(barStartedAt)}`,
+        );
+        state.selectedFootprintBar = result;
+      } catch (error) {
+        state.selectedFootprintBar = {
+          error: error.message || String(error),
+        };
+      }
+    }
+
+    function syncEntryDefaultsFromSnapshot() {
+      if (!state.snapshot) {
+        return;
+      }
+      const windowEnd = new Date(state.snapshot.window_end);
+      const localValue = `${windowEnd.getFullYear()}-${String(windowEnd.getMonth() + 1).padStart(2, "0")}-${String(windowEnd.getDate()).padStart(2, "0")}T${String(windowEnd.getHours()).padStart(2, "0")}:${String(windowEnd.getMinutes()).padStart(2, "0")}`;
+      if (!els.entryExecutedAt.value) {
+        els.entryExecutedAt.value = localValue;
+      }
+      if (!els.entryPrice.value && state.snapshot.candles?.length) {
+        els.entryPrice.value = state.snapshot.candles[state.snapshot.candles.length - 1].close.toFixed(2);
+      }
+    }
+
+    function renderBuildSummary() {
+      const result = state.buildResponse;
+      if (!result) {
+        els.buildSummary.className = "empty-note";
+        els.buildSummary.textContent = "还没有构建结果。";
+        return;
+      }
+
+      const summaryParts = [
+        `<div class="info-card"><h4>构建动作</h4><p class="mono">${escapeHtml(translateAction(result.action))}</p></div>`,
+        `<div class="info-card"><h4>原因</h4><p>${escapeHtml(result.reason)}</p></div>`,
+        `<div class="info-card"><h4>本地连续流消息</h4><p class="mono">${escapeHtml(String(result.local_message_count))}</p></div>`,
+      ];
+
+      if (result.summary) {
+        summaryParts.push(
+          `<div class="info-card"><h4>核对状态</h4><p class="mono">${escapeHtml(translateVerificationStatus(result.summary.verification_status))} / ${escapeHtml(String(result.summary.verification_count))}</p></div>`,
+          `<div class="info-card"><h4>采集来源</h4><p class="mono">${escapeHtml(translateAcquisitionMode(result.summary.acquisition_mode))}</p></div>`,
+          `<div class="info-card"><h4>K 线数量</h4><p class="mono">${escapeHtml(String(result.summary.candle_count))}</p></div>`
+        );
+      }
+
+      const digest = state.snapshot?.raw_features?.history_footprint_digest;
+      if (digest) {
+        summaryParts.push(
+          `<div class="info-card"><h4>历史足迹摘要</h4><p class="mono">bars=${escapeHtml(String(digest.bar_count || 0))} price_levels=${escapeHtml(String(digest.price_level_count || 0))}</p></div>`
+        );
+      }
+
+      if (result.atas_fetch_request) {
+        summaryParts.push(
+          `<div class="info-card"><h4>需要向 ATAS 补抓</h4><p class="mono">${escapeHtml(JSON.stringify(result.atas_fetch_request, null, 2))}</p></div>`
+        );
+      }
+
+      els.buildSummary.className = "meta-grid";
+      els.buildSummary.innerHTML = summaryParts.join("");
+    }
+
+    function renderFocusRegions() {
+      const focusRegions = state.snapshot?.focus_regions || [];
+      els.focusRegions.innerHTML = "";
+      if (!focusRegions.length) {
+        els.focusRegions.innerHTML = `<div class="empty-note">当前回放没有重点区域。</div>`;
+        return;
+      }
+      focusRegions.forEach((region) => {
+        const card = document.createElement("div");
+        card.className = "info-card";
+        card.innerHTML = `
+          <h4>${escapeHtml(region.label)}</h4>
+          <p class="mono">${escapeHtml(region.price_low.toFixed(2))} - ${escapeHtml(region.price_high.toFixed(2))}</p>
+          <p>优先级=${escapeHtml(String(region.priority))}</p>
+          ${renderList(region.reason_codes)}
+          ${renderList(region.notes)}
+        `;
+        els.focusRegions.appendChild(card);
+      });
+    }
+
+    function renderStrategyCandidates() {
+      const candidates = state.snapshot?.strategy_candidates || [];
+      els.strategyCandidates.innerHTML = "";
+      if (!candidates.length) {
+        els.strategyCandidates.innerHTML = `<div class="empty-note">当前 replay 没有匹配到策略卡片。</div>`;
+        return;
+      }
+      candidates.forEach((candidate) => {
+        const card = document.createElement("div");
+        card.className = "info-card";
+        card.innerHTML = `
+          <h4>${escapeHtml(candidate.title)}</h4>
+          <p class="mono">${escapeHtml(candidate.strategy_id)}</p>
+          <p class="mono">${escapeHtml(candidate.source_path)}</p>
+          ${renderList(candidate.why_relevant)}
+        `;
+        els.strategyCandidates.appendChild(card);
+      });
+    }
+
+    function renderOperatorEntries() {
+      const entries = state.operatorEntries || [];
+      els.operatorEntries.innerHTML = "";
+      if (!entries.length) {
+        els.operatorEntries.innerHTML = `<div class="empty-note">当前 replay 还没有记录开仓。</div>`;
+        return;
+      }
+      entries.forEach((entry) => {
+        const card = document.createElement("div");
+        card.className = "info-card";
+        card.innerHTML = `
+          <h4>${escapeHtml(entry.side === "buy" ? "多头" : "空头")} @ ${escapeHtml(entry.entry_price.toFixed(2))}</h4>
+          <p class="mono">${escapeHtml(new Date(entry.executed_at).toLocaleString())}</p>
+          <p class="mono">数量=${escapeHtml(String(entry.quantity ?? ""))} 止损=${escapeHtml(entry.stop_price != null ? entry.stop_price.toFixed(2) : "n/a")}</p>
+          <p>${escapeHtml(entry.thesis || "")}</p>
+          ${renderList(entry.context_notes)}
+        `;
+        els.operatorEntries.appendChild(card);
+      });
+    }
+
+    function renderManualRegions() {
+      const regions = state.manualRegions || [];
+      els.manualRegions.innerHTML = "";
+      if (!regions.length) {
+        els.manualRegions.innerHTML = `<div class="empty-note">当前还没有手工区域。点击“开始框选区域”，在图上拖出一个时间-价格区域后保存。</div>`;
+        return;
+      }
+      regions.forEach((region) => {
+        const card = document.createElement("div");
+        card.className = "info-card";
+        card.innerHTML = `
+          <h4>${escapeHtml(region.label)}</h4>
+          <p class="mono">${escapeHtml(Number(region.price_low).toFixed(2))} - ${escapeHtml(Number(region.price_high).toFixed(2))}</p>
+          <p class="mono">${escapeHtml(new Date(region.started_at).toLocaleString())} -> ${escapeHtml(new Date(region.ended_at).toLocaleString())}</p>
+          <p>${escapeHtml(region.thesis)}</p>
+          ${renderList(region.notes)}
+          ${renderList(region.tags)}
+        `;
+        els.manualRegions.appendChild(card);
+      });
+    }
+
+    function renderSelectedCandle() {
+      const snapshot = state.snapshot;
+      const candle = snapshot?.candles?.[state.selectedCandleIndex ?? -1];
+      if (!candle) {
+        els.selectedCandle.className = "empty-note";
+        els.selectedCandle.textContent = "点击图上的 K 线，查看该 bar 的 OHLC、bid/ask、delta 和 footprint 细节。";
+        return;
+      }
+      const detail = state.selectedFootprintBar;
+      els.selectedCandle.className = "card-list";
+      els.selectedCandle.innerHTML = `
+        <div class="info-card">
+          <h4>${escapeHtml(new Date(candle.started_at).toLocaleString())}</h4>
+          <p class="mono">O ${escapeHtml(Number(candle.open).toFixed(2))} H ${escapeHtml(Number(candle.high).toFixed(2))} L ${escapeHtml(Number(candle.low).toFixed(2))} C ${escapeHtml(Number(candle.close).toFixed(2))}</p>
+          <p class="mono">成交量=${escapeHtml(String(candle.volume ?? "n/a"))} Delta=${escapeHtml(String(candle.delta ?? "n/a"))} Bid=${escapeHtml(String(candle.bid_volume ?? "n/a"))} Ask=${escapeHtml(String(candle.ask_volume ?? "n/a"))}</p>
+          ${detail?.price_levels ? `<p class="mono">足迹价位层数=${escapeHtml(String(detail.price_levels.length))}</p>` : ""}
+          ${detail?.error ? `<p>${escapeHtml(detail.error)}</p>` : ""}
+        </div>
+      `;
+    }
+
+    function renderFootprintLadder() {
+      const detail = state.selectedFootprintBar;
+      if (!detail || detail.error) {
+        els.footprintLadder.className = "empty-note";
+        els.footprintLadder.textContent = detail?.error || "历史 footprint 细节会在选中 K 线后加载。";
+        return;
+      }
+      const levels = detail.price_levels || [];
+      if (!levels.length) {
+        els.footprintLadder.className = "empty-note";
+        els.footprintLadder.textContent = "当前 bar 没有历史 footprint 价位明细。";
+        return;
+      }
+      const rows = levels.slice(0, 120).map((level) => `
+        <div class="ladder-row">
+          <span class="price">${escapeHtml(Number(level.price).toFixed(2))}</span>
+          <span class="bid">${escapeHtml(String(level.bid_volume ?? 0))}</span>
+          <span class="ask">${escapeHtml(String(level.ask_volume ?? 0))}</span>
+          <span>${escapeHtml(String(level.delta ?? 0))}</span>
+        </div>
+      `).join("");
+      els.footprintLadder.className = "ladder";
+      els.footprintLadder.innerHTML = `
+        <div class="ladder-header">
+          <span>价位</span>
+          <span>Bid</span>
+          <span>Ask</span>
+          <span>Delta</span>
+        </div>
+        ${rows}
+      `;
+    }
+
+    function renderAiBriefing() {
+      const briefing = state.snapshot?.ai_briefing;
+      if (!briefing) {
+        els.aiBriefing.className = "empty-note";
+        els.aiBriefing.textContent = "当前回放还没有 AI 简报。";
+        return;
+      }
+      els.aiBriefing.className = "card-list";
+      els.aiBriefing.innerHTML = `
+        <div class="info-card">
+          <h4>任务目标</h4>
+          <p>${escapeHtml(briefing.objective)}</p>
+        </div>
+        <div class="info-card">
+          <h4>重点问题</h4>
+          ${renderList(briefing.focus_questions)}
+        </div>
+        <div class="info-card">
+          <h4>要求输出</h4>
+          ${renderList(briefing.required_outputs)}
+        </div>
+        <div class="info-card">
+          <h4>备注</h4>
+          ${renderList(briefing.notes)}
+        </div>
+      `;
+    }
+
+    function renderAiReview() {
+      const reviewResult = state.aiReview;
+      if (!reviewResult) {
+        els.aiReview.className = "empty-note";
+        els.aiReview.textContent = state.currentReplayIngestionId
+          ? "当前 replay 还没有 AI 复盘。点击“AI 分析”生成或复用。"
+          : "当前还没有可分析的 replay。先构建回放。";
+        return;
+      }
+
+      const review = reviewResult.review;
+      const keyZonesHtml = review.key_zones?.length
+        ? review.key_zones.map((zone) => `
+            <div class="info-card">
+              <h4>${escapeHtml(zone.label)}</h4>
+              <p class="mono">${escapeHtml(zone.zone_low.toFixed(2))} - ${escapeHtml(zone.zone_high.toFixed(2))}</p>
+              <p>角色=${escapeHtml(zone.role)} 强度=${escapeHtml(zone.strength_score.toFixed(2))}</p>
+              ${renderList(zone.evidence)}
+            </div>
+          `).join("")
+        : `<div class="empty-note">AI 没有返回重点区域。</div>`;
+      const invalidationsHtml = review.invalidations?.length
+        ? review.invalidations.map((item) => `
+            <div class="info-card">
+              <h4>${escapeHtml(item.label)}</h4>
+              <p class="mono">${escapeHtml(item.price.toFixed(2))}</p>
+              <p>${escapeHtml(item.reason)}</p>
+            </div>
+          `).join("")
+        : `<div class="empty-note">AI 没有返回失效位。</div>`;
+      const entryReviewsHtml = review.entry_reviews?.length
+        ? review.entry_reviews.map((entryReview) => `
+            <div class="info-card">
+              <h4>${escapeHtml(entryReview.entry_id)} / ${escapeHtml(entryReview.verdict)}</h4>
+              <p class="mono">上下文匹配=${escapeHtml(entryReview.context_alignment_score.toFixed(2))}</p>
+              <h4>理由</h4>
+              ${renderList(entryReview.rationale)}
+              <h4>问题</h4>
+              ${renderList(entryReview.mistakes)}
+              <h4>更好条件</h4>
+              ${renderList(entryReview.better_conditions)}
+            </div>
+          `).join("")
+        : `<div class="empty-note">当前 AI 复盘还没有逐条开仓评价。</div>`;
+
+      els.aiReview.className = "card-list";
+      els.aiReview.innerHTML = `
+        <div class="info-card">
+          <h4>总结</h4>
+          <p>${escapeHtml(review.narrative_summary)}</p>
+        </div>
+        <div class="info-card">
+          <h4>优先剧本</h4>
+          <p class="mono">${escapeHtml(review.script_review.preferred_script)}</p>
+          <h4>偏好理由</h4>
+          ${renderList(review.script_review.preferred_rationale)}
+          <h4>延续条件</h4>
+          ${renderList(review.script_review.continuation_case)}
+          <h4>反转条件</h4>
+          ${renderList(review.script_review.reversal_case)}
+        </div>
+        <div class="info-card">
+          <h4>模型来源</h4>
+          <p class="mono">${escapeHtml(reviewResult.provider)} / ${escapeHtml(reviewResult.model)}</p>
+          <p class="mono">保存时间=${escapeHtml(new Date(reviewResult.stored_at).toLocaleString())}</p>
+        </div>
+        ${entryReviewsHtml}
+        ${keyZonesHtml}
+        ${invalidationsHtml}
+        <div class="info-card">
+          <h4>禁止开仓提示</h4>
+          ${renderList(review.no_trade_guidance)}
+        </div>
+        <div class="info-card">
+          <h4>操作员关注点</h4>
+          ${renderList(review.operator_focus)}
+        </div>
+        <div class="info-card">
+          <h4>未解决冲突</h4>
+          ${renderList(review.unresolved_conflicts)}
+        </div>
+      `;
+    }
+
+    function renderAiChat() {
+      renderAiThreadTabs();
+      const thread = getActiveThread();
+      const messages = thread.messages || [];
+      els.aiChatThread.innerHTML = "";
+      if (!messages.length) {
+        els.aiChatThread.innerHTML = `<div class="empty-note">当前还没有 AI 对话。先构建回放，再点击预设按钮或直接提问。</div>`;
+        return;
+      }
+
+      messages.forEach((message) => {
+        const bubble = document.createElement("div");
+        bubble.className = `chat-bubble ${message.role}`;
+        const meta = message.meta || {};
+        const chips = [];
+        if (meta.preset) {
+          chips.push(`<span class="chip">${escapeHtml(meta.preset)}</span>`);
+        }
+        if (meta.provider && meta.model) {
+          chips.push(`<span class="chip emphasis">${escapeHtml(`${meta.provider}/${meta.model}`)}</span>`);
+        }
+        if (meta.referenced_strategy_ids?.length) {
+          meta.referenced_strategy_ids.forEach((item) => {
+            chips.push(`<span class="chip">${escapeHtml(item)}</span>`);
+          });
+        }
+        bubble.innerHTML = `
+          <h4>${escapeHtml(message.role === "user" ? "交易员" : "AI 副驾驶")}</h4>
+          <p>${escapeHtml(message.content)}</p>
+          ${chips.length ? `<div class="chat-meta">${chips.join("")}</div>` : ""}
+          ${meta.live_context_summary?.length ? `<div class="chat-meta">${meta.live_context_summary.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}
+          ${meta.follow_up_suggestions?.length ? `<div class="chat-meta">${meta.follow_up_suggestions.map((item) => `<span class="chip warn">${escapeHtml(item)}</span>`).join("")}</div>` : ""}
+        `;
+        els.aiChatThread.appendChild(bubble);
+      });
+
+      els.aiChatThread.scrollTop = els.aiChatThread.scrollHeight;
+    }
+
+    function renderEventTimeline() {
+      const events = state.snapshot?.event_annotations || [];
+      els.eventTimeline.innerHTML = "";
+      if (!events.length) {
+        els.eventTimeline.innerHTML = `<div class="empty-note">当前 replay 没有事件标注。</div>`;
+        return;
+      }
+      events.forEach((event) => {
+        const card = document.createElement("div");
+        card.className = "info-card";
+        const priceText = event.price != null
+          ? event.price.toFixed(2)
+          : `${Number(event.price_low ?? 0).toFixed(2)} - ${Number(event.price_high ?? 0).toFixed(2)}`;
+        card.innerHTML = `
+          <h4>${escapeHtml(event.event_kind)}</h4>
+          <p class="mono">${escapeHtml(new Date(event.observed_at).toLocaleString())}</p>
+          <p class="mono">${escapeHtml(priceText)}</p>
+          ${renderList(event.notes)}
+        `;
+        els.eventTimeline.appendChild(card);
+      });
+    }
+
+    function renderSnapshot() {
+      renderBuildSummary();
+      renderSelectedCandle();
+      renderFootprintLadder();
+      renderManualRegions();
+      renderFocusRegions();
+      renderStrategyCandidates();
+      renderOperatorEntries();
+      renderAiReview();
+      renderAiChat();
+      renderAiBriefing();
+      renderEventTimeline();
+      renderChart();
+    }
+
+    function clampChartView(totalCount, startIndex, endIndex, baseView = null) {
+      const maxIndex = Math.max(0, totalCount - 1);
+      const clampedStart = Math.max(0, Math.min(startIndex, maxIndex));
+      const clampedEnd = Math.max(clampedStart, Math.min(endIndex, maxIndex));
+      return {
+        startIndex: clampedStart,
+        endIndex: clampedEnd,
+        yMin: baseView?.yMin ?? null,
+        yMax: baseView?.yMax ?? null,
+      };
+    }
+
+    function ensureChartView(snapshot) {
+      const totalCount = snapshot?.candles?.length || 0;
+      if (!totalCount) {
+        state.chartView = null;
+        state.chartMetrics = null;
+        return null;
+      }
+      if (!state.chartView) {
+        state.chartView = { startIndex: 0, endIndex: totalCount - 1 };
+      }
+      state.chartView = clampChartView(totalCount, state.chartView.startIndex, state.chartView.endIndex, state.chartView);
+      const visibleCandles = snapshot.candles.slice(state.chartView.startIndex, state.chartView.endIndex + 1);
+      const envelope = derivePriceEnvelope(
+        visibleCandles,
+        snapshot.event_annotations || [],
+        snapshot.focus_regions || [],
+        state.manualRegions || [],
+        state.operatorEntries || [],
+      );
+      if (state.chartView.yMin == null || state.chartView.yMax == null || state.chartView.yMax <= state.chartView.yMin) {
+        state.chartView.yMin = envelope.min;
+        state.chartView.yMax = envelope.max;
+      }
+      return state.chartView;
+    }
+
+    function formatAxisTime(value) {
+      const date = new Date(value);
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const hour = String(date.getHours()).padStart(2, "0");
+      const minute = String(date.getMinutes()).padStart(2, "0");
+      return `${month}/${day} ${hour}:${minute}`;
+    }
+
+    function clampNumber(value, minimum, maximum) {
+      return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    function derivePriceEnvelope(visibleCandles, events = [], focusRegions = [], manualRegions = [], operatorEntries = []) {
+      if (!visibleCandles.length) {
+        return { min: 0, max: 1 };
+      }
+      const visibleStartTime = new Date(visibleCandles[0].started_at).getTime();
+      const visibleEndTime = new Date(visibleCandles[visibleCandles.length - 1].ended_at).getTime();
+      const withinVisibleWindow = (value) => {
+        const timestamp = new Date(value).getTime();
+        return timestamp >= visibleStartTime && timestamp <= visibleEndTime;
+      };
+
+      const prices = [];
+      visibleCandles.forEach((bar) => prices.push(bar.high, bar.low));
+      events.filter((event) => withinVisibleWindow(event.observed_at)).forEach((event) => {
+        if (event.price != null) prices.push(event.price);
+        if (event.price_low != null) prices.push(event.price_low);
+        if (event.price_high != null) prices.push(event.price_high);
+      });
+      focusRegions.forEach((region) => {
+        if (withinVisibleWindow(region.started_at) || withinVisibleWindow(region.ended_at || visibleCandles[visibleCandles.length - 1].ended_at)) {
+          prices.push(region.price_low, region.price_high);
+        }
+      });
+      manualRegions.forEach((region) => {
+        if (withinVisibleWindow(region.started_at) || withinVisibleWindow(region.ended_at)) {
+          prices.push(region.price_low, region.price_high);
+        }
+      });
+      operatorEntries.forEach((entry) => {
+        if (withinVisibleWindow(entry.executed_at)) {
+          prices.push(entry.entry_price, entry.stop_price ?? entry.entry_price, entry.target_price ?? entry.entry_price);
+        }
+      });
+
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const paddingPrice = Math.max((maxPrice - minPrice) * 0.08, 1);
+      return {
+        min: minPrice - paddingPrice,
+        max: maxPrice + paddingPrice,
+      };
+    }
+
+    function computeEmaSeries(candles, period) {
+      const alpha = 2 / (period + 1);
+      let ema = null;
+      return candles.map((bar) => {
+        const close = Number(bar.close);
+        ema = ema == null ? close : (close * alpha) + (ema * (1 - alpha));
+        return ema;
+      });
+    }
+
+    function collectFootprintBubbles(snapshot, visibleStartTime, visibleEndTime) {
+      const digest = snapshot?.raw_features?.history_footprint_digest;
+      const topBars = Array.isArray(digest?.top_bars) ? digest.top_bars : [];
+      const visible = topBars.filter((item) => {
+        const startedAt = item.started_at || item.startedAt;
+        if (!startedAt) {
+          return false;
+        }
+        const timestamp = new Date(startedAt).getTime();
+        return timestamp >= visibleStartTime && timestamp <= visibleEndTime;
+      });
+      const maxBarVolume = Math.max(1, ...visible.map((item) => Number(item.bar_total_price_level_volume || item.volume || 0)));
+      return visible.slice(0, 48).map((item) => ({
+        startedAt: item.started_at || item.startedAt,
+        topVolumeLevel: item.top_volume_level || null,
+        topDeltaLevel: item.top_delta_level || null,
+        barVolume: Number(item.bar_total_price_level_volume || item.volume || 0),
+        barDelta: Number(item.bar_abs_price_level_delta || Math.abs(item.delta || 0)),
+        volumeRatio: Number(item.bar_total_price_level_volume || item.volume || 0) / maxBarVolume,
+      }));
+    }
+
+    function renderChart() {
+      const snapshot = state.snapshot;
+      if (!snapshot || !snapshot.candles || !snapshot.candles.length) {
+        els.chartPlaceholder.style.display = "flex";
+        els.chartSvg.style.display = "none";
+        els.chartViewportMeta.textContent = "视图未初始化";
+        state.chartMetrics = null;
+        return;
+      }
+
+      const candles = snapshot.candles;
+      const events = snapshot.event_annotations || [];
+      const focusRegions = snapshot.focus_regions || [];
+      const manualRegions = state.manualRegions || [];
+      const operatorEntries = state.operatorEntries || [];
+      const view = ensureChartView(snapshot);
+      const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
+      if (!visibleCandles.length) {
+        return;
+      }
+
+      els.chartPlaceholder.style.display = "none";
+      els.chartSvg.style.display = "block";
+      els.chartFrame.classList.toggle("region-mode", state.chartInteraction.regionMode);
+
+      const svg = els.chartSvg;
+      const width = svg.clientWidth || 1200;
+      const height = svg.clientHeight || 760;
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      const leftPad = 18;
+      const rightPad = 78;
+      const topPad = 20;
+      const bottomPad = 42;
+      const volumeGap = 14;
+      const volumeHeight = Math.max(84, Math.round(height * 0.16));
+      const priceChartHeight = height - topPad - bottomPad - volumeGap - volumeHeight;
+      const volumeTop = topPad + priceChartHeight + volumeGap;
+      const chartWidth = width - leftPad - rightPad;
+      const chartHeight = priceChartHeight;
+      const visibleStartTime = new Date(visibleCandles[0].started_at).getTime();
+      const visibleEndTime = new Date(visibleCandles[visibleCandles.length - 1].ended_at).getTime();
+      const candleSpacing = chartWidth / Math.max(visibleCandles.length, 1);
+      const candleWidth = Math.max(1.2, candleSpacing * 0.7);
+
+      const withinVisibleWindow = (value) => {
+        const timestamp = new Date(value).getTime();
+        return timestamp >= visibleStartTime && timestamp <= visibleEndTime;
+      };
+
+      const envelope = derivePriceEnvelope(visibleCandles, events, focusRegions, manualRegions, operatorEntries);
+      const yMin = state.chartView?.yMin ?? envelope.min;
+      const yMax = state.chartView?.yMax ?? envelope.max;
+      const emaSeries = computeEmaSeries(candles, 20);
+      const visibleBubbleMarks = collectFootprintBubbles(snapshot, visibleStartTime, visibleEndTime);
+
+      const timeToX = (value) => {
+        const timestamp = new Date(value).getTime();
+        if (visibleEndTime === visibleStartTime) {
+          return leftPad + chartWidth / 2;
+        }
+        return leftPad + ((timestamp - visibleStartTime) / (visibleEndTime - visibleStartTime)) * chartWidth;
+      };
+
+      const priceToY = (value) => topPad + ((yMax - value) / (yMax - yMin)) * chartHeight;
+      const xToTime = (x) => {
+        const ratio = Math.max(0, Math.min(1, (x - leftPad) / chartWidth));
+        return new Date(visibleStartTime + ratio * (visibleEndTime - visibleStartTime)).toISOString();
+      };
+      const yToPrice = (y) => yMax - ((y - topPad) / chartHeight) * (yMax - yMin);
+      const clampChartX = (value, padding = 0) => clampNumber(value, leftPad + padding, leftPad + chartWidth - padding);
+      const clampChartY = (value, padding = 0) => clampNumber(value, topPad + padding, topPad + chartHeight - padding);
+
+      state.chartMetrics = {
+        width,
+        height,
+        leftPad,
+        rightPad,
+        topPad,
+        bottomPad,
+        volumeTop,
+        volumeHeight,
+        chartWidth,
+        chartHeight,
+        visibleStartTime,
+        visibleEndTime,
+        yMin,
+        yMax,
+        candleSpacing,
+        candles,
+      };
+      const sourceBars = snapshot.raw_features?.history_bar_count || candles.length;
+      els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / 历史源 ${sourceBars} 根 / ${formatAxisTime(visibleCandles[0].started_at)} -> ${formatAxisTime(visibleCandles[visibleCandles.length - 1].ended_at)} / 滚轮缩放时间轴 / Shift+滚轮缩放价格轴 / 拖拽平移`;
+
+      let markup = "";
+      markup += `<rect x="0" y="0" width="${width}" height="${height}" fill="#131722" />`;
+      markup += `<rect x="${leftPad}" y="${topPad}" width="${chartWidth}" height="${chartHeight}" fill="rgba(19,23,34,0.98)" rx="10" />`;
+      markup += `<rect x="${leftPad}" y="${volumeTop}" width="${chartWidth}" height="${volumeHeight}" fill="rgba(19,23,34,0.98)" rx="10" />`;
+
+      for (let step = 0; step < 6; step += 1) {
+        const price = yMin + ((yMax - yMin) * step) / 5;
+        const y = priceToY(price);
+        markup += `<line x1="${leftPad}" y1="${y}" x2="${width - rightPad}" y2="${y}" stroke="rgba(138,148,166,0.14)" stroke-width="1" />`;
+        markup += `<text x="${width - rightPad + 8}" y="${y + 4}" text-anchor="start" font-size="12" fill="#8a94a6">${escapeHtml(price.toFixed(2))}</text>`;
+      }
+
+      const volumeMax = Math.max(1, ...visibleCandles.map((bar) => Number(bar.volume || 0)));
+      const axisTickCount = Math.max(4, Math.min(8, Math.floor(chartWidth / 160)));
+      for (let step = 0; step < axisTickCount; step += 1) {
+        const ratio = axisTickCount === 1 ? 0 : step / (axisTickCount - 1);
+        const candleIndex = Math.min(visibleCandles.length - 1, Math.round(ratio * (visibleCandles.length - 1)));
+        const x = leftPad + candleIndex * candleSpacing + (candleSpacing / 2);
+        const label = formatAxisTime(visibleCandles[candleIndex].started_at);
+        markup += `<line x1="${x}" y1="${topPad}" x2="${x}" y2="${volumeTop + volumeHeight}" stroke="rgba(138,148,166,0.09)" stroke-width="1" />`;
+        markup += `<text x="${x}" y="${height - 12}" text-anchor="middle" font-size="11" fill="#8a94a6">${escapeHtml(label)}</text>`;
+      }
+
+      focusRegions.forEach((region) => {
+        const regionEnd = region.ended_at || snapshot.window_end;
+        if (!withinVisibleWindow(region.started_at) && !withinVisibleWindow(regionEnd)) {
+          return;
+        }
+        const x1 = timeToX(region.started_at);
+        const x2 = timeToX(regionEnd);
+        const y1 = priceToY(region.price_high);
+        const y2 = priceToY(region.price_low);
+        markup += `<rect x="${Math.min(x1, x2)}" y="${y1}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, y2 - y1)}" fill="rgba(59,130,246,0.12)" stroke="rgba(59,130,246,0.30)" stroke-width="1.2" rx="8" />`;
+        markup += `<text x="${Math.min(x1, x2) + 8}" y="${Math.max(topPad + 14, y1 + 14)}" font-size="12" fill="#93c5fd">${escapeHtml(region.label)}</text>`;
+      });
+
+      manualRegions.forEach((region) => {
+        if (!withinVisibleWindow(region.started_at) && !withinVisibleWindow(region.ended_at)) {
+          return;
+        }
+        const x1 = timeToX(region.started_at);
+        const x2 = timeToX(region.ended_at);
+        const y1 = priceToY(region.price_high);
+        const y2 = priceToY(region.price_low);
+        markup += `<rect x="${Math.min(x1, x2)}" y="${y1}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, y2 - y1)}" fill="rgba(245,158,11,0.12)" stroke="rgba(245,158,11,0.38)" stroke-width="1.4" rx="8" />`;
+        markup += `<text x="${Math.min(x1, x2) + 8}" y="${Math.max(topPad + 14, y1 + 14)}" font-size="12" fill="#fcd34d">${escapeHtml(region.label)}</text>`;
+      });
+
+      visibleCandles.forEach((bar, localIndex) => {
+        const globalIndex = view.startIndex + localIndex;
+        const x = leftPad + localIndex * candleSpacing + (candleSpacing - candleWidth) / 2;
+        const openY = priceToY(bar.open);
+        const closeY = priceToY(bar.close);
+        const highY = priceToY(bar.high);
+        const lowY = priceToY(bar.low);
+        const color = bar.close >= bar.open ? "#22ab94" : "#f23645";
+        const bodyY = Math.min(openY, closeY);
+        const bodyHeight = Math.max(1.5, Math.abs(closeY - openY));
+        const centerX = x + candleWidth / 2;
+        const selected = globalIndex === state.selectedCandleIndex;
+        if (selected) {
+          markup += `<rect x="${x - 3}" y="${topPad}" width="${candleWidth + 6}" height="${chartHeight}" fill="rgba(59,130,246,0.10)" rx="8" />`;
+        }
+        markup += `<line x1="${centerX}" y1="${highY}" x2="${centerX}" y2="${lowY}" stroke="${color}" stroke-width="${selected ? 2.2 : 1.2}" />`;
+        markup += `<rect x="${x}" y="${bodyY}" width="${candleWidth}" height="${bodyHeight}" fill="${color}" rx="2" />`;
+
+        const volume = Number(bar.volume || 0);
+        const volumeBarHeight = (volume / volumeMax) * (volumeHeight - 18);
+        const volumeY = volumeTop + volumeHeight - volumeBarHeight;
+        markup += `<rect x="${x}" y="${volumeY}" width="${candleWidth}" height="${Math.max(1, volumeBarHeight)}" fill="${bar.close >= bar.open ? 'rgba(34,171,148,0.58)' : 'rgba(242,54,69,0.58)'}" rx="1" />`;
+      });
+
+      let emaPath = "";
+      visibleCandles.forEach((bar, localIndex) => {
+        const globalIndex = view.startIndex + localIndex;
+        const x = leftPad + localIndex * candleSpacing + (candleSpacing / 2);
+        const y = priceToY(emaSeries[globalIndex]);
+        emaPath += `${localIndex === 0 ? "M" : "L"} ${x} ${y} `;
+      });
+      markup += `<path d="${emaPath.trim()}" fill="none" stroke="#3b82f6" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />`;
+
+      const priceViewportScale = clampNumber((envelope.max - envelope.min) / Math.max(0.0001, yMax - yMin), 0.75, 2.2);
+      visibleBubbleMarks.forEach((bubble, index) => {
+        const x = timeToX(bubble.startedAt);
+        const viewportScale = clampNumber(220 / Math.max(visibleCandles.length, 28), 0.45, 3.2);
+        const radiusBase = 6 + (bubble.volumeRatio * 24);
+        const radius = Math.max(4, radiusBase * viewportScale * priceViewportScale);
+        if (bubble.topVolumeLevel?.price != null) {
+          const y = clampChartY(priceToY(bubble.topVolumeLevel.price), radius + 3);
+          const safeX = clampChartX(x, radius + 3);
+          const fill = (bubble.topVolumeLevel.delta || 0) >= 0 ? "rgba(34, 171, 148, 0.26)" : "rgba(242, 54, 69, 0.26)";
+          const stroke = (bubble.topVolumeLevel.delta || 0) >= 0 ? "#22ab94" : "#f23645";
+          markup += `<circle cx="${safeX}" cy="${y}" r="${radius.toFixed(2)}" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />`;
+          markup += `<text x="${safeX}" y="${clampChartY(y + 4, radius + 2)}" text-anchor="middle" font-size="${Math.max(10, radius * 0.72).toFixed(0)}" fill="#d7dde7" font-weight="700">${escapeHtml(String(Math.round(bubble.barVolume)))}</text>`;
+        }
+        if (bubble.topDeltaLevel?.price != null) {
+          const y = clampChartY(priceToY(bubble.topDeltaLevel.price), radius + 3);
+          const safeX = clampChartX(x, radius + 3);
+          const diamond = `${safeX},${y - radius} ${safeX + radius},${y} ${safeX},${y + radius} ${safeX - radius},${y}`;
+          const fill = (bubble.topDeltaLevel.delta || 0) >= 0 ? "rgba(34, 171, 148, 0.18)" : "rgba(242, 54, 69, 0.18)";
+          const stroke = (bubble.topDeltaLevel.delta || 0) >= 0 ? "#22ab94" : "#f23645";
+          markup += `<polygon points="${diamond}" fill="${fill}" stroke="${stroke}" stroke-width="1.6" />`;
+        }
+      });
+
+      events.forEach((event, index) => {
+        if (!withinVisibleWindow(event.observed_at)) {
+          return;
+        }
+        const x = timeToX(event.observed_at);
+        const anchorPrice = event.price != null
+          ? event.price
+          : (event.price_low != null && event.price_high != null ? (event.price_low + event.price_high) / 2 : visibleCandles[visibleCandles.length - 1].close);
+        const y = priceToY(anchorPrice);
+        const labelY = Math.max(topPad + 18, y - (index % 2 === 0 ? 18 : -24));
+        markup += `<circle cx="${x}" cy="${y}" r="4.2" fill="#f59e0b" stroke="#131722" stroke-width="1.6" />`;
+        if (visibleCandles.length <= 180) {
+          markup += `<line x1="${x}" y1="${y}" x2="${x}" y2="${labelY}" stroke="rgba(245,158,11,0.45)" stroke-width="1.2" />`;
+          markup += `<text x="${clampChartX(x + 8, 12)}" y="${clampChartY(labelY - 4, 12)}" font-size="11" fill="#fcd34d">${escapeHtml(event.event_kind)}</text>`;
+        }
+      });
+
+      operatorEntries.forEach((entry, index) => {
+        if (!withinVisibleWindow(entry.executed_at)) {
+          return;
+        }
+        const x = clampChartX(timeToX(entry.executed_at), 10);
+        const y = clampChartY(priceToY(entry.entry_price), 12);
+        const color = entry.side === "buy" ? "#8b5cf6" : "#c084fc";
+        const points = `${x},${y - 8} ${x + 8},${y} ${x},${y + 8} ${x - 8},${y}`;
+        const labelY = clampChartY(y + 22 + ((index % 2) * 18), 16);
+        markup += `<polygon points="${points}" fill="${color}" stroke="#d7dde7" stroke-width="1.5" />`;
+        markup += `<line x1="${x}" y1="${y + 8}" x2="${x}" y2="${labelY - 10}" stroke="${color}" stroke-width="1.2" />`;
+        markup += `<text x="${clampChartX(x + 8, 16)}" y="${labelY}" font-size="12" fill="${color}">${escapeHtml(entry.side === "buy" ? "多头开仓" : "空头开仓")}</text>`;
+      });
+
+      const draft = state.chartInteraction.draftRegion;
+      if (draft) {
+        const x1 = timeToX(draft.started_at);
+        const x2 = timeToX(draft.ended_at);
+        const y1 = priceToY(draft.price_high);
+        const y2 = priceToY(draft.price_low);
+        markup += `<rect x="${Math.min(x1, x2)}" y="${y1}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, y2 - y1)}" fill="rgba(109,40,217,0.10)" stroke="rgba(109,40,217,0.55)" stroke-width="1.5" stroke-dasharray="6 4" rx="8" />`;
+      }
+
+      markup += `<rect x="${leftPad}" y="${topPad}" width="${chartWidth}" height="${chartHeight}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.2" rx="12" />`;
+      markup += `<rect x="${leftPad}" y="${volumeTop}" width="${chartWidth}" height="${volumeHeight}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1.1" rx="12" />`;
+      markup += `<rect x="${leftPad}" y="${topPad}" width="${chartWidth}" height="${chartHeight}" fill="transparent" stroke="none" />`;
+      svg.innerHTML = markup;
+
+      svg.onmousemove = null;
+      svg.onmouseleave = null;
+      svg.dataset.rangeStart = xToTime(leftPad);
+      svg.dataset.rangeEnd = xToTime(leftPad + chartWidth);
+    }
+
+    function visibleSpan() {
+      if (!state.chartView) {
+        return 0;
+      }
+      return state.chartView.endIndex - state.chartView.startIndex + 1;
+    }
+
+    function zoomChart(factor) {
+      const snapshot = state.snapshot;
+      if (!snapshot?.candles?.length || !state.chartView) {
+        return;
+      }
+      const total = snapshot.candles.length;
+      const currentSpan = visibleSpan();
+      const targetSpan = Math.max(20, Math.min(total, Math.round(currentSpan * factor)));
+      const center = Math.round((state.chartView.startIndex + state.chartView.endIndex) / 2);
+      let startIndex = center - Math.floor(targetSpan / 2);
+      let endIndex = startIndex + targetSpan - 1;
+      if (startIndex < 0) {
+        startIndex = 0;
+        endIndex = targetSpan - 1;
+      }
+      if (endIndex >= total) {
+        endIndex = total - 1;
+        startIndex = Math.max(0, endIndex - targetSpan + 1);
+      }
+      state.chartView = clampChartView(total, startIndex, endIndex, state.chartView);
+      renderSnapshot();
+    }
+
+    function zoomPriceAxis(factor) {
+      if (!state.snapshot?.candles?.length || !state.chartView || state.chartView.yMin == null || state.chartView.yMax == null) {
+        return;
+      }
+      const currentSpan = state.chartView.yMax - state.chartView.yMin;
+      const targetSpan = Math.max(0.5, currentSpan * factor);
+      const center = (state.chartView.yMin + state.chartView.yMax) / 2;
+      state.chartView.yMin = center - (targetSpan / 2);
+      state.chartView.yMax = center + (targetSpan / 2);
+      renderChart();
+    }
+
+    function resetChartView() {
+      if (!state.snapshot?.candles?.length) {
+        return;
+      }
+      state.chartView = {
+        startIndex: 0,
+        endIndex: state.snapshot.candles.length - 1,
+        yMin: null,
+        yMax: null,
+      };
+      renderSnapshot();
+    }
+
+    function chartMouseToModel(event) {
+      const metrics = state.chartMetrics;
+      if (!metrics) {
+        return null;
+      }
+      const rect = els.chartSvg.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * metrics.width;
+      const y = ((event.clientY - rect.top) / rect.height) * metrics.height;
+      if (x < metrics.leftPad || x > metrics.width - metrics.rightPad || y < metrics.topPad || y > metrics.height - metrics.bottomPad) {
+        return null;
+      }
+      const ratioX = (x - metrics.leftPad) / metrics.chartWidth;
+      const ratioY = (y - metrics.topPad) / metrics.chartHeight;
+      const timestamp = metrics.visibleStartTime + ratioX * (metrics.visibleEndTime - metrics.visibleStartTime);
+      const price = metrics.yMax - ratioY * (metrics.yMax - metrics.yMin);
+      return { x, y, timestamp, price };
+    }
+
+    function pickCandleIndexFromEvent(event) {
+      const model = chartMouseToModel(event);
+      const snapshot = state.snapshot;
+      if (!model || !snapshot?.candles?.length || !state.chartView) {
+        return null;
+      }
+      const localIndex = Math.max(0, Math.min(visibleSpan() - 1, Math.floor((model.x - state.chartMetrics.leftPad) / state.chartMetrics.candleSpacing)));
+      return state.chartView.startIndex + localIndex;
+    }
+
+    async function selectCandle(globalIndex) {
+      const snapshot = state.snapshot;
+      const candle = snapshot?.candles?.[globalIndex];
+      if (!candle) {
+        return;
+      }
+      state.selectedCandleIndex = globalIndex;
+      state.selectedFootprintBar = null;
+      renderSelectedCandle();
+      renderFootprintLadder();
+      await loadFootprintBarDetail(candle.started_at);
+      renderSelectedCandle();
+      renderFootprintLadder();
+      renderChart();
+    }
+
+    function beginRegionDraft(event) {
+      const model = chartMouseToModel(event);
+      if (!model) {
+        return;
+      }
+      state.chartInteraction.draftRegion = {
+        started_at: new Date(model.timestamp).toISOString(),
+        ended_at: new Date(model.timestamp).toISOString(),
+        price_low: model.price,
+        price_high: model.price,
+      };
+      renderChart();
+    }
+
+    function updateRegionDraft(event) {
+      const model = chartMouseToModel(event);
+      const draft = state.chartInteraction.draftRegion;
+      if (!model || !draft) {
+        return;
+      }
+      const startTime = new Date(draft.started_at).getTime();
+      draft.ended_at = new Date(model.timestamp).toISOString();
+      draft.price_low = Math.min(draft.price_low, model.price);
+      draft.price_high = Math.max(draft.price_high, model.price);
+      if (model.timestamp < startTime) {
+        draft.started_at = new Date(model.timestamp).toISOString();
+        draft.ended_at = new Date(startTime).toISOString();
+      }
+      renderChart();
+    }
+
+    async function saveDraftRegion() {
+      const draft = state.chartInteraction.draftRegion;
+      if (!draft || !state.currentReplayIngestionId) {
+        throw new Error("当前没有可保存的框选区域。");
+      }
+      const result = await fetchJson("/api/v1/workbench/manual-regions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          replay_ingestion_id: state.currentReplayIngestionId,
+          label: els.regionLabel.value.trim() || "手工区域",
+          thesis: els.regionThesis.value.trim() || "交易员手工标注区域",
+          price_low: draft.price_low,
+          price_high: draft.price_high,
+          started_at: draft.started_at,
+          ended_at: draft.ended_at,
+          side_bias: els.regionSideBias.value || null,
+          notes: (els.regionNotes.value || "").split("\n").map((item) => item.trim()).filter(Boolean),
+          tags: (els.regionTags.value || "").split(",").map((item) => item.trim()).filter(Boolean),
+        }),
+      });
+      state.manualRegions.push(result.region);
+      state.manualRegions.sort((left, right) => new Date(left.started_at) - new Date(right.started_at));
+      state.chartInteraction.draftRegion = null;
+      state.chartInteraction.regionMode = false;
+      renderStatusStrip([{ label: "手工区域已保存", variant: "good" }]);
+      renderSnapshot();
+    }
+
+    async function handleBuild() {
+      try {
+        const payload = buildRequestPayload();
+        const result = await fetchJson("/api/v1/workbench/replay-builder/build", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        state.buildResponse = result;
+        state.snapshot = null;
+        state.aiReview = null;
+        state.currentReplayIngestionId = result.ingestion_id || null;
+        renderStatusStrip(buildStatusChips(result));
+        if (result.ingestion_id) {
+          await loadSnapshotByIngestionId(result.ingestion_id);
+        } else {
+          renderSnapshot();
+        }
+      } catch (error) {
+        renderError(error);
+      }
+    }
+
+    async function handleLookup() {
+      try {
+        const cacheKey = els.cacheKey.value.trim();
+        const result = await fetchJson(`/api/v1/workbench/replay-cache?cache_key=${encodeURIComponent(cacheKey)}`);
+        state.buildResponse = {
+          action: result.record ? "cache_hit" : "atas_fetch_required",
+          cache_key: result.cache_key,
+          reason: result.record ? "已找到当前缓存记录。" : "当前没有命中缓存。",
+          local_message_count: 0,
+          replay_snapshot_id: result.record?.replay_snapshot_id || null,
+          ingestion_id: result.record?.ingestion_id || null,
+          summary: result.record ? {
+            instrument_symbol: result.record.instrument_symbol,
+            display_timeframe: result.record.display_timeframe,
+            acquisition_mode: result.record.acquisition_mode,
+            verification_status: result.record.verification_state.status,
+            verification_count: result.record.verification_state.verification_count,
+            locked_until_manual_reset: result.record.verification_state.locked_until_manual_reset,
+            fetch_only_when_missing: result.record.cache_policy.fetch_only_when_missing,
+            max_verifications_per_day: result.record.cache_policy.max_verifications_per_day,
+            verification_passes_to_lock: result.record.cache_policy.verification_passes_to_lock,
+            candle_count: result.record.candle_count,
+            event_annotation_count: result.record.event_annotation_count,
+            focus_region_count: result.record.focus_region_count,
+            strategy_candidate_count: result.record.strategy_candidate_count,
+            has_ai_briefing: result.record.has_ai_briefing,
+          } : null,
+          cache_record: result.record,
+          atas_fetch_request: result.record ? null : { cache_key: result.cache_key, instrument_symbol: els.instrumentSymbol.value.trim() },
+        };
+        state.aiReview = null;
+        state.currentReplayIngestionId = result.record?.ingestion_id || null;
+        renderStatusStrip([
+          { label: result.record ? "缓存已命中" : "缓存不存在", variant: result.record ? "good" : "warn" },
+          { label: result.auto_fetch_allowed ? "允许自动补抓" : "当前禁止自动补抓", variant: result.auto_fetch_allowed ? "emphasis" : "" },
+          { label: result.verification_due_now ? "当前需要核对" : "当前无需核对", variant: result.verification_due_now ? "emphasis" : "" },
+        ]);
+        if (result.record?.ingestion_id) {
+          await loadSnapshotByIngestionId(result.record.ingestion_id);
+        } else {
+          state.snapshot = null;
+          renderSnapshot();
+        }
+      } catch (error) {
+        renderError(error);
+      }
+    }
+
+    async function handleInvalidate() {
+      try {
+        const cacheKey = els.cacheKey.value.trim();
+        const reason = els.invalidateReason.value.trim();
+        const result = await fetchJson("/api/v1/workbench/replay-cache/invalidate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cache_key: cacheKey,
+            invalidation_reason: reason,
+          }),
+        });
+        renderStatusStrip([
+          { label: "缓存已作废", variant: "warn" },
+          { label: translateVerificationStatus(result.verification_status), variant: "warn" },
+        ]);
+        state.snapshot = null;
+        state.operatorEntries = [];
+        state.aiReview = null;
+        state.currentReplayIngestionId = null;
+        state.buildResponse = {
+          action: "atas_fetch_required",
+          cache_key: result.cache_key,
+          reason: `回放缓存已作废：${result.invalidation_reason}`,
+          local_message_count: 0,
+          replay_snapshot_id: result.replay_snapshot_id,
+          ingestion_id: result.ingestion_id,
+          summary: null,
+          cache_record: null,
+          atas_fetch_request: { cache_key: result.cache_key, manual_reimport_required: true },
+        };
+        renderSnapshot();
+      } catch (error) {
+        renderError(error);
+      }
+    }
+
+    async function handleRecordEntry() {
+      try {
+        if (!state.currentReplayIngestionId) {
+          throw new Error("没有可绑定的 replay。先构建回放。");
+        }
+        const result = await fetchJson("/api/v1/workbench/operator-entries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            replay_ingestion_id: state.currentReplayIngestionId,
+            executed_at: toUtcString(els.entryExecutedAt.value),
+            side: els.entrySide.value,
+            entry_price: Number(els.entryPrice.value),
+            quantity: els.entryQuantity.value ? Number(els.entryQuantity.value) : null,
+            stop_price: els.entryStopPrice.value ? Number(els.entryStopPrice.value) : null,
+            timeframe_context: els.entryTimeframe.value || null,
+            thesis: els.entryThesis.value.trim() || null,
+            context_notes: els.entryThesis.value.trim() ? [els.entryThesis.value.trim()] : [],
+            tags: ["manual_entry_review"],
+          }),
+        });
+        state.operatorEntries.push(result.entry);
+        state.operatorEntries.sort((left, right) => new Date(left.executed_at) - new Date(right.executed_at));
+        state.aiReview = null;
+        renderStatusStrip([
+          { label: "开仓记录已保存", variant: "good" },
+          { label: `${result.entry.side === "buy" ? "多" : "空"} ${Number(result.entry.entry_price).toFixed(2)}`, variant: "emphasis" },
+        ]);
+        renderSnapshot();
+      } catch (error) {
+        renderError(error, { preserveSnapshot: true });
+      }
+    }
+
+    async function handleAiReview() {
+      try {
+        if (!state.currentReplayIngestionId) {
+          throw new Error("没有可分析的 replay ingestion。先构建回放。");
+        }
+        renderStatusStrip([{ label: "AI 复盘生成中", variant: "emphasis" }]);
+        const result = await fetchJson("/api/v1/workbench/replay-ai-review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            replay_ingestion_id: state.currentReplayIngestionId,
+            model_override: els.aiModelOverride.value.trim() || null,
+            force_refresh: els.forceAiRefresh.checked,
+          }),
+        });
+        state.aiReview = result;
+        renderStatusStrip([
+          { label: "AI 复盘已完成", variant: "good" },
+          { label: result.model, variant: "emphasis" },
+        ]);
+        renderSnapshot();
+      } catch (error) {
+        renderAiError(error);
+      }
+    }
+
+    async function handleBuildWithForceRefresh() {
+      const previous = els.forceRebuild.checked;
+      els.forceRebuild.checked = true;
+      try {
+        await handleBuild();
+      } finally {
+        els.forceRebuild.checked = previous;
+      }
+    }
+
+    async function handleAiChat(preset, userMessage, threadMeta = null) {
+      try {
+        const trimmedMessage = String(userMessage || "").trim();
+        if (!trimmedMessage) {
+          throw new Error("请输入要分析的问题。");
+        }
+        if (!state.currentReplayIngestionId) {
+          throw new Error("没有可分析的 replay ingestion。先构建回放。");
+        }
+        const threadDescriptor = threadMeta || getPresetThreadMeta(preset);
+        const thread = setActiveThread(threadDescriptor.id, threadDescriptor.title);
+        const history = thread.messages.map((item) => ({
+          role: item.role,
+          content: item.content,
+        }));
+        appendAiChatMessage("user", trimmedMessage, { preset }, thread.id, thread.title);
+        renderStatusStrip([{ label: "AI 对话生成中", variant: "emphasis" }]);
+        const result = await fetchJson("/api/v1/workbench/replay-ai-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            replay_ingestion_id: state.currentReplayIngestionId,
+            preset,
+            user_message: trimmedMessage,
+            history,
+            model_override: els.aiModelOverride.value.trim() || null,
+            include_live_context: true,
+          }),
+        });
+        thread.turns.push(result);
+        appendAiChatMessage("assistant", result.reply_text, {
+          preset: result.preset,
+          provider: result.provider,
+          model: result.model,
+          referenced_strategy_ids: result.referenced_strategy_ids || [],
+          live_context_summary: result.live_context_summary || [],
+          follow_up_suggestions: result.follow_up_suggestions || [],
+        }, thread.id, thread.title);
+        renderStatusStrip([
+          { label: "AI 对话已完成", variant: "good" },
+          { label: result.model, variant: "emphasis" },
+        ]);
+      } catch (error) {
+        renderStatusStrip([{ label: "AI 对话失败", variant: "warn" }]);
+        const threadDescriptor = threadMeta || getPresetThreadMeta(preset);
+        appendAiChatMessage("assistant", error.message || String(error), { preset, provider: "local-error", model: "-" }, threadDescriptor.id, threadDescriptor.title);
+      }
+    }
+
+    async function handleAiChatSend() {
+      const message = els.aiChatInput.value.trim();
+      if (!message) {
+        return;
+      }
+      els.aiChatInput.value = "";
+      await handleAiChat("general", message, getActiveThread());
+    }
+
+    async function handlePresetAnalysis(preset, message) {
+      await handleAiChat(preset, message, getPresetThreadMeta(preset));
+    }
+
+    function buildManualRegionAnalysisPrompt() {
+      const latestRegion = state.manualRegions[state.manualRegions.length - 1];
+      if (!latestRegion) {
+        throw new Error("还没有已保存的区域。先在图上框选并保存一个区域。");
+      }
+      return `请重点分析我标注的区域 "${latestRegion.label}"。我的看法是：${latestRegion.thesis}。请结合当前 replay、历史 footprint、事件和上下文，判断这里是否真的是关键支撑/阻力转换点；如果价格回到此区，需要看到哪些反应才能开仓；哪些情况绝对不能开；止损、第一止盈、扩展止盈应如何规划。`;
+    }
+
+    function buildSelectedBarAnalysisPrompt() {
+      if (state.selectedCandleIndex === null || !state.snapshot?.candles?.[state.selectedCandleIndex]) {
+        throw new Error("还没有选中 K 线。先点击图上的一根 K 线。");
+      }
+      const candle = state.snapshot.candles[state.selectedCandleIndex];
+      const footprint = state.selectedFootprintBar;
+      const footprintFacts = footprint?.price_levels?.length
+        ? `该 bar 有 ${footprint.price_levels.length} 个 footprint 价位，请结合 bid/ask、delta 和价位成交密度判断其含义。`
+        : "当前没有完整 footprint 价位细节。";
+      return `请分析我当前选中的 K 线。时间=${new Date(candle.started_at).toLocaleString()}，O=${Number(candle.open).toFixed(2)} H=${Number(candle.high).toFixed(2)} L=${Number(candle.low).toFixed(2)} C=${Number(candle.close).toFixed(2)}，volume=${candle.volume ?? "n/a"} delta=${candle.delta ?? "n/a"}。${footprintFacts} 请判断这根 bar 在当前结构里代表主动发力、吸收、诱导还是衰竭，并说明下一次价格回到相关区域时的可做与不可做方案。`;
+    }
+
+    function buildStatusChips(result) {
+      const chips = [
+        { label: translateAction(result.action), variant: result.action === "atas_fetch_required" ? "warn" : "good" },
+      ];
+      if (result.summary) {
+        chips.push({ label: `核对：${translateVerificationStatus(result.summary.verification_status)}`, variant: result.summary.verification_status === "durable" ? "good" : "emphasis" });
+        chips.push({ label: `${result.summary.verification_count}/${result.summary.verification_passes_to_lock} 次核对`, variant: "emphasis" });
+      }
+      if (result.local_message_count) {
+        chips.push({ label: `${result.local_message_count} 条本地消息`, variant: "" });
+      }
+      return chips;
+    }
+
+    function renderError(error, options = {}) {
+      const preserveSnapshot = Boolean(options.preserveSnapshot);
+      state.aiReview = null;
+      if (!preserveSnapshot) {
+        state.snapshot = null;
+        state.currentReplayIngestionId = null;
+        state.manualRegions = [];
+        state.selectedCandleIndex = null;
+        state.selectedFootprintBar = null;
+        state.chartView = null;
+      }
+      state.buildResponse = {
+        action: "atas_fetch_required",
+        cache_key: els.cacheKey.value.trim(),
+        reason: error.message || String(error),
+        local_message_count: 0,
+        replay_snapshot_id: null,
+        ingestion_id: null,
+        summary: null,
+        cache_record: null,
+        atas_fetch_request: null,
+      };
+      renderStatusStrip([{ label: "请求失败", variant: "warn" }]);
+      renderSnapshot();
+    }
+
+    function renderAiError(error) {
+      state.aiReview = null;
+      renderStatusStrip([{ label: "AI 复盘失败", variant: "warn" }]);
+      els.aiReview.className = "empty-note";
+      els.aiReview.textContent = error.message || String(error);
+    }
+
+    async function handleSaveRegion() {
+      try {
+        await saveDraftRegion();
+      } catch (error) {
+        renderStatusStrip([{ label: "区域保存失败", variant: "warn" }]);
+      }
+    }
+
+    function renderList(items) {
+      if (!items || !items.length) {
+        return `<p></p>`;
+      }
+      return `<ul>${items.map((item) => `<li>${escapeHtml(String(item))}</li>`).join("")}</ul>`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    els.buildButton.addEventListener("click", handleBuild);
+    els.preset7d1mButton.addEventListener("click", async () => {
+      applyWindowPreset("5m", 7);
+      await handleBuildWithForceRefresh();
+    });
+    els.preset3d5mButton.addEventListener("click", async () => {
+      applyWindowPreset("1m", 7);
+      await handleBuildWithForceRefresh();
+    });
+    els.preset1d1mButton.addEventListener("click", async () => {
+      applyWindowPreset("1m", 1);
+      await handleBuildWithForceRefresh();
+    });
+    els.aiReviewButton.addEventListener("click", handleAiReview);
+    els.refreshAllButton.addEventListener("click", handleBuildWithForceRefresh);
+    els.recent20BarsButton.addEventListener("click", () => handlePresetAnalysis("recent_20_bars", "请分析最近20根K线，指出哪里不能开仓。"));
+    els.recent20MinutesButton.addEventListener("click", () => handlePresetAnalysis("recent_20_minutes", "请分析最近20分钟K线，说明当前微趋势是否和大趋势配合。"));
+    els.focusRegionsButton.addEventListener("click", () => handlePresetAnalysis("focus_regions", "请分析重点价格区域，标出最该盯的支撑阻力与无效开仓区。"));
+    els.trappedOrdersButton.addEventListener("click", () => handlePresetAnalysis("trapped_large_orders", "请分析大单是否被套，以及哪些区域可能触发解套或止损。"));
+    els.liveDepthButton.addEventListener("click", () => handlePresetAnalysis("live_depth", "请分析实时挂单数据，判断吸收、补单、诱导和当前不该开仓的位置。"));
+    els.manualRegionButton.addEventListener("click", async () => {
+      try {
+        await handlePresetAnalysis("focus_regions", buildManualRegionAnalysisPrompt());
+      } catch (error) {
+        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
+      }
+    });
+    els.selectedBarButton.addEventListener("click", async () => {
+      try {
+        await handlePresetAnalysis("focus_regions", buildSelectedBarAnalysisPrompt());
+      } catch (error) {
+        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
+      }
+    });
+    els.aiNewThreadButton.addEventListener("click", () => {
+      const thread = setActiveThread(createThreadId(), `新线程 ${state.aiThreads.length + 1}`);
+      renderStatusStrip([{ label: `已创建 ${thread.title}`, variant: "emphasis" }]);
+    });
+    els.aiChatSendButton.addEventListener("click", handleAiChatSend);
+    els.zoomInButton.addEventListener("click", () => zoomChart(0.6));
+    els.zoomOutButton.addEventListener("click", () => zoomChart(1.6));
+    els.resetViewButton.addEventListener("click", resetChartView);
+    els.armRegionButton.addEventListener("click", () => {
+      state.chartInteraction.regionMode = !state.chartInteraction.regionMode;
+      if (!state.chartInteraction.regionMode) {
+        state.chartInteraction.draftRegion = null;
+      }
+      renderSnapshot();
+    });
+    els.saveRegionButton.addEventListener("click", handleSaveRegion);
+    els.aiChatInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        handleAiChatSend();
+      }
+    });
+    els.recordEntryButton.addEventListener("click", handleRecordEntry);
+    els.lookupButton.addEventListener("click", handleLookup);
+    els.invalidateButton.addEventListener("click", handleInvalidate);
+    els.instrumentSymbol.addEventListener("input", syncCacheKey);
+    els.displayTimeframe.addEventListener("change", syncCacheKey);
+    els.windowStart.addEventListener("change", syncCacheKey);
+    els.windowEnd.addEventListener("change", syncCacheKey);
+
+    els.chartSvg.addEventListener("wheel", (event) => {
+      if (!state.snapshot?.candles?.length) {
+        return;
+      }
+      event.preventDefault();
+      if (event.shiftKey) {
+        zoomPriceAxis(event.deltaY < 0 ? 0.84 : 1.2);
+        return;
+      }
+      zoomChart(event.deltaY < 0 ? 0.8 : 1.25);
+    }, { passive: false });
+
+    els.chartSvg.addEventListener("mousedown", (event) => {
+      if (!state.snapshot?.candles?.length) {
+        return;
+      }
+      if (state.chartInteraction.regionMode) {
+        beginRegionDraft(event);
+        return;
+      }
+      state.chartInteraction.panStartX = event.clientX;
+      state.chartInteraction.panStartY = event.clientY;
+      state.chartInteraction.panStartView = state.chartView ? { ...state.chartView } : null;
+      state.chartInteraction.panStartPriceRange = state.chartView
+        ? { yMin: state.chartView.yMin, yMax: state.chartView.yMax }
+        : null;
+    });
+
+    window.addEventListener("mousemove", (event) => {
+      if (updateLayoutDrag(event)) {
+        return;
+      }
+      if (state.chartInteraction.regionMode && state.chartInteraction.draftRegion) {
+        updateRegionDraft(event);
+        return;
+      }
+      if (state.chartInteraction.panStartX == null || !state.chartInteraction.panStartView || !state.chartMetrics || !state.snapshot?.candles?.length) {
+        return;
+      }
+      const deltaX = event.clientX - state.chartInteraction.panStartX;
+      const deltaY = event.clientY - state.chartInteraction.panStartY;
+      const shiftBars = Math.round((-deltaX / state.chartMetrics.chartWidth) * visibleSpan());
+      const nextStart = state.chartInteraction.panStartView.startIndex + shiftBars;
+      const nextEnd = state.chartInteraction.panStartView.endIndex + shiftBars;
+      state.chartView = clampChartView(state.snapshot.candles.length, nextStart, nextEnd, state.chartInteraction.panStartView);
+      if (state.chartInteraction.panStartPriceRange && state.chartMetrics.chartHeight > 0) {
+        const span = state.chartInteraction.panStartPriceRange.yMax - state.chartInteraction.panStartPriceRange.yMin;
+        const priceShift = (deltaY / state.chartMetrics.chartHeight) * span;
+        state.chartView.yMin = state.chartInteraction.panStartPriceRange.yMin + priceShift;
+        state.chartView.yMax = state.chartInteraction.panStartPriceRange.yMax + priceShift;
+      }
+      renderChart();
+    });
+
+    window.addEventListener("mouseup", async (event) => {
+      if (state.layout.dragKind) {
+        finishLayoutDrag();
+        return;
+      }
+      if (state.chartInteraction.regionMode && state.chartInteraction.draftRegion) {
+        updateRegionDraft(event);
+        return;
+      }
+      if (state.chartInteraction.panStartX != null && Math.abs(event.clientX - state.chartInteraction.panStartX) < 4) {
+        const candleIndex = pickCandleIndexFromEvent(event);
+        if (candleIndex != null) {
+          await selectCandle(candleIndex);
+        }
+      }
+      state.chartInteraction.panStartX = null;
+      state.chartInteraction.panStartY = null;
+      state.chartInteraction.panStartView = null;
+      state.chartInteraction.panStartPriceRange = null;
+    });
+
+    initializePanelToggles();
+    initializeSectionToggles();
+    applyWindowPreset("5m", 7);
+  </script>
+</body>
+</html>

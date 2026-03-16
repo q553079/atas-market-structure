@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-manipulation-leg-context",
+  "title": "NQ Manipulation Leg Context",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/nq_manipulation_leg_context.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "manipulation_leg",
+    "key_position",
+    "objective_driven_move",
+    "trap_creation"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "measured_move_threshold"
+  ],
+  "reason_codes": [
+    "manipulation_leg",
+    "secondary_objective",
+    "key_position"
+  ],
+  "focus_questions": [
+    "Did this leg begin from a key position or from the middle of noise?",
+    "Was a real objective reached, or was the label applied too early?"
+  ],
+  "summary": {
+    "thesis": "A manipulation leg matters when it starts from a key position, creates real displacement, and points toward a real objective that changes the later script.",
+    "operator_translation": "Do not label every fast move as manipulation; the origin and objective must be meaningful.",
+    "ai_usage_note": "Use this card to filter out fake manipulation labels and keep only the legs that actually changed inventory or expectation.",
+    "ai_brief": "Environment: a forcing move starting from a meaningful location. Required evidence: key origin, measurable displacement, and progress toward a primary or secondary objective. Do not trade: if the move begins in the middle of balance or the objective is already complete. Real trigger: a leg that changes the script away from origin. Failure point: the move collapses back into the origin without follow-through."
+  },
+  "when_relevant": [
+    "A fast leg begins from a meaningful location.",
+    "The move creates displacement large enough to matter.",
+    "Later behavior depends on whether that forcing move reached its objective."
+  ],
+  "required_evidence": [
+    "the leg starts from a key position rather than the middle of balance",
+    "displacement from the origin is measurable",
+    "a primary or secondary objective can be stated and reviewed"
+  ],
+  "confirmation_signals": [
+    "the leg creates clean displacement away from origin",
+    "price reaches at least the primary objective and can still press toward the secondary objective",
+    "later participants are forced to react to the new displacement rather than ignore it"
+  ],
+  "invalidation_signals": [
+    "price quickly collapses back into the origin",
+    "the move cannot reach any meaningful objective",
+    "the supposed leg begins from noise and produces no script change"
+  ],
+  "no_trade_conditions": [
+    "Do not label every fast impulse as a manipulation leg when it begins in the middle of balance.",
+    "Do not chase a leg after most of its objective is already completed and the market is moving into exhaustion.",
+    "Do not use the leg as a reason to ignore a stronger opposite higher-timeframe context."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "objective-led continuation",
+      "description": "Trade after the leg proves it is still driving toward an uncompleted objective.",
+      "risk_note": "Avoid if the market is already at the second objective and exhausting."
+    },
+    {
+      "name": "retest of manipulated origin",
+      "description": "Trade the retest only if the origin still behaves like the causal level after displacement.",
+      "risk_note": "Avoid if the origin is already being accepted through."
+    }
+  ],
+  "management_notes": [
+    "Keep the origin, objective, and follow-through tied together.",
+    "A manipulation leg that fails early should be downgraded quickly.",
+    "This card is mostly a context filter, not a blind trigger generator."
+  ],
+  "review_questions": [
+    "What key position made this leg meaningful before it started?",
+    "Did the move reach a real objective, or was the label applied too early?",
+    "After the leg completed, did the market distribute, continue, or fail straight back into the origin?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.57,
+    "match_requirements": {
+      "event_kinds_all": [
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "manipulation_leg",
+        "key_position"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "support",
+        "resistance"
+      ]
+    },
+    "disqualifiers": [
+      "middle_of_balance_origin",
+      "objective_already_complete"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "origin_zone"
+    ],
+    "entry_review_bias": [
+      "labeling_every_fast_move_manipulation",
+      "chasing_completed_leg",
+      "ignoring_higher_timeframe_conflict"
+    ]
+  }
+}

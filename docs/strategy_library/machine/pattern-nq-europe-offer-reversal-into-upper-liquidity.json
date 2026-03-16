@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-europe-offer-reversal-into-upper-liquidity",
+  "title": "NQ Europe Offer Reversal Into Upper Liquidity",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_europe_offer_reversal_into_upper_liquidity.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "focus_regions",
+    "live_depth"
+  ],
+  "context_tags": [
+    "offer_suppression",
+    "support_response",
+    "reversal_release",
+    "upper_liquidity_harvest"
+  ],
+  "event_kinds": [
+    "significant_liquidity",
+    "initiative_drive",
+    "offer_reversal_release"
+  ],
+  "reason_codes": [
+    "upper_band_suppression",
+    "lower_support_response",
+    "upper_liquidity_harvest"
+  ],
+  "focus_questions": [
+    "Did lower support appear before the upward release?",
+    "Was upper liquidity actually harvested or only tagged once?"
+  ],
+  "summary": {
+    "thesis": "A prior upper sell band can flip from suppression into target when lower support responds and aggressive buying lifts price into the band.",
+    "operator_translation": "Do not treat this like a random breakout; the reversal must be built from below first.",
+    "ai_usage_note": "Prefer this card when the replay shows suppression above, support below, and real upward release into the same overhead band.",
+    "ai_brief": "Environment: Europe-session suppression that begins failing from below. Required evidence: lower support response, upward initiative, and challenge of the same upper band. Do not trade: if support never appears or the move is only a weak bounce. Real trigger: aggressive reclaim from the lower zone into upper liquidity. Failure point: the upper band stays intact and price cannot accept upward."
+  },
+  "when_relevant": [
+    "A visible upper sell band first acts as suppression.",
+    "Lower support or response begins forming before the reversal.",
+    "Aggressive buying lifts price back into the prior upper band."
+  ],
+  "required_evidence": [
+    "significant_liquidity is visible above price before the reversal",
+    "lower support response is visible before the upward release",
+    "initiative_drive shifts upward with real travel into the upper band"
+  ],
+  "confirmation_signals": [
+    "lower support forms before the lift begins",
+    "aggressive buy flow reclaims price back toward the upper band",
+    "the upper band is consumed, pulled, or accepted through instead of only tagged"
+  ],
+  "invalidation_signals": [
+    "lower support never forms or quickly disappears",
+    "upward release stalls before challenging the upper band",
+    "the upper band keeps rejecting price without consumption or acceptance"
+  ],
+  "no_trade_conditions": [
+    "Do not buy only because the upper wall exists; the lower support response must appear first.",
+    "Do not buy a random bounce in the middle of a range with no suppression-to-release sequence.",
+    "Do not keep buying if the upper band remains intact and price cannot show real upward acceptance."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "support-led reclaim",
+      "description": "Long after the lower response zone produces a real upward reclaim into the prior suppression band.",
+      "risk_note": "Avoid if the reclaim still occurs under intact overhead pressure with no lift quality."
+    },
+    {
+      "name": "acceptance through upper band",
+      "description": "Long after price begins accepting through the band that previously capped the market.",
+      "risk_note": "Avoid if the move is already extended and post-harvest failure risk is high."
+    }
+  ],
+  "management_notes": [
+    "Track whether the upper band is consumed or only tested.",
+    "If the move completes the upper objective, switch attention to post-harvest behavior.",
+    "If the lower support source fails, the reversal thesis weakens quickly."
+  ],
+  "review_questions": [
+    "What evidence proved lower support was real before the reversal was taken?",
+    "Did the move truly harvest upper liquidity, or only squeeze into it briefly?",
+    "Was the long entry aligned with the broader session script or fighting stronger overhead context?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.74,
+    "match_requirements": {
+      "event_kinds_all": [
+        "significant_liquidity",
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "lower_support_response",
+        "upper_liquidity_harvest"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "no_lower_support_response",
+      "upper_band_still_intact_without_acceptance"
+    ],
+    "focus_region_bias": [
+      "support",
+      "upper_target"
+    ],
+    "entry_review_bias": [
+      "buying_random_bounce",
+      "no_support_before_reclaim",
+      "ignoring_intact_overhead_band"
+    ]
+  }
+}

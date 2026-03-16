@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-forced-exit-burst-vs-initiative-continuation",
+  "title": "Forced Exit Burst Vs Initiative Continuation",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/forced_exit_burst_vs_initiative_continuation.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "cross_session"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions",
+    "trapped_large_orders"
+  ],
+  "context_tags": [
+    "forced_exit",
+    "short_covering",
+    "long_liquidation",
+    "initiative_takeover",
+    "post_release_hold"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "post_harvest_response"
+  ],
+  "reason_codes": [
+    "forced_exit_burst",
+    "short_covering_not_new_buying",
+    "long_liquidation_not_new_selling",
+    "initiative_takeover_confirmed"
+  ],
+  "focus_questions": [
+    "Was the move mainly trapped-side exits, or did the new side prove durable control after the burst?",
+    "After the release slowed down, was gained ground actually defended?"
+  ],
+  "summary": {
+    "thesis": "A fast squeeze or flush is often only forced exits until the new side proves it can still hold and re-accelerate after the release fuel fades.",
+    "operator_translation": "Do not call a vertical burst fresh initiative unless the gaining side defends the new ground after trapped exits are mostly done.",
+    "ai_usage_note": "Use this card when a move is fast, emotional, and tied to inventory pain, and the replay needs to separate release fuel from true control transfer.",
+    "ai_brief": "Environment: a burst follows failed defense, failed reclaim, trap release, or inventory unwind. Required evidence: clear release source, post-burst hold quality, and proof that the new side either defends or fails after the exits fade. Do not trade: by chasing the vertical burst before new control is proven. Real trigger: first shallow pullback holds and the gaining side re-accelerates, or failure after the burst confirms it was exit fuel only. Failure point: the gained ground cannot hold once the trapped exits are spent."
+  },
+  "when_relevant": [
+    "A vertical burst follows a failed level, failed reclaim, trap release, or harvest completion.",
+    "The move looks strong enough to invite continuation chasing.",
+    "The operator needs to know whether the burst is mostly release fuel or a true takeover."
+  ],
+  "required_evidence": [
+    "there is a plausible source of trapped or forced exits",
+    "the burst can be separated from the first meaningful pullback afterward",
+    "the gaining side either defends the new ground or quickly loses it once the burst slows"
+  ],
+  "confirmation_signals": [
+    "the burst begins after a clear trap, failure, or forced unwind becomes active",
+    "the first pullback after the burst shows whether new control exists",
+    "continuation only becomes credible if the gaining side can hold and re-accelerate after the exit fuel fades"
+  ],
+  "invalidation_signals": [
+    "there is no clear release source and the burst is being over-labeled",
+    "the gained ground fails immediately once the burst slows",
+    "the new side never proves defense after the trapped exits are mostly done"
+  ],
+  "no_trade_conditions": [
+    "Do not chase a vertical burst before testing whether it is mostly forced exit fuel.",
+    "Do not assume new initiative exists if the gained ground is not defended on the first meaningful retest.",
+    "Do not fade the burst only because it is vertical if the new side is actually holding and rebuilding."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "post-burst hold and re-acceleration",
+      "description": "Enter after the first pullback holds and the gaining side proves the move is more than trapped-side exit fuel.",
+      "risk_note": "Avoid if the pullback already widens into repair or balance."
+    },
+    {
+      "name": "exit-fuel failure reversion",
+      "description": "Enter when the burst loses its gained ground and the market proves the move was mostly forced exits rather than new control.",
+      "risk_note": "Avoid if the gaining side is still defending the post-burst area."
+    }
+  ],
+  "management_notes": [
+    "The best continuation read usually comes after the first shallow pullback holds.",
+    "If post-burst balance widens quickly, the move was often more exit fuel than true control transfer.",
+    "Once the exit fuel is spent, shift target logic from emotional release to accepted auction structure."
+  ],
+  "review_questions": [
+    "Was the operator chasing trapped-side exits and calling them fresh initiative?",
+    "Did the new side defend gained ground after the burst, or only enjoy the release?",
+    "When the burst slowed down, did the market continue with control or slip into repair and balance?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.8,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "forced_exit_burst",
+        "short_covering_not_new_buying",
+        "long_liquidation_not_new_selling",
+        "initiative_takeover_confirmed"
+      ],
+      "focus_region_role_any": [
+        "failed_break_zone",
+        "pivot",
+        "support",
+        "resistance"
+      ]
+    },
+    "disqualifiers": [
+      "no_clear_release_source",
+      "post_burst_hold_quality_not_yet_known"
+    ],
+    "focus_region_bias": [
+      "failed_break_zone",
+      "pivot",
+      "post_harvest_zone"
+    ],
+    "entry_review_bias": [
+      "chasing_release_fuel",
+      "mistaking_covering_for_new_initiative",
+      "fading_burst_while_hold_still_valid"
+    ]
+  }
+}

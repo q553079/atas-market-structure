@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-probe-reversal-toward-upper-liquidity",
+  "title": "NQ Probe Reversal Toward Upper Liquidity",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_probe_reversal_toward_upper_liquidity.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes"
+  ],
+  "context_tags": [
+    "probe_entry",
+    "liquidity_attractor",
+    "failed_downside_continuation",
+    "ema20_reclaim"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "probe_reversal_candidate",
+    "measured_move_threshold"
+  ],
+  "reason_codes": [
+    "liquidity_attractor",
+    "probe_entry",
+    "ema20_reclaim"
+  ],
+  "focus_questions": [
+    "Is this still only a proof trade, or has the reversal earned promotion?",
+    "Did the upper attractor remain active throughout the move?"
+  ],
+  "summary": {
+    "thesis": "A small reversal probe becomes useful when downside continuation fails cleanly and price is still being pulled toward upper liquidity.",
+    "operator_translation": "The first entry stays small until the market proves acceptance upward.",
+    "ai_usage_note": "Use this card when failed downside continuation, upper-liquidity attraction, and reclaim behavior appear together.",
+    "ai_brief": "Environment: failed downside continuation under an active upper attractor. Required evidence: non-continuation lower, attractor still active, and reclaim of a usable threshold. Do not trade: if this is only a blind bottom pick or the attractor is gone. Real trigger: a small proof reclaim that starts reducing distance to the upper target. Failure point: no upward acceptance after the probe."
+  },
+  "when_relevant": [
+    "Price tests lower but cannot continue cleanly.",
+    "An upper liquidity band still attracts price.",
+    "The reversal begins to reclaim a usable threshold."
+  ],
+  "required_evidence": [
+    "downside continuation fails instead of accepting lower",
+    "significant_liquidity remains relevant above price",
+    "a reclaim such as EMA20 or a local pivot appears after the probe"
+  ],
+  "confirmation_signals": [
+    "downside continuation fails cleanly",
+    "the upper attractor remains relevant while distance to it shrinks",
+    "price reclaims a usable threshold after the probe"
+  ],
+  "invalidation_signals": [
+    "price cannot reclaim any meaningful threshold after the probe",
+    "the upper attractor disappears or is no longer relevant",
+    "broader downside continuation quickly resumes with acceptance lower"
+  ],
+  "no_trade_conditions": [
+    "Do not bottom-pick purely because price is down; failed downside continuation must be visible first.",
+    "Do not size the first probe like a full reversal when the market has not yet shown upward acceptance.",
+    "Do not keep buying if the upper attractor disappears or the broader script still clearly favors downside continuation."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "first proof reclaim",
+      "description": "Small entry after failed downside continuation and the first usable reclaim.",
+      "risk_note": "Avoid if the reclaim happens directly into stronger overhead resistance with no room."
+    },
+    {
+      "name": "pullback after reclaim",
+      "description": "Add or re-enter on a controlled pullback after the market proves the first reclaim.",
+      "risk_note": "Avoid if the pullback loses the reclaimed threshold immediately."
+    }
+  ],
+  "management_notes": [
+    "Keep the first probe small until acceptance improves.",
+    "Track whether the move reaches the upper attractor or fails at the first reclaim threshold.",
+    "If the attractor is tagged, reassess whether the next script is harvest, rejection, or continuation."
+  ],
+  "review_questions": [
+    "Was the probe actually taken after downside failure, or was it an emotional catch attempt?",
+    "What evidence upgraded the idea from a probe into a real reversal candidate?",
+    "Did the move reclaim a meaningful threshold, or only print a brief bounce before failing?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.69,
+    "match_requirements": {
+      "event_kinds_all": [
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "liquidity_attractor",
+        "probe_entry"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "support"
+      ]
+    },
+    "disqualifiers": [
+      "no_failed_downside_continuation",
+      "upper_attractor_inactive"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "upper_target"
+    ],
+    "entry_review_bias": [
+      "bottom_picking",
+      "oversizing_probe",
+      "ignoring_broader_downscript"
+    ]
+  }
+}

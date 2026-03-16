@@ -1,0 +1,336 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-17T02:30:00+08:00",
+  "purpose": "Externally sourced doctrine inputs for AI analysis and future strategy-card expansion.",
+  "research_items": [
+    {
+      "topic_id": "order-flow-imbalance-over-volume",
+      "title": "Order flow imbalance and depth outweigh raw volume",
+      "source_quality": [
+        "academic"
+      ],
+      "source_urls": [
+        "https://arxiv.org/abs/1011.6402",
+        "https://doi.org/10.1093/rfs/hhs053"
+      ],
+      "core_claims": [
+        "Short-horizon price change is explained more robustly by order-flow imbalance than by raw volume alone.",
+        "Market depth changes the impact of one-sided flow.",
+        "Flow toxicity matters because liquidity providers can be adversely selected."
+      ],
+      "ai_implications": [
+        "Downgrade large prints without meaningful imbalance or price progress.",
+        "Rank imbalance plus depth context above isolated volume spikes."
+      ],
+      "no_trade_implications": [
+        "Do not open from high volume alone when price is not progressing.",
+        "Do not treat strong delta as sufficient if the book remains balanced."
+      ],
+      "machine_checks": [
+        "order_flow_imbalance_score",
+        "price_progress_per_imbalance_unit",
+        "depth_adjusted_imbalance_score",
+        "toxicity_watch"
+      ]
+    },
+    {
+      "topic_id": "post-shock-book-resiliency",
+      "title": "Post-shock resiliency decides continuation versus repair",
+      "source_quality": [
+        "academic"
+      ],
+      "source_urls": [
+        "https://arxiv.org/abs/1602.00731",
+        "https://arxiv.org/abs/1708.02715"
+      ],
+      "core_claims": [
+        "Spread, depth, and order intensity often normalize quickly after liquidity shocks.",
+        "The post-shock recovery pattern differs by aggressiveness of the initiating order.",
+        "Continuation versus repair is visible after the hit, not only during the hit."
+      ],
+      "ai_implications": [
+        "Use the first pullback after a burst as a major diagnostic checkpoint.",
+        "Require proof that gained ground is still defended after the initial shock."
+      ],
+      "no_trade_implications": [
+        "Do not chase the first burst before the book shows whether it is rebuilding or repairing.",
+        "Do not assume the shock created durable control without post-shock hold quality."
+      ],
+      "machine_checks": [
+        "post_shock_resiliency_window_seconds",
+        "spread_recovery_rate",
+        "depth_recovery_rate",
+        "first_pullback_hold_quality"
+      ]
+    },
+    {
+      "topic_id": "persistent-flow-versus-adaptive-liquidity",
+      "title": "Persistent one-way prints can be absorbed by adaptive liquidity",
+      "source_quality": [
+        "academic"
+      ],
+      "source_urls": [
+        "https://arxiv.org/abs/1403.0842"
+      ],
+      "core_claims": [
+        "Predictable one-way order flow does not mechanically imply the same price response.",
+        "Opposite-side liquidity can adapt as directional predictability rises."
+      ],
+      "ai_implications": [
+        "Downgrade repeated same-side prints if price response is deteriorating.",
+        "Treat persistence without progress as a warning branch."
+      ],
+      "no_trade_implications": [
+        "Do not keep adding just because prints remain one-way.",
+        "Do not confuse persistent aggression with clean continuation if travel efficiency is shrinking."
+      ],
+      "machine_checks": [
+        "progress_decay_after_repeated_aggression",
+        "same_side_flow_persistence",
+        "travel_efficiency_ratio"
+      ]
+    },
+    {
+      "topic_id": "stop-cluster-cascades",
+      "title": "Stop clusters can create cascades without proving new acceptance",
+      "source_quality": [
+        "academic"
+      ],
+      "source_urls": [
+        "https://www.sciencedirect.com/science/article/pii/S0261560604001147"
+      ],
+      "core_claims": [
+        "Stop-loss clusters can trigger rapid and lasting price cascades.",
+        "Non-informative order flow can still move price materially."
+      ],
+      "ai_implications": [
+        "Model stop-release bursts as a separate event from accepted new auction.",
+        "Require post-cascade acceptance or exhaustion checks."
+      ],
+      "no_trade_implications": [
+        "Do not assume a stop cascade proves continuation.",
+        "Do not fade every cascade immediately without seeing whether outside trade is accepted."
+      ],
+      "machine_checks": [
+        "stop_cluster_cascade_watch",
+        "outside_acceptance_after_cascade",
+        "cascade_exhaustion_score"
+      ]
+    },
+    {
+      "topic_id": "false-depth-and-spoofing-signatures",
+      "title": "Displayed size can be deceptive and must be verified",
+      "source_quality": [
+        "official"
+      ],
+      "source_urls": [
+        "https://www.cftc.gov/LawRegulation/FederalRegister/FinalRules/2013-12365.html",
+        "https://www.cftc.gov/PressRoom/PressReleases/8760-23",
+        "https://www.cftc.gov/PressRoom/PressReleases/8074-19"
+      ],
+      "core_claims": [
+        "False market depth is a recognized spoofing-related behavior.",
+        "A recurring pattern is genuine interest on one side and larger displayed orders on the other side that are canceled after fills."
+      ],
+      "ai_implications": [
+        "Treat displayed size as untrusted until survival near touch and refill behavior are proven.",
+        "Bias toward visual bait when large size disappears as price approaches."
+      ],
+      "no_trade_implications": [
+        "Do not open solely because a large order appears near the top of book.",
+        "Do not label flashing and pulling size as same-price replenishment."
+      ],
+      "machine_checks": [
+        "displayed_size_pull_rate",
+        "resting_size_survival_near_touch",
+        "opposite_side_fill_then_cancel_pattern",
+        "false_depth_signature_score"
+      ]
+    },
+    {
+      "topic_id": "inventory-risk-and-liquidity-retreat",
+      "title": "Passive liquidity behavior is inventory- and toxicity-sensitive",
+      "source_quality": [
+        "academic"
+      ],
+      "source_urls": [
+        "https://math.nyu.edu/~avellane/HighFrequencyTrading.pdf",
+        "https://doi.org/10.1093/rfs/hhs053"
+      ],
+      "core_claims": [
+        "Liquidity providers manage inventory risk and adverse-selection risk.",
+        "Passive liquidity may retreat or reprice when conditions become toxic."
+      ],
+      "ai_implications": [
+        "Separate defense, retreat, inventory offload, and re-quote branches.",
+        "Do not overread passive size as directional conviction."
+      ],
+      "no_trade_implications": [
+        "Do not trust static DOM size when adverse-selection pressure rises.",
+        "Do not label retreating liquidity as a clean failure until the post-retreat branch is visible."
+      ],
+      "machine_checks": [
+        "liquidity_provider_retreat_watch",
+        "inventory_pressure_proxy",
+        "defense_to_retreat_transition"
+      ]
+    },
+    {
+      "topic_id": "dynamic-lead-lag-context",
+      "title": "Cross-market leadership is dynamic and liquidity-dependent",
+      "source_quality": [
+        "academic",
+        "official"
+      ],
+      "source_urls": [
+        "https://www.sciencedirect.com/science/article/pii/S1544612322002008",
+        "https://www.cmegroup.com/tools-information/webhelp/fx-market-profile/Content/FXMarketProfile.pdf"
+      ],
+      "core_claims": [
+        "Lead-lag relationships change over time and are not permanently fixed.",
+        "Comparative liquidity and order-book context help decide which market is clearer."
+      ],
+      "ai_implications": [
+        "Treat current anchor leadership as a state, not a permanent symbol identity.",
+        "Prefer the market with cleaner acceptance or rejection at the decision point."
+      ],
+      "no_trade_implications": [
+        "Do not force ES or NQ into permanent leadership roles.",
+        "Do not trust lagging confirmation if the prior leader already degraded."
+      ],
+      "machine_checks": [
+        "current_anchor_symbol",
+        "cross_symbol_lead_quality",
+        "leader_degradation_watch"
+      ]
+    },
+    {
+      "topic_id": "initial-balance-statistics-need-session-validation",
+      "title": "Initial-balance logic is useful but must stay contextual",
+      "source_quality": [
+        "vendor education"
+      ],
+      "source_urls": [
+        "https://atas.net/blog/how-to-improve-trading-using-the-market-profile/"
+      ],
+      "core_claims": [
+        "IB breakout, extension, and day-type logic depend on session framing.",
+        "The source warns against using such statistics blindly."
+      ],
+      "ai_implications": [
+        "Keep IB breakout, IB extension, and accepted outside trade as separate labels.",
+        "Use IB as a context filter rather than a standalone signal."
+      ],
+      "no_trade_implications": [
+        "Do not open from IB statistics alone without session-specific validation.",
+        "Do not call every push beyond IB a true breakout."
+      ],
+      "machine_checks": [
+        "initial_balance_definition_used",
+        "ib_extension_vs_settlement",
+        "value_area_reacceptance_state"
+      ]
+    }
+  ],
+  "candidate_strategy_cards": [
+    {
+      "candidate_id": "pattern-post-shock-resiliency-check",
+      "status": "implemented",
+      "implemented_as_strategy_id": "pattern-post-shock-resiliency-check",
+      "priority": 0.91,
+      "why_high_value": "It converts many dramatic events into a single practical question: did the book rebuild for continuation or repair back toward balance?",
+      "related_existing_strategy_ids": [
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-forced-exit-burst-vs-initiative-continuation",
+        "pattern-control-handoff-after-harvest"
+      ],
+      "required_machine_checks": [
+        "post_shock_resiliency_window_seconds",
+        "spread_recovery_rate",
+        "depth_recovery_rate",
+        "first_pullback_hold_quality"
+      ]
+    },
+    {
+      "candidate_id": "pattern-stop-cluster-cascade-exhaustion",
+      "status": "implemented",
+      "implemented_as_strategy_id": "pattern-stop-cluster-cascade-exhaustion",
+      "priority": 0.88,
+      "why_high_value": "It separates stop-driven extension from accepted new value and directly improves no-chase discipline.",
+      "related_existing_strategy_ids": [
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-failed-break-acceptance-reentry"
+      ],
+      "required_machine_checks": [
+        "stop_cluster_cascade_watch",
+        "outside_acceptance_after_cascade",
+        "cascade_exhaustion_score"
+      ]
+    },
+    {
+      "candidate_id": "pattern-fake-depth-signature-context",
+      "status": "implemented",
+      "implemented_as_strategy_id": "pattern-fake-depth-signature-context",
+      "priority": 0.9,
+      "why_high_value": "It would sharply improve AI handling of visible size and reduce false support or resistance promotion.",
+      "related_existing_strategy_ids": [
+        "pattern-false-liquidity-and-pull-behavior",
+        "pattern-large-order-lifecycle-diagnosis"
+      ],
+      "required_machine_checks": [
+        "displayed_size_pull_rate",
+        "resting_size_survival_near_touch",
+        "opposite_side_fill_then_cancel_pattern",
+        "false_depth_signature_score"
+      ]
+    },
+    {
+      "candidate_id": "pattern-order-flow-imbalance-without-price-progress",
+      "status": "implemented",
+      "implemented_as_strategy_id": "pattern-order-flow-imbalance-without-price-progress",
+      "priority": 0.86,
+      "why_high_value": "It targets a common false-opportunity error: strong flow labels that never become real travel.",
+      "related_existing_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-forced-exit-burst-vs-initiative-continuation"
+      ],
+      "required_machine_checks": [
+        "order_flow_imbalance_score",
+        "price_progress_per_imbalance_unit",
+        "travel_efficiency_ratio"
+      ]
+    },
+    {
+      "candidate_id": "pattern-initial-balance-extension-vs-true-breakout",
+      "status": "implemented",
+      "implemented_as_strategy_id": "pattern-initial-balance-extension-vs-true-breakout",
+      "priority": 0.79,
+      "why_high_value": "It keeps IB statistics from being overused and improves opening-session context quality.",
+      "related_existing_strategy_ids": [
+        "pattern-opening-inventory-correction-vs-continuation",
+        "pattern-gap-fill-balance-reclaim"
+      ],
+      "required_machine_checks": [
+        "initial_balance_definition_used",
+        "ib_extension_vs_settlement",
+        "value_area_reacceptance_state"
+      ]
+    },
+    {
+      "candidate_id": "pattern-liquidity-provider-retreat-under-toxicity",
+      "status": "implemented",
+      "implemented_as_strategy_id": "pattern-liquidity-provider-retreat-under-toxicity",
+      "priority": 0.84,
+      "why_high_value": "It explains why passive size can vanish or reprice without fitting naive support or resistance stories.",
+      "related_existing_strategy_ids": [
+        "pattern-large-order-lifecycle-diagnosis",
+        "pattern-false-liquidity-and-pull-behavior"
+      ],
+      "required_machine_checks": [
+        "liquidity_provider_retreat_watch",
+        "inventory_pressure_proxy",
+        "defense_to_retreat_transition"
+      ]
+    }
+  ]
+}

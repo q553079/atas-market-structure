@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-replenished-bid-launchpad",
+  "title": "NQ Replenished Bid Launchpad Into Upper Liquidity",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_replenished_bid_launchpad_into_upper_liquidity.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "focus_regions",
+    "trapped_large_orders",
+    "live_depth"
+  ],
+  "context_tags": [
+    "same_price_replenishment",
+    "defended_bid",
+    "launchpad",
+    "upper_liquidity_target"
+  ],
+  "event_kinds": [
+    "same_price_replenishment",
+    "significant_liquidity",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "defended_bid",
+    "repeated_replenishment",
+    "support_upgrade",
+    "upper_liquidity_target"
+  ],
+  "focus_questions": [
+    "What evidence justifies upgrading this level into strong support?",
+    "Did the defended area remain valid after the launch?"
+  ],
+  "summary": {
+    "thesis": "Repeated same-price bid replenishment that survives pressure can become a true launchpad toward upper liquidity.",
+    "operator_translation": "A visible bid is not enough; the level must reload, hold, and produce real upward response.",
+    "ai_usage_note": "Prioritize this card when replay data shows same-price defense, nearby focus support, and room toward upper liquidity.",
+    "ai_brief": "Environment: defended bid zone under repeated pressure with room to travel higher. Required evidence: same-price replenishment, no clean lower acceptance, and upward reclaim or initiative. Do not trade: on one visible bid or when replenishment stops. Real trigger: the defended price survives multiple hits and price starts reclaiming from it. Failure point: acceptance below the defended zone or no travel toward the upper target."
+  },
+  "when_relevant": [
+    "The same bid price or a narrow zone is replenished repeatedly.",
+    "Price cannot continue lower despite repeated pressure.",
+    "There is still an upper liquidity target worth launching toward."
+  ],
+  "required_evidence": [
+    "same_price_replenishment is observed across multiple tests",
+    "significant_liquidity remains active near the defended zone",
+    "price stops making clean lower lows and begins reclaiming structure"
+  ],
+  "confirmation_signals": [
+    "the same price gets reloaded across multiple tests",
+    "price begins reclaiming from the defended area",
+    "an upper target remains open and price starts traveling toward it"
+  ],
+  "invalidation_signals": [
+    "replenishment stops and price begins accepting below the defended zone",
+    "buyers cannot reclaim structure after the defense",
+    "the upper target is too compromised or immediately rejects the move"
+  ],
+  "no_trade_conditions": [
+    "Do not buy because one large bid flashes on the DOM without repeated same-price replenishment.",
+    "Do not buy if replenishment stops and price starts accepting below the defended zone.",
+    "Do not call the zone strong support when the bigger context is still pushing directly into a stronger opposing region above."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "reclaim after defense",
+      "description": "Long after the defended bid survives multiple hits and price reclaims the nearest micro pivot.",
+      "risk_note": "Avoid if the reclaim runs straight into heavy overhead pressure without room."
+    },
+    {
+      "name": "controlled retest of defended price",
+      "description": "Long on a retest of the defended area once renewed buyer response is visible.",
+      "risk_note": "Avoid if the retest becomes deep acceptance below the defended level."
+    }
+  ],
+  "management_notes": [
+    "Upgrade the level only after repeated defense plus real response, not on visibility alone.",
+    "Track whether the defended area still matters after the first launch.",
+    "If the first upper target is harvested, hand the script off to post-harvest logic."
+  ],
+  "review_questions": [
+    "What specific evidence justified upgrading the level from visible support to strong defended support?",
+    "Did the entry wait for reclaimed structure, or was it placed too early against active sell pressure?",
+    "After the launch, did the defended area remain valid on revisit or fail immediately?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.82,
+    "match_requirements": {
+      "event_kinds_all": [
+        "same_price_replenishment"
+      ],
+      "reason_codes_any": [
+        "defended_bid",
+        "repeated_replenishment"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "focus_region_already_broken",
+      "replenishment_stopped"
+    ],
+    "focus_region_bias": [
+      "support",
+      "pivot",
+      "upper_target"
+    ],
+    "entry_review_bias": [
+      "one_touch_bid_chase",
+      "entry_before_reclaim",
+      "ignoring_bigger_context_overhead"
+    ]
+  }
+}

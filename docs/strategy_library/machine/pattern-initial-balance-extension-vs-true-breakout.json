@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-initial-balance-extension-vs-true-breakout",
+  "title": "Initial Balance Extension Vs True Breakout",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/initial_balance_extension_vs_true_breakout.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "intraday_bias",
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "recent_20_minutes",
+    "recent_20_bars",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "initial_balance",
+    "opening_auction",
+    "ib_extension",
+    "outside_acceptance",
+    "value_reacceptance"
+  ],
+  "event_kinds": [
+    "gap_fill_watch",
+    "initiative_drive",
+    "significant_liquidity"
+  ],
+  "reason_codes": [
+    "initial_balance_extension",
+    "initial_balance_breakout_confirmed",
+    "ib_extension_without_acceptance",
+    "ib_false_break_return"
+  ],
+  "focus_questions": [
+    "Did the IB extension become accepted outside trade, or was it only a poke beyond the range?",
+    "Was the session definition clear before promoting the extension into a breakout?"
+  ],
+  "summary": {
+    "thesis": "An IB extension is only the first observation; a true breakout requires outside acceptance, hold quality, and a session-aware opening context.",
+    "operator_translation": "Do not trade the IB headline. Trade the accepted outside branch or the failed extension return.",
+    "ai_usage_note": "Use this card when opening-auction structure and initial-balance statistics are being used to justify a breakout or reversal narrative.",
+    "ai_brief": "Environment: U.S. regular session opening auction with a defined initial balance. Required evidence: clear IB definition, extension beyond IB, and proof of either outside acceptance or return inside. Do not trade: from the first IB extension alone or by mixing overnight and RTH logic carelessly. Real trigger: accepted outside hold after IB extension or confirmed false-break return back inside IB. Failure point: the market proves the opposite branch on the first meaningful retest."
+  },
+  "when_relevant": [
+    "The U.S. session has a defined initial balance.",
+    "Price trades outside that balance and the operator is tempted to call breakout or failure.",
+    "Opening inventory, gap, or prior value context still matters to the branch."
+  ],
+  "required_evidence": [
+    "the initial-balance definition being used is explicit",
+    "outside trade beyond IB can be separated from accepted hold quality",
+    "re-entry into IB or continuation outside IB can be observed after the extension"
+  ],
+  "confirmation_signals": [
+    "price extends outside IB and does more than print a one-touch poke",
+    "the first retest outside IB holds or the market clearly accepts a new auction there",
+    "follow-through supports the outside branch instead of instantly returning inside"
+  ],
+  "invalidation_signals": [
+    "the extension quickly returns inside IB and cannot hold outside",
+    "the session definition is ambiguous and the IB label is being misused",
+    "outside acceptance is being assumed before it is visible"
+  ],
+  "no_trade_conditions": [
+    "Do not trade IB statistics alone without current opening context.",
+    "Do not call the first extension a breakout before outside acceptance is visible.",
+    "Do not mix overnight range logic and RTH initial-balance logic without defining which session is active."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "held outside IB retest",
+      "description": "Enter after the IB extension retest holds and outside trade is accepted.",
+      "risk_note": "Avoid if the market only tagged outside and never built there."
+    },
+    {
+      "name": "failed IB extension return",
+      "description": "Enter after the IB extension fails and price is accepted back inside the opening range.",
+      "risk_note": "Avoid if the return inside is only brief and outside hold is still unresolved."
+    }
+  ],
+  "management_notes": [
+    "IB extension is an observation; breakout is a later judgment.",
+    "If the extension fails and price re-enters IB, downgrade the breakout narrative quickly.",
+    "If outside trade holds, shift the script from opening reaction to session expansion."
+  ],
+  "review_questions": [
+    "Did the operator trade the IB headline or the outside acceptance after it?",
+    "Was the session definition clear before using the IB read?",
+    "After extension, did price build outside or fall back into the old opening structure?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.79,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "initial_balance_extension",
+        "initial_balance_breakout_confirmed",
+        "ib_extension_without_acceptance",
+        "ib_false_break_return"
+      ],
+      "focus_region_role_any": [
+        "opening_zone",
+        "range_edge",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "no_clear_initial_balance_definition",
+      "outside_hold_quality_not_yet_visible"
+    ],
+    "focus_region_bias": [
+      "opening_zone",
+      "range_edge",
+      "balance_edge"
+    ],
+    "entry_review_bias": [
+      "trading_ib_headline_only",
+      "no_outside_acceptance_yet",
+      "mixing_overnight_and_rth_logic"
+    ]
+  }
+}

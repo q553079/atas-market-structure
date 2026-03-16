@@ -1,0 +1,285 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-17T04:35:00+08:00",
+  "global_rules": {
+    "briefing_section_order": [
+      "suppression_precheck",
+      "active_session_or_context",
+      "dominant_branch",
+      "candidate_setups",
+      "no_trade_and_trap_checks",
+      "trigger_and_invalidation"
+    ],
+    "selection_order": [
+      "evaluate_suppressors_first",
+      "promote_primary_strategies_next",
+      "use_secondary_strategies_for_context_and tie-breaks",
+      "downgrade_generic_continuation_when_acceptance_is_unresolved"
+    ],
+    "universal_suppressor_strategy_ids": [
+      "pattern-no-trade-garbage-time-context"
+    ],
+    "universal_suppressor_reason_families": [
+      "no_trade_and_context_suppression"
+    ]
+  },
+  "preset_matrices": [
+    {
+      "preset": "recent_20_bars",
+      "briefing_goal": "Diagnose the currently active short-horizon branch without rewarding emotional bursts too early.",
+      "primary_strategy_ids": [
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-trapped-inventory-release",
+        "pattern-failed-break-acceptance-reentry",
+        "pattern-post-shock-resiliency-check",
+        "pattern-stop-cluster-cascade-exhaustion"
+      ],
+      "secondary_strategy_ids": [
+        "pattern-gap-bar-retracement-continuation",
+        "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-forced-exit-burst-vs-initiative-continuation",
+        "pattern-order-flow-imbalance-without-price-progress",
+        "pattern-control-handoff-after-harvest",
+        "pattern-nq-probe-reversal-toward-upper-liquidity",
+        "pattern-nq-failed-overhead-capping-in-ascent"
+      ],
+      "suppressor_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-order-flow-imbalance-without-price-progress"
+      ],
+      "primary_reason_families": [
+        "acceptance_breakout_and_failed_break",
+        "inventory_trap_and_forced_exit"
+      ],
+      "secondary_reason_families": [
+        "defense_continuation_and_measured_travel",
+        "post_harvest_and_control_handoff"
+      ],
+      "suppressor_reason_families": [
+        "no_trade_and_context_suppression"
+      ],
+      "briefing_sections": [
+        {
+          "section_id": "suppression_precheck",
+          "purpose": "Suppress noisy or decaying short-horizon conditions before promoting any setup."
+        },
+        {
+          "section_id": "dominant_branch",
+          "purpose": "Decide whether the active branch is failed break, trap release, stop cascade, or unresolved shock."
+        },
+        {
+          "section_id": "trigger_and_invalidation",
+          "purpose": "Anchor trigger to retest quality and invalidation to failed hold quality."
+        }
+      ],
+      "follow_up_questions": [
+        "Did the first retest confirm the move or fail it?",
+        "Is travel efficiency improving or decaying?",
+        "Was the burst fresh initiative or mostly forced exits?"
+      ]
+    },
+    {
+      "preset": "recent_20_minutes",
+      "briefing_goal": "Prioritize opening and session script before promoting expansion or reversal candidates.",
+      "primary_strategy_ids": [
+        "pattern-opening-inventory-correction-vs-continuation",
+        "pattern-gap-fill-balance-reclaim",
+        "pattern-initial-balance-extension-vs-true-breakout",
+        "pattern-cross-session-inventory-transfer"
+      ],
+      "secondary_strategy_ids": [
+        "pattern-gap-bar-retracement-continuation",
+        "pattern-mother-bar-auction-zones",
+        "pattern-post-shock-resiliency-check",
+        "pattern-stop-cluster-cascade-exhaustion",
+        "pattern-control-handoff-after-harvest",
+        "pattern-anchor-market-leadership"
+      ],
+      "suppressor_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-initial-balance-extension-vs-true-breakout"
+      ],
+      "primary_reason_families": [
+        "opening_auction_and_session_context"
+      ],
+      "secondary_reason_families": [
+        "acceptance_breakout_and_failed_break",
+        "post_harvest_and_control_handoff"
+      ],
+      "suppressor_reason_families": [
+        "no_trade_and_context_suppression"
+      ],
+      "briefing_sections": [
+        {
+          "section_id": "active_session_or_context",
+          "purpose": "Name the opening script before talking about direction."
+        },
+        {
+          "section_id": "dominant_branch",
+          "purpose": "Decide whether the move is correction, continuation, gap reclaim, IB extension, or failed outside trade."
+        },
+        {
+          "section_id": "candidate_setups",
+          "purpose": "Only promote setups after the active opening branch is explicit."
+        }
+      ],
+      "follow_up_questions": [
+        "Which opening script is still active?",
+        "Did outside trade become accepted or return back inside?",
+        "Is the opening move correction, continuation, or failed extension?"
+      ]
+    },
+    {
+      "preset": "focus_regions",
+      "briefing_goal": "Enforce edge-location discipline and maximize suppression of low-quality entries.",
+      "primary_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-liquidity-raid-vs-breakout-acceptance",
+        "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-failed-break-acceptance-reentry",
+        "pattern-trapped-inventory-release"
+      ],
+      "secondary_strategy_ids": [
+        "pattern-mother-bar-auction-zones",
+        "pattern-false-liquidity-and-pull-behavior",
+        "pattern-fake-depth-signature-context",
+        "pattern-liquidity-provider-retreat-under-toxicity",
+        "pattern-post-shock-resiliency-check"
+      ],
+      "suppressor_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-fake-depth-signature-context",
+        "pattern-order-flow-imbalance-without-price-progress"
+      ],
+      "primary_reason_families": [
+        "no_trade_and_context_suppression",
+        "acceptance_breakout_and_failed_break"
+      ],
+      "secondary_reason_families": [
+        "passive_liquidity_false_depth_and_lifecycle",
+        "inventory_trap_and_forced_exit"
+      ],
+      "suppressor_reason_families": [
+        "no_trade_and_context_suppression",
+        "passive_liquidity_false_depth_and_lifecycle"
+      ],
+      "briefing_sections": [
+        {
+          "section_id": "suppression_precheck",
+          "purpose": "Decide first whether the region is edge or garbage time."
+        },
+        {
+          "section_id": "no_trade_and_trap_checks",
+          "purpose": "Explain where not to open before explaining where opening might become valid."
+        },
+        {
+          "section_id": "trigger_and_invalidation",
+          "purpose": "Only define trigger after the edge has proven itself."
+        }
+      ],
+      "follow_up_questions": [
+        "Is this a true edge boundary or only auction middle?",
+        "Did visible size survive near touch and produce outcome?",
+        "Is the level creating acceptance, failure, or only attention?"
+      ]
+    },
+    {
+      "preset": "trapped_large_orders",
+      "briefing_goal": "Diagnose participant pain and large-size state changes before promoting directional continuation.",
+      "primary_strategy_ids": [
+        "pattern-large-order-lifecycle-diagnosis",
+        "pattern-trapped-inventory-release",
+        "pattern-forced-exit-burst-vs-initiative-continuation"
+      ],
+      "secondary_strategy_ids": [
+        "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-fake-depth-signature-context",
+        "pattern-liquidity-provider-retreat-under-toxicity",
+        "pattern-false-liquidity-and-pull-behavior"
+      ],
+      "suppressor_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-fake-depth-signature-context"
+      ],
+      "primary_reason_families": [
+        "inventory_trap_and_forced_exit",
+        "passive_liquidity_false_depth_and_lifecycle"
+      ],
+      "secondary_reason_families": [
+        "acceptance_breakout_and_failed_break"
+      ],
+      "suppressor_reason_families": [
+        "no_trade_and_context_suppression"
+      ],
+      "briefing_sections": [
+        {
+          "section_id": "dominant_branch",
+          "purpose": "Classify size state first: trapped, unwinding, fake, retreating, or still defending."
+        },
+        {
+          "section_id": "candidate_setups",
+          "purpose": "Promote continuation only after the size-state branch is explicit."
+        },
+        {
+          "section_id": "no_trade_and_trap_checks",
+          "purpose": "Warn against confusing participant pain with fresh initiative."
+        }
+      ],
+      "follow_up_questions": [
+        "Is the size trapped, unwinding, retreating, or fake?",
+        "Where did the trapped side become objectively wrong?",
+        "After the burst, did the new side still defend gained ground?"
+      ]
+    },
+    {
+      "preset": "live_depth",
+      "briefing_goal": "Interpret real-time depth with aggressive skepticism toward displayed liquidity.",
+      "primary_strategy_ids": [
+        "pattern-false-liquidity-and-pull-behavior",
+        "pattern-fake-depth-signature-context",
+        "pattern-large-order-lifecycle-diagnosis",
+        "pattern-liquidity-provider-retreat-under-toxicity"
+      ],
+      "secondary_strategy_ids": [
+        "pattern-order-flow-imbalance-without-price-progress",
+        "pattern-nq-replenished-bid-launchpad",
+        "pattern-liquidity-raid-vs-breakout-acceptance"
+      ],
+      "suppressor_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-fake-depth-signature-context",
+        "pattern-order-flow-imbalance-without-price-progress"
+      ],
+      "primary_reason_families": [
+        "passive_liquidity_false_depth_and_lifecycle"
+      ],
+      "secondary_reason_families": [
+        "defense_continuation_and_measured_travel",
+        "acceptance_breakout_and_failed_break"
+      ],
+      "suppressor_reason_families": [
+        "no_trade_and_context_suppression",
+        "passive_liquidity_false_depth_and_lifecycle"
+      ],
+      "briefing_sections": [
+        {
+          "section_id": "suppression_precheck",
+          "purpose": "Reject brightness-only readings before naming support or resistance."
+        },
+        {
+          "section_id": "dominant_branch",
+          "purpose": "Decide whether depth is real defense, fake depth, rational retreat, or absorbed aggression."
+        },
+        {
+          "section_id": "trigger_and_invalidation",
+          "purpose": "Anchor trigger to survival near touch and invalidation to failure of that survival."
+        }
+      ],
+      "follow_up_questions": [
+        "Did the depth survive near touch, reprice, or cancel?",
+        "Is visible size real defense, false depth, or rational retreat under toxicity?",
+        "Is the tape making progress against or despite the visible depth?"
+      ]
+    }
+  ]
+}

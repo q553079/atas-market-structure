@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-no-trade-garbage-time-context",
+  "title": "No-Trade Garbage Time Context",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/no_trade_garbage_time_context.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "intraday_bias",
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "no_trade",
+    "garbage_time",
+    "cross_timeframe_conflict",
+    "event_noise_without_result"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "gap_fill_watch",
+    "post_harvest_response"
+  ],
+  "reason_codes": [
+    "no_trade_garbage_time",
+    "middle_of_auction_risk",
+    "cross_timeframe_conflict",
+    "event_noise_without_result"
+  ],
+  "focus_questions": [
+    "Is the market actually tradable right now, or only active-looking?",
+    "Are current signals producing outcome, or just conflicting noise?"
+  ],
+  "summary": {
+    "thesis": "Garbage time is the environment where events, movement, and visible liquidity exist, but none of them provide enough edge to justify opening risk.",
+    "operator_translation": "Not every readable market is a tradable market; this card should suppress weak setup enthusiasm.",
+    "ai_usage_note": "Use this card to down-rank mediocre strategy candidates when context is conflicted, mid-auction, or noisy without result.",
+    "ai_brief": "Environment: active-looking market without clean edge. Required evidence: conflicting timeframe context, middle-of-auction location, or repeated events without durable outcome. Do not trade: just because the tape feels busy. Real trigger: none until a true boundary and real acceptance or rejection appear. Failure point: a genuine edge emerges at a meaningful location with outcome."
+  },
+  "when_relevant": [
+    "Price remains in non-edge territory.",
+    "Higher-timeframe and lower-timeframe logic conflict.",
+    "Recent event tags create attention but not durable result."
+  ],
+  "required_evidence": [
+    "the market is trading away from a true edge or meaningful boundary",
+    "multiple events are appearing without real follow-through",
+    "cross-timeframe conflict or mid-auction churn is visible"
+  ],
+  "confirmation_signals": [
+    "multiple event tags appear but none produce durable acceptance or displacement",
+    "higher-timeframe context points one way while local execution logic points the other",
+    "price remains inside non-edge territory where both sides are still recycled"
+  ],
+  "invalidation_signals": [
+    "a real edge appears at a meaningful boundary",
+    "one side begins producing durable acceptance and displacement",
+    "cross-timeframe conflict resolves clearly in one direction"
+  ],
+  "no_trade_conditions": [
+    "Do not open in the middle of balance because recent candles feel active.",
+    "Do not open when lower-timeframe triggers conflict with stronger higher-timeframe location and no handoff is visible.",
+    "Do not mistake repeated event labels for real edge when none of them produce outcome."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "suppression card",
+      "description": "Use this card to suppress weak candidate promotion rather than to generate entries.",
+      "risk_note": "If a true boundary and outcome emerge, hand off to a real setup card."
+    }
+  ],
+  "management_notes": [
+    "This card should outrank mediocre setup cards when context quality is poor.",
+    "Its job is to stop unnecessary trades before the operator invents edge.",
+    "Once a real boundary and acceptance or rejection appear, this card should downgrade itself."
+  ],
+  "review_questions": [
+    "Was the operator opening because the market was tradable or just because it was moving?",
+    "Did any observed event actually produce outcome, or only noise and attention churn?",
+    "Was there a real edge boundary nearby, or was the trade opened in auction middle?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.9,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "no_trade_garbage_time",
+        "middle_of_auction_risk",
+        "cross_timeframe_conflict",
+        "event_noise_without_result"
+      ],
+      "focus_region_role_any": [
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "clear_edge_boundary_present",
+      "durable_one_sided_acceptance_present"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "no_trade_zone"
+    ],
+    "entry_review_bias": [
+      "opening_in_middle_of_balance",
+      "forcing_signal_out_of_noise",
+      "ignoring_cross_timeframe_conflict"
+    ]
+  }
+}

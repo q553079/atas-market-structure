@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-caveman-failed-signal-bar-trigger",
+  "title": "Caveman Failed Signal Bar Trigger",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/caveman_failed_signal_bar_trigger.md",
+  "instrument_scope": ["NQ", "ES"],
+  "session_scope": ["europe", "us_premarket", "us_regular"],
+  "timeframe_scope": ["setup_context", "execution_context"],
+  "preferred_presets": ["recent_20_bars", "focus_regions", "trapped_large_orders"],
+  "context_tags": ["caveman", "failed_signal_bar", "two_bar_trap_reversal", "trigger_bar_negation", "scalp_reversal"],
+  "event_kinds": ["initiative_drive", "significant_liquidity"],
+  "reason_codes": ["caveman_failed_signal_bar", "strong_signal_fully_negated", "trigger_close_beyond_signal_extreme", "failed_breakout_scalp_reversal"],
+  "focus_questions": [
+    "Was the signal bar actually strong enough to trap real followers?",
+    "Did the trigger bar fully negate the signal bar, or only oppose it visually?"
+  ],
+  "summary": {
+    "thesis": "A Caveman setup is an immediate failure of a strong signal bar, where trapped breakout followers fuel a fast opposite scalp.",
+    "operator_translation": "Do not trade every two-bar reversal. Only trade it when the signal bar was truly strong and the trigger bar objectively destroyed that thesis.",
+    "ai_usage_note": "Use this card when a strong breakout or continuation bar is immediately negated by a stronger opposite bar and the failed side has no quick rescue.",
+    "ai_brief": "Environment: failed breakout or late-trend continuation attempt near a meaningful edge. Required evidence: strong signal bar, trigger bar that closes beyond the signal bar's control point, and room for fast follow-through. Do not trade: in chop, with a weak signal bar, or when the trigger only partially negates the setup. Real trigger: full negation plus failed first rescue by the original side. Failure point: the original side immediately reclaims control or no fast follow-through appears."
+  },
+  "when_relevant": [
+    "A strong signal bar just attempted breakout or continuation from a meaningful area.",
+    "The opposite side immediately produced a stronger trigger bar that negates the original thesis.",
+    "The operator needs aggressive but still objective scalp-reversal logic."
+  ],
+  "required_evidence": [
+    "the signal bar is strong, directional, and closes near its extreme",
+    "the trigger bar closes through the signal bar open or extreme strongly enough to prove failure",
+    "the setup occurs near an edge, failed breakout, or exhaustion area rather than inside random overlap",
+    "there is enough room for scalp or first target travel before major opposing structure"
+  ],
+  "confirmation_signals": [
+    "the trigger bar fully negates the signal bar's control point",
+    "the first retest fails to restore the original breakout direction",
+    "the opposite side gains immediate follow-through instead of collapsing into chop"
+  ],
+  "invalidation_signals": [
+    "the signal bar was weak and never trapped meaningful participation",
+    "the trigger bar does not truly negate the signal bar",
+    "the original direction quickly reclaims and holds after the trigger"
+  ],
+  "no_trade_conditions": [
+    "Do not use this setup if the signal bar itself lacks commitment.",
+    "Do not use it in overlapping chop or auction middle.",
+    "Do not trade it if the trigger only partially negates the signal bar.",
+    "Do not trade it if there is no room for a scalp target before major opposing structure."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "trigger close reversal",
+      "description": "Enter as the opposite trigger bar closes and objectively negates the prior signal bar.",
+      "risk_note": "Avoid if the close is extended directly into the next major opposing barrier without room."
+    },
+    {
+      "name": "failed breakout retest",
+      "description": "Enter on the first retest of the failed breakout point after the trigger bar already proved negation.",
+      "risk_note": "Avoid if the retest restores the original breakout side instead of failing it."
+    }
+  ],
+  "management_notes": [
+    "This is a fast-decay setup and usually needs quick follow-through.",
+    "Retest entries can be cleaner than emotional chase if the trigger bar already stretched.",
+    "Do not automatically convert scalp reversal into swing reversal without new evidence."
+  ],
+  "review_questions": [
+    "Was the signal bar strong enough to trap real followers?",
+    "Did the trigger truly negate the signal bar or only pause it?",
+    "Was the trade taken at a meaningful edge or just inside noise?",
+    "Did the operator hold a scalp setup as if it were a guaranteed swing reversal?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.72,
+    "match_requirements": {
+      "event_kinds_all": ["initiative_drive"],
+      "reason_codes_any": ["caveman_failed_signal_bar", "strong_signal_fully_negated", "trigger_close_beyond_signal_extreme", "failed_breakout_scalp_reversal"],
+      "focus_region_role_any": ["support", "resistance", "range_edge", "pivot"]
+    },
+    "disqualifiers": ["weak_signal_bar_not_committed", "trigger_failed_to_negate_signal", "no_target_room_for_scalp"],
+    "focus_region_bias": ["support", "resistance", "range_edge", "pivot"],
+    "entry_review_bias": ["treating_noise_as_caveman", "entering_without_full_negation", "holding_scalp_setup_too_long"]
+  }
+}

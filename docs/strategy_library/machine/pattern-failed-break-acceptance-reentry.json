@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-failed-break-acceptance-reentry",
+  "title": "Failed Break Acceptance Re-Entry",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/failed_break_acceptance_reentry.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "focus_regions",
+    "recent_20_minutes"
+  ],
+  "context_tags": [
+    "failed_break",
+    "outside_hold_failed",
+    "reentry",
+    "old_auction_reclaim"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "gap_fill_watch"
+  ],
+  "reason_codes": [
+    "failed_break",
+    "outside_hold_failed",
+    "returned_to_old_auction",
+    "reentry_rotation"
+  ],
+  "focus_questions": [
+    "Did the break actually lose outside acceptance?",
+    "Was the re-entry back inside old auction accepted or only touched?"
+  ],
+  "summary": {
+    "thesis": "A failed break becomes tradable when outside acceptance fails and the market re-enters and holds inside the prior accepted auction.",
+    "operator_translation": "Do not fade the first break blindly; wait for failed outside hold and accepted re-entry.",
+    "ai_usage_note": "Use this card when a break first looks valid but the market returns inside old value or old range and begins rotating there.",
+    "ai_brief": "Environment: attempted break from a prior accepted area. Required evidence: failed outside hold, re-entry inside old auction, and hold inside the old area. Do not trade: if price is still genuinely holding outside or if re-entry is only a quick flicker. Real trigger: accepted re-entry back into old auction. Failure point: renewed outside acceptance in the original break direction."
+  },
+  "when_relevant": [
+    "A breakout or breakdown first appears valid.",
+    "Outside trade fails to hold.",
+    "Price re-enters and stabilizes back inside the prior accepted area."
+  ],
+  "required_evidence": [
+    "there was a meaningful attempt to trade outside the prior boundary",
+    "outside hold quality deteriorates quickly",
+    "re-entry back inside the prior auction is visible and held"
+  ],
+  "confirmation_signals": [
+    "outside trade fails and returns inside the old area",
+    "the re-entry back inside is held rather than instantly rejected",
+    "follow-through after re-entry shows rotation toward an interior target or opposite edge"
+  ],
+  "invalidation_signals": [
+    "price regains and holds outside trade in the original break direction",
+    "re-entry cannot stabilize inside the old auction",
+    "the supposed break never had enough outside trade to matter"
+  ],
+  "no_trade_conditions": [
+    "Do not fade every first break before outside-hold quality is known.",
+    "Do not call the break failed if price has not yet re-entered and held inside the old area.",
+    "Do not trade the re-entry if the broader environment is strongly imbalanced and the return inside still looks temporary."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "accepted re-entry",
+      "description": "Enter after price re-enters and holds inside the prior accepted area.",
+      "risk_note": "Avoid if the re-entry is only a brief flicker without hold quality."
+    },
+    {
+      "name": "first pullback after re-entry",
+      "description": "Enter on the first controlled pullback after the failed break is already back inside old auction.",
+      "risk_note": "Avoid if the pullback immediately restores the original break direction."
+    }
+  ],
+  "management_notes": [
+    "The business edge is usually the re-entry, not the first poke outside.",
+    "Once inside old auction is accepted, target logic should shift toward interior references.",
+    "If re-entry cannot hold, the failed-break read is weaker than it first looked."
+  ],
+  "review_questions": [
+    "Was the operator chasing a break that never showed real outside acceptance?",
+    "When price re-entered, did it hold inside old value or only flicker back in?",
+    "Did the reversal thesis come from true re-entry evidence or from emotional fading?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.77,
+    "match_requirements": {
+      "event_kinds_all": [
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "failed_break",
+        "outside_hold_failed",
+        "returned_to_old_auction"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "range_edge",
+        "gap_edge"
+      ]
+    },
+    "disqualifiers": [
+      "outside_hold_still_valid",
+      "reentry_not_accepted"
+    ],
+    "focus_region_bias": [
+      "range_edge",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "fading_first_break_too_early",
+      "no_accepted_reentry",
+      "ignoring_broader_imbalance"
+    ]
+  }
+}

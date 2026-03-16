@@ -1,0 +1,26 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+WORKDIR /workspace
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libglib2.0-0 \
+        libgl1 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-ocr.txt /tmp/requirements-ocr.txt
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r /tmp/requirements-ocr.txt
+
+COPY tools/ocr_extract_books.py /workspace/tools/ocr_extract_books.py
+
+ENTRYPOINT ["python", "/workspace/tools/ocr_extract_books.py"]
+CMD ["--input-root", "/workspace/data/pdf_pages", "--output-dir", "/workspace/docs/strategy_library/_source_extracts/ocr", "--skip-existing"]

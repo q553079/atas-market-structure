@@ -4,9 +4,16 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import logging
 
+from atas_market_structure.ai_review_services import (
+    OpenAiReplayChatAssistant,
+    OpenAiReplayReviewer,
+    ReplayAiChatService,
+    ReplayAiReviewService,
+)
 from atas_market_structure.app import MarketStructureApplication
 from atas_market_structure.config import AppConfig
 from atas_market_structure.repository import SQLiteAnalysisRepository
+from atas_market_structure.strategy_library_services import StrategyLibraryService
 
 
 class ApplicationRequestHandler(BaseHTTPRequestHandler):
@@ -37,7 +44,33 @@ class ApplicationRequestHandler(BaseHTTPRequestHandler):
 def build_application(config: AppConfig) -> MarketStructureApplication:
     repository = SQLiteAnalysisRepository(database_path=config.database_path)
     repository.initialize()
-    return MarketStructureApplication(repository=repository)
+    replay_ai_review_service = ReplayAiReviewService(
+        repository=repository,
+        reviewer=OpenAiReplayReviewer(
+            provider_name=config.ai_provider,
+            api_key=config.openai_api_key,
+            model=config.ai_model,
+            base_url=config.openai_base_url,
+            timeout_seconds=config.ai_timeout_seconds,
+        ),
+    )
+    strategy_library_service = StrategyLibraryService()
+    replay_ai_chat_service = ReplayAiChatService(
+        repository=repository,
+        assistant=OpenAiReplayChatAssistant(
+            provider_name=config.ai_provider,
+            api_key=config.openai_api_key,
+            model=config.ai_model,
+            base_url=config.openai_base_url,
+            timeout_seconds=config.ai_timeout_seconds,
+        ),
+        strategy_library_service=strategy_library_service,
+    )
+    return MarketStructureApplication(
+        repository=repository,
+        replay_ai_review_service=replay_ai_review_service,
+        replay_ai_chat_service=replay_ai_chat_service,
+    )
 
 
 def main() -> None:

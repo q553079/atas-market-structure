@@ -1,0 +1,8 @@
+{
+  "replay_ingestion_id": "ing-demo-replay-workbench",
+  "preset": "focus_regions",
+  "user_message": "分析重点价格区域，并说明哪里不能开仓。",
+  "history": [],
+  "model_override": null,
+  "include_live_context": true
+}

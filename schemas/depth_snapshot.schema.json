@@ -288,6 +288,22 @@
           "title": "Instance Id",
           "type": "string"
         },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart or indicator-instance identifier used to separate multiple live ATAS charts.",
+          "examples": [
+            "NQM6-7fa31b2c"
+          ],
+          "title": "Chart Instance Id"
+        },
         "adapter_version": {
           "description": "Source adapter version.",
           "examples": [

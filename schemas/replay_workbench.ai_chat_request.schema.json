@@ -1,0 +1,93 @@
+{
+  "$defs": {
+    "ReplayAiChatMessage": {
+      "description": "Conversation turn shown in the replay workbench AI pane.",
+      "properties": {
+        "role": {
+          "description": "Conversation role.",
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "content": {
+          "description": "Message content.",
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "title": "ReplayAiChatMessage",
+      "type": "object"
+    },
+    "ReplayAiChatPreset": {
+      "enum": [
+        "general",
+        "recent_20_bars",
+        "recent_20_minutes",
+        "focus_regions",
+        "trapped_large_orders",
+        "live_depth"
+      ],
+      "title": "ReplayAiChatPreset",
+      "type": "string"
+    }
+  },
+  "description": "Request for contextual AI conversation over one replay packet.",
+  "properties": {
+    "replay_ingestion_id": {
+      "description": "Replay-workbench ingestion identifier to discuss.",
+      "title": "Replay Ingestion Id",
+      "type": "string"
+    },
+    "preset": {
+      "$ref": "#/$defs/ReplayAiChatPreset",
+      "default": "general",
+      "description": "Preset analysis lens for this request."
+    },
+    "user_message": {
+      "description": "Latest user question or instruction.",
+      "minLength": 1,
+      "title": "User Message",
+      "type": "string"
+    },
+    "history": {
+      "description": "Previous chat turns to preserve continuity.",
+      "items": {
+        "$ref": "#/$defs/ReplayAiChatMessage"
+      },
+      "title": "History",
+      "type": "array"
+    },
+    "model_override": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional AI model override for this request.",
+      "title": "Model Override"
+    },
+    "include_live_context": {
+      "default": true,
+      "description": "Whether to merge the latest live adapter context into the discussion.",
+      "title": "Include Live Context",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "replay_ingestion_id",
+    "user_message"
+  ],
+  "title": "ReplayAiChatRequest",
+  "type": "object"
+}

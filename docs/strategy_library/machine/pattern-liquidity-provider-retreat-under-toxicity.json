@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-liquidity-provider-retreat-under-toxicity",
+  "title": "Liquidity Provider Retreat Under Toxicity",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/liquidity_provider_retreat_under_toxicity.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "live_depth",
+    "trapped_large_orders",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "liquidity_provider_retreat",
+    "adverse_selection",
+    "reprice",
+    "defense_transition"
+  ],
+  "event_kinds": [
+    "significant_liquidity",
+    "same_price_replenishment",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "liquidity_provider_retreat",
+    "adverse_selection_risk",
+    "defense_to_retreat_transition",
+    "reprice_under_toxicity"
+  ],
+  "focus_questions": [
+    "Did passive size disappear because it was fake, or because defending there became too toxic?",
+    "Where did the provider actually reprice or retreat to?"
+  ],
+  "summary": {
+    "thesis": "Passive liquidity can retreat or reprice under toxic one-way flow, so disappearance at the old price is not automatically fake depth and not automatically a good defense level anymore.",
+    "operator_translation": "Do not keep leaning on an old defended price after the provider has clearly changed state under pressure.",
+    "ai_usage_note": "Use this card when a previously real defending side begins retreating, repricing, or standing deeper as adverse-selection pressure rises.",
+    "ai_brief": "Environment: previously real passive defense starts changing behavior under toxic one-way flow. Required evidence: prior defense was real, pressure rises, and the provider retreats or reprices rather than standing at the old price. Do not trade: by assuming the old DOM wall still matters or by calling every retreat spoofing. Real trigger: recognition of the new defended area or failure of the old area after retreat. Failure point: the provider re-establishes real defense at the old price."
+  },
+  "when_relevant": [
+    "A previously real defender was visible at an important level.",
+    "One-way pressure becomes more toxic or more one-sided.",
+    "The passive side stops standing at the old price and begins retreating or repricing."
+  ],
+  "required_evidence": [
+    "there was prior evidence of real defense at the old price",
+    "aggressive one-way pressure or toxicity increased",
+    "the passive side retreated, repriced, or defended deeper instead of staying at the old level"
+  ],
+  "confirmation_signals": [
+    "a previously real defender stops standing at the old price",
+    "one-way pressure rises while passive quotes retreat or reprice",
+    "the market begins referencing a new defended area instead of the old one"
+  ],
+  "invalidation_signals": [
+    "the old price is re-defended with real outcome",
+    "the supposed retreat was only momentary and no new reference price formed",
+    "pressure does not remain toxic enough to justify a state change"
+  ],
+  "no_trade_conditions": [
+    "Do not assume static DOM size will stay when toxicity rises.",
+    "Do not label every retreat as spoofing without branch context.",
+    "Do not keep leaning on the old defended price after the provider clearly repriced."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "old defense failure after retreat",
+      "description": "Enter after the old defended price clearly fails because the provider no longer stands there.",
+      "risk_note": "Avoid if the retreat is temporary and the old level quickly re-establishes."
+    },
+    {
+      "name": "new reprice defense follow",
+      "description": "Enter after the provider's deeper or repriced level begins creating real outcome.",
+      "risk_note": "Avoid if the new reference price is still cosmetic and unproven."
+    }
+  ],
+  "management_notes": [
+    "This card is strongest when prior defense was real and later changes state.",
+    "Retreat and reprice can still leave a new level worth following.",
+    "Hand off to real support or resistance logic once the new reference price is proven."
+  ],
+  "review_questions": [
+    "Was the provider baiting or rationally retreating under pressure?",
+    "Did the operator keep trusting the old price after the defense already moved?",
+    "Where did the new defended reference actually appear?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.84,
+    "match_requirements": {
+      "event_kinds_all": [
+        "significant_liquidity"
+      ],
+      "reason_codes_any": [
+        "liquidity_provider_retreat",
+        "adverse_selection_risk",
+        "defense_to_retreat_transition",
+        "reprice_under_toxicity"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "resistance",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "no_prior_real_defense",
+      "retreat_branch_not_confirmed"
+    ],
+    "focus_region_bias": [
+      "support",
+      "resistance",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "trusting_old_dom_after_reprice",
+      "calling_every_retreat_spoofing",
+      "missing_new_reference_price"
+    ]
+  }
+}

@@ -1,0 +1,321 @@
+{
+  "$defs": {
+    "AdapterHistoryBar": {
+      "description": "One chart-loaded historical bar exported directly from ATAS.",
+      "properties": {
+        "started_at": {
+          "description": "Inclusive bar start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Inclusive bar end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "open": {
+          "description": "Bar open.",
+          "examples": [
+            21540.25
+          ],
+          "title": "Open",
+          "type": "number"
+        },
+        "high": {
+          "description": "Bar high.",
+          "examples": [
+            21548.0
+          ],
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "Bar low.",
+          "examples": [
+            21535.5
+          ],
+          "title": "Low",
+          "type": "number"
+        },
+        "close": {
+          "description": "Bar close.",
+          "examples": [
+            21544.75
+          ],
+          "title": "Close",
+          "type": "number"
+        },
+        "volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional total volume.",
+          "examples": [
+            842
+          ],
+          "title": "Volume"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional net delta.",
+          "examples": [
+            121
+          ],
+          "title": "Delta"
+        },
+        "bid_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional bid-side traded volume.",
+          "examples": [
+            360
+          ],
+          "title": "Bid Volume"
+        },
+        "ask_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional ask-side traded volume.",
+          "examples": [
+            481
+          ],
+          "title": "Ask Volume"
+        }
+      },
+      "required": [
+        "started_at",
+        "ended_at",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "title": "AdapterHistoryBar",
+      "type": "object"
+    },
+    "InstrumentRef": {
+      "description": "Stable instrument metadata for replay and backtests.",
+      "properties": {
+        "symbol": {
+          "description": "Trading symbol.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Symbol",
+          "type": "string"
+        },
+        "venue": {
+          "description": "Execution or quote venue.",
+          "examples": [
+            "CME"
+          ],
+          "title": "Venue",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Minimum price increment.",
+          "examples": [
+            0.25
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "currency": {
+          "description": "PnL currency.",
+          "examples": [
+            "USD"
+          ],
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "venue",
+        "tick_size",
+        "currency"
+      ],
+      "title": "InstrumentRef",
+      "type": "object"
+    },
+    "SourceRef": {
+      "description": "Producer metadata for tracing and support.",
+      "properties": {
+        "system": {
+          "description": "Source system name.",
+          "examples": [
+            "ATAS"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "instance_id": {
+          "description": "Producer instance identifier.",
+          "examples": [
+            "DESKTOP-ATAS-01"
+          ],
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart or indicator-instance identifier used to separate multiple live ATAS charts.",
+          "examples": [
+            "NQM6-7fa31b2c"
+          ],
+          "title": "Chart Instance Id"
+        },
+        "adapter_version": {
+          "description": "Source adapter version.",
+          "examples": [
+            "0.1.0"
+          ],
+          "title": "Adapter Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "system",
+        "instance_id",
+        "adapter_version"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "Chart-loaded history exported from the active ATAS chart.",
+  "properties": {
+    "schema_version": {
+      "description": "Payload schema version.",
+      "examples": [
+        "1.0.0"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "message_id": {
+      "description": "Unique adapter message identifier.",
+      "examples": [
+        "adapter-msg-20260316-143001"
+      ],
+      "title": "Message Id",
+      "type": "string"
+    },
+    "emitted_at": {
+      "description": "When the adapter emitted this message.",
+      "format": "date-time",
+      "title": "Emitted At",
+      "type": "string"
+    },
+    "observed_window_start": {
+      "description": "Inclusive start of the observed window.",
+      "format": "date-time",
+      "title": "Observed Window Start",
+      "type": "string"
+    },
+    "observed_window_end": {
+      "description": "Inclusive end of the observed window.",
+      "format": "date-time",
+      "title": "Observed Window End",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceRef",
+      "description": "Source metadata."
+    },
+    "instrument": {
+      "$ref": "#/$defs/InstrumentRef",
+      "description": "Instrument metadata."
+    },
+    "message_type": {
+      "const": "history_bars",
+      "description": "Adapter message family for chart-loaded historical bars.",
+      "title": "Message Type",
+      "type": "string"
+    },
+    "bar_timeframe": {
+      "$ref": "#/$defs/Timeframe",
+      "description": "Native timeframe of the exported chart bars."
+    },
+    "bars": {
+      "description": "Historical bars currently loaded inside the active ATAS chart.",
+      "items": {
+        "$ref": "#/$defs/AdapterHistoryBar"
+      },
+      "title": "Bars",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "message_id",
+    "emitted_at",
+    "observed_window_start",
+    "observed_window_end",
+    "source",
+    "instrument",
+    "message_type",
+    "bar_timeframe"
+  ],
+  "title": "AdapterHistoryBarsPayload",
+  "type": "object"
+}

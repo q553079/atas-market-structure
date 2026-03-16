@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-liquidity-raid-vs-breakout-acceptance",
+  "title": "Liquidity Raid Vs Breakout Acceptance",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/liquidity_raid_vs_breakout_acceptance.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions",
+    "live_depth"
+  ],
+  "context_tags": [
+    "liquidity_raid",
+    "stop_run",
+    "breakout_acceptance",
+    "failed_auction",
+    "outside_hold"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "gap_fill_watch"
+  ],
+  "reason_codes": [
+    "liquidity_raid_only",
+    "stop_run_not_breakout",
+    "breakout_acceptance_confirmed",
+    "returned_to_balance_after_sweep"
+  ],
+  "focus_questions": [
+    "Did the sweep actually gain outside acceptance, or did it only run stops?",
+    "After the first burst, was the old boundary held outside or accepted back inside?"
+  ],
+  "summary": {
+    "thesis": "A sweep through an obvious edge is only a liquidity raid until the market proves it can hold and build outside the old boundary.",
+    "operator_translation": "Do not chase the first stop run and do not fade it early; wait for outside hold quality to choose the branch.",
+    "ai_usage_note": "Use this card when a move through a key edge looks dramatic, but the real question is whether outside trade is accepted or quickly rejected.",
+    "ai_brief": "Environment: range edge, value edge, gap edge, or defended zone where stops can be swept. Required evidence: a burst through the edge plus proof of either outside hold or fast return inside. Do not trade: by chasing the first sweep or by fading it before outside hold fails. Real trigger: accepted outside hold for continuation or accepted return inside for raid failure. Failure point: the market proves the opposite branch by holding where it should have failed."
+  },
+  "when_relevant": [
+    "A visible auction edge or defended zone is swept.",
+    "The first burst looks strong enough to invite breakout chasing or emotional fading.",
+    "The operator needs to know whether the move is a real breakout or only a raid."
+  ],
+  "required_evidence": [
+    "a meaningful edge was actually swept",
+    "the burst through the edge can be reviewed separately from later hold quality",
+    "outside trade either builds and holds or quickly returns back inside"
+  ],
+  "confirmation_signals": [
+    "the sweep pushes through a meaningful edge and forces obvious stop release",
+    "outside price either builds and holds, or quickly stalls and returns inside",
+    "the first pullback after the sweep reveals whether fresh control exists or not"
+  ],
+  "invalidation_signals": [
+    "the edge was not meaningful enough to matter",
+    "outside hold quality is still unresolved and the card is being forced too early",
+    "the market clearly proves the opposite branch after the first pullback"
+  ],
+  "no_trade_conditions": [
+    "Do not chase the first sweep just because it ran stops beyond a visible boundary.",
+    "Do not fade the sweep before outside hold quality actually fails.",
+    "Do not call breakout confirmed if price has not yet held and built outside the old area."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "held outside retest",
+      "description": "Enter after the sweep holds outside and the first retest proves the new auction is accepted.",
+      "risk_note": "Avoid if outside hold is still thin and unproven."
+    },
+    {
+      "name": "failed sweep re-entry",
+      "description": "Enter after the sweep fails and price is accepted back inside the old auction.",
+      "risk_note": "Avoid if the return inside is only a brief flicker and not true re-acceptance."
+    }
+  ],
+  "management_notes": [
+    "The first burst is often the worst location because it mixes information with emotion.",
+    "The best read usually comes after outside hold or outside failure is proven.",
+    "If price returns and accepts back inside the old auction, downgrade the breakout story quickly."
+  ],
+  "review_questions": [
+    "Was the operator trading the sweep itself instead of the hold quality after the sweep?",
+    "Did outside trade become accepted, or was it only a stop run?",
+    "Was the reversal or continuation thesis formed before the market proved which branch it had chosen?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.83,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "liquidity_raid_only",
+        "stop_run_not_breakout",
+        "breakout_acceptance_confirmed",
+        "returned_to_balance_after_sweep"
+      ],
+      "focus_region_role_any": [
+        "range_edge",
+        "gap_edge",
+        "pivot",
+        "resistance",
+        "support"
+      ]
+    },
+    "disqualifiers": [
+      "no_meaningful_edge_was_swept",
+      "outside_hold_quality_not_yet_known"
+    ],
+    "focus_region_bias": [
+      "range_edge",
+      "gap_edge",
+      "pivot",
+      "failed_break_zone"
+    ],
+    "entry_review_bias": [
+      "chasing_first_sweep",
+      "fading_before_outside_failure",
+      "confusing_stop_run_with_acceptance"
+    ]
+  }
+}

@@ -51,6 +51,14 @@
       "title": "EventType",
       "type": "string"
     },
+    "GapDirection": {
+      "enum": [
+        "up",
+        "down"
+      ],
+      "title": "GapDirection",
+      "type": "string"
+    },
     "InstrumentRef": {
       "description": "Stable instrument metadata for replay and backtests.",
       "properties": {
@@ -108,6 +116,17 @@
         "manual"
       ],
       "title": "LiquidityLevelType",
+      "type": "string"
+    },
+    "MeasurementReferenceKind": {
+      "enum": [
+        "manipulation_leg",
+        "range_amplitude",
+        "initiative_drive",
+        "opening_range",
+        "gap_span"
+      ],
+      "title": "MeasurementReferenceKind",
       "type": "string"
     },
     "ObservedContextWindow": {
@@ -278,6 +297,32 @@
           "title": "Linked Episode Ids",
           "type": "array"
         },
+        "linked_drive_ids": {
+          "description": "Initiative-drive identifiers attached to the sequence.",
+          "examples": [
+            [
+              "drive-us-open-01"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Drive Ids",
+          "type": "array"
+        },
+        "linked_exertion_zone_ids": {
+          "description": "Exertion-zone identifiers attached to the sequence.",
+          "examples": [
+            [
+              "zone-europe-bid-01"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Exertion Zone Ids",
+          "type": "array"
+        },
         "linked_event_ids": {
           "description": "Observed event identifiers attached to the sequence.",
           "examples": [
@@ -365,6 +410,548 @@
       "title": "ObservedEventMarker",
       "type": "object"
     },
+    "ObservedExertionZone": {
+      "description": "Historically important price zone created by prior large executed volume and exertion.",
+      "properties": {
+        "zone_id": {
+          "description": "Stable exertion-zone identifier.",
+          "title": "Zone Id",
+          "type": "string"
+        },
+        "source_drive_id": {
+          "description": "Initiative-drive identifier that established the zone.",
+          "title": "Source Drive Id",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Side that originally pushed from the zone."
+        },
+        "price_low": {
+          "description": "Lower bound of the exertion zone.",
+          "examples": [
+            21534.5
+          ],
+          "title": "Price Low",
+          "type": "number"
+        },
+        "price_high": {
+          "description": "Upper bound of the exertion zone.",
+          "examples": [
+            21536.25
+          ],
+          "title": "Price High",
+          "type": "number"
+        },
+        "established_at": {
+          "description": "When the zone first became important.",
+          "format": "date-time",
+          "title": "Established At",
+          "type": "string"
+        },
+        "last_interacted_at": {
+          "description": "Most recent revisit or interaction time.",
+          "format": "date-time",
+          "title": "Last Interacted At",
+          "type": "string"
+        },
+        "establishing_volume": {
+          "description": "Observed total traded volume that established the zone.",
+          "examples": [
+            2280
+          ],
+          "minimum": 0,
+          "title": "Establishing Volume",
+          "type": "integer"
+        },
+        "establishing_delta": {
+          "description": "Observed net delta while the zone was being established.",
+          "examples": [
+            1180
+          ],
+          "title": "Establishing Delta",
+          "type": "integer"
+        },
+        "establishing_trade_count": {
+          "description": "Observed trade count during the establishing burst.",
+          "examples": [
+            344
+          ],
+          "minimum": 0,
+          "title": "Establishing Trade Count",
+          "type": "integer"
+        },
+        "peak_price_level_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Largest observed price-level executed volume inside the zone when available.",
+          "examples": [
+            640
+          ],
+          "title": "Peak Price Level Volume"
+        },
+        "revisit_count": {
+          "description": "How many times price revisited the zone after establishment.",
+          "examples": [
+            2
+          ],
+          "minimum": 0,
+          "title": "Revisit Count",
+          "type": "integer"
+        },
+        "successful_reengagement_count": {
+          "description": "Observed revisits where the original side responded again from the zone.",
+          "examples": [
+            1
+          ],
+          "minimum": 0,
+          "title": "Successful Reengagement Count",
+          "type": "integer"
+        },
+        "failed_reengagement_count": {
+          "description": "Observed revisits where the original side failed to defend or re-fire from the zone.",
+          "examples": [
+            0
+          ],
+          "minimum": 0,
+          "title": "Failed Reengagement Count",
+          "type": "integer"
+        },
+        "last_revisit_delta": {
+          "description": "Observed delta during the most recent revisit window.",
+          "examples": [
+            486
+          ],
+          "title": "Last Revisit Delta",
+          "type": "integer"
+        },
+        "last_revisit_volume": {
+          "description": "Observed traded volume during the most recent revisit window.",
+          "examples": [
+            712
+          ],
+          "minimum": 0,
+          "title": "Last Revisit Volume",
+          "type": "integer"
+        },
+        "last_revisit_trade_count": {
+          "description": "Observed trade count during the most recent revisit window.",
+          "examples": [
+            128
+          ],
+          "minimum": 0,
+          "title": "Last Revisit Trade Count",
+          "type": "integer"
+        },
+        "last_defended_reaction_ticks": {
+          "description": "Reaction achieved after the latest successful defense, in ticks.",
+          "examples": [
+            16
+          ],
+          "minimum": 0,
+          "title": "Last Defended Reaction Ticks",
+          "type": "integer"
+        },
+        "last_failed_break_ticks": {
+          "description": "Distance price moved through the zone after the latest failure, in ticks.",
+          "examples": [
+            0
+          ],
+          "minimum": 0,
+          "title": "Last Failed Break Ticks",
+          "type": "integer"
+        },
+        "post_failure_delta": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed delta after the latest failure window, useful for stop-driven follow-through.",
+          "examples": [
+            -540
+          ],
+          "title": "Post Failure Delta"
+        },
+        "post_failure_move_ticks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Follow-through distance after the latest failure, in ticks.",
+          "examples": [
+            18
+          ],
+          "title": "Post Failure Move Ticks"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional measured zone features for replay and context-building.",
+          "examples": [
+            {
+              "origin_session": "europe",
+              "trapped_volume_estimate": 340
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "zone_id",
+        "source_drive_id",
+        "side",
+        "price_low",
+        "price_high",
+        "established_at",
+        "last_interacted_at",
+        "establishing_volume",
+        "establishing_delta",
+        "establishing_trade_count",
+        "revisit_count",
+        "successful_reengagement_count",
+        "failed_reengagement_count",
+        "last_revisit_delta",
+        "last_revisit_volume",
+        "last_revisit_trade_count",
+        "last_defended_reaction_ticks",
+        "last_failed_break_ticks"
+      ],
+      "title": "ObservedExertionZone",
+      "type": "object"
+    },
+    "ObservedGapReference": {
+      "description": "Observed session gap and its interaction history.",
+      "properties": {
+        "gap_id": {
+          "description": "Stable gap identifier.",
+          "title": "Gap Id",
+          "type": "string"
+        },
+        "session_code": {
+          "$ref": "#/$defs/SessionCode",
+          "description": "Session where the gap reference is anchored."
+        },
+        "opened_at": {
+          "description": "Timestamp when the gap became active.",
+          "format": "date-time",
+          "title": "Opened At",
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "#/$defs/GapDirection",
+          "description": "Whether the session opened above or below the prior reference."
+        },
+        "prior_reference_price": {
+          "description": "Reference price from the prior auction, usually prior session close or value edge.",
+          "examples": [
+            21548.25
+          ],
+          "title": "Prior Reference Price",
+          "type": "number"
+        },
+        "current_open_price": {
+          "description": "Observed open price that created the gap reference.",
+          "examples": [
+            21542.0
+          ],
+          "title": "Current Open Price",
+          "type": "number"
+        },
+        "gap_low": {
+          "description": "Lower boundary of the gap.",
+          "examples": [
+            21542.0
+          ],
+          "title": "Gap Low",
+          "type": "number"
+        },
+        "gap_high": {
+          "description": "Upper boundary of the gap.",
+          "examples": [
+            21548.25
+          ],
+          "title": "Gap High",
+          "type": "number"
+        },
+        "gap_size_ticks": {
+          "description": "Observed gap size expressed in ticks.",
+          "examples": [
+            25
+          ],
+          "minimum": 0,
+          "title": "Gap Size Ticks",
+          "type": "integer"
+        },
+        "first_touch_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First time price traded back into the gap, if it has happened.",
+          "title": "First Touch At"
+        },
+        "max_fill_ticks": {
+          "description": "Deepest observed penetration into the gap, in ticks.",
+          "examples": [
+            16
+          ],
+          "minimum": 0,
+          "title": "Max Fill Ticks",
+          "type": "integer"
+        },
+        "fill_ratio": {
+          "description": "Observed fraction of the gap that has been repaired so far.",
+          "examples": [
+            0.64
+          ],
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Fill Ratio",
+          "type": "number"
+        },
+        "fill_attempt_count": {
+          "description": "How many observed attempts have interacted with the gap.",
+          "examples": [
+            2
+          ],
+          "minimum": 0,
+          "title": "Fill Attempt Count",
+          "type": "integer"
+        },
+        "accepted_inside_gap": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether price has shown acceptance inside the gap area.",
+          "examples": [
+            true
+          ],
+          "title": "Accepted Inside Gap"
+        },
+        "rejected_from_gap": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether price has rejected after entering or touching the gap area.",
+          "examples": [
+            false
+          ],
+          "title": "Rejected From Gap"
+        },
+        "fully_filled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Timestamp when the gap was fully filled, if completed.",
+          "title": "Fully Filled At"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional observed facts such as distance-to-fill or value relationship.",
+          "examples": [
+            {
+              "distance_to_fill_ticks": 9,
+              "inside_balance": false
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "gap_id",
+        "session_code",
+        "opened_at",
+        "direction",
+        "prior_reference_price",
+        "current_open_price",
+        "gap_low",
+        "gap_high",
+        "gap_size_ticks",
+        "max_fill_ticks",
+        "fill_ratio",
+        "fill_attempt_count"
+      ],
+      "title": "ObservedGapReference",
+      "type": "object"
+    },
+    "ObservedInitiativeDrive": {
+      "description": "Measured aggressive-order push that moved price away from a zone.",
+      "properties": {
+        "drive_id": {
+          "description": "Stable initiative-drive identifier.",
+          "title": "Drive Id",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Drive start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Drive end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Aggressive side that initiated the push."
+        },
+        "price_low": {
+          "description": "Lower bound of the drive origin or drive path.",
+          "examples": [
+            21534.5
+          ],
+          "title": "Price Low",
+          "type": "number"
+        },
+        "price_high": {
+          "description": "Upper bound of the drive origin or drive path.",
+          "examples": [
+            21541.5
+          ],
+          "title": "Price High",
+          "type": "number"
+        },
+        "aggressive_volume": {
+          "description": "Observed aggressive traded volume attributed to the drive.",
+          "examples": [
+            1840
+          ],
+          "minimum": 0,
+          "title": "Aggressive Volume",
+          "type": "integer"
+        },
+        "net_delta": {
+          "description": "Observed net delta during the drive window.",
+          "examples": [
+            1260
+          ],
+          "title": "Net Delta",
+          "type": "integer"
+        },
+        "trade_count": {
+          "description": "Observed number of trades inside the drive window.",
+          "examples": [
+            320
+          ],
+          "minimum": 0,
+          "title": "Trade Count",
+          "type": "integer"
+        },
+        "consumed_price_levels": {
+          "description": "How many price levels were consumed or lifted during the drive.",
+          "examples": [
+            9
+          ],
+          "minimum": 0,
+          "title": "Consumed Price Levels",
+          "type": "integer"
+        },
+        "price_travel_ticks": {
+          "description": "Observed travel distance achieved by the drive, in ticks.",
+          "examples": [
+            28
+          ],
+          "minimum": 0,
+          "title": "Price Travel Ticks",
+          "type": "integer"
+        },
+        "max_counter_move_ticks": {
+          "description": "Largest counter move observed while the drive was active, in ticks.",
+          "examples": [
+            6
+          ],
+          "minimum": 0,
+          "title": "Max Counter Move Ticks",
+          "type": "integer"
+        },
+        "continuation_seconds": {
+          "description": "How long price continued in the drive direction after the initial push.",
+          "examples": [
+            170
+          ],
+          "minimum": 0,
+          "title": "Continuation Seconds",
+          "type": "integer"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional measured drive features for replay and later modeling.",
+          "examples": [
+            {
+              "aggressive_trade_burst_per_second": 42,
+              "max_sweep_ticks": 7
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "drive_id",
+        "started_at",
+        "ended_at",
+        "side",
+        "price_low",
+        "price_high",
+        "aggressive_volume",
+        "net_delta",
+        "trade_count",
+        "consumed_price_levels",
+        "price_travel_ticks",
+        "max_counter_move_ticks",
+        "continuation_seconds"
+      ],
+      "title": "ObservedInitiativeDrive",
+      "type": "object"
+    },
     "ObservedLiquidityEpisode": {
       "description": "Measured price-band interaction episode, still kept as observed facts.",
       "properties": {
@@ -421,6 +1008,26 @@
           ],
           "minimum": 0,
           "title": "Replenishment Count",
+          "type": "integer"
+        },
+        "buyers_hitting_same_level_count": {
+          "default": 0,
+          "description": "Observed count of aggressive buyers repeatedly hitting the same defended price or zone.",
+          "examples": [
+            4
+          ],
+          "minimum": 0,
+          "title": "Buyers Hitting Same Level Count",
+          "type": "integer"
+        },
+        "sellers_hitting_same_level_count": {
+          "default": 0,
+          "description": "Observed count of aggressive sellers repeatedly hitting the same defended price or zone.",
+          "examples": [
+            2
+          ],
+          "minimum": 0,
+          "title": "Sellers Hitting Same Level Count",
           "type": "integer"
         },
         "pull_count": {
@@ -518,6 +1125,325 @@
       "title": "ObservedLiquidityLevel",
       "type": "object"
     },
+    "ObservedManipulationLeg": {
+      "description": "Observed forcing leg used later for range, trap, or extension analysis.",
+      "properties": {
+        "leg_id": {
+          "description": "Stable manipulation-leg identifier.",
+          "title": "Leg Id",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Manipulation leg start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Manipulation leg end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Directional side of the forcing leg."
+        },
+        "price_low": {
+          "description": "Lower bound of the leg.",
+          "examples": [
+            21547.0
+          ],
+          "title": "Price Low",
+          "type": "number"
+        },
+        "price_high": {
+          "description": "Upper bound of the leg.",
+          "examples": [
+            21555.0
+          ],
+          "title": "Price High",
+          "type": "number"
+        },
+        "displacement_ticks": {
+          "description": "Observed size of the manipulation leg, in ticks.",
+          "examples": [
+            32
+          ],
+          "minimum": 0,
+          "title": "Displacement Ticks",
+          "type": "integer"
+        },
+        "linked_zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Related exertion zone or key zone when the leg originates from one.",
+          "examples": [
+            "zone-europe-ask-01"
+          ],
+          "title": "Linked Zone Id"
+        },
+        "primary_objective_ticks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First observed objective for the leg, in ticks.",
+          "examples": [
+            32
+          ],
+          "title": "Primary Objective Ticks"
+        },
+        "secondary_objective_ticks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Second observed objective for the leg, in ticks.",
+          "examples": [
+            64
+          ],
+          "title": "Secondary Objective Ticks"
+        },
+        "primary_objective_reached": {
+          "description": "Whether the first objective was reached.",
+          "examples": [
+            true
+          ],
+          "title": "Primary Objective Reached",
+          "type": "boolean"
+        },
+        "secondary_objective_reached": {
+          "description": "Whether the second objective was reached.",
+          "examples": [
+            false
+          ],
+          "title": "Secondary Objective Reached",
+          "type": "boolean"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional facts about trap context, displacement, or distribution after the leg.",
+          "examples": [
+            {
+              "post_leg_distribution_seconds": 90,
+              "trap_side": "sell"
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "leg_id",
+        "started_at",
+        "ended_at",
+        "side",
+        "price_low",
+        "price_high",
+        "displacement_ticks",
+        "primary_objective_reached",
+        "secondary_objective_reached"
+      ],
+      "title": "ObservedManipulationLeg",
+      "type": "object"
+    },
+    "ObservedMeasuredMove": {
+      "description": "Measured price expansion expressed as a multiple of a reference leg or range.",
+      "properties": {
+        "measurement_id": {
+          "description": "Stable measurement identifier.",
+          "title": "Measurement Id",
+          "type": "string"
+        },
+        "measured_subject_id": {
+          "description": "Observed subject that is being measured.",
+          "title": "Measured Subject Id",
+          "type": "string"
+        },
+        "measured_subject_kind": {
+          "description": "Observed subject kind being measured.",
+          "examples": [
+            "initiative_drive"
+          ],
+          "title": "Measured Subject Kind",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Measurement start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Measurement end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Directional side of the measured move."
+        },
+        "anchor_price": {
+          "description": "Price where the measured expansion began.",
+          "examples": [
+            21558.25
+          ],
+          "title": "Anchor Price",
+          "type": "number"
+        },
+        "latest_price": {
+          "description": "Latest price reached by the measured move.",
+          "examples": [
+            21574.25
+          ],
+          "title": "Latest Price",
+          "type": "number"
+        },
+        "achieved_distance_ticks": {
+          "description": "Observed travel distance achieved by the measured move, in ticks.",
+          "examples": [
+            64
+          ],
+          "minimum": 0,
+          "title": "Achieved Distance Ticks",
+          "type": "integer"
+        },
+        "reference_kind": {
+          "$ref": "#/$defs/MeasurementReferenceKind",
+          "description": "Reference family used to normalize the measured move."
+        },
+        "reference_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional identifier for the reference leg, gap, or range.",
+          "examples": [
+            "manip-leg-us-open-01"
+          ],
+          "title": "Reference Id"
+        },
+        "reference_distance_ticks": {
+          "description": "Observed size of the reference unit, in ticks.",
+          "examples": [
+            32
+          ],
+          "minimum": 1,
+          "title": "Reference Distance Ticks",
+          "type": "integer"
+        },
+        "achieved_multiple": {
+          "description": "Achieved distance expressed as a multiple of the reference unit.",
+          "examples": [
+            2.0
+          ],
+          "minimum": 0.0,
+          "title": "Achieved Multiple",
+          "type": "number"
+        },
+        "body_confirmed_threshold_multiple": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Highest threshold multiple confirmed by body close, if tracked.",
+          "examples": [
+            2.0
+          ],
+          "title": "Body Confirmed Threshold Multiple"
+        },
+        "next_target_multiple": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Next target multiple activated by the current measurement ladder.",
+          "examples": [
+            4.0
+          ],
+          "title": "Next Target Multiple"
+        },
+        "invalidated": {
+          "default": false,
+          "description": "Whether the measured move has been invalidated by later structure.",
+          "examples": [
+            false
+          ],
+          "title": "Invalidated",
+          "type": "boolean"
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional measured facts about thresholds, bodies, or pauses inside the leg.",
+          "examples": [
+            {
+              "body_confirmed_ticks": 48,
+              "threshold_ladder": [
+                1.0,
+                2.0,
+                4.0
+              ]
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "measurement_id",
+        "measured_subject_id",
+        "measured_subject_kind",
+        "started_at",
+        "ended_at",
+        "side",
+        "anchor_price",
+        "latest_price",
+        "achieved_distance_ticks",
+        "reference_kind",
+        "reference_distance_ticks",
+        "achieved_multiple"
+      ],
+      "title": "ObservedMeasuredMove",
+      "type": "object"
+    },
     "ObservedOrderFlowSignal": {
       "description": "Execution-level order-flow signal captured from footprint or DOM.",
       "properties": {
@@ -589,6 +1515,209 @@
       "title": "ObservedOrderFlowSignal",
       "type": "object"
     },
+    "ObservedPostHarvestResponse": {
+      "description": "Observed response after a liquidity objective has already been harvested.",
+      "properties": {
+        "response_id": {
+          "description": "Stable post-harvest response identifier.",
+          "title": "Response Id",
+          "type": "string"
+        },
+        "harvest_subject_id": {
+          "description": "Observed subject that completed the harvest.",
+          "title": "Harvest Subject Id",
+          "type": "string"
+        },
+        "harvest_subject_kind": {
+          "description": "Observed subject kind that completed the harvest.",
+          "examples": [
+            "initiative_drive"
+          ],
+          "title": "Harvest Subject Kind",
+          "type": "string"
+        },
+        "harvest_completed_at": {
+          "description": "Timestamp when the harvest was considered complete.",
+          "format": "date-time",
+          "title": "Harvest Completed At",
+          "type": "string"
+        },
+        "harvest_side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Directional side of the completed harvest move."
+        },
+        "harvested_price_low": {
+          "description": "Lower boundary of the harvested price zone.",
+          "examples": [
+            21573.5
+          ],
+          "title": "Harvested Price Low",
+          "type": "number"
+        },
+        "harvested_price_high": {
+          "description": "Upper boundary of the harvested price zone.",
+          "examples": [
+            21576.0
+          ],
+          "title": "Harvested Price High",
+          "type": "number"
+        },
+        "completion_ratio": {
+          "description": "Observed completion ratio for the targeted liquidity pocket.",
+          "examples": [
+            1.0
+          ],
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Completion Ratio",
+          "type": "number"
+        },
+        "continuation_ticks_after_completion": {
+          "description": "Additional same-side travel after completion, in ticks.",
+          "examples": [
+            6
+          ],
+          "minimum": 0,
+          "title": "Continuation Ticks After Completion",
+          "type": "integer"
+        },
+        "consolidation_range_ticks": {
+          "description": "Observed consolidation width after completion, in ticks.",
+          "examples": [
+            8
+          ],
+          "minimum": 0,
+          "title": "Consolidation Range Ticks",
+          "type": "integer"
+        },
+        "pullback_ticks": {
+          "description": "Largest pullback observed after completion, in ticks.",
+          "examples": [
+            10
+          ],
+          "minimum": 0,
+          "title": "Pullback Ticks",
+          "type": "integer"
+        },
+        "reversal_ticks": {
+          "description": "Largest opposite-direction reversal observed after completion, in ticks.",
+          "examples": [
+            18
+          ],
+          "minimum": 0,
+          "title": "Reversal Ticks",
+          "type": "integer"
+        },
+        "seconds_to_first_pullback": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds between completion and the first pullback.",
+          "examples": [
+            11
+          ],
+          "title": "Seconds To First Pullback"
+        },
+        "seconds_to_reversal": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds between completion and the strongest reversal print.",
+          "examples": [
+            54
+          ],
+          "title": "Seconds To Reversal"
+        },
+        "reached_next_opposing_liquidity": {
+          "description": "Whether price reached the next opposing liquidity pocket after completion.",
+          "examples": [
+            true
+          ],
+          "title": "Reached Next Opposing Liquidity",
+          "type": "boolean"
+        },
+        "next_opposing_liquidity_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed price of the next opposing liquidity pocket when reached.",
+          "examples": [
+            21567.0
+          ],
+          "title": "Next Opposing Liquidity Price"
+        },
+        "post_harvest_delta": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Net delta observed after completion inside the response window.",
+          "examples": [
+            -212
+          ],
+          "title": "Post Harvest Delta"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PostHarvestOutcome",
+          "description": "Observed response outcome after completion."
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional measured facts such as drift speed, counter-drive quality, or reversion targets.",
+          "examples": [
+            {
+              "ema20_retest": true,
+              "lower_liquidity_reached_ticks": 24
+            }
+          ],
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "response_id",
+        "harvest_subject_id",
+        "harvest_subject_kind",
+        "harvest_completed_at",
+        "harvest_side",
+        "harvested_price_low",
+        "harvested_price_high",
+        "completion_ratio",
+        "continuation_ticks_after_completion",
+        "consolidation_range_ticks",
+        "pullback_ticks",
+        "reversal_ticks",
+        "reached_next_opposing_liquidity",
+        "outcome"
+      ],
+      "title": "ObservedPostHarvestResponse",
+      "type": "object"
+    },
     "ObservedProcessContext": {
       "description": "Optional process-aware context spanning seconds to cross-session sequences.",
       "properties": {
@@ -614,6 +1743,54 @@
             "$ref": "#/$defs/ObservedLiquidityEpisode"
           },
           "title": "Liquidity Episodes",
+          "type": "array"
+        },
+        "initiative_drives": {
+          "description": "Measured aggressive-order drives and their execution quality.",
+          "items": {
+            "$ref": "#/$defs/ObservedInitiativeDrive"
+          },
+          "title": "Initiative Drives",
+          "type": "array"
+        },
+        "measured_moves": {
+          "description": "Measured distance ladders expressed as multiples of a leg, range, or gap span.",
+          "items": {
+            "$ref": "#/$defs/ObservedMeasuredMove"
+          },
+          "title": "Measured Moves",
+          "type": "array"
+        },
+        "manipulation_legs": {
+          "description": "Observed forcing legs used for trap, extension, or distribution context.",
+          "items": {
+            "$ref": "#/$defs/ObservedManipulationLeg"
+          },
+          "title": "Manipulation Legs",
+          "type": "array"
+        },
+        "gap_references": {
+          "description": "Observed session gaps plus their fill and acceptance history.",
+          "items": {
+            "$ref": "#/$defs/ObservedGapReference"
+          },
+          "title": "Gap References",
+          "type": "array"
+        },
+        "post_harvest_responses": {
+          "description": "Observed reactions after a liquidity objective has already been harvested.",
+          "items": {
+            "$ref": "#/$defs/ObservedPostHarvestResponse"
+          },
+          "title": "Post Harvest Responses",
+          "type": "array"
+        },
+        "exertion_zones": {
+          "description": "Historically important drive-origin zones and revisit evidence.",
+          "items": {
+            "$ref": "#/$defs/ObservedExertionZone"
+          },
+          "title": "Exertion Zones",
           "type": "array"
         },
         "cross_session_sequences": {
@@ -1031,6 +2208,17 @@
       "title": "OrderFlowSignalType",
       "type": "string"
     },
+    "PostHarvestOutcome": {
+      "enum": [
+        "continuation",
+        "consolidation",
+        "pullback",
+        "reversal",
+        "mixed"
+      ],
+      "title": "PostHarvestOutcome",
+      "type": "string"
+    },
     "SessionCode": {
       "enum": [
         "asia",
@@ -1060,6 +2248,22 @@
           ],
           "title": "Instance Id",
           "type": "string"
+        },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart or indicator-instance identifier used to separate multiple live ATAS charts.",
+          "examples": [
+            "NQM6-7fa31b2c"
+          ],
+          "title": "Chart Instance Id"
         },
         "adapter_version": {
           "description": "Source adapter version.",
@@ -1131,7 +2335,13 @@
     "observed_events": [],
     "process_context": {
       "cross_session_sequences": [],
+      "exertion_zones": [],
+      "gap_references": [],
+      "initiative_drives": [],
       "liquidity_episodes": [],
+      "manipulation_legs": [],
+      "measured_moves": [],
+      "post_harvest_responses": [],
       "second_features": [],
       "session_windows": []
     },

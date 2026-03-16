@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-false-liquidity-and-pull-behavior",
+  "title": "False Liquidity And Pull Behavior",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/false_liquidity_and_pull_behavior.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "live_depth",
+    "trapped_large_orders",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "false_liquidity",
+    "pull_before_touch",
+    "visual_bait",
+    "displayed_size_without_defense"
+  ],
+  "event_kinds": [
+    "significant_liquidity",
+    "same_price_replenishment",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "false_liquidity",
+    "pull_before_touch",
+    "displayed_size_without_defense",
+    "visual_bait"
+  ],
+  "focus_questions": [
+    "Did the displayed size stay and produce outcome, or pull before pressure?",
+    "Was the level real structure or only visual bait?"
+  ],
+  "summary": {
+    "thesis": "Displayed size is false-liquidity risk when it repeatedly attracts attention but pulls, relocates, or fails to produce real defense when price approaches.",
+    "operator_translation": "Do not trust size for control until lifecycle plus outcome proves it is real.",
+    "ai_usage_note": "Use this card when visible size appears important but keeps failing to create real support or resistance behavior.",
+    "ai_brief": "Environment: displayed size near an active decision zone. Required evidence: pull, relocation, or no real price outcome after the size appears. Do not trade: from brightness alone or before lifecycle evidence is clear. Real trigger: repeated pull-before-touch or displayed size without defense. Failure point: the size starts staying, reloading, and producing real outcome."
+  },
+  "when_relevant": [
+    "Displayed size appears near an active level.",
+    "The operator is tempted to infer support or resistance from visibility alone.",
+    "Order lifecycle and outcome still need to be judged."
+  ],
+  "required_evidence": [
+    "significant_liquidity is visible near price",
+    "the size can be observed pulling, relocating, or failing to produce defense",
+    "price outcome after the displayed size appears can be reviewed"
+  ],
+  "confirmation_signals": [
+    "the displayed order pulls or relocates before meaningful interaction",
+    "price does not react the way a truly defended level should react",
+    "repeated flashes of size fail to create persistent support or resistance behavior"
+  ],
+  "invalidation_signals": [
+    "the size stays and repeatedly produces real defense",
+    "same-price replenishment begins proving true control instead of bait",
+    "price outcome starts matching a real defended level"
+  ],
+  "no_trade_conditions": [
+    "Do not lean on displayed size alone without lifecycle evidence.",
+    "Do not call a level defended if the size repeatedly pulls before pressure arrives.",
+    "Do not fade price only because a large wall appears if that wall has not produced outcome before."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "post-pull continuation",
+      "description": "Trade after the supposed wall or bid pulls and price continues through the area with no real defense.",
+      "risk_note": "Avoid if the level still has unresolved counterflow and no clean outcome yet."
+    },
+    {
+      "name": "second failed visual defense",
+      "description": "Trade after repeated visual size fails again to produce the expected defense.",
+      "risk_note": "Avoid if the second test actually begins to hold."
+    }
+  ],
+  "management_notes": [
+    "This card is best used with live-depth and trapped-order review.",
+    "Repeated visual bait without outcome is stronger evidence than one isolated flash.",
+    "If size starts staying and producing outcome, hand the read off to a real defense card."
+  ],
+  "review_questions": [
+    "What actually happened to the visible size when price got close?",
+    "Did the operator trade the size itself or the outcome it produced?",
+    "Was the supposed wall or bid only visual bait that disappeared under pressure?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.75,
+    "match_requirements": {
+      "event_kinds_all": [
+        "significant_liquidity"
+      ],
+      "reason_codes_any": [
+        "false_liquidity",
+        "pull_before_touch",
+        "visual_bait"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "resistance",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "true_defense_already_established",
+      "no_lifecycle_observation"
+    ],
+    "focus_region_bias": [
+      "resistance",
+      "support",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "trading_brightness_only",
+      "calling_defense_without_outcome",
+      "fading_first_wall_without_history"
+    ]
+  }
+}

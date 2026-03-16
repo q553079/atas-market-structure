@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-17T00:00:00Z",
+  "strategies": [
+    {
+      "strategy_id": "pattern-example-defended-bid-launchpad",
+      "title": "Example Defended Bid Launchpad",
+      "status": "human_refined",
+      "source_path": "docs/strategy_library/patterns/example_defended_bid_launchpad.md",
+      "machine_card_path": "docs/strategy_library/strategy_card.template.json",
+      "instrument_scope": [
+        "NQ",
+        "ES"
+      ],
+      "session_scope": [
+        "europe",
+        "us_regular"
+      ],
+      "preferred_presets": [
+        "focus_regions",
+        "trapped_large_orders",
+        "live_depth"
+      ],
+      "event_kinds": [
+        "same_price_replenishment",
+        "significant_liquidity",
+        "initiative_drive"
+      ],
+      "reason_codes": [
+        "defended_bid",
+        "repeated_replenishment",
+        "upper_liquidity_target"
+      ],
+      "candidate_priority": 0.82
+    }
+  ]
+}

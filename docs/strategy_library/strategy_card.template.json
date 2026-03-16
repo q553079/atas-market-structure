@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-example-defended-bid-launchpad",
+  "title": "Example Defended Bid Launchpad",
+  "status": "human_refined",
+  "source_path": "docs/strategy_library/patterns/example_defended_bid_launchpad.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "focus_regions",
+    "trapped_large_orders",
+    "live_depth"
+  ],
+  "context_tags": [
+    "order_flow",
+    "same_price_replenishment",
+    "initiative_drive",
+    "liquidity_attraction",
+    "micro_trend"
+  ],
+  "event_kinds": [
+    "same_price_replenishment",
+    "significant_liquidity",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "defended_bid",
+    "repeated_replenishment",
+    "upper_liquidity_target"
+  ],
+  "summary": {
+    "thesis": "A defended bid that keeps replenishing at the same price, while aggressive buyers continue to hit, can become a launchpad toward higher liquidity.",
+    "operator_translation": "Only look for continuation if the defended price keeps holding and the market is still capable of re-accelerating upward.",
+    "ai_usage_note": "Prioritize this card when replay events show repeated same-price defense plus upward initiative and an obvious liquidity target above."
+  },
+  "when_relevant": [
+    "There is a defended price that has already absorbed multiple tests.",
+    "Same-price replenishment is observed at or near the defended bid.",
+    "Aggressive buyers continue to print while price stops making lower lows.",
+    "There is visible upper liquidity or a clear nearby target."
+  ],
+  "required_evidence": [
+    "same_price_replenishment count is meaningfully above baseline",
+    "significant_liquidity track remains active near price",
+    "initiative drive or net delta shifts in the direction of the defended side",
+    "price does not continue lower despite repeated sell pressure"
+  ],
+  "confirmation_signals": [
+    "Higher low or reclaimed local pivot after the defended price holds",
+    "Aggressive buying expands while best bid remains firm",
+    "Price begins to travel toward the upper focus region"
+  ],
+  "invalidation_signals": [
+    "The defended price fails without renewed bid support",
+    "Replenishment stops while price remains heavy",
+    "Aggressive selling resumes and price cannot reclaim the defended area"
+  ],
+  "no_trade_conditions": [
+    "Do not open in the middle of balance without a defended price at the edge.",
+    "Do not open just because a large bid exists if there is no same-price replenishment.",
+    "Do not open if the larger-session context is pushing into a stronger opposing region above."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "first reclaimed higher low",
+      "description": "Entry after the defended bid survives and price reclaims the most recent micro pivot.",
+      "risk_note": "Avoid if the reclaim occurs directly into heavy overhead pressure without follow-through."
+    },
+    {
+      "name": "pullback into defended price",
+      "description": "Entry on a pullback that retests the defended price and shows renewed buyer aggression.",
+      "risk_note": "Avoid if the pullback becomes a deep acceptance below the defended level."
+    }
+  ],
+  "management_notes": [
+    "Expect shallow pullbacks if the launchpad is real.",
+    "Watch whether upper liquidity is consumed cleanly or only tapped and rejected.",
+    "If the first target is harvested, switch attention to post-harvest balance or reversal behavior."
+  ],
+  "review_questions": [
+    "Was the defended price actually defended multiple times, or was it only a single visible bid?",
+    "Did the entry align with the larger session and local trend context?",
+    "Was the operator too early before initiative actually returned?",
+    "Did price reach upper liquidity, and what happened immediately after harvest?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.82,
+    "match_requirements": {
+      "event_kinds_all": [
+        "same_price_replenishment"
+      ],
+      "reason_codes_any": [
+        "defended_bid",
+        "repeated_replenishment"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "post_harvest_reversal_already_confirmed",
+      "focus_region_already_broken"
+    ],
+    "focus_region_bias": [
+      "support",
+      "pivot",
+      "upper_liquidity_target"
+    ],
+    "entry_review_bias": [
+      "opening_inside_balance",
+      "entry_before_reclaim",
+      "ignoring_overhead_pressure"
+    ]
+  }
+}

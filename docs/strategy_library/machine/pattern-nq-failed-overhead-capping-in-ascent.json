@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-failed-overhead-capping-in-ascent",
+  "title": "NQ Failed Overhead Capping In Ascent",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_failed_overhead_capping_in_ascent.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "recent_20_bars",
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "trend_continuation",
+    "overhead_liquidity",
+    "shallow_pullback",
+    "renewed_buy_aggression"
+  ],
+  "event_kinds": [
+    "significant_liquidity",
+    "initiative_drive",
+    "failed_overhead_capping"
+  ],
+  "reason_codes": [
+    "failed_cap",
+    "shallow_pullback",
+    "trend_continuation"
+  ],
+  "focus_questions": [
+    "Did the overhead wall actually stop the move or only pause it?",
+    "Was the pullback shallow enough to preserve continuation?"
+  ],
+  "summary": {
+    "thesis": "Visible overhead liquidity can fail to stop a strong ascent when the pullback stays shallow and buyers reassert quickly into the same cap.",
+    "operator_translation": "Do not short every visible wall; judge whether the wall is actually winning.",
+    "ai_usage_note": "Prioritize this card when an overhead band exists but the trend keeps reloading beneath it and re-pressing higher.",
+    "ai_brief": "Environment: active ascent under visible overhead pressure. Required evidence: shallow pullback, preserved structure, and renewed buy aggression into the same band. Do not trade: if the pullback already broke the drive origin or the wall truly forced acceptance lower. Real trigger: quick reclaim and renewed push back into the cap. Failure point: deeper acceptance lower or lack of renewed lift."
+  },
+  "when_relevant": [
+    "Price is already in an upward campaign.",
+    "Visible sell liquidity remains overhead but fails to cause deeper damage.",
+    "Buyers quickly re-engage after a shallow pause."
+  ],
+  "required_evidence": [
+    "significant_liquidity is present overhead",
+    "pullback stays shallow relative to the prior drive",
+    "initiative_drive resumes upward after the pause"
+  ],
+  "confirmation_signals": [
+    "the pullback holds above the prior release area",
+    "buyers return quickly after the pause",
+    "price re-engages the same upper band with enough pressure to threaten another harvest attempt"
+  ],
+  "invalidation_signals": [
+    "pullback breaks the prior drive origin or key support",
+    "buyers fail to reclaim with urgency",
+    "the overhead band finally forces acceptance lower"
+  ],
+  "no_trade_conditions": [
+    "Do not fade the wall automatically before it proves it can force deeper acceptance lower.",
+    "Do not buy continuation if the pullback already damaged the prior drive origin or key support.",
+    "Do not keep adding long if the move is running into stronger higher-timeframe resistance with no renewed lift."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "shallow pullback reclaim",
+      "description": "Long after the shallow pullback holds and buyers reassert toward the same cap.",
+      "risk_note": "Avoid if the reclaim is slow and structure remains vulnerable."
+    },
+    {
+      "name": "second push into cap",
+      "description": "Long on the next organized push when the first cap attempt failed to break the ascent.",
+      "risk_note": "Avoid if the market is already exhausting after multiple failed pushes."
+    }
+  ],
+  "management_notes": [
+    "Track whether the cap is truly weakening or still producing damage.",
+    "Respect higher-timeframe resistance if the trend is already extended.",
+    "If the cap is finally harvested, switch attention to post-harvest logic."
+  ],
+  "review_questions": [
+    "Did the wall actually stop the trend, or did it only pause it?",
+    "Was the pullback shallow enough to preserve continuation logic?",
+    "Did the long entry wait for renewed aggression, or was it placed too early?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.71,
+    "match_requirements": {
+      "event_kinds_all": [
+        "significant_liquidity",
+        "initiative_drive"
+      ],
+      "reason_codes_any": [
+        "failed_cap",
+        "trend_continuation"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "pullback_broke_drive_origin",
+      "no_renewed_buy_aggression"
+    ],
+    "focus_region_bias": [
+      "support",
+      "upper_target"
+    ],
+    "entry_review_bias": [
+      "shorting_every_wall",
+      "buying_without_reclaim",
+      "ignoring_higher_timeframe_resistance"
+    ]
+  }
+}

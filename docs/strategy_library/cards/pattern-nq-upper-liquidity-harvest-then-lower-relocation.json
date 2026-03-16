@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-upper-liquidity-harvest-then-lower-relocation",
+  "title": "NQ Upper Liquidity Harvest Then Lower Relocation",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_upper_liquidity_harvest_then_lower_relocation.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe",
+    "us_regular",
+    "cross_session"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "general",
+    "recent_20_bars",
+    "recent_20_minutes",
+    "trapped_large_orders",
+    "live_depth"
+  ],
+  "context_tags": [
+    "liquidity_harvest",
+    "post_harvest_response",
+    "lower_relocation",
+    "continuation_exhaustion",
+    "reversal_watch"
+  ],
+  "event_kinds": [
+    "post_harvest_response",
+    "initiative_drive",
+    "significant_liquidity"
+  ],
+  "reason_codes": [
+    "harvest_completed",
+    "post_harvest_pullback",
+    "lower_liquidity_target"
+  ],
+  "summary": {
+    "thesis": "After upper liquidity is fully harvested, the next trade often depends on post-harvest behavior: balance, pullback, or a larger reversal into lower liquidity.",
+    "operator_translation": "Do not keep chasing the original direction after the objective is already completed. Reassess whether the market is pausing, fading, or fully reversing.",
+    "ai_usage_note": "Use this card to warn against late continuation entries after harvest and to highlight lower-liquidity relocation risk."
+  },
+  "when_relevant": [
+    "A visible upper liquidity pocket has already been tagged or consumed.",
+    "Immediate continuation starts to lose efficiency after the harvest.",
+    "Price begins to shift into balance, pullback, or deeper reversal."
+  ],
+  "required_evidence": [
+    "harvest completion is observed",
+    "post-harvest continuation distance is measurable",
+    "post-harvest balance width or pullback distance is visible",
+    "lower liquidity becomes the next meaningful search direction"
+  ],
+  "confirmation_signals": [
+    "Continuation stalls shortly after the harvest.",
+    "Delta and price extension no longer support the original push.",
+    "Price starts accepting below the harvested area and searching lower."
+  ],
+  "invalidation_signals": [
+    "Post-harvest continuation remains strong and keeps discovering higher prices.",
+    "The harvested area is reclaimed and defended again immediately.",
+    "There is no meaningful lower relocation despite the harvest."
+  ],
+  "no_trade_conditions": [
+    "Do not chase long after the upper objective is already completed unless continuation is still efficient.",
+    "Do not assume reversal just because the target was tagged; wait for post-harvest weakness or acceptance lower.",
+    "Do not fade inside the immediate harvest area without evidence that the move is actually losing efficiency."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "failed continuation fade",
+      "description": "Fade the exhausted continuation only after post-harvest acceptance lower starts to appear.",
+      "risk_note": "Skip if continuation remains impulsive and can still discover higher prices."
+    },
+    {
+      "name": "lower liquidity relocation",
+      "description": "Join the move toward lower liquidity after the harvest is complete and local support starts failing.",
+      "risk_note": "Skip if the market is only balancing narrowly and not yet choosing a direction."
+    }
+  ],
+  "management_notes": [
+    "Treat the harvest as one event and the post-harvest response as a separate event family.",
+    "Balance after harvest is not automatically reversal; wait for actual relocation behavior.",
+    "If lower liquidity is reached, reassess again instead of extrapolating endlessly."
+  ],
+  "review_questions": [
+    "Did the operator chase after the target was already completed?",
+    "Was there real post-harvest weakness before fading the move?",
+    "Did the market actually start searching lower, or only rotate briefly?",
+    "Was the chosen trade aligned with post-harvest context rather than pre-harvest logic?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.87,
+    "match_requirements": {
+      "event_kinds_all": [
+        "post_harvest_response"
+      ],
+      "reason_codes_any": [
+        "harvest_completed",
+        "post_harvest_pullback"
+      ],
+      "focus_region_role_any": [
+        "resistance",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "continuation_still_accelerating"
+    ],
+    "focus_region_bias": [
+      "upper_liquidity_target",
+      "lower_liquidity_target",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "late_chase_after_target",
+      "fading_without_acceptance",
+      "ignoring_lower_liquidity_path"
+    ]
+  }
+}

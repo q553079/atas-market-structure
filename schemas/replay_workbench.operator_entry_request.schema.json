@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    },
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "Request to store one operator entry against a replay packet.",
+  "properties": {
+    "replay_ingestion_id": {
+      "description": "Replay-workbench ingestion identifier to attach this entry to.",
+      "title": "Replay Ingestion Id",
+      "type": "string"
+    },
+    "executed_at": {
+      "description": "When the operator opened the position.",
+      "format": "date-time",
+      "title": "Executed At",
+      "type": "string"
+    },
+    "side": {
+      "$ref": "#/$defs/StructureSide",
+      "description": "Entry direction."
+    },
+    "entry_price": {
+      "description": "Entry price.",
+      "title": "Entry Price",
+      "type": "number"
+    },
+    "quantity": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Position size or quantity.",
+      "title": "Quantity"
+    },
+    "stop_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Initial stop price when recorded.",
+      "title": "Stop Price"
+    },
+    "target_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Initial target price when recorded.",
+      "title": "Target Price"
+    },
+    "timeframe_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Timeframe"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Primary timeframe used for this entry."
+    },
+    "thesis": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Short thesis captured at entry time.",
+      "title": "Thesis"
+    },
+    "context_notes": {
+      "description": "Additional context notes captured with the entry.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Context Notes",
+      "type": "array"
+    },
+    "tags": {
+      "description": "Operator tags such as scalp, continuation, reversal.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    }
+  },
+  "required": [
+    "replay_ingestion_id",
+    "executed_at",
+    "side",
+    "entry_price"
+  ],
+  "title": "ReplayOperatorEntryRequest",
+  "type": "object"
+}

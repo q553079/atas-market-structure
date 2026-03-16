@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-anchor-market-leadership",
+  "title": "Anchor Market Leadership",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/anchor_market_leadership.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "cross_session"
+  ],
+  "timeframe_scope": [
+    "intraday_bias",
+    "setup_context",
+    "execution_context",
+    "cross_timeframe"
+  ],
+  "preferred_presets": [
+    "recent_20_minutes",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "anchor_market",
+    "cross_symbol_leadership",
+    "cleaner_market",
+    "lagger_confirmation"
+  ],
+  "event_kinds": [
+    "initiative_drive",
+    "significant_liquidity",
+    "gap_fill_watch"
+  ],
+  "reason_codes": [
+    "anchor_market_leadership",
+    "anchor_market_clearer_than_execution",
+    "cross_symbol_confirmation",
+    "lagger_should_not_lead"
+  ],
+  "focus_questions": [
+    "Which market is actually clearer right now?",
+    "Has the lagging market confirmed the anchor read, or is it still noisy?"
+  ],
+  "summary": {
+    "thesis": "When one market reaches the key level first and produces the cleaner outcome, it should lead interpretation while the noisier market stays secondary.",
+    "operator_translation": "Do not promote the noisy market into leadership just because it is moving faster.",
+    "ai_usage_note": "Use this card when ES and NQ disagree in clarity, and one market is obviously the anchor for the current decision.",
+    "ai_brief": "Environment: two related markets with one clearly leading the decision point. Required evidence: one market reaches the level first and produces cleaner acceptance or rejection. Do not trade: from the lagging market alone while the anchor market is still unresolved or clearly clearer. Real trigger: anchor-market outcome plus lagger confirmation. Failure point: the lagger never confirms or the anchor read itself becomes unclear."
+  },
+  "when_relevant": [
+    "Two related markets are both near meaningful decision zones.",
+    "One market is clearly cleaner than the other.",
+    "The operator needs to know which market should lead interpretation."
+  ],
+  "required_evidence": [
+    "one market reaches the level first",
+    "that market produces clearer acceptance or rejection than the other",
+    "the lagging market can be evaluated as confirming, lagging, or staying noisy"
+  ],
+  "confirmation_signals": [
+    "one market reaches the decision zone first and shows cleaner acceptance or rejection",
+    "the lagging market is still noisy or late while the anchor market already produced outcome",
+    "the lagging market later confirms in the same direction instead of contradicting the anchor read"
+  ],
+  "invalidation_signals": [
+    "the supposed anchor market does not actually produce a clear outcome",
+    "the lagging market never confirms and keeps diverging without resolution",
+    "the noisier market is being treated as leader only because it moved faster"
+  ],
+  "no_trade_conditions": [
+    "Do not force leadership onto the noisier market just because it is moving faster.",
+    "Do not call cross-symbol confirmation if the anchor market itself has not yet produced a clear outcome.",
+    "Do not assume the lagging market must follow if it keeps failing to synchronize after the anchor move."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "anchor-led confirmation",
+      "description": "Enter after the cleaner market leads and the lagging market confirms rather than front-running the anchor.",
+      "risk_note": "Avoid if the lagger still has not synchronized."
+    },
+    {
+      "name": "lagger delay filter",
+      "description": "Use the anchor market to avoid bad entries in the noisier market until real confirmation appears.",
+      "risk_note": "Avoid assuming confirmation before the lagger actually aligns."
+    }
+  ],
+  "management_notes": [
+    "This card is more valuable as a filter than as a trigger generator.",
+    "If the lagging market never confirms, downgrade the cross-symbol read.",
+    "Anchor leadership matters most when the lagging market is noisy and emotionally extended."
+  ],
+  "review_questions": [
+    "Which market was actually clearer at the decision point?",
+    "Was the trade taken from the anchor market read or from noise in the lagging market?",
+    "Did the lagging market confirm, or was the assumed follow-through never real?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.74,
+    "match_requirements": {
+      "event_kinds_all": [],
+      "reason_codes_any": [
+        "anchor_market_leadership",
+        "anchor_market_clearer_than_execution",
+        "cross_symbol_confirmation"
+      ],
+      "focus_region_role_any": [
+        "pivot",
+        "gap_edge",
+        "session_handoff_zone"
+      ]
+    },
+    "disqualifiers": [
+      "anchor_market_unclear",
+      "lagger_never_confirms"
+    ],
+    "focus_region_bias": [
+      "pivot",
+      "anchor_zone"
+    ],
+    "entry_review_bias": [
+      "trading_lagger_noise",
+      "forcing_confirmation_too_early",
+      "ignoring_anchor_market_clarity"
+    ]
+  }
+}

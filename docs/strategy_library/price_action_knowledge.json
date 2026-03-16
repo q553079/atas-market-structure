@@ -1,0 +1,546 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-17T09:10:00+08:00",
+  "module_id": "price-action-knowledge",
+  "title": "Price Action Knowledge Module",
+  "note": "Knowledge-first doctrine for AI analysis. This file is not a direct strategy matcher and should be used to improve context, no-trade suppression, and entry-method explanations.",
+  "source_paths": [
+    "docs/strategy_library/_source_extracts/price_action/rose_gap_bar.txt",
+    "docs/strategy_library/_source_extracts/price_action/rose_mother_bar.txt",
+    "docs/strategy_library/_source_extracts/price_action/rose_mtr.txt",
+    "docs/strategy_library/_source_extracts/price_action/rose_caveman.txt",
+    "docs/strategy_library/_source_extracts/price_action/rose_strategy_compendium.txt",
+    "docs/strategy_library/_source_extracts/price_action/abu_top_10_patterns.txt",
+    "docs/strategy_library/_source_extracts/price_action/taifei_pa_foundation.txt",
+    "docs/strategy_library/_source_extracts/price_action/fangfangtu_pa_foundation.txt"
+  ],
+  "deferred_sources": [
+    {
+      "path": "E:/a订单流/book/价格行为/阿布百科全书8800-中文目录.pdf",
+      "reason": "Too large for full ingestion in this pass. Use selectively later."
+    }
+  ],
+  "core_principles": [
+    {
+      "principle_id": "context_before_signal",
+      "summary": "Classify environment before promoting a signal bar.",
+      "ai_use": "Always answer breakout, narrow channel, broad channel, or trading range before naming a setup."
+    },
+    {
+      "principle_id": "breakout_test_pullback_loop",
+      "summary": "Breakout, test, pullback, range, and reversal are one behavioral loop.",
+      "ai_use": "Ask whether the breakout was tested successfully, failed, or recycled back into balance."
+    },
+    {
+      "principle_id": "range_is_default_state",
+      "summary": "Balance and failed attempts are more common than clean one-way movement.",
+      "ai_use": "Increase no-trade and failed-break weighting when overlap dominates."
+    },
+    {
+      "principle_id": "trapped_trader_logic",
+      "summary": "The best entries often come from knowing who is trapped and where they must exit.",
+      "ai_use": "Name the trapped side, their invalidation point, and their likely relief zone."
+    },
+    {
+      "principle_id": "trend_not_over_until_origin_breaks",
+      "summary": "A trend is often still a trend until the meaningful origin is objectively broken.",
+      "ai_use": "Do not label deep pullbacks as full reversals too early."
+    },
+    {
+      "principle_id": "middle_of_range_is_tax_zone",
+      "summary": "Signal quality degrades sharply in the middle of a range.",
+      "ai_use": "Suppress entry promotion when edge location is absent."
+    }
+  ],
+  "environment_models": [
+    {
+      "environment_id": "breakout_spike",
+      "title": "Breakout / Spike",
+      "description": "Consecutive trend bars, little overlap, and little time for pullbacks.",
+      "entry_bias": [
+        "trend_follow_through",
+        "first_pullback"
+      ],
+      "no_trade_conditions": [
+        "Do not fade simply because the move looks extended.",
+        "Do not force reversal logic before trap evidence appears."
+      ],
+      "ai_questions": [
+        "Is this true displacement or only a loud bar inside noise?",
+        "Has there been any meaningful retest failure yet?"
+      ]
+    },
+    {
+      "environment_id": "narrow_channel",
+      "title": "Narrow Channel",
+      "description": "Trend remains strong and pullbacks stay short and shallow.",
+      "entry_bias": [
+        "continuation_on_pullback"
+      ],
+      "no_trade_conditions": [
+        "Do not countertrend from isolated reversal bars.",
+        "Do not enter late if stop must sit too far from trend origin."
+      ],
+      "ai_questions": [
+        "Are pullbacks still short enough to keep continuation logic valid?",
+        "Is the trend origin still intact?"
+      ]
+    },
+    {
+      "environment_id": "broad_channel",
+      "title": "Broad Channel",
+      "description": "Trend exists, but pullbacks become deeper and countertrend scalps can work.",
+      "entry_bias": [
+        "selective_continuation",
+        "countertrend_scalp_only_near_edge"
+      ],
+      "no_trade_conditions": [
+        "Do not treat broad channel as a clean breakout environment.",
+        "Do not overpromote continuation after pullbacks deepen too far."
+      ],
+      "ai_questions": [
+        "Is pullback depth still compatible with continuation?",
+        "Are countertrend traders already making money repeatedly?"
+      ]
+    },
+    {
+      "environment_id": "trading_range",
+      "title": "Trading Range",
+      "description": "Overlap dominates and both sides often profit only near edges.",
+      "entry_bias": [
+        "edge_fade",
+        "failed_break_reentry"
+      ],
+      "no_trade_conditions": [
+        "Do not open in the middle of the range.",
+        "Do not trust first breakout attempts without follow-through."
+      ],
+      "ai_questions": [
+        "Is this an edge or just the middle of the auction?",
+        "Did outside trade get accepted or fail back inside?"
+      ]
+    }
+  ],
+  "entry_families": [
+    {
+      "entry_id": "gap_bar_retracement",
+      "title": "Gap Bar Retracement Continuation",
+      "category": "trend_continuation",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/rose_gap_bar.txt",
+        "docs/strategy_library/_source_extracts/price_action/rose_strategy_compendium.txt"
+      ],
+      "summary": "Trade the first meaningful retracement after clean displacement rather than chasing the impulse bar itself.",
+      "required_context": [
+        "breakout_spike",
+        "narrow_channel"
+      ],
+      "required_evidence": [
+        "clean impulse away from balance",
+        "minimal overlap",
+        "first meaningful pullback into reaction zone"
+      ],
+      "trigger_logic": [
+        "Look for stall or rejection in the retracement band.",
+        "Prefer early pullbacks, not late recycled retests."
+      ],
+      "invalidation": [
+        "Pullback becomes too deep and returns to accepted balance.",
+        "The supposed impulse is actually overlapping noise."
+      ],
+      "no_trade_conditions": [
+        "Do not label messy chop as a Gap Bar.",
+        "Do not buy late recycled retests as if they were first-pullback continuation."
+      ],
+      "ai_questions": [
+        "Was the impulse truly clean?",
+        "Is this the first pullback or a late recycle?"
+      ],
+      "related_strategy_ids": [
+        "pattern-gap-fill-balance-reclaim",
+        "pattern-nq-failed-overhead-capping-in-ascent"
+      ],
+      "candidate_strategy_id": "pattern-gap-bar-retracement-continuation",
+      "formalization_priority": "high"
+    },
+    {
+      "entry_id": "mother_bar_auction_zones",
+      "title": "Mother Bar Auction Zones",
+      "category": "range_fade_or_context_sensitive",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/rose_mother_bar.txt",
+        "docs/strategy_library/_source_extracts/price_action/rose_strategy_compendium.txt"
+      ],
+      "summary": "Use mother-bar internal zones differently in ranges, early trend pullbacks, and late wedge exhaustion.",
+      "required_context": [
+        "trading_range",
+        "narrow_channel",
+        "broad_channel"
+      ],
+      "required_evidence": [
+        "clear mother bar plus inside balance",
+        "known context of range, early trend, or late third leg",
+        "test of outer zone rather than middle"
+      ],
+      "trigger_logic": [
+        "Fade outer trap zones in ranges.",
+        "Use trend-side zones in early trend legs.",
+        "Consider opposite-side zone in third-leg exhaustion."
+      ],
+      "invalidation": [
+        "Accepted breakout beyond the mother-bar auction.",
+        "Context was misread and fade logic was applied in true continuation."
+      ],
+      "no_trade_conditions": [
+        "Do not enter from the middle of the mother bar.",
+        "Do not apply range-fade logic when outside trade is already accepted."
+      ],
+      "ai_questions": [
+        "Is this mother bar inside a range, early trend, or late wedge?",
+        "Did price test outer zones or only the middle?"
+      ],
+      "related_strategy_ids": [
+        "pattern-no-trade-garbage-time-context",
+        "pattern-liquidity-raid-vs-breakout-acceptance"
+      ],
+      "candidate_strategy_id": "pattern-mother-bar-auction-zones",
+      "formalization_priority": "high"
+    },
+    {
+      "entry_id": "mtr_trapped_breakout",
+      "title": "Major Trend Reversal Through Trapped Breakout Traders",
+      "category": "trap_reversal",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/rose_mtr.txt",
+        "docs/strategy_library/_source_extracts/price_action/abu_top_10_patterns.txt"
+      ],
+      "summary": "A reversal becomes actionable when a breakout side is objectively trapped and confirmation proves their failure.",
+      "required_context": [
+        "broad_channel",
+        "trading_range",
+        "late_trend"
+      ],
+      "required_evidence": [
+        "strong signal bar",
+        "trap bar that fails the breakout",
+        "later body close through the level breakout traders needed to hold"
+      ],
+      "trigger_logic": [
+        "Enter on confirmation close or on qualified pullback after confirmation.",
+        "Anchor stop beyond the trap bar extreme."
+      ],
+      "invalidation": [
+        "Signal bar was weak.",
+        "The move still behaves like a normal pullback, not a true failure."
+      ],
+      "no_trade_conditions": [
+        "Do not front-run before confirmation.",
+        "Do not ignore larger support/resistance or wedge context."
+      ],
+      "ai_questions": [
+        "Who got trapped here?",
+        "Has price crossed the point that proves them wrong?"
+      ],
+      "related_strategy_ids": [
+        "pattern-trapped-inventory-release",
+        "pattern-failed-break-acceptance-reentry"
+      ],
+      "candidate_strategy_id": "pattern-major-trend-reversal-trap-confirmation",
+      "formalization_priority": "high"
+    },
+    {
+      "entry_id": "caveman_failed_signal_bar",
+      "title": "Caveman Failed Signal Bar Trigger",
+      "category": "aggressive_scalp_reversal",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/rose_caveman.txt",
+        "docs/strategy_library/_source_extracts/price_action/rose_strategy_compendium.txt"
+      ],
+      "summary": "A very strong signal bar gets immediately negated by a stronger opposite trigger bar.",
+      "required_context": [
+        "late_trend",
+        "failed_breakout",
+        "fast_trap_release"
+      ],
+      "required_evidence": [
+        "strong signal bar",
+        "trigger bar clearly closes beyond the signal bar's open or extreme",
+        "enough room for scalp or 1R target"
+      ],
+      "trigger_logic": [
+        "Enter at trigger close, breakout of trigger, or qualified retest."
+      ],
+      "invalidation": [
+        "Signal bar is weak.",
+        "Trigger only opposes the bar but does not truly negate it."
+      ],
+      "no_trade_conditions": [
+        "Do not use in overlapping chop.",
+        "Do not use if the signal bar itself lacks commitment."
+      ],
+      "ai_questions": [
+        "Was the signal bar truly strong?",
+        "Did the trigger fully negate it?"
+      ],
+      "related_strategy_ids": [
+        "pattern-trapped-inventory-release"
+      ],
+      "candidate_strategy_id": "pattern-caveman-failed-signal-bar-trigger",
+      "formalization_priority": "high"
+    },
+    {
+      "entry_id": "fofs_failure_of_failure",
+      "title": "FOFS: Failure Of Failure Is Swing",
+      "category": "swing_reversal_transition",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/rose_strategy_compendium.txt"
+      ],
+      "summary": "When the market fails a failure setup, a larger swing can emerge because both short-term narratives are invalidated.",
+      "required_context": [
+        "range_to_break_transition",
+        "late_trend",
+        "wedge_context"
+      ],
+      "required_evidence": [
+        "first failure event",
+        "second side attempts to exploit it",
+        "that second attempt also fails"
+      ],
+      "trigger_logic": [
+        "Use midpoint or control-line reclaim plus follow-through as confirmation."
+      ],
+      "invalidation": [
+        "No actual second failure occurred.",
+        "The market remains balanced without control shift."
+      ],
+      "no_trade_conditions": [
+        "Do not label ordinary chop as FOFS.",
+        "Do not ignore whether control actually shifted."
+      ],
+      "ai_questions": [
+        "What failed first?",
+        "What was the failure of that failure?"
+      ],
+      "related_strategy_ids": [
+        "pattern-control-handoff-after-harvest",
+        "pattern-liquidity-raid-vs-breakout-acceptance"
+      ],
+      "candidate_strategy_id": "",
+      "formalization_priority": "medium"
+    },
+    {
+      "entry_id": "h1_h2_l1_l2_pullbacks",
+      "title": "H1 / H2 / L1 / L2 Pullback Entries",
+      "category": "pullback_continuation",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/abu_top_10_patterns.txt",
+        "docs/strategy_library/_source_extracts/price_action/fangfangtu_pa_foundation.txt",
+        "docs/strategy_library/_source_extracts/price_action/taifei_pa_foundation.txt"
+      ],
+      "summary": "Pullback counting becomes useful only when trend context is still valid and the counting itself is not degraded by noise.",
+      "required_context": [
+        "breakout_spike",
+        "narrow_channel",
+        "broad_channel"
+      ],
+      "required_evidence": [
+        "clear prior trend",
+        "real pullback rather than random overlap",
+        "valid first or second attempt after pullback"
+      ],
+      "trigger_logic": [
+        "Prefer aligned signal bars.",
+        "Use second attempts when the first was noisy or premature."
+      ],
+      "invalidation": [
+        "Counting continues inside a degrading channel that has become a range.",
+        "Trend origin is broken."
+      ],
+      "no_trade_conditions": [
+        "Do not count endlessly inside chop.",
+        "Do not use a weak H1/L1 as if it were equivalent to a strong H2/L2."
+      ],
+      "ai_questions": [
+        "Is this real trend continuation context?",
+        "Is the count valid, or is the market already a range?"
+      ],
+      "related_strategy_ids": [
+        "pattern-nq-failed-overhead-capping-in-ascent",
+        "pattern-nq-probe-reversal-toward-upper-liquidity"
+      ],
+      "candidate_strategy_id": "pattern-h2-l2-pullback-continuation-framework",
+      "formalization_priority": "high"
+    },
+    {
+      "entry_id": "final_flag_reversal",
+      "title": "Final Flag And Late-Trend Reversal",
+      "category": "late_trend_reversal",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/abu_top_10_patterns.txt"
+      ],
+      "summary": "A continuation-looking pause late in trend can become a reversal trap once continuation fails near objectives.",
+      "required_context": [
+        "late_trend",
+        "magnet_or_objective_nearby"
+      ],
+      "required_evidence": [
+        "mature trend",
+        "small pause or tight range",
+        "context showing reduced follow-through or nearby objective completion"
+      ],
+      "trigger_logic": [
+        "Wait for continuation failure, not just old-trend age."
+      ],
+      "invalidation": [
+        "The market is only pausing and continuation is still intact."
+      ],
+      "no_trade_conditions": [
+        "Do not treat every late pause as a final flag.",
+        "Do not countertrend without proof that continuation failed."
+      ],
+      "ai_questions": [
+        "Is this just a normal flag, or a final flag near objective completion?"
+      ],
+      "related_strategy_ids": [
+        "pattern-control-handoff-after-harvest",
+        "pattern-post-shock-resiliency-check"
+      ],
+      "candidate_strategy_id": "",
+      "formalization_priority": "medium"
+    },
+    {
+      "entry_id": "range_edge_failed_break",
+      "title": "Range Edge Reversal And Failed Break Fade",
+      "category": "range_fade",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/abu_top_10_patterns.txt",
+        "docs/strategy_library/_source_extracts/price_action/fangfangtu_pa_foundation.txt",
+        "docs/strategy_library/_source_extracts/price_action/taifei_pa_foundation.txt"
+      ],
+      "summary": "In established ranges, failed breakouts at edges are often higher quality than first breakout attempts.",
+      "required_context": [
+        "trading_range"
+      ],
+      "required_evidence": [
+        "clear range edge",
+        "failed breakout attempt",
+        "rejection or re-entry bar"
+      ],
+      "trigger_logic": [
+        "Enter after rejection or accepted re-entry back inside the range."
+      ],
+      "invalidation": [
+        "Outside trade gets accepted.",
+        "Breakout follow-through is too strong to treat as a fade."
+      ],
+      "no_trade_conditions": [
+        "Do not enter from the middle of the range.",
+        "Do not keep fading after the market already converted to accepted breakout."
+      ],
+      "ai_questions": [
+        "Is this still a range?",
+        "Did breakout traders get trapped, or are they winning?"
+      ],
+      "related_strategy_ids": [
+        "pattern-failed-break-acceptance-reentry",
+        "pattern-no-trade-garbage-time-context"
+      ],
+      "candidate_strategy_id": "",
+      "formalization_priority": "medium"
+    },
+    {
+      "entry_id": "buy_sell_zone_memory",
+      "title": "Buy Zone / Sell Zone Memory",
+      "category": "inventory_memory",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/rose_strategy_compendium.txt"
+      ],
+      "summary": "Prior signal bars and later extremes create relief zones where trapped traders exit and responsive traders fade.",
+      "required_context": [
+        "range_edge",
+        "retest_of_trapped_inventory_zone"
+      ],
+      "required_evidence": [
+        "identifiable prior signal bar",
+        "later move that trapped the original side",
+        "revisit into relief zone"
+      ],
+      "trigger_logic": [
+        "Use the revisit to ask whether relief flow and responsive flow align."
+      ],
+      "invalidation": [
+        "There is no real trapped-inventory story behind the zone.",
+        "Zone is hit during already accepted breakout conditions."
+      ],
+      "no_trade_conditions": [
+        "Do not invent zones without trapped-inventory logic.",
+        "Do not assume every prior extreme will still defend."
+      ],
+      "ai_questions": [
+        "Whose cost basis lives in this zone?",
+        "Will this revisit produce relief exits, fresh initiative, or both?"
+      ],
+      "related_strategy_ids": [
+        "pattern-trapped-inventory-release",
+        "pattern-large-order-lifecycle-diagnosis"
+      ],
+      "candidate_strategy_id": "",
+      "formalization_priority": "medium"
+    },
+    {
+      "entry_id": "opening_reversal_knowledge",
+      "title": "Opening Reversal And Early Session Trap",
+      "category": "opening_context",
+      "source_refs": [
+        "docs/strategy_library/_source_extracts/price_action/abu_top_10_patterns.txt",
+        "docs/strategy_library/_source_extracts/price_action/fangfangtu_pa_foundation.txt"
+      ],
+      "summary": "The first opening drive often needs to be separated into continuation, correction, or trap before any entry is promoted.",
+      "required_context": [
+        "session_open"
+      ],
+      "required_evidence": [
+        "opening drive reaches meaningful reference",
+        "follow-through quality can be judged",
+        "reversal or failed continuation becomes visible"
+      ],
+      "trigger_logic": [
+        "Prefer entries after the opening narrative proves itself, not at the first burst."
+      ],
+      "invalidation": [
+        "The opening drive remains accepted and never loses hold quality."
+      ],
+      "no_trade_conditions": [
+        "Do not chase the first opening burst blindly.",
+        "Do not confuse overnight correction with full day control."
+      ],
+      "ai_questions": [
+        "Was the opening drive real day control, correction, or trap?"
+      ],
+      "related_strategy_ids": [
+        "pattern-opening-inventory-correction-vs-continuation",
+        "pattern-initial-balance-extension-vs-true-breakout"
+      ],
+      "candidate_strategy_id": "",
+      "formalization_priority": "medium"
+    }
+  ],
+  "shared_no_trade_rules": [
+    "Do not promote a setup from the middle of a range.",
+    "Do not trust weak signal bars unless context is exceptional.",
+    "Do not call every deep pullback a reversal before origin failure is visible.",
+    "Do not chase a breakout before follow-through or retest quality appears.",
+    "Do not use range-fade logic once outside trade is already accepted.",
+    "Do not use reversal logic only because the market feels too far."
+  ],
+  "formalization_backlog": [
+    {
+      "candidate_strategy_id": "pattern-caveman-failed-signal-bar-trigger",
+      "priority": "high"
+    },
+    {
+      "candidate_strategy_id": "pattern-h2-l2-pullback-continuation-framework",
+      "priority": "high"
+    }
+  ]
+}

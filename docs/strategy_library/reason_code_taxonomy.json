@@ -1,0 +1,235 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-17T04:10:00+08:00",
+  "families": [
+    {
+      "family_id": "opening_auction_and_session_context",
+      "priority_order": 2,
+      "description": "Use when opening structure, gap context, or session handoff defines the script.",
+      "reason_codes": [
+        "gap_opening_context",
+        "gap_partial_fill",
+        "post_fill_acceptance",
+        "filled_and_rejected",
+        "opening_inventory_correction",
+        "opening_inventory_continuation",
+        "overnight_imbalance_unwind",
+        "first_drive_failed",
+        "initial_balance_extension",
+        "initial_balance_breakout_confirmed",
+        "ib_extension_without_acceptance",
+        "ib_false_break_return",
+        "cross_session_inventory_transfer",
+        "session_handoff_inherited_control",
+        "prior_session_inventory_correction",
+        "prior_session_zone_still_active"
+      ],
+      "ai_questions": [
+        "Is the opening or session script still the dominant anchor?",
+        "Did outside trade become accepted, or was it only a temporary extension?"
+      ],
+      "suppression_bias": [
+        "mixed_session_definitions",
+        "opening_context_unresolved"
+      ]
+    },
+    {
+      "family_id": "acceptance_breakout_and_failed_break",
+      "priority_order": 3,
+      "description": "Use when the core decision is whether outside trade became real.",
+      "reason_codes": [
+        "failed_break",
+        "outside_hold_failed",
+        "returned_to_old_auction",
+        "reentry_rotation",
+        "liquidity_raid_only",
+        "stop_run_not_breakout",
+        "breakout_acceptance_confirmed",
+        "returned_to_balance_after_sweep",
+        "stop_cluster_cascade",
+        "outside_acceptance_after_cascade",
+        "cascade_exhaustion",
+        "stop_release_without_rebuild",
+        "mother_bar_auction",
+        "mother_bar_trap_zone",
+        "mother_bar_context_switch",
+        "mother_bar_breakout_confirmation",
+        "caveman_failed_signal_bar",
+        "strong_signal_fully_negated",
+        "trigger_close_beyond_signal_extreme",
+        "failed_breakout_scalp_reversal"
+      ],
+      "ai_questions": [
+        "Was it a sweep, an extension, or accepted outside trade?",
+        "Did the first retest confirm the outside branch or invalidate it?"
+      ],
+      "suppression_bias": [
+        "outside_hold_not_yet_visible"
+      ]
+    },
+    {
+      "family_id": "inventory_trap_and_forced_exit",
+      "priority_order": 4,
+      "description": "Use when participant pain and forced repricing are central.",
+      "reason_codes": [
+        "trapped_inventory",
+        "failed_reclaim",
+        "forced_exit_release",
+        "inventory_flip",
+        "forced_exit_burst",
+        "short_covering_not_new_buying",
+        "long_liquidation_not_new_selling",
+        "initiative_takeover_confirmed",
+        "major_trend_reversal_trap_confirmation",
+        "breakout_trader_trapped",
+        "confirmation_close_beyond_signal_origin",
+        "failed_rescue_after_trap"
+      ],
+      "ai_questions": [
+        "Where did the trapped side become objectively wrong?",
+        "Was the burst fresh initiative or mainly forced exits?"
+      ],
+      "suppression_bias": [
+        "release_fuel_already_spent"
+      ]
+    },
+    {
+      "family_id": "passive_liquidity_false_depth_and_lifecycle",
+      "priority_order": 5,
+      "description": "Use when visible size is central but intent is unclear.",
+      "reason_codes": [
+        "trapped_large_order",
+        "unwinding_large_order",
+        "continuing_large_order",
+        "spoof_risk",
+        "false_liquidity",
+        "pull_before_touch",
+        "displayed_size_without_defense",
+        "visual_bait",
+        "false_depth_signature",
+        "near_touch_cancellation",
+        "opposite_fill_then_cancel",
+        "pull_rate_elevated",
+        "liquidity_provider_retreat",
+        "adverse_selection_risk",
+        "defense_to_retreat_transition",
+        "reprice_under_toxicity"
+      ],
+      "ai_questions": [
+        "Did visible size survive near touch and create outcome?",
+        "Was this fake depth, trapped size, unwinding size, or rational retreat?"
+      ],
+      "suppression_bias": [
+        "brightness_only",
+        "not_enough_lifecycle_observation"
+      ]
+    },
+    {
+      "family_id": "defense_continuation_and_measured_travel",
+      "priority_order": 7,
+      "description": "Use when the move still claims to be trending or defending.",
+      "reason_codes": [
+        "defended_bid",
+        "repeated_replenishment",
+        "support_upgrade",
+        "upper_liquidity_target",
+        "failed_cap",
+        "shallow_pullback",
+        "trend_continuation",
+        "liquidity_attractor",
+        "probe_entry",
+        "ema20_reclaim",
+        "manipulation_leg",
+        "secondary_objective",
+        "key_position",
+        "measurement_ladder",
+        "leg_continuity",
+        "body_confirmation",
+        "post_shock_resiliency",
+        "spread_depth_rebuilt",
+        "shock_repair_not_continuation",
+        "first_pullback_hold_quality",
+        "imbalance_without_progress",
+        "price_progress_failure",
+        "aggression_absorbed",
+        "travel_efficiency_decay",
+        "gap_bar_retracement_continuation",
+        "first_retracement_after_displacement",
+        "implicit_gap_supply_demand",
+        "continuation_reaction_zone",
+        "h2_l2_pullback_continuation",
+        "second_attempt_trend_entry",
+        "pullback_count_valid",
+        "trend_origin_still_intact"
+      ],
+      "ai_questions": [
+        "Is continuation still producing travel efficiency?",
+        "Is the move measured and alive, or loud but already decaying?"
+      ],
+      "suppression_bias": [
+        "continuation_claim_without_progress"
+      ]
+    },
+    {
+      "family_id": "post_harvest_and_control_handoff",
+      "priority_order": 6,
+      "description": "Use after target completion or obvious objective harvest.",
+      "reason_codes": [
+        "upper_objective_completed",
+        "post_harvest_balance",
+        "post_harvest_reversal_risk",
+        "control_handoff",
+        "old_winner_lost_control",
+        "first_failed_defense",
+        "temporary_pause_not_handoff"
+      ],
+      "ai_questions": [
+        "After harvest, is this only a pause or an actual handoff?",
+        "Did the old winner fail its first meaningful defense?"
+      ],
+      "suppression_bias": [
+        "forcing_major_reversal_too_early"
+      ]
+    },
+    {
+      "family_id": "cross_symbol_leadership_and_divergence",
+      "priority_order": 8,
+      "description": "Use when related-market leadership disagreement matters.",
+      "reason_codes": [
+        "anchor_market_leadership",
+        "anchor_market_clearer_than_execution",
+        "cross_symbol_confirmation",
+        "lagger_should_not_lead",
+        "leader_failure_divergence_trap",
+        "anchor_market_failed_break",
+        "lagger_false_follow",
+        "cross_symbol_divergence_trap"
+      ],
+      "ai_questions": [
+        "Which market was clearer first?",
+        "Did the lagger keep the story alive after the leader already failed?"
+      ],
+      "suppression_bias": [
+        "forcing_static_symbol_leadership"
+      ]
+    },
+    {
+      "family_id": "no_trade_and_context_suppression",
+      "priority_order": 1,
+      "description": "Use to suppress low-quality setup promotion when edge quality is poor.",
+      "reason_codes": [
+        "no_trade_garbage_time",
+        "middle_of_auction_risk",
+        "cross_timeframe_conflict",
+        "event_noise_without_result"
+      ],
+      "ai_questions": [
+        "Is there a real edge boundary nearby?",
+        "Did any event actually produce outcome, or only noise?"
+      ],
+      "suppression_bias": [
+        "suppress_low_quality_candidates"
+      ]
+    }
+  ]
+}

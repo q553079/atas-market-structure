@@ -86,6 +86,32 @@ class AnalysisRepository(Protocol):
     def get_analysis(self, analysis_id: str) -> StoredAnalysis | None:
         ...
 
+    def update_ingestion_observed_payload(
+        self,
+        *,
+        ingestion_id: str,
+        observed_payload: dict[str, Any],
+    ) -> StoredIngestion | None:
+        ...
+
+    def list_ingestions(
+        self,
+        *,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredIngestion]:
+        ...
+
+    def purge_ingestions(
+        self,
+        *,
+        ingestion_kinds: list[str],
+        instrument_symbol: str | None,
+        cutoff: datetime,
+    ) -> int:
+        ...
+
     def get_liquidity_memory_by_track_key(self, track_key: str) -> StoredLiquidityMemory | None:
         ...
 
@@ -345,6 +371,98 @@ class SQLiteAnalysisRepository:
             analysis_payload=self._parse_json(row["analysis_payload_json"]),
             stored_at=self._parse_datetime(row["stored_at"]),
         )
+
+    def update_ingestion_observed_payload(
+        self,
+        *,
+        ingestion_id: str,
+        observed_payload: dict[str, Any],
+    ) -> StoredIngestion | None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE ingestions
+                SET observed_payload_json = ?
+                WHERE ingestion_id = ?
+                """,
+                (
+                    self._serialize_json(observed_payload),
+                    ingestion_id,
+                ),
+            )
+            connection.commit()
+        return self.get_ingestion(ingestion_id)
+
+    def list_ingestions(
+        self,
+        *,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredIngestion]:
+        clauses = []
+        parameters: list[Any] = []
+        if ingestion_kind is not None:
+            clauses.append("ingestion_kind = ?")
+            parameters.append(ingestion_kind)
+        if instrument_symbol is not None:
+            clauses.append("instrument_symbol = ?")
+            parameters.append(instrument_symbol)
+
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = f"""
+            SELECT ingestion_id, ingestion_kind, source_snapshot_id, instrument_symbol,
+                   observed_payload_json, stored_at
+            FROM ingestions
+            {where_clause}
+            ORDER BY stored_at DESC
+            LIMIT ?
+        """
+        parameters.append(limit)
+
+        with self._connect() as connection:
+            rows = connection.execute(query, tuple(parameters)).fetchall()
+        return [
+            StoredIngestion(
+                ingestion_id=row["ingestion_id"],
+                ingestion_kind=row["ingestion_kind"],
+                source_snapshot_id=row["source_snapshot_id"],
+                instrument_symbol=row["instrument_symbol"],
+                observed_payload=self._parse_json(row["observed_payload_json"]),
+                stored_at=self._parse_datetime(row["stored_at"]),
+            )
+            for row in rows
+        ]
+
+    def purge_ingestions(
+        self,
+        *,
+        ingestion_kinds: list[str],
+        instrument_symbol: str | None,
+        cutoff: datetime,
+    ) -> int:
+        if not ingestion_kinds:
+            return 0
+
+        clauses = [
+            f"ingestion_kind IN ({','.join('?' for _ in ingestion_kinds)})",
+            "stored_at < ?",
+        ]
+        parameters: list[Any] = [*ingestion_kinds, self._serialize_datetime(cutoff)]
+        if instrument_symbol is not None:
+            clauses.append("instrument_symbol = ?")
+            parameters.append(instrument_symbol)
+
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"""
+                DELETE FROM ingestions
+                WHERE {' AND '.join(clauses)}
+                """,
+                tuple(parameters),
+            )
+            connection.commit()
+        return cursor.rowcount
 
     def get_liquidity_memory_by_track_key(self, track_key: str) -> StoredLiquidityMemory | None:
         with self._connect() as connection:

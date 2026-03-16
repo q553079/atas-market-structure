@@ -1,0 +1,258 @@
+{
+  "schema_version": "1.0.0",
+  "message_id": "adapter-burst-20260316-143020",
+  "message_type": "trigger_burst",
+  "emitted_at": "2026-03-16T14:30:20Z",
+  "observed_window_start": "2026-03-16T14:29:10Z",
+  "observed_window_end": "2026-03-16T14:30:20Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "chart_instance_id": "NQ-7fa31b2c",
+    "adapter_version": "0.8.4-shell"
+  },
+  "instrument": {
+    "symbol": "NQM6",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "trigger": {
+    "trigger_id": "trg-20260316-143018",
+    "trigger_type": "failed_overhead_capping",
+    "triggered_at": "2026-03-16T14:30:18Z",
+    "price": 21574.0,
+    "reason_codes": [
+      "upper_liquidity_near_touch",
+      "shallow_pullback_holding",
+      "renewed_aggressive_buying",
+      "measured_move_2x_confirmed"
+    ]
+  },
+  "pre_window": {
+    "trade_events": [
+      {
+        "event_time": "2026-03-16T14:29:13.420Z",
+        "local_sequence": 884211,
+        "price": 21566.25,
+        "size": 12,
+        "aggressor_side": "sell",
+        "best_bid_before": 21566.25,
+        "best_ask_before": 21566.5,
+        "best_bid_after": 21566.0,
+        "best_ask_after": 21566.25
+      },
+      {
+        "event_time": "2026-03-16T14:29:16.880Z",
+        "local_sequence": 884259,
+        "price": 21566.5,
+        "size": 18,
+        "aggressor_side": "buy",
+        "best_bid_before": 21566.25,
+        "best_ask_before": 21566.5,
+        "best_bid_after": 21566.5,
+        "best_ask_after": 21566.75
+      }
+    ],
+    "depth_events": [
+      {
+        "event_time": "2026-03-16T14:29:17.050Z",
+        "track_id": "liq-ask-21576-01",
+        "side": "sell",
+        "price": 21576.0,
+        "size_before": 314,
+        "size_after": 286,
+        "status_before": "active",
+        "status_after": "active",
+        "distance_from_price_ticks": 38
+      }
+    ],
+    "second_features": [
+      {
+        "second_started_at": "2026-03-16T14:29:16Z",
+        "second_ended_at": "2026-03-16T14:29:16Z",
+        "open": 21566.0,
+        "high": 21567.0,
+        "low": 21565.75,
+        "close": 21566.75,
+        "trade_count": 34,
+        "volume": 148,
+        "delta": 42,
+        "best_bid": 21566.5,
+        "best_ask": 21566.75,
+        "depth_imbalance": 0.18
+      }
+    ],
+    "bookmarks": [
+      {
+        "kind": "probe_entry",
+        "event_time": "2026-03-16T14:29:16.880Z",
+        "price": 21566.5,
+        "notes": ["small reversal proof started near the lower hold area"]
+      }
+    ]
+  },
+  "event_window": {
+    "trade_events": [
+      {
+        "event_time": "2026-03-16T14:30:02.200Z",
+        "local_sequence": 884904,
+        "price": 21571.75,
+        "size": 24,
+        "aggressor_side": "buy",
+        "best_bid_before": 21571.5,
+        "best_ask_before": 21571.75,
+        "best_bid_after": 21571.75,
+        "best_ask_after": 21572.0
+      },
+      {
+        "event_time": "2026-03-16T14:30:07.640Z",
+        "local_sequence": 884978,
+        "price": 21573.5,
+        "size": 31,
+        "aggressor_side": "buy",
+        "best_bid_before": 21573.25,
+        "best_ask_before": 21573.5,
+        "best_bid_after": 21573.5,
+        "best_ask_after": 21573.75
+      },
+      {
+        "event_time": "2026-03-16T14:30:18.020Z",
+        "local_sequence": 885132,
+        "price": 21574.0,
+        "size": 28,
+        "aggressor_side": "buy",
+        "best_bid_before": 21573.75,
+        "best_ask_before": 21574.0,
+        "best_bid_after": 21574.0,
+        "best_ask_after": 21574.25
+      }
+    ],
+    "depth_events": [
+      {
+        "event_time": "2026-03-16T14:30:08.100Z",
+        "track_id": "liq-ask-21576-01",
+        "side": "sell",
+        "price": 21576.0,
+        "size_before": 286,
+        "size_after": 244,
+        "status_before": "active",
+        "status_after": "partially_filled",
+        "distance_from_price_ticks": 10
+      },
+      {
+        "event_time": "2026-03-16T14:30:18.060Z",
+        "track_id": "liq-ask-21576-01",
+        "side": "sell",
+        "price": 21576.0,
+        "size_before": 244,
+        "size_after": 188,
+        "status_before": "partially_filled",
+        "status_after": "partially_filled",
+        "distance_from_price_ticks": 8
+      }
+    ],
+    "second_features": [
+      {
+        "second_started_at": "2026-03-16T14:30:07Z",
+        "second_ended_at": "2026-03-16T14:30:07Z",
+        "open": 21572.75,
+        "high": 21573.75,
+        "low": 21572.5,
+        "close": 21573.5,
+        "trade_count": 41,
+        "volume": 202,
+        "delta": 88,
+        "best_bid": 21573.5,
+        "best_ask": 21573.75,
+        "depth_imbalance": 0.24
+      },
+      {
+        "second_started_at": "2026-03-16T14:30:18Z",
+        "second_ended_at": "2026-03-16T14:30:18Z",
+        "open": 21573.75,
+        "high": 21574.25,
+        "low": 21573.5,
+        "close": 21574.0,
+        "trade_count": 37,
+        "volume": 194,
+        "delta": 97,
+        "best_bid": 21574.0,
+        "best_ask": 21574.25,
+        "depth_imbalance": 0.27
+      }
+    ],
+    "bookmarks": [
+      {
+        "kind": "ema20_reclaim",
+        "event_time": "2026-03-16T14:30:01.000Z",
+        "price": 21570.0,
+        "notes": ["price reclaimed EMA20 before re-expanding into the cap"]
+      },
+      {
+        "kind": "measured_2x",
+        "event_time": "2026-03-16T14:30:10.000Z",
+        "price": 21573.0,
+        "notes": ["move reached 2.0x manipulation leg threshold"]
+      },
+      {
+        "kind": "upper_liquidity_touch",
+        "event_time": "2026-03-16T14:30:18.060Z",
+        "price": 21576.0,
+        "notes": ["upper sell band partially consumed instead of fully rejecting price"]
+      }
+    ]
+  },
+  "post_window": {
+    "trade_events": [
+      {
+        "event_time": "2026-03-16T14:30:19.400Z",
+        "local_sequence": 885147,
+        "price": 21574.25,
+        "size": 17,
+        "aggressor_side": "buy",
+        "best_bid_before": 21574.0,
+        "best_ask_before": 21574.25,
+        "best_bid_after": 21574.25,
+        "best_ask_after": 21574.5
+      }
+    ],
+    "depth_events": [
+      {
+        "event_time": "2026-03-16T14:30:19.600Z",
+        "track_id": "liq-ask-21576-01",
+        "side": "sell",
+        "price": 21576.0,
+        "size_before": 188,
+        "size_after": 176,
+        "status_before": "partially_filled",
+        "status_after": "partially_filled",
+        "distance_from_price_ticks": 7
+      }
+    ],
+    "second_features": [
+      {
+        "second_started_at": "2026-03-16T14:30:19Z",
+        "second_ended_at": "2026-03-16T14:30:19Z",
+        "open": 21574.0,
+        "high": 21574.5,
+        "low": 21573.75,
+        "close": 21574.25,
+        "trade_count": 22,
+        "volume": 118,
+        "delta": 44,
+        "best_bid": 21574.25,
+        "best_ask": 21574.5,
+        "depth_imbalance": 0.21
+      }
+    ],
+    "bookmarks": [
+      {
+        "kind": "post_touch_hold",
+        "event_time": "2026-03-16T14:30:19.600Z",
+        "price": 21574.25,
+        "notes": ["price held near the upper band instead of immediately reversing"]
+      }
+    ]
+  }
+}

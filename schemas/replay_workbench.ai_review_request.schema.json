@@ -1,0 +1,34 @@
+{
+  "description": "Request to run AI review for one stored replay packet.",
+  "properties": {
+    "replay_ingestion_id": {
+      "description": "Replay-workbench ingestion identifier to review.",
+      "title": "Replay Ingestion Id",
+      "type": "string"
+    },
+    "model_override": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional AI model override for this request.",
+      "title": "Model Override"
+    },
+    "force_refresh": {
+      "default": false,
+      "description": "Whether to ignore previously stored AI reviews and generate a new one.",
+      "title": "Force Refresh",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "replay_ingestion_id"
+  ],
+  "title": "ReplayAiReviewRequest",
+  "type": "object"
+}

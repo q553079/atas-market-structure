@@ -1,0 +1,199 @@
+{
+  "schema_version": "1.0.0",
+  "message_id": "adapter-msg-20260316-143001",
+  "message_type": "continuous_state",
+  "emitted_at": "2026-03-16T14:30:01Z",
+  "observed_window_start": "2026-03-16T14:30:00Z",
+  "observed_window_end": "2026-03-16T14:30:01Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "chart_instance_id": "NQ-7fa31b2c",
+    "adapter_version": "0.8.4-shell"
+  },
+  "instrument": {
+    "symbol": "NQM6",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "session_context": {
+    "session_code": "us_regular",
+    "trading_date": "2026-03-16",
+    "is_rth_open": true,
+    "prior_rth_close": 21539.5,
+    "prior_rth_high": 21548.25,
+    "prior_rth_low": 21492.75,
+    "prior_value_area_low": 21512.25,
+    "prior_value_area_high": 21538.5,
+    "prior_point_of_control": 21526.5,
+    "overnight_high": 21544.0,
+    "overnight_low": 21498.25,
+    "overnight_mid": 21521.125
+  },
+  "price_state": {
+    "last_price": 21574.25,
+    "best_bid": 21574.0,
+    "best_ask": 21574.25,
+    "local_range_low": 21560.0,
+    "local_range_high": 21574.25,
+    "opening_range_low": 21540.75,
+    "opening_range_high": 21576.0,
+    "opening_range_size_ticks": 141
+  },
+  "trade_summary": {
+    "trade_count": 162,
+    "volume": 914,
+    "aggressive_buy_volume": 642,
+    "aggressive_sell_volume": 272,
+    "net_delta": 370
+  },
+  "significant_liquidity": [
+    {
+      "track_id": "liq-ask-21576-01",
+      "side": "sell",
+      "price": 21576.0,
+      "current_size": 188,
+      "max_seen_size": 342,
+      "distance_from_price_ticks": 7,
+      "first_observed_at": "2026-03-16T14:28:42Z",
+      "last_observed_at": "2026-03-16T14:30:01Z",
+      "status": "active",
+      "touch_count": 2,
+      "executed_volume_estimate": 104,
+      "replenishment_count": 3,
+      "pull_count": 0,
+      "move_count": 0,
+      "price_reaction_ticks": 5,
+      "heat_score": 0.87
+    },
+    {
+      "track_id": "liq-bid-21566-01",
+      "side": "buy",
+      "price": 21566.0,
+      "current_size": 132,
+      "max_seen_size": 214,
+      "distance_from_price_ticks": 33,
+      "first_observed_at": "2026-03-16T14:29:18Z",
+      "last_observed_at": "2026-03-16T14:30:01Z",
+      "status": "active",
+      "touch_count": 1,
+      "executed_volume_estimate": 68,
+      "replenishment_count": 2,
+      "pull_count": 1,
+      "move_count": 0,
+      "price_reaction_ticks": 16,
+      "heat_score": 0.61
+    }
+  ],
+  "gap_reference": {
+    "gap_id": "gap-us-premarket-up-01",
+    "direction": "up",
+    "opened_at": "2026-03-16T13:30:00Z",
+    "gap_low": 21539.5,
+    "gap_high": 21542.0,
+    "gap_size_ticks": 10,
+    "first_touch_at": "2026-03-16T14:24:00Z",
+    "max_fill_ticks": 6,
+    "fill_ratio": 0.6,
+    "fill_attempt_count": 1,
+    "accepted_inside_gap": true,
+    "rejected_from_gap": false,
+    "fully_filled_at": null
+  },
+  "active_initiative_drive": {
+    "drive_id": "drive-us-open-release-01",
+    "side": "buy",
+    "started_at": "2026-03-16T14:28:48Z",
+    "price_low": 21560.0,
+    "price_high": 21574.25,
+    "aggressive_volume": 1420,
+    "net_delta": 1180,
+    "trade_count": 268,
+    "consumed_price_levels": 7,
+    "price_travel_ticks": 57,
+    "max_counter_move_ticks": 4,
+    "continuation_seconds": 80
+  },
+  "active_manipulation_leg": {
+    "leg_id": "manip-leg-us-open-01",
+    "side": "buy",
+    "started_at": "2026-03-16T14:27:40Z",
+    "ended_at": "2026-03-16T14:28:12Z",
+    "price_low": 21553.0,
+    "price_high": 21560.0,
+    "displacement_ticks": 28,
+    "primary_objective_ticks": 28,
+    "secondary_objective_ticks": 56,
+    "primary_objective_reached": true,
+    "secondary_objective_reached": true
+  },
+  "active_measured_move": {
+    "measurement_id": "measure-us-open-vs-manip-01",
+    "measured_subject_id": "drive-us-open-release-01",
+    "measured_subject_kind": "initiative_drive",
+    "side": "buy",
+    "anchor_price": 21560.0,
+    "latest_price": 21574.25,
+    "achieved_distance_ticks": 57,
+    "reference_kind": "manipulation_leg",
+    "reference_id": "manip-leg-us-open-01",
+    "reference_distance_ticks": 28,
+    "achieved_multiple": 2.04,
+    "body_confirmed_threshold_multiple": 2.0,
+    "next_target_multiple": 4.0,
+    "invalidated": false
+  },
+  "active_post_harvest_response": {
+    "response_id": "post-harvest-us-open-01",
+    "harvest_subject_id": "drive-us-open-release-01",
+    "harvest_subject_kind": "initiative_drive",
+    "harvest_side": "buy",
+    "harvest_completed_at": "2026-03-16T14:29:21Z",
+    "harvested_price_low": 21573.5,
+    "harvested_price_high": 21576.0,
+    "completion_ratio": 1.0,
+    "continuation_ticks_after_completion": 4,
+    "consolidation_range_ticks": 7,
+    "pullback_ticks": 9,
+    "reversal_ticks": 14,
+    "seconds_to_first_pullback": 9,
+    "seconds_to_reversal": 44,
+    "reached_next_opposing_liquidity": true,
+    "next_opposing_liquidity_price": 21567.0,
+    "post_harvest_delta": -186,
+    "outcome": "pullback"
+  },
+  "active_zone_interaction": {
+    "zone_id": "probe-zone-21566-01",
+    "zone_low": 21565.5,
+    "zone_high": 21566.5,
+    "started_at": "2026-03-16T14:29:16Z",
+    "executed_volume_against": 184,
+    "replenishment_count": 2,
+    "buyers_hitting_same_level_count": 3,
+    "sellers_hitting_same_level_count": 0,
+    "pull_count": 0,
+    "price_rejection_ticks": 8,
+    "seconds_held": 12
+  },
+  "ema_context": {
+    "ema20": 21568.25,
+    "ema20_distance_ticks": 24,
+    "ema20_slope": 1.35,
+    "ema20_reclaim_confirmed": true,
+    "bars_above_ema20_after_reclaim": 5
+  },
+  "reference_levels": [
+    {
+      "kind": "upper_liquidity_band",
+      "price": 21576.0,
+      "notes": ["visible ask wall still above price during ascent"]
+    },
+    {
+      "kind": "release_origin",
+      "price": 21560.0,
+      "notes": ["strong upward release began from this area"]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "cache_key": "NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z",
+  "instrument_symbol": "NQ",
+  "display_timeframe": "5m",
+  "window_start": "2026-03-12T07:00:00Z",
+  "window_end": "2026-03-17T02:15:00Z",
+  "chart_instance_id": "NQ-03d4a876",
+  "force_rebuild": false,
+  "min_continuous_messages": 10
+}

@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-nq-replenished-bid-launchpad",
+  "title": "NQ Replenished Bid Launchpad",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/nq_replenished_bid_launchpad_into_upper_liquidity.md",
+  "instrument_scope": [
+    "NQ"
+  ],
+  "session_scope": [
+    "europe",
+    "us_regular"
+  ],
+  "timeframe_scope": [
+    "setup_context",
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "general",
+    "focus_regions",
+    "trapped_large_orders",
+    "live_depth"
+  ],
+  "context_tags": [
+    "same_price_replenishment",
+    "defended_bid",
+    "initiative_drive",
+    "upper_liquidity_target",
+    "micro_trend"
+  ],
+  "event_kinds": [
+    "same_price_replenishment",
+    "significant_liquidity",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "defended_bid",
+    "repeated_replenishment",
+    "upper_liquidity_target"
+  ],
+  "summary": {
+    "thesis": "A bid that keeps replenishing at the same price and survives repeated selling pressure can become the launchpad for a move into higher liquidity.",
+    "operator_translation": "The long only makes sense if the defended bid stays firm, sellers fail to break it cleanly, and initiative buying starts to return.",
+    "ai_usage_note": "Use this card when the replay shows repeated same-price defense plus a credible upper target. Emphasize where the operator should not open if the defense is not yet confirmed."
+  },
+  "when_relevant": [
+    "A narrow bid zone keeps reappearing at the same price.",
+    "Sellers continue to hit the defended price but price does not continue lower.",
+    "Local structure starts to hold higher lows or reclaim micro pivots.",
+    "There is visible upper liquidity that can act as the next destination."
+  ],
+  "required_evidence": [
+    "same_price_replenishment count is elevated",
+    "significant liquidity remains active near price",
+    "initiative buying or net delta shifts in favor of the defended side",
+    "price rejection from the defended price remains controlled"
+  ],
+  "confirmation_signals": [
+    "The defended bid survives another touch without structural breakdown.",
+    "Aggressive buyers begin to lift while the defended price still holds.",
+    "Price reclaims the nearest local pivot and starts traveling toward upper liquidity."
+  ],
+  "invalidation_signals": [
+    "The defended price fails without immediate renewed bid support.",
+    "Replenishment disappears and price remains heavy below the launch area.",
+    "The move cannot reclaim the local pivot and slips back into balance."
+  ],
+  "no_trade_conditions": [
+    "Do not buy in the middle of balance just because a single bid looks large.",
+    "Do not buy before the defended price proves it can survive repeated hits.",
+    "Do not buy if the larger session context is pressing directly into a stronger opposing region."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "first reclaimed higher low",
+      "description": "Enter after the defended bid survives and price reclaims the most recent micro pivot.",
+      "risk_note": "Skip if the reclaim is weak and directly runs into overhead pressure."
+    },
+    {
+      "name": "pullback into defended bid",
+      "description": "Enter on a pullback that retests the defended price and shows renewed buyer aggression.",
+      "risk_note": "Skip if the pullback becomes acceptance below the defended area."
+    }
+  ],
+  "management_notes": [
+    "Expect shallow pullbacks if the launchpad is real.",
+    "Watch whether upper liquidity is consumed cleanly or only tapped and rejected.",
+    "After the first upper objective is harvested, reassess for post-harvest balance or reversal."
+  ],
+  "review_questions": [
+    "Was the defended price actually defended multiple times or was it only one visible bid?",
+    "Did the operator enter before initiative returned?",
+    "Did the operator respect the larger-session context or focus only on the local defense?",
+    "What happened immediately after upper liquidity was tagged?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.9,
+    "match_requirements": {
+      "event_kinds_all": [
+        "same_price_replenishment"
+      ],
+      "reason_codes_any": [
+        "defended_bid",
+        "repeated_replenishment"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "focus_region_already_broken",
+      "post_harvest_reversal_already_confirmed"
+    ],
+    "focus_region_bias": [
+      "support",
+      "pivot",
+      "upper_liquidity_target"
+    ],
+    "entry_review_bias": [
+      "entry_before_reclaim",
+      "opening_inside_balance",
+      "ignoring_overhead_pressure"
+    ]
+  }
+}

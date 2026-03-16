@@ -1,0 +1,132 @@
+{
+  "schema_version": "1.0.0",
+  "strategy_id": "pattern-fake-depth-signature-context",
+  "title": "Fake Depth Signature Context",
+  "status": "doctrine_accepted",
+  "source_path": "docs/strategy_library/patterns/fake_depth_signature_context.md",
+  "instrument_scope": [
+    "NQ",
+    "ES"
+  ],
+  "session_scope": [
+    "europe",
+    "us_premarket",
+    "us_regular",
+    "us_after_hours"
+  ],
+  "timeframe_scope": [
+    "execution_context"
+  ],
+  "preferred_presets": [
+    "live_depth",
+    "trapped_large_orders",
+    "focus_regions"
+  ],
+  "context_tags": [
+    "false_depth_signature",
+    "near_touch_cancel",
+    "pull_rate",
+    "displayed_size_untrusted"
+  ],
+  "event_kinds": [
+    "significant_liquidity",
+    "same_price_replenishment",
+    "initiative_drive"
+  ],
+  "reason_codes": [
+    "false_depth_signature",
+    "near_touch_cancellation",
+    "opposite_fill_then_cancel",
+    "pull_rate_elevated"
+  ],
+  "focus_questions": [
+    "Did the displayed depth survive near touch, or disappear when it mattered?",
+    "Was there real same-price defense, or only a visual depth signature?"
+  ],
+  "summary": {
+    "thesis": "Displayed depth becomes unreliable when it repeatedly cancels near touch, fails to defend, and coexists with opposite-side real fills.",
+    "operator_translation": "Do not trust a bright wall or bid until it survives near touch and produces real outcome.",
+    "ai_usage_note": "Use this card when live depth looks important but the behavior of that depth is more deceptive than supportive.",
+    "ai_brief": "Environment: visible depth near a decision zone. Required evidence: repeated near-touch cancellation, elevated pull rate, or opposite-side fills while the displayed side disappears. Do not trade: from screen brightness alone or by mislabeling cosmetic depth as replenishment. Real trigger: repeated depth failure to survive or defend. Failure point: the depth starts surviving near touch, reloading, and producing real defense."
+  },
+  "when_relevant": [
+    "Large displayed size repeatedly appears near an active level.",
+    "The operator is tempted to infer support or resistance from visible depth alone.",
+    "Lifecycle evidence still needs to decide whether the depth is reliable."
+  ],
+  "required_evidence": [
+    "significant displayed size is visible near price",
+    "there are enough observations to judge survival near touch",
+    "price outcome after the displayed depth appears can be reviewed"
+  ],
+  "confirmation_signals": [
+    "large displayed size repeatedly disappears near touch",
+    "opposite-side fills occur while the displayed side fails to stand in",
+    "visible size does not create the reaction that a defended level should create"
+  ],
+  "invalidation_signals": [
+    "the displayed depth survives near touch and repeatedly produces defense",
+    "same-price replenishment begins proving true control instead of cosmetic depth",
+    "price outcome starts matching a real defended level"
+  ],
+  "no_trade_conditions": [
+    "Do not lean on the first few price levels from brightness alone.",
+    "Do not call same-price replenishment if the size mostly cancels before pressure arrives.",
+    "Do not fade price only because a large wall appears if that wall has not produced outcome."
+  ],
+  "entry_archetypes": [
+    {
+      "name": "post-cancel continuation",
+      "description": "Trade after the supposed wall or bid repeatedly disappears and price continues through the area with no real defense.",
+      "risk_note": "Avoid if the level still has unresolved counterflow and no clean outcome yet."
+    },
+    {
+      "name": "repeated failed visual defense",
+      "description": "Trade after another attempt by visible depth fails again to produce the expected defense.",
+      "risk_note": "Avoid if the latest test actually begins to hold."
+    }
+  ],
+  "management_notes": [
+    "Repeated cancellation behavior is more valuable than one isolated flash.",
+    "This card should hand off into continuation or failure cards once real outcome appears.",
+    "Visible size without survival near touch should be downgraded fast."
+  ],
+  "review_questions": [
+    "Did the displayed depth survive near touch?",
+    "Was the level real structure or only visual bait?",
+    "Did the operator trade the screen image instead of the actual outcome?"
+  ],
+  "machine_hints": {
+    "candidate_priority": 0.9,
+    "match_requirements": {
+      "event_kinds_all": [
+        "significant_liquidity"
+      ],
+      "reason_codes_any": [
+        "false_depth_signature",
+        "near_touch_cancellation",
+        "opposite_fill_then_cancel",
+        "pull_rate_elevated"
+      ],
+      "focus_region_role_any": [
+        "support",
+        "resistance",
+        "pivot"
+      ]
+    },
+    "disqualifiers": [
+      "true_same_price_defense_already_established",
+      "not_enough_lifecycle_observation"
+    ],
+    "focus_region_bias": [
+      "support",
+      "resistance",
+      "pivot"
+    ],
+    "entry_review_bias": [
+      "trading_brightness_only",
+      "calling_cosmetic_depth_real_support",
+      "ignoring_survival_near_touch"
+    ]
+  }
+}
