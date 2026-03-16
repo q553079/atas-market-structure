@@ -31,30 +31,44 @@
       color: var(--ink);
       background: linear-gradient(180deg, #0f131d 0%, #121722 100%);
       min-height: 100vh;
+      overflow: hidden;
     }
 
     .shell {
       --left-panel-width: 320px;
       --left-handle-width: 10px;
+      --left-gap-width: 18px;
       --right-panel-width: 340px;
       --right-handle-width: 10px;
+      --right-gap-width: 18px;
       --chat-thread-height: 420px;
       display: grid;
-      grid-template-columns: var(--left-panel-width) var(--left-handle-width) minmax(0, 1fr) var(--right-handle-width) var(--right-panel-width);
-      gap: 18px;
+      grid-template-columns:
+        var(--left-panel-width)
+        var(--left-handle-width)
+        var(--left-gap-width)
+        minmax(0, 1fr)
+        var(--right-gap-width)
+        var(--right-handle-width)
+        var(--right-panel-width);
+      gap: 0;
       padding: 20px;
-      align-items: start;
+      align-items: stretch;
       position: relative;
+      min-height: 100vh;
+      height: 100vh;
     }
 
     .shell.left-collapsed {
       --left-panel-width: 0px;
       --left-handle-width: 0px;
+      --left-gap-width: 0px;
     }
 
     .shell.right-collapsed {
       --right-panel-width: 0px;
       --right-handle-width: 0px;
+      --right-gap-width: 0px;
     }
 
     .shell.left-collapsed #leftResizeHandle,
@@ -70,6 +84,30 @@
       border-radius: 18px;
       box-shadow: var(--shadow);
       overflow: hidden;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #leftPanel {
+      grid-column: 1;
+    }
+
+    #leftResizeHandle {
+      grid-column: 2;
+    }
+
+    .workspace {
+      grid-column: 4;
+    }
+
+    #rightResizeHandle {
+      grid-column: 6;
+    }
+
+    #rightPanel {
+      grid-column: 7;
     }
 
     .panel-header,
@@ -133,6 +171,14 @@
     .workspace-body,
     .sidebar-body {
       padding: 18px 20px 20px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .workspace-body {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .field-grid {
@@ -270,6 +316,7 @@
       overflow: hidden;
       min-height: 760px;
       position: relative;
+      flex: 1 1 auto;
     }
 
     .chart-toolbar {
@@ -312,37 +359,8 @@
       line-height: 1.6;
     }
 
-    .panel.collapsed .panel-body,
-    .sidebar.collapsed .sidebar-body {
-      display: none;
-    }
-
-    .panel.collapsed,
-    .sidebar.collapsed {
-      overflow: hidden;
-      visibility: hidden;
-      min-width: 0;
-      border-width: 0;
-      box-shadow: none;
-    }
-
-    .panel.collapsed .panel-header,
-    .sidebar.collapsed .sidebar-header {
-      padding-bottom: 18px;
-    }
-
-    .panel.collapsed .panel-header p,
-    .sidebar.collapsed .sidebar-header p {
-      display: none;
-    }
-
-    .panel.collapsed .panel-header,
-    .sidebar.collapsed .sidebar-header {
-      min-height: 120px;
-    }
-
-    .panel.collapsed .panel-header h1,
-    .sidebar.collapsed .sidebar-header h2 {
+    .shell.left-collapsed #leftPanel,
+    .shell.right-collapsed #rightPanel {
       display: none;
     }
 
@@ -391,11 +409,11 @@
     }
 
     .panel-restore.left {
-      left: 26px;
+      left: 22px;
     }
 
     .panel-restore.right {
-      right: 26px;
+      right: 22px;
     }
 
     .shell.left-collapsed .panel-restore.left {
@@ -404,6 +422,43 @@
 
     .shell.right-collapsed .panel-restore.right {
       display: inline-flex;
+    }
+
+    .build-progress {
+      margin-bottom: 14px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .build-progress.active {
+      display: flex;
+    }
+
+    .build-progress-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--ink-soft);
+      letter-spacing: 0.04em;
+    }
+
+    .build-progress-track {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .build-progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb 0%, #3b82f6 48%, #60a5fa 100%);
+      transition: width 180ms ease;
     }
 
     .workspace-header .header-actions {
@@ -719,7 +774,7 @@
 
     @media (max-width: 1440px) {
       .shell {
-        grid-template-columns: var(--left-panel-width) var(--left-handle-width) minmax(0, 1fr);
+        grid-template-columns: var(--left-panel-width) var(--left-handle-width) var(--left-gap-width) minmax(0, 1fr);
       }
 
       .sidebar {
@@ -734,6 +789,10 @@
     @media (max-width: 1024px) {
       .shell {
         grid-template-columns: 1fr;
+        gap: 0;
+        height: auto;
+        min-height: 100vh;
+        overflow: auto;
       }
 
       .sidebar {
@@ -752,6 +811,10 @@
       .resize-handle,
       .panel-restore {
         display: none !important;
+      }
+
+      body {
+        overflow: auto;
       }
     }
   </style>
@@ -870,10 +933,10 @@
         </div>
 
         <div class="button-row">
-          <button id="buildButton" type="button">构建 / 复用回放</button>
+          <button id="buildButton" type="button">立即刷新</button>
           <button id="preset7d1mButton" class="secondary" type="button">7天 5分</button>
           <button id="preset3d5mButton" class="secondary" type="button">7天 1分</button>
-          <button id="preset1d1mButton" class="secondary" type="button">1天 1分</button>
+          <button id="preset1d1mButton" class="secondary" type="button">15天 5分</button>
           <button id="aiReviewButton" type="button">AI 分析</button>
           <button id="recordEntryButton" class="secondary" type="button">记录开仓</button>
           <button id="lookupButton" class="secondary" type="button">查询缓存</button>
@@ -896,9 +959,20 @@
       </div>
       <div class="workspace-body">
         <div class="status-strip" id="statusStrip"></div>
+        <div class="build-progress" id="buildProgress">
+          <div class="build-progress-head">
+            <span id="buildProgressLabel">正在加载历史数据</span>
+            <span id="buildProgressPercent">0%</span>
+          </div>
+          <div class="build-progress-track">
+            <div class="build-progress-fill" id="buildProgressFill"></div>
+          </div>
+        </div>
         <div class="chart-toolbar">
           <button id="zoomInButton" class="secondary" type="button">放大</button>
           <button id="zoomOutButton" class="secondary" type="button">缩小</button>
+          <button id="zoomPriceInButton" class="secondary" type="button">价格放大</button>
+          <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
           <button id="resetViewButton" class="secondary" type="button">重置视图</button>
           <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
           <span class="legend-chip"><span class="legend-symbol circle"></span>短时聚合大单</span>
@@ -1100,6 +1174,8 @@
       aiChatSendButton: document.getElementById("aiChatSendButton"),
       zoomInButton: document.getElementById("zoomInButton"),
       zoomOutButton: document.getElementById("zoomOutButton"),
+      zoomPriceInButton: document.getElementById("zoomPriceInButton"),
+      zoomPriceOutButton: document.getElementById("zoomPriceOutButton"),
       resetViewButton: document.getElementById("resetViewButton"),
       armRegionButton: document.getElementById("armRegionButton"),
       saveRegionButton: document.getElementById("saveRegionButton"),
@@ -1107,6 +1183,10 @@
       lookupButton: document.getElementById("lookupButton"),
       invalidateButton: document.getElementById("invalidateButton"),
       statusStrip: document.getElementById("statusStrip"),
+      buildProgress: document.getElementById("buildProgress"),
+      buildProgressFill: document.getElementById("buildProgressFill"),
+      buildProgressLabel: document.getElementById("buildProgressLabel"),
+      buildProgressPercent: document.getElementById("buildProgressPercent"),
       chartFrame: document.getElementById("chartFrame"),
       chartViewportMeta: document.getElementById("chartViewportMeta"),
       chartPlaceholder: document.getElementById("chartPlaceholder"),
@@ -1139,6 +1219,10 @@
       dragStartRightWidth: null,
       dragStartChatHeight: null,
     };
+
+    state.buildInFlight = false;
+    state.autoBootstrapped = false;
+    state.pendingChartRerender = false;
 
     async function fetchJson(url, options) {
       const response = await fetch(url, options);
@@ -1184,6 +1268,28 @@
       els.windowStart.value = toLocalInputValue(start);
       els.windowEnd.value = toLocalInputValue(now);
       syncCacheKey();
+    }
+
+    function scheduleChartRerender() {
+      if (state.pendingChartRerender) {
+        return;
+      }
+      state.pendingChartRerender = true;
+      window.requestAnimationFrame(() => {
+        state.pendingChartRerender = false;
+        if (state.snapshot?.candles?.length) {
+          renderChart();
+        }
+      });
+    }
+
+    function setBuildProgress(active, percent = 0, label = "") {
+      els.buildProgress.classList.toggle("active", active);
+      els.buildProgressFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      els.buildProgressPercent.textContent = `${Math.round(Math.max(0, Math.min(100, percent)))}%`;
+      if (label) {
+        els.buildProgressLabel.textContent = label;
+      }
     }
 
     function timeframeLabel(value) {
@@ -1298,20 +1404,21 @@
       els.shellLayout.style.setProperty("--left-panel-width", `${state.layout.leftWidth}px`);
       els.shellLayout.style.setProperty("--right-panel-width", `${state.layout.rightWidth}px`);
       els.shellLayout.style.setProperty("--chat-thread-height", `${state.layout.chatHeight}px`);
+      scheduleChartRerender();
     }
 
     function setLeftPanelCollapsed(collapsed) {
-      els.leftPanel.classList.toggle("collapsed", collapsed);
       els.shellLayout.classList.toggle("left-collapsed", collapsed);
       els.toggleLeftPanelButton.textContent = collapsed ? "▶" : "◀";
       els.restoreLeftPanelButton.setAttribute("aria-hidden", collapsed ? "false" : "true");
+      scheduleChartRerender();
     }
 
     function setRightPanelCollapsed(collapsed) {
-      els.rightPanel.classList.toggle("collapsed", collapsed);
       els.shellLayout.classList.toggle("right-collapsed", collapsed);
       els.toggleRightPanelButton.textContent = collapsed ? "◀" : "▶";
       els.restoreRightPanelButton.setAttribute("aria-hidden", collapsed ? "false" : "true");
+      scheduleChartRerender();
     }
 
     function beginLayoutDrag(kind, event) {
@@ -1936,7 +2043,7 @@
       return Math.max(minimum, Math.min(maximum, value));
     }
 
-    function derivePriceEnvelope(visibleCandles, events = [], focusRegions = [], manualRegions = [], operatorEntries = []) {
+    function derivePriceEnvelope(visibleCandles, events = [], focusRegions = [], manualRegions = [], operatorEntries = [], bubbleMarks = []) {
       if (!visibleCandles.length) {
         return { min: 0, max: 1 };
       }
@@ -1969,6 +2076,20 @@
           prices.push(entry.entry_price, entry.stop_price ?? entry.entry_price, entry.target_price ?? entry.entry_price);
         }
       });
+      bubbleMarks.forEach((bubble) => {
+        if (bubble.topVolumeLevel?.price != null) {
+          prices.push(Number(bubble.topVolumeLevel.price));
+        }
+        if (bubble.topDeltaLevel?.price != null) {
+          prices.push(Number(bubble.topDeltaLevel.price));
+        }
+        if (bubble.candleLow != null) {
+          prices.push(Number(bubble.candleLow));
+        }
+        if (bubble.candleHigh != null) {
+          prices.push(Number(bubble.candleHigh));
+        }
+      });
 
       const minPrice = Math.min(...prices);
       const maxPrice = Math.max(...prices);
@@ -1992,6 +2113,7 @@
     function collectFootprintBubbles(snapshot, visibleStartTime, visibleEndTime) {
       const digest = snapshot?.raw_features?.history_footprint_digest;
       const topBars = Array.isArray(digest?.top_bars) ? digest.top_bars : [];
+      const candleByStartedAt = new Map((snapshot?.candles || []).map((bar) => [bar.started_at, bar]));
       const visible = topBars.filter((item) => {
         const startedAt = item.started_at || item.startedAt;
         if (!startedAt) {
@@ -2001,14 +2123,22 @@
         return timestamp >= visibleStartTime && timestamp <= visibleEndTime;
       });
       const maxBarVolume = Math.max(1, ...visible.map((item) => Number(item.bar_total_price_level_volume || item.volume || 0)));
-      return visible.slice(0, 48).map((item) => ({
-        startedAt: item.started_at || item.startedAt,
+      return visible.slice(0, 48).map((item) => {
+        const startedAt = item.started_at || item.startedAt;
+        const candle = candleByStartedAt.get(startedAt);
+        return {
+        startedAt,
         topVolumeLevel: item.top_volume_level || null,
         topDeltaLevel: item.top_delta_level || null,
         barVolume: Number(item.bar_total_price_level_volume || item.volume || 0),
         barDelta: Number(item.bar_abs_price_level_delta || Math.abs(item.delta || 0)),
         volumeRatio: Number(item.bar_total_price_level_volume || item.volume || 0) / maxBarVolume,
-      }));
+        candleLow: candle ? Number(candle.low) : null,
+        candleHigh: candle ? Number(candle.high) : null,
+        candleOpen: candle ? Number(candle.open) : null,
+        candleClose: candle ? Number(candle.close) : null,
+      };
+      });
     }
 
     function renderChart() {
@@ -2061,11 +2191,11 @@
         return timestamp >= visibleStartTime && timestamp <= visibleEndTime;
       };
 
-      const envelope = derivePriceEnvelope(visibleCandles, events, focusRegions, manualRegions, operatorEntries);
+      const visibleBubbleMarks = collectFootprintBubbles(snapshot, visibleStartTime, visibleEndTime);
+      const envelope = derivePriceEnvelope(visibleCandles, events, focusRegions, manualRegions, operatorEntries, visibleBubbleMarks);
       const yMin = state.chartView?.yMin ?? envelope.min;
       const yMax = state.chartView?.yMax ?? envelope.max;
       const emaSeries = computeEmaSeries(candles, 20);
-      const visibleBubbleMarks = collectFootprintBubbles(snapshot, visibleStartTime, visibleEndTime);
 
       const timeToX = (value) => {
         const timestamp = new Date(value).getTime();
@@ -2104,6 +2234,9 @@
       };
       const sourceBars = snapshot.raw_features?.history_bar_count || candles.length;
       els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / 历史源 ${sourceBars} 根 / ${formatAxisTime(visibleCandles[0].started_at)} -> ${formatAxisTime(visibleCandles[visibleCandles.length - 1].ended_at)} / 滚轮缩放时间轴 / Shift+滚轮缩放价格轴 / 拖拽平移`;
+      svg.style.cursor = state.chartInteraction.regionMode
+        ? "crosshair"
+        : (state.chartInteraction.panStartX != null ? "grabbing" : "grab");
 
       let markup = "";
       markup += `<rect x="0" y="0" width="${width}" height="${height}" fill="#131722" />`;
@@ -2187,23 +2320,30 @@
       markup += `<path d="${emaPath.trim()}" fill="none" stroke="#3b82f6" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />`;
 
       const priceViewportScale = clampNumber((envelope.max - envelope.min) / Math.max(0.0001, yMax - yMin), 0.75, 2.2);
+      const viewportScale = clampNumber(140 / Math.max(visibleCandles.length, 24), 0.55, 2.4);
       visibleBubbleMarks.forEach((bubble, index) => {
         const x = timeToX(bubble.startedAt);
-        const viewportScale = clampNumber(220 / Math.max(visibleCandles.length, 28), 0.45, 3.2);
-        const radiusBase = 6 + (bubble.volumeRatio * 24);
-        const radius = Math.max(4, radiusBase * viewportScale * priceViewportScale);
+        const radiusBase = 6 + (bubble.volumeRatio * 12);
+        const radius = clampNumber(radiusBase * viewportScale * priceViewportScale, 5, 42);
+        const clampBubblePrice = (price) => {
+          if (price == null) {
+            return null;
+          }
+          if (bubble.candleLow == null || bubble.candleHigh == null) {
+            return Number(price);
+          }
+          return clampNumber(Number(price), bubble.candleLow, bubble.candleHigh);
+        };
         if (bubble.topVolumeLevel?.price != null) {
-          const y = clampChartY(priceToY(bubble.topVolumeLevel.price), radius + 3);
-          const safeX = clampChartX(x, radius + 3);
+          const y = priceToY(clampBubblePrice(bubble.topVolumeLevel.price));
           const fill = (bubble.topVolumeLevel.delta || 0) >= 0 ? "rgba(34, 171, 148, 0.26)" : "rgba(242, 54, 69, 0.26)";
           const stroke = (bubble.topVolumeLevel.delta || 0) >= 0 ? "#22ab94" : "#f23645";
-          markup += `<circle cx="${safeX}" cy="${y}" r="${radius.toFixed(2)}" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />`;
-          markup += `<text x="${safeX}" y="${clampChartY(y + 4, radius + 2)}" text-anchor="middle" font-size="${Math.max(10, radius * 0.72).toFixed(0)}" fill="#d7dde7" font-weight="700">${escapeHtml(String(Math.round(bubble.barVolume)))}</text>`;
+          markup += `<circle cx="${x}" cy="${y}" r="${radius.toFixed(2)}" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />`;
+          markup += `<text x="${x}" y="${y + 4}" text-anchor="middle" font-size="${Math.max(10, radius * 0.55).toFixed(0)}" fill="#d7dde7" font-weight="700">${escapeHtml(String(Math.round(bubble.barVolume)))}</text>`;
         }
         if (bubble.topDeltaLevel?.price != null) {
-          const y = clampChartY(priceToY(bubble.topDeltaLevel.price), radius + 3);
-          const safeX = clampChartX(x, radius + 3);
-          const diamond = `${safeX},${y - radius} ${safeX + radius},${y} ${safeX},${y + radius} ${safeX - radius},${y}`;
+          const y = priceToY(clampBubblePrice(bubble.topDeltaLevel.price));
+          const diamond = `${x},${y - radius} ${x + radius},${y} ${x},${y + radius} ${x - radius},${y}`;
           const fill = (bubble.topDeltaLevel.delta || 0) >= 0 ? "rgba(34, 171, 148, 0.18)" : "rgba(242, 54, 69, 0.18)";
           const stroke = (bubble.topDeltaLevel.delta || 0) >= 0 ? "#22ab94" : "#f23645";
           markup += `<polygon points="${diamond}" fill="${fill}" stroke="${stroke}" stroke-width="1.6" />`;
@@ -2421,8 +2561,14 @@
     }
 
     async function handleBuild() {
+      if (state.buildInFlight) {
+        return;
+      }
       try {
+        state.buildInFlight = true;
+        setBuildProgress(true, 8, "准备窗口与参数");
         const payload = buildRequestPayload();
+        setBuildProgress(true, 28, "请求后端构建历史回放");
         const result = await fetchJson("/api/v1/workbench/replay-builder/build", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2434,12 +2580,19 @@
         state.currentReplayIngestionId = result.ingestion_id || null;
         renderStatusStrip(buildStatusChips(result));
         if (result.ingestion_id) {
+          setBuildProgress(true, 72, "载入回放快照与足迹摘要");
           await loadSnapshotByIngestionId(result.ingestion_id);
+          setBuildProgress(true, 94, "渲染图表与事件层");
         } else {
           renderSnapshot();
         }
+        setBuildProgress(true, 100, "加载完成");
+        window.setTimeout(() => setBuildProgress(false, 0, "正在加载历史数据"), 420);
       } catch (error) {
+        setBuildProgress(false, 0, "正在加载历史数据");
         renderError(error);
+      } finally {
+        state.buildInFlight = false;
       }
     }
 
@@ -2751,7 +2904,7 @@
         .replaceAll("'", "&#39;");
     }
 
-    els.buildButton.addEventListener("click", handleBuild);
+    els.buildButton.addEventListener("click", handleBuildWithForceRefresh);
     els.preset7d1mButton.addEventListener("click", async () => {
       applyWindowPreset("5m", 7);
       await handleBuildWithForceRefresh();
@@ -2761,7 +2914,7 @@
       await handleBuildWithForceRefresh();
     });
     els.preset1d1mButton.addEventListener("click", async () => {
-      applyWindowPreset("1m", 1);
+      applyWindowPreset("5m", 15);
       await handleBuildWithForceRefresh();
     });
     els.aiReviewButton.addEventListener("click", handleAiReview);
@@ -2792,6 +2945,8 @@
     els.aiChatSendButton.addEventListener("click", handleAiChatSend);
     els.zoomInButton.addEventListener("click", () => zoomChart(0.6));
     els.zoomOutButton.addEventListener("click", () => zoomChart(1.6));
+    els.zoomPriceInButton.addEventListener("click", () => zoomPriceAxis(0.84));
+    els.zoomPriceOutButton.addEventListener("click", () => zoomPriceAxis(1.2));
     els.resetViewButton.addEventListener("click", resetChartView);
     els.armRegionButton.addEventListener("click", () => {
       state.chartInteraction.regionMode = !state.chartInteraction.regionMode;
@@ -2831,6 +2986,10 @@
       if (!state.snapshot?.candles?.length) {
         return;
       }
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
       if (state.chartInteraction.regionMode) {
         beginRegionDraft(event);
         return;
@@ -2841,6 +3000,7 @@
       state.chartInteraction.panStartPriceRange = state.chartView
         ? { yMin: state.chartView.yMin, yMax: state.chartView.yMax }
         : null;
+      els.chartSvg.style.cursor = "grabbing";
     });
 
     window.addEventListener("mousemove", (event) => {
@@ -2888,11 +3048,29 @@
       state.chartInteraction.panStartY = null;
       state.chartInteraction.panStartView = null;
       state.chartInteraction.panStartPriceRange = null;
+      els.chartSvg.style.cursor = state.chartInteraction.regionMode ? "crosshair" : "grab";
+    });
+
+    window.addEventListener("blur", () => {
+      state.chartInteraction.panStartX = null;
+      state.chartInteraction.panStartY = null;
+      state.chartInteraction.panStartView = null;
+      state.chartInteraction.panStartPriceRange = null;
+      finishLayoutDrag();
+      els.chartSvg.style.cursor = state.chartInteraction.regionMode ? "crosshair" : "grab";
     });
 
     initializePanelToggles();
     initializeSectionToggles();
-    applyWindowPreset("5m", 7);
+    window.addEventListener("resize", scheduleChartRerender);
+    applyWindowPreset("1m", 7);
+    window.requestAnimationFrame(async () => {
+      if (state.autoBootstrapped) {
+        return;
+      }
+      state.autoBootstrapped = true;
+      await handleBuildWithForceRefresh();
+    });
   </script>
 </body>
 </html>
