@@ -37,6 +37,8 @@
       "secondary_strategy_ids": [
         "pattern-gap-bar-retracement-continuation",
         "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-caveman-failed-signal-bar-trigger",
+        "pattern-h2-l2-pullback-continuation-framework",
         "pattern-forced-exit-burst-vs-initiative-continuation",
         "pattern-order-flow-imbalance-without-price-progress",
         "pattern-control-handoff-after-harvest",
@@ -90,6 +92,7 @@
       "secondary_strategy_ids": [
         "pattern-gap-bar-retracement-continuation",
         "pattern-mother-bar-auction-zones",
+        "pattern-h2-l2-pullback-continuation-framework",
         "pattern-post-shock-resiliency-check",
         "pattern-stop-cluster-cascade-exhaustion",
         "pattern-control-handoff-after-harvest",
@@ -141,6 +144,8 @@
       ],
       "secondary_strategy_ids": [
         "pattern-mother-bar-auction-zones",
+        "pattern-caveman-failed-signal-bar-trigger",
+        "pattern-h2-l2-pullback-continuation-framework",
         "pattern-false-liquidity-and-pull-behavior",
         "pattern-fake-depth-signature-context",
         "pattern-liquidity-provider-retreat-under-toxicity",
@@ -193,6 +198,7 @@
       ],
       "secondary_strategy_ids": [
         "pattern-major-trend-reversal-trap-confirmation",
+        "pattern-caveman-failed-signal-bar-trigger",
         "pattern-fake-depth-signature-context",
         "pattern-liquidity-provider-retreat-under-toxicity",
         "pattern-false-liquidity-and-pull-behavior"

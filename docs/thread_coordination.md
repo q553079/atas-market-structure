@@ -116,6 +116,9 @@ If this file changed since the last read, re-read it before continuing.
   - `pattern-gap-bar-retracement-continuation`
   - `pattern-major-trend-reversal-trap-confirmation`
   - `pattern-mother-bar-auction-zones`
+  - `pattern-caveman-failed-signal-bar-trigger`
+  - `pattern-h2-l2-pullback-continuation-framework`
+- Price-action knowledge first-wave formalization is now complete.
 - If the active preset names change, update this file and `strategy_index.json` together.
 - If a file in `docs/strategy_library` is changed by another thread, note the reason here to avoid duplicate normalization work.
 

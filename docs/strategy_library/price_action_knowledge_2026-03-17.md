@@ -609,7 +609,12 @@ Existing strategy cards most strengthened by this note:
 
 ## Recommended Formalization Backlog
 
-Highest-value future strategy cards to formalize from this knowledge module:
+The first-wave price-action formalization backlog is now closed.
 
-- `pattern-caveman-failed-signal-bar-trigger`
-- `pattern-h2-l2-pullback-continuation-framework`
+Current status:
+
+- `pattern-gap-bar-retracement-continuation` implemented
+- `pattern-mother-bar-auction-zones` implemented
+- `pattern-major-trend-reversal-trap-confirmation` implemented
+- `pattern-caveman-failed-signal-bar-trigger` implemented
+- `pattern-h2-l2-pullback-continuation-framework` implemented

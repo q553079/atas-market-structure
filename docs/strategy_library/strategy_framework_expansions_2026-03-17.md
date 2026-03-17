@@ -130,6 +130,12 @@ It is meant to improve pattern communication, not to claim literal textbook labe
 - `pattern-mother-bar-auction-zones`
   - dominant translation: compact internal auction map, outer-zone reaction over middle rotation, local dealing range edges, center-within-center structure
   - main trap: opening from the middle of the mother bar or fading an edge after outside trade is already accepted
+- `pattern-caveman-failed-signal-bar-trigger`
+  - dominant translation: immediate two-bar trap reversal, strong signal bar fully negated, false breakout exploited fast, failed departure flips into sharp opposite sub-leg
+  - main trap: treating any two-bar reversal as Caveman when the signal bar was weak or the trigger did not truly negate it
+- `pattern-h2-l2-pullback-continuation-framework`
+  - dominant translation: valid trend pullback counting, second-entry continuation from meaningful location, mitigation before resumption, corrective sub-leg ending while origin still holds
+  - main trap: counting endlessly inside chop or after the trend origin is already compromised
 
 ## Companion File
 

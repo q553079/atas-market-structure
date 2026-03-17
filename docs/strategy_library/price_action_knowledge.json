@@ -533,14 +533,5 @@
     "Do not use range-fade logic once outside trade is already accepted.",
     "Do not use reversal logic only because the market feels too far."
   ],
-  "formalization_backlog": [
-    {
-      "candidate_strategy_id": "pattern-caveman-failed-signal-bar-trigger",
-      "priority": "high"
-    },
-    {
-      "candidate_strategy_id": "pattern-h2-l2-pullback-continuation-framework",
-      "priority": "high"
-    }
-  ]
+  "formalization_backlog": []
 }
