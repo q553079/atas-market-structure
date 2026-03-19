@@ -1112,6 +1112,28 @@
       collectFootprintBubbles,
       createChartViewHelpers,
     } from "./replay_workbench_chart_utils.js";
+    import {
+      timeframeLabel,
+      translateAction,
+      translateVerificationStatus,
+      translateAcquisitionMode,
+      createThreadId,
+      getPresetThreadMeta,
+      renderList,
+      escapeHtml,
+    } from "./replay_workbench_ui_utils.js";
+    import {
+      fetchJson,
+      toUtcString,
+      toLocalInputValue,
+      createCacheKeyHelpers,
+    } from "./replay_workbench_data_utils.js";
+    import { createAiThreadController } from "./replay_workbench_ai_threads.js";
+    import { createSidepaneRenderer } from "./replay_workbench_sidepanes.js";
+    import { createAiReviewRenderer } from "./replay_workbench_ai_review.js";
+    import { createChartInteractionController } from "./replay_workbench_chart_interactions.js";
+    import { createReplayLoader } from "./replay_workbench_replay_loader.js";
+    import { createWorkbenchActions } from "./replay_workbench_actions.js";
     const state = {
       buildResponse: null,
       snapshot: null,
@@ -1234,51 +1256,6 @@
     state.autoBootstrapped = false;
     state.pendingChartRerender = false;
 
-    async function fetchJson(url, options) {
-      const response = await fetch(url, options);
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.detail || payload.error || "request failed");
-      }
-      return payload;
-    }
-
-    function toUtcString(localValue) {
-      if (!localValue) {
-        return null;
-      }
-      return new Date(localValue).toISOString();
-    }
-
-    function toLocalInputValue(date) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      const hour = String(date.getHours()).padStart(2, "0");
-      const minute = String(date.getMinutes()).padStart(2, "0");
-      return `${year}-${month}-${day}T${hour}:${minute}`;
-    }
-
-    function buildCacheKey() {
-      const symbol = (els.instrumentSymbol.value.trim() || "UNKNOWN").toUpperCase();
-      const timeframe = els.displayTimeframe.value;
-      const windowStart = toUtcString(els.windowStart.value) || "missing-start";
-      const windowEnd = toUtcString(els.windowEnd.value) || "missing-end";
-      return `${symbol}|${timeframe}|${windowStart}|${windowEnd}`;
-    }
-
-    function syncCacheKey() {
-      els.cacheKey.value = buildCacheKey();
-    }
-
-    function applyWindowPreset(timeframe, lookbackDays) {
-      const now = new Date();
-      const start = new Date(now.getTime() - (lookbackDays * 24 * 60 * 60 * 1000));
-      els.displayTimeframe.value = timeframe;
-      els.windowStart.value = toLocalInputValue(start);
-      els.windowEnd.value = toLocalInputValue(now);
-      syncCacheKey();
-    }
 
     function scheduleChartRerender() {
       if (state.pendingChartRerender) {
@@ -1302,113 +1279,7 @@
       }
     }
 
-    function timeframeLabel(value) {
-      return {
-        "1m": "1分",
-        "5m": "5分",
-        "15m": "15分",
-        "30m": "30分",
-        "1h": "1小时",
-        "1d": "日线",
-      }[value] || value;
-    }
 
-    function translateAction(action) {
-      return {
-        cache_hit: "命中缓存",
-        built_from_local_history: "已从本地连续流重建",
-        built_from_atas_history: "已从 ATAS 历史重建",
-        atas_fetch_required: "需要补抓 ATAS 历史",
-      }[action] || action;
-    }
-
-    function translateVerificationStatus(status) {
-      return {
-        unverified: "未核对",
-        verified: "已核对",
-        durable: "已固化",
-        invalidated: "已作废",
-      }[status] || status;
-    }
-
-    function translateAcquisitionMode(mode) {
-      return {
-        cache_reuse: "缓存复用",
-        local_history: "本地连续流",
-        atas_fetch: "ATAS 历史",
-      }[mode] || mode;
-    }
-
-    function createThreadId() {
-      return `thread-${Math.random().toString(16).slice(2, 10)}`;
-    }
-
-    function ensureThread(threadId, title) {
-      let thread = state.aiThreads.find((item) => item.id === threadId);
-      if (!thread) {
-        thread = {
-          id: threadId,
-          title,
-          messages: [],
-          turns: [],
-        };
-        state.aiThreads.push(thread);
-      }
-      return thread;
-    }
-
-    function getActiveThread() {
-      if (!state.activeAiThreadId) {
-        state.activeAiThreadId = "main";
-      }
-      return ensureThread(state.activeAiThreadId, "主线程");
-    }
-
-    function setActiveThread(threadId, title = "主线程") {
-      const thread = ensureThread(threadId, title);
-      state.activeAiThreadId = thread.id;
-      renderAiThreadTabs();
-      renderAiChat();
-      return thread;
-    }
-
-    function getPresetThreadMeta(preset) {
-      return {
-        recent_20_bars: { id: "recent-20-bars", title: "最近20根K线" },
-        recent_20_minutes: { id: "recent-20-minutes", title: "最近20分钟" },
-        focus_regions: { id: "focus-regions", title: "重点区域" },
-        trapped_large_orders: { id: "trapped-large-orders", title: "被套大单" },
-        live_depth: { id: "live-depth", title: "实时挂单" },
-        general: { id: "main", title: "主线程" },
-      }[preset] || { id: createThreadId(), title: "新线程" };
-    }
-
-    function renderAiThreadTabs() {
-      const activeThread = getActiveThread();
-      els.aiThreadTabs.innerHTML = "";
-      state.aiThreads.forEach((thread) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `thread-tab ${thread.id === activeThread.id ? "active" : ""}`.trim();
-        button.textContent = thread.title;
-        button.addEventListener("click", () => {
-          state.activeAiThreadId = thread.id;
-          renderAiThreadTabs();
-          renderAiChat();
-        });
-        els.aiThreadTabs.appendChild(button);
-      });
-    }
-
-    function appendAiChatMessage(role, content, meta = {}, threadId = null, threadTitle = "主线程") {
-      const thread = ensureThread(threadId || state.activeAiThreadId || "main", threadTitle);
-      thread.messages.push({ role, content, meta });
-      if (!state.activeAiThreadId) {
-        state.activeAiThreadId = thread.id;
-      }
-      renderAiThreadTabs();
-      renderAiChat();
-    }
 
     const {
       applyLayoutWidths,
@@ -1421,6 +1292,92 @@
     } = createLayoutController({ els, state, scheduleChartRerender });
 
     const { ensureChartView } = createChartViewHelpers({ state });
+    const { buildCacheKey, syncCacheKey, applyWindowPreset } = createCacheKeyHelpers({ els });
+    const {
+      ensureThread,
+      getActiveThread,
+      setActiveThread,
+      renderAiThreadTabs,
+      appendAiChatMessage,
+      renderAiChat,
+    } = createAiThreadController({ state, els, escapeHtml });
+    const {
+      renderBuildSummary,
+      renderFocusRegions,
+      renderStrategyCandidates,
+      renderOperatorEntries,
+      renderManualRegions,
+      renderSelectedCandle,
+      renderFootprintLadder,
+      renderAiBriefing,
+      renderEventTimeline,
+    } = createSidepaneRenderer({
+      state,
+      els,
+      escapeHtml,
+      renderList,
+      translateAction,
+      translateVerificationStatus,
+      translateAcquisitionMode,
+    });
+    const { renderAiReview } = createAiReviewRenderer({ state, els, escapeHtml, renderList });
+    const {
+      loadSnapshotByIngestionId,
+      loadOperatorEntries,
+      loadManualRegions,
+      loadFootprintBarDetail,
+      syncEntryDefaultsFromSnapshot,
+    } = createReplayLoader({
+      state,
+      els,
+      fetchJson,
+      ensureThread,
+      renderSnapshot,
+    });
+
+    const {
+      visibleSpan,
+      zoomChart,
+      zoomPriceAxis,
+      resetChartView,
+      chartMouseToModel,
+      pickCandleIndexFromEvent,
+      selectCandle,
+      beginRegionDraft,
+      updateRegionDraft,
+    } = createChartInteractionController({
+      state,
+      els,
+      renderChart,
+      renderSnapshot,
+      loadFootprintBarDetail,
+      clampChartView,
+    });
+
+    const {
+      saveDraftRegion,
+      handleBuild,
+      handleLookup,
+      handleInvalidate,
+      handleRecordEntry,
+      handleAiReview,
+      handleSaveRegion,
+    } = createWorkbenchActions({
+      state,
+      els,
+      fetchJson,
+      toUtcString,
+      syncCacheKey,
+      renderStatusStrip,
+      renderSnapshot,
+      renderError,
+      renderAiError,
+      setBuildProgress,
+      buildRequestPayload,
+      buildStatusChips,
+      translateVerificationStatus,
+      loadSnapshotByIngestionId,
+    });
 
     function initializeSectionToggles() {
       document.querySelectorAll(".sidebar .section").forEach((section, index) => {
@@ -1485,424 +1442,10 @@
       };
     }
 
-    async function loadSnapshotByIngestionId(ingestionId) {
-      const ingestion = await fetchJson(`/api/v1/ingestions/${encodeURIComponent(ingestionId)}`);
-      state.currentReplayIngestionId = ingestionId;
-      state.snapshot = ingestion.observed_payload;
-      state.operatorEntries = [];
-      state.manualRegions = [];
-      state.aiReview = null;
-      state.aiThreads = [];
-      state.activeAiThreadId = "main";
-      state.selectedCandleIndex = null;
-      state.selectedFootprintBar = null;
-      state.chartView = null;
-      ensureThread("main", "主线程");
-      await loadOperatorEntries();
-      await loadManualRegions();
-      syncEntryDefaultsFromSnapshot();
-      renderSnapshot();
-    }
 
-    async function loadOperatorEntries() {
-      if (!state.currentReplayIngestionId) {
-        state.operatorEntries = [];
-        return;
-      }
-      const result = await fetchJson(`/api/v1/workbench/operator-entries?replay_ingestion_id=${encodeURIComponent(state.currentReplayIngestionId)}`);
-      state.operatorEntries = result.entries || [];
-    }
 
-    async function loadManualRegions() {
-      if (!state.currentReplayIngestionId) {
-        state.manualRegions = [];
-        return;
-      }
-      const result = await fetchJson(`/api/v1/workbench/manual-regions?replay_ingestion_id=${encodeURIComponent(state.currentReplayIngestionId)}`);
-      state.manualRegions = result.regions || [];
-    }
 
-    async function loadFootprintBarDetail(barStartedAt) {
-      if (!state.currentReplayIngestionId || !barStartedAt) {
-        state.selectedFootprintBar = null;
-        return;
-      }
-      try {
-        const result = await fetchJson(
-          `/api/v1/workbench/footprint-bar?replay_ingestion_id=${encodeURIComponent(state.currentReplayIngestionId)}&bar_started_at=${encodeURIComponent(barStartedAt)}`,
-        );
-        state.selectedFootprintBar = result;
-      } catch (error) {
-        state.selectedFootprintBar = {
-          error: error.message || String(error),
-        };
-      }
-    }
 
-    function syncEntryDefaultsFromSnapshot() {
-      if (!state.snapshot) {
-        return;
-      }
-      const windowEnd = new Date(state.snapshot.window_end);
-      const localValue = `${windowEnd.getFullYear()}-${String(windowEnd.getMonth() + 1).padStart(2, "0")}-${String(windowEnd.getDate()).padStart(2, "0")}T${String(windowEnd.getHours()).padStart(2, "0")}:${String(windowEnd.getMinutes()).padStart(2, "0")}`;
-      if (!els.entryExecutedAt.value) {
-        els.entryExecutedAt.value = localValue;
-      }
-      if (!els.entryPrice.value && state.snapshot.candles?.length) {
-        els.entryPrice.value = state.snapshot.candles[state.snapshot.candles.length - 1].close.toFixed(2);
-      }
-    }
-
-    function renderBuildSummary() {
-      const result = state.buildResponse;
-      if (!result) {
-        els.buildSummary.className = "empty-note";
-        els.buildSummary.textContent = "还没有构建结果。";
-        return;
-      }
-
-      const summaryParts = [
-        `<div class="info-card"><h4>构建动作</h4><p class="mono">${escapeHtml(translateAction(result.action))}</p></div>`,
-        `<div class="info-card"><h4>原因</h4><p>${escapeHtml(result.reason)}</p></div>`,
-        `<div class="info-card"><h4>本地连续流消息</h4><p class="mono">${escapeHtml(String(result.local_message_count))}</p></div>`,
-      ];
-
-      if (result.summary) {
-        summaryParts.push(
-          `<div class="info-card"><h4>核对状态</h4><p class="mono">${escapeHtml(translateVerificationStatus(result.summary.verification_status))} / ${escapeHtml(String(result.summary.verification_count))}</p></div>`,
-          `<div class="info-card"><h4>采集来源</h4><p class="mono">${escapeHtml(translateAcquisitionMode(result.summary.acquisition_mode))}</p></div>`,
-          `<div class="info-card"><h4>K 线数量</h4><p class="mono">${escapeHtml(String(result.summary.candle_count))}</p></div>`
-        );
-      }
-
-      const digest = state.snapshot?.raw_features?.history_footprint_digest;
-      if (digest) {
-        summaryParts.push(
-          `<div class="info-card"><h4>历史足迹摘要</h4><p class="mono">bars=${escapeHtml(String(digest.bar_count || 0))} price_levels=${escapeHtml(String(digest.price_level_count || 0))}</p></div>`
-        );
-      }
-
-      if (result.atas_fetch_request) {
-        summaryParts.push(
-          `<div class="info-card"><h4>需要向 ATAS 补抓</h4><p class="mono">${escapeHtml(JSON.stringify(result.atas_fetch_request, null, 2))}</p></div>`
-        );
-      }
-
-      els.buildSummary.className = "meta-grid";
-      els.buildSummary.innerHTML = summaryParts.join("");
-    }
-
-    function renderFocusRegions() {
-      const focusRegions = state.snapshot?.focus_regions || [];
-      els.focusRegions.innerHTML = "";
-      if (!focusRegions.length) {
-        els.focusRegions.innerHTML = `<div class="empty-note">当前回放没有重点区域。</div>`;
-        return;
-      }
-      focusRegions.forEach((region) => {
-        const card = document.createElement("div");
-        card.className = "info-card";
-        card.innerHTML = `
-          <h4>${escapeHtml(region.label)}</h4>
-          <p class="mono">${escapeHtml(region.price_low.toFixed(2))} - ${escapeHtml(region.price_high.toFixed(2))}</p>
-          <p>优先级=${escapeHtml(String(region.priority))}</p>
-          ${renderList(region.reason_codes)}
-          ${renderList(region.notes)}
-        `;
-        els.focusRegions.appendChild(card);
-      });
-    }
-
-    function renderStrategyCandidates() {
-      const candidates = state.snapshot?.strategy_candidates || [];
-      els.strategyCandidates.innerHTML = "";
-      if (!candidates.length) {
-        els.strategyCandidates.innerHTML = `<div class="empty-note">当前 replay 没有匹配到策略卡片。</div>`;
-        return;
-      }
-      candidates.forEach((candidate) => {
-        const card = document.createElement("div");
-        card.className = "info-card";
-        card.innerHTML = `
-          <h4>${escapeHtml(candidate.title)}</h4>
-          <p class="mono">${escapeHtml(candidate.strategy_id)}</p>
-          <p class="mono">${escapeHtml(candidate.source_path)}</p>
-          ${renderList(candidate.why_relevant)}
-        `;
-        els.strategyCandidates.appendChild(card);
-      });
-    }
-
-    function renderOperatorEntries() {
-      const entries = state.operatorEntries || [];
-      els.operatorEntries.innerHTML = "";
-      if (!entries.length) {
-        els.operatorEntries.innerHTML = `<div class="empty-note">当前 replay 还没有记录开仓。</div>`;
-        return;
-      }
-      entries.forEach((entry) => {
-        const card = document.createElement("div");
-        card.className = "info-card";
-        card.innerHTML = `
-          <h4>${escapeHtml(entry.side === "buy" ? "多头" : "空头")} @ ${escapeHtml(entry.entry_price.toFixed(2))}</h4>
-          <p class="mono">${escapeHtml(new Date(entry.executed_at).toLocaleString())}</p>
-          <p class="mono">数量=${escapeHtml(String(entry.quantity ?? ""))} 止损=${escapeHtml(entry.stop_price != null ? entry.stop_price.toFixed(2) : "n/a")}</p>
-          <p>${escapeHtml(entry.thesis || "")}</p>
-          ${renderList(entry.context_notes)}
-        `;
-        els.operatorEntries.appendChild(card);
-      });
-    }
-
-    function renderManualRegions() {
-      const regions = state.manualRegions || [];
-      els.manualRegions.innerHTML = "";
-      if (!regions.length) {
-        els.manualRegions.innerHTML = `<div class="empty-note">当前还没有手工区域。点击“开始框选区域”，在图上拖出一个时间-价格区域后保存。</div>`;
-        return;
-      }
-      regions.forEach((region) => {
-        const card = document.createElement("div");
-        card.className = "info-card";
-        card.innerHTML = `
-          <h4>${escapeHtml(region.label)}</h4>
-          <p class="mono">${escapeHtml(Number(region.price_low).toFixed(2))} - ${escapeHtml(Number(region.price_high).toFixed(2))}</p>
-          <p class="mono">${escapeHtml(new Date(region.started_at).toLocaleString())} -> ${escapeHtml(new Date(region.ended_at).toLocaleString())}</p>
-          <p>${escapeHtml(region.thesis)}</p>
-          ${renderList(region.notes)}
-          ${renderList(region.tags)}
-        `;
-        els.manualRegions.appendChild(card);
-      });
-    }
-
-    function renderSelectedCandle() {
-      const snapshot = state.snapshot;
-      const candle = snapshot?.candles?.[state.selectedCandleIndex ?? -1];
-      if (!candle) {
-        els.selectedCandle.className = "empty-note";
-        els.selectedCandle.textContent = "点击图上的 K 线，查看该 bar 的 OHLC、bid/ask、delta 和 footprint 细节。";
-        return;
-      }
-      const detail = state.selectedFootprintBar;
-      els.selectedCandle.className = "card-list";
-      els.selectedCandle.innerHTML = `
-        <div class="info-card">
-          <h4>${escapeHtml(new Date(candle.started_at).toLocaleString())}</h4>
-          <p class="mono">O ${escapeHtml(Number(candle.open).toFixed(2))} H ${escapeHtml(Number(candle.high).toFixed(2))} L ${escapeHtml(Number(candle.low).toFixed(2))} C ${escapeHtml(Number(candle.close).toFixed(2))}</p>
-          <p class="mono">成交量=${escapeHtml(String(candle.volume ?? "n/a"))} Delta=${escapeHtml(String(candle.delta ?? "n/a"))} Bid=${escapeHtml(String(candle.bid_volume ?? "n/a"))} Ask=${escapeHtml(String(candle.ask_volume ?? "n/a"))}</p>
-          ${detail?.price_levels ? `<p class="mono">足迹价位层数=${escapeHtml(String(detail.price_levels.length))}</p>` : ""}
-          ${detail?.error ? `<p>${escapeHtml(detail.error)}</p>` : ""}
-        </div>
-      `;
-    }
-
-    function renderFootprintLadder() {
-      const detail = state.selectedFootprintBar;
-      if (!detail || detail.error) {
-        els.footprintLadder.className = "empty-note";
-        els.footprintLadder.textContent = detail?.error || "历史 footprint 细节会在选中 K 线后加载。";
-        return;
-      }
-      const levels = detail.price_levels || [];
-      if (!levels.length) {
-        els.footprintLadder.className = "empty-note";
-        els.footprintLadder.textContent = "当前 bar 没有历史 footprint 价位明细。";
-        return;
-      }
-      const rows = levels.slice(0, 120).map((level) => `
-        <div class="ladder-row">
-          <span class="price">${escapeHtml(Number(level.price).toFixed(2))}</span>
-          <span class="bid">${escapeHtml(String(level.bid_volume ?? 0))}</span>
-          <span class="ask">${escapeHtml(String(level.ask_volume ?? 0))}</span>
-          <span>${escapeHtml(String(level.delta ?? 0))}</span>
-        </div>
-      `).join("");
-      els.footprintLadder.className = "ladder";
-      els.footprintLadder.innerHTML = `
-        <div class="ladder-header">
-          <span>价位</span>
-          <span>Bid</span>
-          <span>Ask</span>
-          <span>Delta</span>
-        </div>
-        ${rows}
-      `;
-    }
-
-    function renderAiBriefing() {
-      const briefing = state.snapshot?.ai_briefing;
-      if (!briefing) {
-        els.aiBriefing.className = "empty-note";
-        els.aiBriefing.textContent = "当前回放还没有 AI 简报。";
-        return;
-      }
-      els.aiBriefing.className = "card-list";
-      els.aiBriefing.innerHTML = `
-        <div class="info-card">
-          <h4>任务目标</h4>
-          <p>${escapeHtml(briefing.objective)}</p>
-        </div>
-        <div class="info-card">
-          <h4>重点问题</h4>
-          ${renderList(briefing.focus_questions)}
-        </div>
-        <div class="info-card">
-          <h4>要求输出</h4>
-          ${renderList(briefing.required_outputs)}
-        </div>
-        <div class="info-card">
-          <h4>备注</h4>
-          ${renderList(briefing.notes)}
-        </div>
-      `;
-    }
-
-    function renderAiReview() {
-      const reviewResult = state.aiReview;
-      if (!reviewResult) {
-        els.aiReview.className = "empty-note";
-        els.aiReview.textContent = state.currentReplayIngestionId
-          ? "当前 replay 还没有 AI 复盘。点击“AI 分析”生成或复用。"
-          : "当前还没有可分析的 replay。先构建回放。";
-        return;
-      }
-
-      const review = reviewResult.review;
-      const keyZonesHtml = review.key_zones?.length
-        ? review.key_zones.map((zone) => `
-            <div class="info-card">
-              <h4>${escapeHtml(zone.label)}</h4>
-              <p class="mono">${escapeHtml(zone.zone_low.toFixed(2))} - ${escapeHtml(zone.zone_high.toFixed(2))}</p>
-              <p>角色=${escapeHtml(zone.role)} 强度=${escapeHtml(zone.strength_score.toFixed(2))}</p>
-              ${renderList(zone.evidence)}
-            </div>
-          `).join("")
-        : `<div class="empty-note">AI 没有返回重点区域。</div>`;
-      const invalidationsHtml = review.invalidations?.length
-        ? review.invalidations.map((item) => `
-            <div class="info-card">
-              <h4>${escapeHtml(item.label)}</h4>
-              <p class="mono">${escapeHtml(item.price.toFixed(2))}</p>
-              <p>${escapeHtml(item.reason)}</p>
-            </div>
-          `).join("")
-        : `<div class="empty-note">AI 没有返回失效位。</div>`;
-      const entryReviewsHtml = review.entry_reviews?.length
-        ? review.entry_reviews.map((entryReview) => `
-            <div class="info-card">
-              <h4>${escapeHtml(entryReview.entry_id)} / ${escapeHtml(entryReview.verdict)}</h4>
-              <p class="mono">上下文匹配=${escapeHtml(entryReview.context_alignment_score.toFixed(2))}</p>
-              <h4>理由</h4>
-              ${renderList(entryReview.rationale)}
-              <h4>问题</h4>
-              ${renderList(entryReview.mistakes)}
-              <h4>更好条件</h4>
-              ${renderList(entryReview.better_conditions)}
-            </div>
-          `).join("")
-        : `<div class="empty-note">当前 AI 复盘还没有逐条开仓评价。</div>`;
-
-      els.aiReview.className = "card-list";
-      els.aiReview.innerHTML = `
-        <div class="info-card">
-          <h4>总结</h4>
-          <p>${escapeHtml(review.narrative_summary)}</p>
-        </div>
-        <div class="info-card">
-          <h4>优先剧本</h4>
-          <p class="mono">${escapeHtml(review.script_review.preferred_script)}</p>
-          <h4>偏好理由</h4>
-          ${renderList(review.script_review.preferred_rationale)}
-          <h4>延续条件</h4>
-          ${renderList(review.script_review.continuation_case)}
-          <h4>反转条件</h4>
-          ${renderList(review.script_review.reversal_case)}
-        </div>
-        <div class="info-card">
-          <h4>模型来源</h4>
-          <p class="mono">${escapeHtml(reviewResult.provider)} / ${escapeHtml(reviewResult.model)}</p>
-          <p class="mono">保存时间=${escapeHtml(new Date(reviewResult.stored_at).toLocaleString())}</p>
-        </div>
-        ${entryReviewsHtml}
-        ${keyZonesHtml}
-        ${invalidationsHtml}
-        <div class="info-card">
-          <h4>禁止开仓提示</h4>
-          ${renderList(review.no_trade_guidance)}
-        </div>
-        <div class="info-card">
-          <h4>操作员关注点</h4>
-          ${renderList(review.operator_focus)}
-        </div>
-        <div class="info-card">
-          <h4>未解决冲突</h4>
-          ${renderList(review.unresolved_conflicts)}
-        </div>
-      `;
-    }
-
-    function renderAiChat() {
-      renderAiThreadTabs();
-      const thread = getActiveThread();
-      const messages = thread.messages || [];
-      els.aiChatThread.innerHTML = "";
-      if (!messages.length) {
-        els.aiChatThread.innerHTML = `<div class="empty-note">当前还没有 AI 对话。先构建回放，再点击预设按钮或直接提问。</div>`;
-        return;
-      }
-
-      messages.forEach((message) => {
-        const bubble = document.createElement("div");
-        bubble.className = `chat-bubble ${message.role}`;
-        const meta = message.meta || {};
-        const chips = [];
-        if (meta.preset) {
-          chips.push(`<span class="chip">${escapeHtml(meta.preset)}</span>`);
-        }
-        if (meta.provider && meta.model) {
-          chips.push(`<span class="chip emphasis">${escapeHtml(`${meta.provider}/${meta.model}`)}</span>`);
-        }
-        if (meta.referenced_strategy_ids?.length) {
-          meta.referenced_strategy_ids.forEach((item) => {
-            chips.push(`<span class="chip">${escapeHtml(item)}</span>`);
-          });
-        }
-        bubble.innerHTML = `
-          <h4>${escapeHtml(message.role === "user" ? "交易员" : "AI 副驾驶")}</h4>
-          <p>${escapeHtml(message.content)}</p>
-          ${chips.length ? `<div class="chat-meta">${chips.join("")}</div>` : ""}
-          ${meta.live_context_summary?.length ? `<div class="chat-meta">${meta.live_context_summary.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}
-          ${meta.follow_up_suggestions?.length ? `<div class="chat-meta">${meta.follow_up_suggestions.map((item) => `<span class="chip warn">${escapeHtml(item)}</span>`).join("")}</div>` : ""}
-        `;
-        els.aiChatThread.appendChild(bubble);
-      });
-
-      els.aiChatThread.scrollTop = els.aiChatThread.scrollHeight;
-    }
-
-    function renderEventTimeline() {
-      const events = state.snapshot?.event_annotations || [];
-      els.eventTimeline.innerHTML = "";
-      if (!events.length) {
-        els.eventTimeline.innerHTML = `<div class="empty-note">当前 replay 没有事件标注。</div>`;
-        return;
-      }
-      events.forEach((event) => {
-        const card = document.createElement("div");
-        card.className = "info-card";
-        const priceText = event.price != null
-          ? event.price.toFixed(2)
-          : `${Number(event.price_low ?? 0).toFixed(2)} - ${Number(event.price_high ?? 0).toFixed(2)}`;
-        card.innerHTML = `
-          <h4>${escapeHtml(event.event_kind)}</h4>
-          <p class="mono">${escapeHtml(new Date(event.observed_at).toLocaleString())}</p>
-          <p class="mono">${escapeHtml(priceText)}</p>
-          ${renderList(event.notes)}
-        `;
-        els.eventTimeline.appendChild(card);
-      });
-    }
 
     function renderSnapshot() {
       renderBuildSummary();
@@ -2180,345 +1723,7 @@
       svg.dataset.rangeEnd = xToTime(leftPad + chartWidth);
     }
 
-    function visibleSpan() {
-      if (!state.chartView) {
-        return 0;
-      }
-      return state.chartView.endIndex - state.chartView.startIndex + 1;
-    }
 
-    function zoomChart(factor) {
-      const snapshot = state.snapshot;
-      if (!snapshot?.candles?.length || !state.chartView) {
-        return;
-      }
-      const total = snapshot.candles.length;
-      const currentSpan = visibleSpan();
-      const targetSpan = Math.max(20, Math.min(total, Math.round(currentSpan * factor)));
-      const center = Math.round((state.chartView.startIndex + state.chartView.endIndex) / 2);
-      let startIndex = center - Math.floor(targetSpan / 2);
-      let endIndex = startIndex + targetSpan - 1;
-      if (startIndex < 0) {
-        startIndex = 0;
-        endIndex = targetSpan - 1;
-      }
-      if (endIndex >= total) {
-        endIndex = total - 1;
-        startIndex = Math.max(0, endIndex - targetSpan + 1);
-      }
-      state.chartView = clampChartView(total, startIndex, endIndex, state.chartView);
-      renderSnapshot();
-    }
-
-    function zoomPriceAxis(factor) {
-      if (!state.snapshot?.candles?.length || !state.chartView || state.chartView.yMin == null || state.chartView.yMax == null) {
-        return;
-      }
-      const currentSpan = state.chartView.yMax - state.chartView.yMin;
-      const targetSpan = Math.max(0.5, currentSpan * factor);
-      const center = (state.chartView.yMin + state.chartView.yMax) / 2;
-      state.chartView.yMin = center - (targetSpan / 2);
-      state.chartView.yMax = center + (targetSpan / 2);
-      renderChart();
-    }
-
-    function resetChartView() {
-      if (!state.snapshot?.candles?.length) {
-        return;
-      }
-      state.chartView = {
-        startIndex: 0,
-        endIndex: state.snapshot.candles.length - 1,
-        yMin: null,
-        yMax: null,
-      };
-      renderSnapshot();
-    }
-
-    function chartMouseToModel(event) {
-      const metrics = state.chartMetrics;
-      if (!metrics) {
-        return null;
-      }
-      const rect = els.chartSvg.getBoundingClientRect();
-      const x = ((event.clientX - rect.left) / rect.width) * metrics.width;
-      const y = ((event.clientY - rect.top) / rect.height) * metrics.height;
-      if (x < metrics.leftPad || x > metrics.width - metrics.rightPad || y < metrics.topPad || y > metrics.height - metrics.bottomPad) {
-        return null;
-      }
-      const ratioX = (x - metrics.leftPad) / metrics.chartWidth;
-      const ratioY = (y - metrics.topPad) / metrics.chartHeight;
-      const timestamp = metrics.visibleStartTime + ratioX * (metrics.visibleEndTime - metrics.visibleStartTime);
-      const price = metrics.yMax - ratioY * (metrics.yMax - metrics.yMin);
-      return { x, y, timestamp, price };
-    }
-
-    function pickCandleIndexFromEvent(event) {
-      const model = chartMouseToModel(event);
-      const snapshot = state.snapshot;
-      if (!model || !snapshot?.candles?.length || !state.chartView) {
-        return null;
-      }
-      const localIndex = Math.max(0, Math.min(visibleSpan() - 1, Math.floor((model.x - state.chartMetrics.leftPad) / state.chartMetrics.candleSpacing)));
-      return state.chartView.startIndex + localIndex;
-    }
-
-    async function selectCandle(globalIndex) {
-      const snapshot = state.snapshot;
-      const candle = snapshot?.candles?.[globalIndex];
-      if (!candle) {
-        return;
-      }
-      state.selectedCandleIndex = globalIndex;
-      state.selectedFootprintBar = null;
-      renderSelectedCandle();
-      renderFootprintLadder();
-      await loadFootprintBarDetail(candle.started_at);
-      renderSelectedCandle();
-      renderFootprintLadder();
-      renderChart();
-    }
-
-    function beginRegionDraft(event) {
-      const model = chartMouseToModel(event);
-      if (!model) {
-        return;
-      }
-      state.chartInteraction.draftRegion = {
-        started_at: new Date(model.timestamp).toISOString(),
-        ended_at: new Date(model.timestamp).toISOString(),
-        price_low: model.price,
-        price_high: model.price,
-      };
-      renderChart();
-    }
-
-    function updateRegionDraft(event) {
-      const model = chartMouseToModel(event);
-      const draft = state.chartInteraction.draftRegion;
-      if (!model || !draft) {
-        return;
-      }
-      const startTime = new Date(draft.started_at).getTime();
-      draft.ended_at = new Date(model.timestamp).toISOString();
-      draft.price_low = Math.min(draft.price_low, model.price);
-      draft.price_high = Math.max(draft.price_high, model.price);
-      if (model.timestamp < startTime) {
-        draft.started_at = new Date(model.timestamp).toISOString();
-        draft.ended_at = new Date(startTime).toISOString();
-      }
-      renderChart();
-    }
-
-    async function saveDraftRegion() {
-      const draft = state.chartInteraction.draftRegion;
-      if (!draft || !state.currentReplayIngestionId) {
-        throw new Error("当前没有可保存的框选区域。");
-      }
-      const result = await fetchJson("/api/v1/workbench/manual-regions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          replay_ingestion_id: state.currentReplayIngestionId,
-          label: els.regionLabel.value.trim() || "手工区域",
-          thesis: els.regionThesis.value.trim() || "交易员手工标注区域",
-          price_low: draft.price_low,
-          price_high: draft.price_high,
-          started_at: draft.started_at,
-          ended_at: draft.ended_at,
-          side_bias: els.regionSideBias.value || null,
-          notes: (els.regionNotes.value || "").split("\n").map((item) => item.trim()).filter(Boolean),
-          tags: (els.regionTags.value || "").split(",").map((item) => item.trim()).filter(Boolean),
-        }),
-      });
-      state.manualRegions.push(result.region);
-      state.manualRegions.sort((left, right) => new Date(left.started_at) - new Date(right.started_at));
-      state.chartInteraction.draftRegion = null;
-      state.chartInteraction.regionMode = false;
-      renderStatusStrip([{ label: "手工区域已保存", variant: "good" }]);
-      renderSnapshot();
-    }
-
-    async function handleBuild() {
-      if (state.buildInFlight) {
-        return;
-      }
-      try {
-        state.buildInFlight = true;
-        setBuildProgress(true, 8, "准备窗口与参数");
-        const payload = buildRequestPayload();
-        setBuildProgress(true, 28, "请求后端构建历史回放");
-        const result = await fetchJson("/api/v1/workbench/replay-builder/build", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        state.buildResponse = result;
-        state.snapshot = null;
-        state.aiReview = null;
-        state.currentReplayIngestionId = result.ingestion_id || null;
-        renderStatusStrip(buildStatusChips(result));
-        if (result.ingestion_id) {
-          setBuildProgress(true, 72, "载入回放快照与足迹摘要");
-          await loadSnapshotByIngestionId(result.ingestion_id);
-          setBuildProgress(true, 94, "渲染图表与事件层");
-        } else {
-          renderSnapshot();
-        }
-        setBuildProgress(true, 100, "加载完成");
-        window.setTimeout(() => setBuildProgress(false, 0, "正在加载历史数据"), 420);
-      } catch (error) {
-        setBuildProgress(false, 0, "正在加载历史数据");
-        renderError(error);
-      } finally {
-        state.buildInFlight = false;
-      }
-    }
-
-    async function handleLookup() {
-      try {
-        const cacheKey = els.cacheKey.value.trim();
-        const result = await fetchJson(`/api/v1/workbench/replay-cache?cache_key=${encodeURIComponent(cacheKey)}`);
-        state.buildResponse = {
-          action: result.record ? "cache_hit" : "atas_fetch_required",
-          cache_key: result.cache_key,
-          reason: result.record ? "已找到当前缓存记录。" : "当前没有命中缓存。",
-          local_message_count: 0,
-          replay_snapshot_id: result.record?.replay_snapshot_id || null,
-          ingestion_id: result.record?.ingestion_id || null,
-          summary: result.record ? {
-            instrument_symbol: result.record.instrument_symbol,
-            display_timeframe: result.record.display_timeframe,
-            acquisition_mode: result.record.acquisition_mode,
-            verification_status: result.record.verification_state.status,
-            verification_count: result.record.verification_state.verification_count,
-            locked_until_manual_reset: result.record.verification_state.locked_until_manual_reset,
-            fetch_only_when_missing: result.record.cache_policy.fetch_only_when_missing,
-            max_verifications_per_day: result.record.cache_policy.max_verifications_per_day,
-            verification_passes_to_lock: result.record.cache_policy.verification_passes_to_lock,
-            candle_count: result.record.candle_count,
-            event_annotation_count: result.record.event_annotation_count,
-            focus_region_count: result.record.focus_region_count,
-            strategy_candidate_count: result.record.strategy_candidate_count,
-            has_ai_briefing: result.record.has_ai_briefing,
-          } : null,
-          cache_record: result.record,
-          atas_fetch_request: result.record ? null : { cache_key: result.cache_key, instrument_symbol: els.instrumentSymbol.value.trim() },
-        };
-        state.aiReview = null;
-        state.currentReplayIngestionId = result.record?.ingestion_id || null;
-        renderStatusStrip([
-          { label: result.record ? "缓存已命中" : "缓存不存在", variant: result.record ? "good" : "warn" },
-          { label: result.auto_fetch_allowed ? "允许自动补抓" : "当前禁止自动补抓", variant: result.auto_fetch_allowed ? "emphasis" : "" },
-          { label: result.verification_due_now ? "当前需要核对" : "当前无需核对", variant: result.verification_due_now ? "emphasis" : "" },
-        ]);
-        if (result.record?.ingestion_id) {
-          await loadSnapshotByIngestionId(result.record.ingestion_id);
-        } else {
-          state.snapshot = null;
-          renderSnapshot();
-        }
-      } catch (error) {
-        renderError(error);
-      }
-    }
-
-    async function handleInvalidate() {
-      try {
-        const cacheKey = els.cacheKey.value.trim();
-        const reason = els.invalidateReason.value.trim();
-        const result = await fetchJson("/api/v1/workbench/replay-cache/invalidate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cache_key: cacheKey,
-            invalidation_reason: reason,
-          }),
-        });
-        renderStatusStrip([
-          { label: "缓存已作废", variant: "warn" },
-          { label: translateVerificationStatus(result.verification_status), variant: "warn" },
-        ]);
-        state.snapshot = null;
-        state.operatorEntries = [];
-        state.aiReview = null;
-        state.currentReplayIngestionId = null;
-        state.buildResponse = {
-          action: "atas_fetch_required",
-          cache_key: result.cache_key,
-          reason: `回放缓存已作废：${result.invalidation_reason}`,
-          local_message_count: 0,
-          replay_snapshot_id: result.replay_snapshot_id,
-          ingestion_id: result.ingestion_id,
-          summary: null,
-          cache_record: null,
-          atas_fetch_request: { cache_key: result.cache_key, manual_reimport_required: true },
-        };
-        renderSnapshot();
-      } catch (error) {
-        renderError(error);
-      }
-    }
-
-    async function handleRecordEntry() {
-      try {
-        if (!state.currentReplayIngestionId) {
-          throw new Error("没有可绑定的 replay。先构建回放。");
-        }
-        const result = await fetchJson("/api/v1/workbench/operator-entries", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            replay_ingestion_id: state.currentReplayIngestionId,
-            executed_at: toUtcString(els.entryExecutedAt.value),
-            side: els.entrySide.value,
-            entry_price: Number(els.entryPrice.value),
-            quantity: els.entryQuantity.value ? Number(els.entryQuantity.value) : null,
-            stop_price: els.entryStopPrice.value ? Number(els.entryStopPrice.value) : null,
-            timeframe_context: els.entryTimeframe.value || null,
-            thesis: els.entryThesis.value.trim() || null,
-            context_notes: els.entryThesis.value.trim() ? [els.entryThesis.value.trim()] : [],
-            tags: ["manual_entry_review"],
-          }),
-        });
-        state.operatorEntries.push(result.entry);
-        state.operatorEntries.sort((left, right) => new Date(left.executed_at) - new Date(right.executed_at));
-        state.aiReview = null;
-        renderStatusStrip([
-          { label: "开仓记录已保存", variant: "good" },
-          { label: `${result.entry.side === "buy" ? "多" : "空"} ${Number(result.entry.entry_price).toFixed(2)}`, variant: "emphasis" },
-        ]);
-        renderSnapshot();
-      } catch (error) {
-        renderError(error, { preserveSnapshot: true });
-      }
-    }
-
-    async function handleAiReview() {
-      try {
-        if (!state.currentReplayIngestionId) {
-          throw new Error("没有可分析的 replay ingestion。先构建回放。");
-        }
-        renderStatusStrip([{ label: "AI 复盘生成中", variant: "emphasis" }]);
-        const result = await fetchJson("/api/v1/workbench/replay-ai-review", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            replay_ingestion_id: state.currentReplayIngestionId,
-            model_override: els.aiModelOverride.value.trim() || null,
-            force_refresh: els.forceAiRefresh.checked,
-          }),
-        });
-        state.aiReview = result;
-        renderStatusStrip([
-          { label: "AI 复盘已完成", variant: "good" },
-          { label: result.model, variant: "emphasis" },
-        ]);
-        renderSnapshot();
-      } catch (error) {
-        renderAiError(error);
-      }
-    }
 
     async function handleBuildWithForceRefresh() {
       const previous = els.forceRebuild.checked;
@@ -2659,29 +1864,7 @@
       els.aiReview.textContent = error.message || String(error);
     }
 
-    async function handleSaveRegion() {
-      try {
-        await saveDraftRegion();
-      } catch (error) {
-        renderStatusStrip([{ label: "区域保存失败", variant: "warn" }]);
-      }
-    }
 
-    function renderList(items) {
-      if (!items || !items.length) {
-        return `<p></p>`;
-      }
-      return `<ul>${items.map((item) => `<li>${escapeHtml(String(item))}</li>`).join("")}</ul>`;
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll("\"", "&quot;")
-        .replaceAll("'", "&#39;");
-    }
 
     els.buildButton.addEventListener("click", handleBuildWithForceRefresh);
     els.preset7d1mButton.addEventListener("click", async () => {
