@@ -1136,6 +1136,9 @@
     import { createWorkbenchActions } from "./replay_workbench_actions.js";
     import { createAiChatController } from "./replay_workbench_ai_chat.js";
     import { createWorkbenchFeedback } from "./replay_workbench_feedback.js";
+    import { createWorkbenchShell } from "./replay_workbench_shell.js";
+    import { createWorkbenchBindings } from "./replay_workbench_bindings.js";
+    import { appendChartOverlayMarkup } from "./replay_workbench_chart_overlays.js";
     const state = {
       buildResponse: null,
       snapshot: null,
@@ -1258,31 +1261,6 @@
     state.autoBootstrapped = false;
     state.pendingChartRerender = false;
 
-
-    function scheduleChartRerender() {
-      if (state.pendingChartRerender) {
-        return;
-      }
-      state.pendingChartRerender = true;
-      window.requestAnimationFrame(() => {
-        state.pendingChartRerender = false;
-        if (state.snapshot?.candles?.length) {
-          renderChart();
-        }
-      });
-    }
-
-    function setBuildProgress(active, percent = 0, label = "") {
-      els.buildProgress.classList.toggle("active", active);
-      els.buildProgressFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-      els.buildProgressPercent.textContent = `${Math.round(Math.max(0, Math.min(100, percent)))}%`;
-      if (label) {
-        els.buildProgressLabel.textContent = label;
-      }
-    }
-
-
-
     const {
       applyLayoutWidths,
       setLeftPanelCollapsed,
@@ -1291,7 +1269,11 @@
       updateLayoutDrag,
       finishLayoutDrag,
       initializePanelToggles,
-    } = createLayoutController({ els, state, scheduleChartRerender });
+    } = createLayoutController({
+      els,
+      state,
+      scheduleChartRerender: (...args) => scheduleChartRerender(...args),
+    });
 
     const { ensureChartView } = createChartViewHelpers({ state });
     const { buildCacheKey, syncCacheKey, applyWindowPreset } = createCacheKeyHelpers({ els });
@@ -1370,6 +1352,18 @@
     });
 
     const {
+      scheduleChartRerender,
+      setBuildProgress,
+      initializeSectionToggles,
+      handleBuildWithForceRefresh,
+    } = createWorkbenchShell({
+      state,
+      els,
+      renderChart,
+      getHandleBuild: () => handleBuild,
+    });
+
+    const {
       saveDraftRegion,
       handleBuild,
       handleLookup,
@@ -1413,44 +1407,40 @@
       createThreadId,
     });
 
-    function initializeSectionToggles() {
-      document.querySelectorAll(".sidebar .section").forEach((section, index) => {
-        if (section.dataset.toggleReady === "true") {
-          return;
-        }
-        const heading = section.querySelector(":scope > h3");
-        if (!heading) {
-          return;
-        }
-        const content = document.createElement("div");
-        content.className = "section-content";
-        while (heading.nextSibling) {
-          content.appendChild(heading.nextSibling);
-        }
-        const header = document.createElement("div");
-        header.className = "section-header";
-        const title = document.createElement("h3");
-        title.textContent = heading.textContent;
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "section-toggle";
-        toggle.textContent = "收起";
-        toggle.addEventListener("click", () => {
-          const collapsed = section.classList.toggle("collapsed");
-          toggle.textContent = collapsed ? "展开" : "收起";
-        });
-        header.appendChild(title);
-        header.appendChild(toggle);
-        section.innerHTML = "";
-        section.appendChild(header);
-        section.appendChild(content);
-        section.dataset.toggleReady = "true";
-        if (index >= 4) {
-          section.classList.add("collapsed");
-          toggle.textContent = "展开";
-        }
-      });
-    }
+    const { attachBindings, bootstrap } = createWorkbenchBindings({
+      state,
+      els,
+      applyWindowPreset,
+      handleBuildWithForceRefresh,
+      handleAiReview,
+      handlePresetAnalysis,
+      buildManualRegionAnalysisPrompt,
+      buildSelectedBarAnalysisPrompt,
+      renderStatusStrip,
+      createNewThread,
+      handleAiChatSend,
+      zoomChart,
+      zoomPriceAxis,
+      resetChartView,
+      renderSnapshot,
+      handleSaveRegion,
+      handleRecordEntry,
+      handleLookup,
+      handleInvalidate,
+      syncCacheKey,
+      beginRegionDraft,
+      updateLayoutDrag,
+      updateRegionDraft,
+      visibleSpan,
+      clampChartView,
+      pickCandleIndexFromEvent,
+      selectCandle,
+      finishLayoutDrag,
+      renderChart,
+      initializePanelToggles,
+      initializeSectionToggles,
+      scheduleChartRerender,
+    });
 
     function buildRequestPayload() {
       syncCacheKey();
@@ -1584,16 +1574,16 @@
         ? "crosshair"
         : (state.chartInteraction.panStartX != null ? "grabbing" : "grab");
 
-      let markup = "";
-      markup += `<rect x="0" y="0" width="${width}" height="${height}" fill="#131722" />`;
-      markup += `<rect x="${leftPad}" y="${topPad}" width="${chartWidth}" height="${chartHeight}" fill="rgba(19,23,34,0.98)" rx="10" />`;
-      markup += `<rect x="${leftPad}" y="${volumeTop}" width="${chartWidth}" height="${volumeHeight}" fill="rgba(19,23,34,0.98)" rx="10" />`;
+      const markupParts = [];
+      markupParts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="#131722" />`);
+      markupParts.push(`<rect x="${leftPad}" y="${topPad}" width="${chartWidth}" height="${chartHeight}" fill="rgba(19,23,34,0.98)" rx="10" />`);
+      markupParts.push(`<rect x="${leftPad}" y="${volumeTop}" width="${chartWidth}" height="${volumeHeight}" fill="rgba(19,23,34,0.98)" rx="10" />`);
 
       for (let step = 0; step < 6; step += 1) {
         const price = yMin + ((yMax - yMin) * step) / 5;
         const y = priceToY(price);
-        markup += `<line x1="${leftPad}" y1="${y}" x2="${width - rightPad}" y2="${y}" stroke="rgba(138,148,166,0.14)" stroke-width="1" />`;
-        markup += `<text x="${width - rightPad + 8}" y="${y + 4}" text-anchor="start" font-size="12" fill="#8a94a6">${escapeHtml(price.toFixed(2))}</text>`;
+        markupParts.push(`<line x1="${leftPad}" y1="${y}" x2="${width - rightPad}" y2="${y}" stroke="rgba(138,148,166,0.14)" stroke-width="1" />`);
+        markupParts.push(`<text x="${width - rightPad + 8}" y="${y + 4}" text-anchor="start" font-size="12" fill="#8a94a6">${escapeHtml(price.toFixed(2))}</text>`);
       }
 
       const volumeMax = Math.max(1, ...visibleCandles.map((bar) => Number(bar.volume || 0)));
@@ -1603,34 +1593,10 @@
         const candleIndex = Math.min(visibleCandles.length - 1, Math.round(ratio * (visibleCandles.length - 1)));
         const x = leftPad + candleIndex * candleSpacing + (candleSpacing / 2);
         const label = formatAxisTime(visibleCandles[candleIndex].started_at);
-        markup += `<line x1="${x}" y1="${topPad}" x2="${x}" y2="${volumeTop + volumeHeight}" stroke="rgba(138,148,166,0.09)" stroke-width="1" />`;
-        markup += `<text x="${x}" y="${height - 12}" text-anchor="middle" font-size="11" fill="#8a94a6">${escapeHtml(label)}</text>`;
+        markupParts.push(`<line x1="${x}" y1="${topPad}" x2="${x}" y2="${volumeTop + volumeHeight}" stroke="rgba(138,148,166,0.09)" stroke-width="1" />`);
+        markupParts.push(`<text x="${x}" y="${height - 12}" text-anchor="middle" font-size="11" fill="#8a94a6">${escapeHtml(label)}</text>`);
       }
 
-      focusRegions.forEach((region) => {
-        const regionEnd = region.ended_at || snapshot.window_end;
-        if (!withinVisibleWindow(region.started_at) && !withinVisibleWindow(regionEnd)) {
-          return;
-        }
-        const x1 = timeToX(region.started_at);
-        const x2 = timeToX(regionEnd);
-        const y1 = priceToY(region.price_high);
-        const y2 = priceToY(region.price_low);
-        markup += `<rect x="${Math.min(x1, x2)}" y="${y1}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, y2 - y1)}" fill="rgba(59,130,246,0.12)" stroke="rgba(59,130,246,0.30)" stroke-width="1.2" rx="8" />`;
-        markup += `<text x="${Math.min(x1, x2) + 8}" y="${Math.max(topPad + 14, y1 + 14)}" font-size="12" fill="#93c5fd">${escapeHtml(region.label)}</text>`;
-      });
-
-      manualRegions.forEach((region) => {
-        if (!withinVisibleWindow(region.started_at) && !withinVisibleWindow(region.ended_at)) {
-          return;
-        }
-        const x1 = timeToX(region.started_at);
-        const x2 = timeToX(region.ended_at);
-        const y1 = priceToY(region.price_high);
-        const y2 = priceToY(region.price_low);
-        markup += `<rect x="${Math.min(x1, x2)}" y="${y1}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, y2 - y1)}" fill="rgba(245,158,11,0.12)" stroke="rgba(245,158,11,0.38)" stroke-width="1.4" rx="8" />`;
-        markup += `<text x="${Math.min(x1, x2) + 8}" y="${Math.max(topPad + 14, y1 + 14)}" font-size="12" fill="#fcd34d">${escapeHtml(region.label)}</text>`;
-      });
 
       visibleCandles.forEach((bar, localIndex) => {
         const globalIndex = view.startIndex + localIndex;
@@ -1645,15 +1611,15 @@
         const centerX = x + candleWidth / 2;
         const selected = globalIndex === state.selectedCandleIndex;
         if (selected) {
-          markup += `<rect x="${x - 3}" y="${topPad}" width="${candleWidth + 6}" height="${chartHeight}" fill="rgba(59,130,246,0.10)" rx="8" />`;
+          markupParts.push(`<rect x="${x - 3}" y="${topPad}" width="${candleWidth + 6}" height="${chartHeight}" fill="rgba(59,130,246,0.10)" rx="8" />`);
         }
-        markup += `<line x1="${centerX}" y1="${highY}" x2="${centerX}" y2="${lowY}" stroke="${color}" stroke-width="${selected ? 2.2 : 1.2}" />`;
-        markup += `<rect x="${x}" y="${bodyY}" width="${candleWidth}" height="${bodyHeight}" fill="${color}" rx="2" />`;
+        markupParts.push(`<line x1="${centerX}" y1="${highY}" x2="${centerX}" y2="${lowY}" stroke="${color}" stroke-width="${selected ? 2.2 : 1.2}" />`);
+        markupParts.push(`<rect x="${x}" y="${bodyY}" width="${candleWidth}" height="${bodyHeight}" fill="${color}" rx="2" />`);
 
         const volume = Number(bar.volume || 0);
         const volumeBarHeight = (volume / volumeMax) * (volumeHeight - 18);
         const volumeY = volumeTop + volumeHeight - volumeBarHeight;
-        markup += `<rect x="${x}" y="${volumeY}" width="${candleWidth}" height="${Math.max(1, volumeBarHeight)}" fill="${bar.close >= bar.open ? 'rgba(34,171,148,0.58)' : 'rgba(242,54,69,0.58)'}" rx="1" />`;
+        markupParts.push(`<rect x="${x}" y="${volumeY}" width="${candleWidth}" height="${Math.max(1, volumeBarHeight)}" fill="${bar.close >= bar.open ? 'rgba(34,171,148,0.58)' : 'rgba(242,54,69,0.58)'}" rx="1" />`);
       });
 
       let emaPath = "";
@@ -1663,7 +1629,7 @@
         const y = priceToY(emaSeries[globalIndex]);
         emaPath += `${localIndex === 0 ? "M" : "L"} ${x} ${y} `;
       });
-      markup += `<path d="${emaPath.trim()}" fill="none" stroke="#3b82f6" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />`;
+      markupParts.push(`<path d="${emaPath.trim()}" fill="none" stroke="#3b82f6" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />`);
 
       const priceViewportScale = clampNumber((envelope.max - envelope.min) / Math.max(0.0001, yMax - yMin), 0.75, 2.2);
       const viewportScale = clampNumber(140 / Math.max(visibleCandles.length, 24), 0.55, 2.4);
@@ -1684,62 +1650,42 @@
           const y = priceToY(clampBubblePrice(bubble.topVolumeLevel.price));
           const fill = (bubble.topVolumeLevel.delta || 0) >= 0 ? "rgba(34, 171, 148, 0.26)" : "rgba(242, 54, 69, 0.26)";
           const stroke = (bubble.topVolumeLevel.delta || 0) >= 0 ? "#22ab94" : "#f23645";
-          markup += `<circle cx="${x}" cy="${y}" r="${radius.toFixed(2)}" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />`;
-          markup += `<text x="${x}" y="${y + 4}" text-anchor="middle" font-size="${Math.max(10, radius * 0.55).toFixed(0)}" fill="#d7dde7" font-weight="700">${escapeHtml(String(Math.round(bubble.barVolume)))}</text>`;
+          markupParts.push(`<circle cx="${x}" cy="${y}" r="${radius.toFixed(2)}" fill="${fill}" stroke="${stroke}" stroke-width="1.4" />`);
+          markupParts.push(`<text x="${x}" y="${y + 4}" text-anchor="middle" font-size="${Math.max(10, radius * 0.55).toFixed(0)}" fill="#d7dde7" font-weight="700">${escapeHtml(String(Math.round(bubble.barVolume)))}</text>`);
         }
         if (bubble.topDeltaLevel?.price != null) {
           const y = priceToY(clampBubblePrice(bubble.topDeltaLevel.price));
           const diamond = `${x},${y - radius} ${x + radius},${y} ${x},${y + radius} ${x - radius},${y}`;
           const fill = (bubble.topDeltaLevel.delta || 0) >= 0 ? "rgba(34, 171, 148, 0.18)" : "rgba(242, 54, 69, 0.18)";
           const stroke = (bubble.topDeltaLevel.delta || 0) >= 0 ? "#22ab94" : "#f23645";
-          markup += `<polygon points="${diamond}" fill="${fill}" stroke="${stroke}" stroke-width="1.6" />`;
+          markupParts.push(`<polygon points="${diamond}" fill="${fill}" stroke="${stroke}" stroke-width="1.6" />`);
         }
       });
 
-      events.forEach((event, index) => {
-        if (!withinVisibleWindow(event.observed_at)) {
-          return;
-        }
-        const x = timeToX(event.observed_at);
-        const anchorPrice = event.price != null
-          ? event.price
-          : (event.price_low != null && event.price_high != null ? (event.price_low + event.price_high) / 2 : visibleCandles[visibleCandles.length - 1].close);
-        const y = priceToY(anchorPrice);
-        const labelY = Math.max(topPad + 18, y - (index % 2 === 0 ? 18 : -24));
-        markup += `<circle cx="${x}" cy="${y}" r="4.2" fill="#f59e0b" stroke="#131722" stroke-width="1.6" />`;
-        if (visibleCandles.length <= 180) {
-          markup += `<line x1="${x}" y1="${y}" x2="${x}" y2="${labelY}" stroke="rgba(245,158,11,0.45)" stroke-width="1.2" />`;
-          markup += `<text x="${clampChartX(x + 8, 12)}" y="${clampChartY(labelY - 4, 12)}" font-size="11" fill="#fcd34d">${escapeHtml(event.event_kind)}</text>`;
-        }
+      appendChartOverlayMarkup({
+        markupParts,
+        focusRegions,
+        manualRegions,
+        operatorEntries,
+        draft: state.chartInteraction.draftRegion,
+        snapshot,
+        events,
+        visibleCandles,
+        visibleCandlesLength: visibleCandles.length,
+        withinVisibleWindow,
+        timeToX,
+        priceToY,
+        topPad,
+        leftPad,
+        chartWidth,
+        chartHeight,
+        volumeTop,
+        volumeHeight,
+        escapeHtml,
+        clampChartX,
+        clampChartY,
       });
-
-      operatorEntries.forEach((entry, index) => {
-        if (!withinVisibleWindow(entry.executed_at)) {
-          return;
-        }
-        const x = clampChartX(timeToX(entry.executed_at), 10);
-        const y = clampChartY(priceToY(entry.entry_price), 12);
-        const color = entry.side === "buy" ? "#8b5cf6" : "#c084fc";
-        const points = `${x},${y - 8} ${x + 8},${y} ${x},${y + 8} ${x - 8},${y}`;
-        const labelY = clampChartY(y + 22 + ((index % 2) * 18), 16);
-        markup += `<polygon points="${points}" fill="${color}" stroke="#d7dde7" stroke-width="1.5" />`;
-        markup += `<line x1="${x}" y1="${y + 8}" x2="${x}" y2="${labelY - 10}" stroke="${color}" stroke-width="1.2" />`;
-        markup += `<text x="${clampChartX(x + 8, 16)}" y="${labelY}" font-size="12" fill="${color}">${escapeHtml(entry.side === "buy" ? "多头开仓" : "空头开仓")}</text>`;
-      });
-
-      const draft = state.chartInteraction.draftRegion;
-      if (draft) {
-        const x1 = timeToX(draft.started_at);
-        const x2 = timeToX(draft.ended_at);
-        const y1 = priceToY(draft.price_high);
-        const y2 = priceToY(draft.price_low);
-        markup += `<rect x="${Math.min(x1, x2)}" y="${y1}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, y2 - y1)}" fill="rgba(109,40,217,0.10)" stroke="rgba(109,40,217,0.55)" stroke-width="1.5" stroke-dasharray="6 4" rx="8" />`;
-      }
-
-      markup += `<rect x="${leftPad}" y="${topPad}" width="${chartWidth}" height="${chartHeight}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.2" rx="12" />`;
-      markup += `<rect x="${leftPad}" y="${volumeTop}" width="${chartWidth}" height="${volumeHeight}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1.1" rx="12" />`;
-      markup += `<rect x="${leftPad}" y="${topPad}" width="${chartWidth}" height="${chartHeight}" fill="transparent" stroke="none" />`;
-      svg.innerHTML = markup;
+      svg.innerHTML = markupParts.join("");
 
       svg.onmousemove = null;
       svg.onmouseleave = null;
@@ -1749,183 +1695,8 @@
 
 
 
-    async function handleBuildWithForceRefresh() {
-      const previous = els.forceRebuild.checked;
-      els.forceRebuild.checked = true;
-      try {
-        await handleBuild();
-      } finally {
-        els.forceRebuild.checked = previous;
-      }
-    }
-
-
-    els.buildButton.addEventListener("click", handleBuildWithForceRefresh);
-    els.preset7d1mButton.addEventListener("click", async () => {
-      applyWindowPreset("5m", 7);
-      await handleBuildWithForceRefresh();
-    });
-    els.preset3d5mButton.addEventListener("click", async () => {
-      applyWindowPreset("1m", 7);
-      await handleBuildWithForceRefresh();
-    });
-    els.preset1d1mButton.addEventListener("click", async () => {
-      applyWindowPreset("5m", 15);
-      await handleBuildWithForceRefresh();
-    });
-    els.aiReviewButton.addEventListener("click", handleAiReview);
-    els.refreshAllButton.addEventListener("click", handleBuildWithForceRefresh);
-    els.recent20BarsButton.addEventListener("click", () => handlePresetAnalysis("recent_20_bars", "请分析最近20根K线，指出哪里不能开仓。"));
-    els.recent20MinutesButton.addEventListener("click", () => handlePresetAnalysis("recent_20_minutes", "请分析最近20分钟K线，说明当前微趋势是否和大趋势配合。"));
-    els.focusRegionsButton.addEventListener("click", () => handlePresetAnalysis("focus_regions", "请分析重点价格区域，标出最该盯的支撑阻力与无效开仓区。"));
-    els.trappedOrdersButton.addEventListener("click", () => handlePresetAnalysis("trapped_large_orders", "请分析大单是否被套，以及哪些区域可能触发解套或止损。"));
-    els.liveDepthButton.addEventListener("click", () => handlePresetAnalysis("live_depth", "请分析实时挂单数据，判断吸收、补单、诱导和当前不该开仓的位置。"));
-    els.manualRegionButton.addEventListener("click", async () => {
-      try {
-        await handlePresetAnalysis("focus_regions", buildManualRegionAnalysisPrompt());
-      } catch (error) {
-        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
-      }
-    });
-    els.selectedBarButton.addEventListener("click", async () => {
-      try {
-        await handlePresetAnalysis("focus_regions", buildSelectedBarAnalysisPrompt());
-      } catch (error) {
-        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
-      }
-    });
-    els.aiNewThreadButton.addEventListener("click", () => {
-      createNewThread();
-    });
-    els.aiChatSendButton.addEventListener("click", handleAiChatSend);
-    els.zoomInButton.addEventListener("click", () => zoomChart(0.6));
-    els.zoomOutButton.addEventListener("click", () => zoomChart(1.6));
-    els.zoomPriceInButton.addEventListener("click", () => zoomPriceAxis(0.84));
-    els.zoomPriceOutButton.addEventListener("click", () => zoomPriceAxis(1.2));
-    els.resetViewButton.addEventListener("click", resetChartView);
-    els.armRegionButton.addEventListener("click", () => {
-      state.chartInteraction.regionMode = !state.chartInteraction.regionMode;
-      if (!state.chartInteraction.regionMode) {
-        state.chartInteraction.draftRegion = null;
-      }
-      renderSnapshot();
-    });
-    els.saveRegionButton.addEventListener("click", handleSaveRegion);
-    els.aiChatInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        handleAiChatSend();
-      }
-    });
-    els.recordEntryButton.addEventListener("click", handleRecordEntry);
-    els.lookupButton.addEventListener("click", handleLookup);
-    els.invalidateButton.addEventListener("click", handleInvalidate);
-    els.instrumentSymbol.addEventListener("input", syncCacheKey);
-    els.displayTimeframe.addEventListener("change", syncCacheKey);
-    els.windowStart.addEventListener("change", syncCacheKey);
-    els.windowEnd.addEventListener("change", syncCacheKey);
-
-    els.chartSvg.addEventListener("wheel", (event) => {
-      if (!state.snapshot?.candles?.length) {
-        return;
-      }
-      event.preventDefault();
-      if (event.shiftKey) {
-        zoomPriceAxis(event.deltaY < 0 ? 0.84 : 1.2);
-        return;
-      }
-      zoomChart(event.deltaY < 0 ? 0.8 : 1.25);
-    }, { passive: false });
-
-    els.chartSvg.addEventListener("mousedown", (event) => {
-      if (!state.snapshot?.candles?.length) {
-        return;
-      }
-      if (event.button !== 0) {
-        return;
-      }
-      event.preventDefault();
-      if (state.chartInteraction.regionMode) {
-        beginRegionDraft(event);
-        return;
-      }
-      state.chartInteraction.panStartX = event.clientX;
-      state.chartInteraction.panStartY = event.clientY;
-      state.chartInteraction.panStartView = state.chartView ? { ...state.chartView } : null;
-      state.chartInteraction.panStartPriceRange = state.chartView
-        ? { yMin: state.chartView.yMin, yMax: state.chartView.yMax }
-        : null;
-      els.chartSvg.style.cursor = "grabbing";
-    });
-
-    window.addEventListener("mousemove", (event) => {
-      if (updateLayoutDrag(event)) {
-        return;
-      }
-      if (state.chartInteraction.regionMode && state.chartInteraction.draftRegion) {
-        updateRegionDraft(event);
-        return;
-      }
-      if (state.chartInteraction.panStartX == null || !state.chartInteraction.panStartView || !state.chartMetrics || !state.snapshot?.candles?.length) {
-        return;
-      }
-      const deltaX = event.clientX - state.chartInteraction.panStartX;
-      const deltaY = event.clientY - state.chartInteraction.panStartY;
-      const shiftBars = Math.round((-deltaX / state.chartMetrics.chartWidth) * visibleSpan());
-      const nextStart = state.chartInteraction.panStartView.startIndex + shiftBars;
-      const nextEnd = state.chartInteraction.panStartView.endIndex + shiftBars;
-      state.chartView = clampChartView(state.snapshot.candles.length, nextStart, nextEnd, state.chartInteraction.panStartView);
-      if (state.chartInteraction.panStartPriceRange && state.chartMetrics.chartHeight > 0) {
-        const span = state.chartInteraction.panStartPriceRange.yMax - state.chartInteraction.panStartPriceRange.yMin;
-        const priceShift = (deltaY / state.chartMetrics.chartHeight) * span;
-        state.chartView.yMin = state.chartInteraction.panStartPriceRange.yMin + priceShift;
-        state.chartView.yMax = state.chartInteraction.panStartPriceRange.yMax + priceShift;
-      }
-      renderChart();
-    });
-
-    window.addEventListener("mouseup", async (event) => {
-      if (state.layout.dragKind) {
-        finishLayoutDrag();
-        return;
-      }
-      if (state.chartInteraction.regionMode && state.chartInteraction.draftRegion) {
-        updateRegionDraft(event);
-        return;
-      }
-      if (state.chartInteraction.panStartX != null && Math.abs(event.clientX - state.chartInteraction.panStartX) < 4) {
-        const candleIndex = pickCandleIndexFromEvent(event);
-        if (candleIndex != null) {
-          await selectCandle(candleIndex);
-        }
-      }
-      state.chartInteraction.panStartX = null;
-      state.chartInteraction.panStartY = null;
-      state.chartInteraction.panStartView = null;
-      state.chartInteraction.panStartPriceRange = null;
-      els.chartSvg.style.cursor = state.chartInteraction.regionMode ? "crosshair" : "grab";
-    });
-
-    window.addEventListener("blur", () => {
-      state.chartInteraction.panStartX = null;
-      state.chartInteraction.panStartY = null;
-      state.chartInteraction.panStartView = null;
-      state.chartInteraction.panStartPriceRange = null;
-      finishLayoutDrag();
-      els.chartSvg.style.cursor = state.chartInteraction.regionMode ? "crosshair" : "grab";
-    });
-
-    initializePanelToggles();
-    initializeSectionToggles();
-    window.addEventListener("resize", scheduleChartRerender);
-    applyWindowPreset("1m", 7);
-    window.requestAnimationFrame(async () => {
-      if (state.autoBootstrapped) {
-        return;
-      }
-      state.autoBootstrapped = true;
-      await handleBuildWithForceRefresh();
-    });
+    attachBindings();
+    bootstrap();
   </script>
 </body>
 </html>
