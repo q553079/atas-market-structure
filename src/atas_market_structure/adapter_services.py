@@ -13,6 +13,7 @@ from atas_market_structure.models import (
     AdapterHistoryFootprintPayload,
     AdapterTriggerBurstPayload,
 )
+from atas_market_structure.regime_monitor_services import RegimeMonitor
 from atas_market_structure.repository import AnalysisRepository
 from atas_market_structure.services import IngestionOrchestrator
 
@@ -34,9 +35,10 @@ class AdapterIngestionService:
     ) -> None:
         self._repository = repository
         self._orchestrator = orchestrator or IngestionOrchestrator(repository=repository)
-        self._bridge = bridge or AdapterPayloadBridge()
+        self._bridge = bridge or AdapterPayloadBridge(regime_monitor=RegimeMonitor())
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> AdapterAcceptedResponse:
+        self._bridge.regime_monitor.ingest_continuous_state(payload)
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
             observed_window_start=payload.observed_window_start,
@@ -141,6 +143,7 @@ class AdapterIngestionService:
 
     def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> AdapterAcceptedResponse:
         self._purge_expired_history(payload.instrument.symbol)
+        self._bridge.regime_monitor.ingest_history_bars(payload)
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
             observed_window_start=payload.observed_window_start,

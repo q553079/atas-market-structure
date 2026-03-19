@@ -1,5 +1,9 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
+using System.Threading;
 using ATAS.DataFeedsCore;
 using ATAS.Indicators;
 using AtasMarketStructure.Adapter.Contracts;
@@ -11,7 +15,7 @@ namespace AtasMarketStructure.Adapter.Collector;
 [Category("Order Flow")]
 public sealed class AtasMarketStructureCollector : Indicator
 {
-    private const string CollectorVersion = "0.10.0-shell";
+    private const string CollectorVersion = "0.10.4-shell";
     private static readonly string[][] SymbolCandidatePaths =
     {
         new[] { "Instrument" },
@@ -82,6 +86,7 @@ public sealed class AtasMarketStructureCollector : Indicator
     private decimal? _lastPrice;
     private decimal? _bestBid;
     private decimal? _bestAsk;
+    private DateTime? _lastTradeObservedUtc;
     private decimal? _sessionOpenPrice;
     private decimal? _ema20;
     private decimal _openingRangeHigh = decimal.MinValue;
@@ -98,8 +103,14 @@ public sealed class AtasMarketStructureCollector : Indicator
     private int _latestObservedBarIndex = -1;
     private int _lastHistoryBarCount;
     private DateTime? _lastHistoryBarStartedAt;
+    private DateTime? _lastCollectorInternalErrorUtc;
+    private string _lastCollectorInternalError = string.Empty;
     private int _localSequence;
     private string? _chartInstanceId;
+    private HttpClient? _controlPlaneClient;
+    private AdapterBackfillCommandPayload? _pendingBackfillCommand;
+    private int _backfillPollInFlight;
+    private DateTime _lastBackfillPollUtc;
 
     public AtasMarketStructureCollector()
         : base(true)
@@ -183,7 +194,61 @@ public sealed class AtasMarketStructureCollector : Indicator
         }
     }
 
-    [Display(Name = "Service Base URL", GroupName = "1. Collector", Order = 30)]
+    [Display(Name = "发送队列深度", GroupName = "1. Collector", Order = 23)]
+    [ReadOnly(true)]
+    public int TransportQueueDepth => _transport?.QueueLength ?? 0;
+
+    [Display(Name = "已丢弃消息数", GroupName = "1. Collector", Order = 24)]
+    [ReadOnly(true)]
+    public int DroppedMessageCount => _transport?.DroppedMessageCount ?? 0;
+
+    [Display(Name = "连续发送失败", GroupName = "1. Collector", Order = 25)]
+    [ReadOnly(true)]
+    public int ConsecutiveSendFailures => _transport?.ConsecutiveSendFailures ?? 0;
+
+    [Display(Name = "上次发送尝试 UTC", GroupName = "1. Collector", Order = 26)]
+    [ReadOnly(true)]
+    public string LastTransportAttemptUtc => _transport?.LastAttemptUtc?.ToString("yyyy-MM-dd HH:mm:ss'Z'") ?? string.Empty;
+
+    [Display(Name = "上次发送成功 UTC", GroupName = "1. Collector", Order = 27)]
+    [ReadOnly(true)]
+    public string LastTransportSuccessUtc => _transport?.LastSuccessfulPostUtc?.ToString("yyyy-MM-dd HH:mm:ss'Z'") ?? string.Empty;
+
+    [Display(Name = "上次发送失败 UTC", GroupName = "1. Collector", Order = 28)]
+    [ReadOnly(true)]
+    public string LastTransportFailureUtc => _transport?.LastFailureUtc?.ToString("yyyy-MM-dd HH:mm:ss'Z'") ?? string.Empty;
+
+    [Display(Name = "上次发送错误", GroupName = "1. Collector", Order = 29)]
+    [ReadOnly(true)]
+    public string LastTransportError => _transport?.LastTransportError ?? string.Empty;
+
+    [Display(Name = "内部异常 UTC", GroupName = "1. Collector", Order = 30)]
+    [ReadOnly(true)]
+    public string LastCollectorInternalErrorUtc
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _lastCollectorInternalErrorUtc?.ToString("yyyy-MM-dd HH:mm:ss'Z'") ?? string.Empty;
+            }
+        }
+    }
+
+    [Display(Name = "内部异常", GroupName = "1. Collector", Order = 31)]
+    [ReadOnly(true)]
+    public string LastCollectorInternalError
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _lastCollectorInternalError;
+            }
+        }
+    }
+
+    [Display(Name = "Service Base URL", GroupName = "1. Collector", Order = 35)]
     public string ServiceBaseUrl { get; set; } = "http://127.0.0.1:8080";
 
     [Display(Name = "Continuous Endpoint", GroupName = "1. Collector", Order = 40)]
@@ -197,6 +262,12 @@ public sealed class AtasMarketStructureCollector : Indicator
 
     [Display(Name = "Trigger Endpoint", GroupName = "1. Collector", Order = 50)]
     public string TriggerEndpoint { get; set; } = "/api/v1/adapter/trigger-burst";
+
+    [Display(Name = "Backfill Poll Endpoint", GroupName = "1. Collector", Order = 55)]
+    public string BackfillPollEndpoint { get; set; } = "/api/v1/adapter/backfill-command";
+
+    [Display(Name = "Backfill Ack Endpoint", GroupName = "1. Collector", Order = 60)]
+    public string BackfillAckEndpoint { get; set; } = "/api/v1/adapter/backfill-ack";
 
     [Display(Name = "Use Symbol Override", GroupName = "2. Instrument", Order = 10)]
     public bool UseSymbolOverride { get; set; }
@@ -242,7 +313,7 @@ public sealed class AtasMarketStructureCollector : Indicator
     public int BurstLookbackSeconds { get; set; } = 30;
 
     [Display(Name = "History Sync Cadence Seconds", GroupName = "4. Trigger Burst", Order = 20)]
-    public int HistorySyncCadenceSeconds { get; set; } = 60;
+    public int HistorySyncCadenceSeconds { get; set; } = 15;
 
     [Display(Name = "History Footprint Sync Minutes", GroupName = "4. Trigger Burst", Order = 25)]
     public int HistoryFootprintSyncMinutes { get; set; } = 15;
@@ -252,6 +323,9 @@ public sealed class AtasMarketStructureCollector : Indicator
 
     [Display(Name = "History Footprint Chunk Bars", GroupName = "4. Trigger Burst", Order = 35)]
     public int HistoryFootprintChunkBars { get; set; } = 240;
+
+    [Display(Name = "Backfill Poll Seconds", GroupName = "4. Trigger Burst", Order = 40)]
+    public int BackfillPollSeconds { get; set; } = 2;
 
     [Display(Name = "Significant Liquidity Min Size", GroupName = "5. Liquidity", Order = 10)]
     public int SignificantLiquidityMinSize { get; set; } = 80;
@@ -266,10 +340,10 @@ public sealed class AtasMarketStructureCollector : Indicator
     public int StrongReplenishmentCount { get; set; } = 2;
 
     [Display(Name = "Drive Min Net Delta", GroupName = "6. Drive", Order = 10)]
-    public int DriveMinNetDelta { get; set; } = 60;
+    public int DriveMinNetDelta { get; set; } = 20;
 
     [Display(Name = "Drive Min Travel Ticks", GroupName = "6. Drive", Order = 20)]
-    public int DriveMinTravelTicks { get; set; } = 8;
+    public int DriveMinTravelTicks { get; set; } = 6;
 
     [Display(Name = "Drive Merge Gap Seconds", GroupName = "6. Drive", Order = 30)]
     public int DriveMergeGapSeconds { get; set; } = 6;
@@ -318,6 +392,14 @@ public sealed class AtasMarketStructureCollector : Indicator
                 QueueLimit,
                 _ => { },
                 _ => { });
+            _controlPlaneClient?.Dispose();
+            _controlPlaneClient = new HttpClient
+            {
+                BaseAddress = new Uri(ServiceBaseUrl, UriKind.Absolute),
+                Timeout = TimeSpan.FromSeconds(2),
+            };
+            _controlPlaneClient.DefaultRequestHeaders.Accept.Clear();
+            _controlPlaneClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             _tradeAccumulator = new TradeAccumulatorState();
             _currentSecond = null;
             _driveState = null;
@@ -342,7 +424,13 @@ public sealed class AtasMarketStructureCollector : Indicator
             _latestObservedBarIndex = -1;
             _lastHistoryBarCount = 0;
             _lastHistoryBarStartedAt = null;
+            _lastCollectorInternalErrorUtc = null;
+            _lastCollectorInternalError = string.Empty;
             _chartInstanceId = null;
+            _lastTradeObservedUtc = null;
+            _pendingBackfillCommand = null;
+            _backfillPollInFlight = 0;
+            _lastBackfillPollUtc = DateTime.MinValue;
         }
 
         SubscribeToTimer(TimeSpan.FromMilliseconds(Math.Max(250, ContinuousCadenceMilliseconds)), OnTimerTick);
@@ -355,11 +443,15 @@ public sealed class AtasMarketStructureCollector : Indicator
             FinalizeCurrentSecond(DateTime.UtcNow);
             _transport?.Dispose();
             _transport = null;
+            _controlPlaneClient?.Dispose();
+            _controlPlaneClient = null;
+            _pendingBackfillCommand = null;
         }
     }
 
     protected override void OnCalculate(int bar, decimal value)
     {
+        var shouldFallbackTick = false;
         lock (_sync)
         {
             var candle = GetCandle(bar);
@@ -370,7 +462,10 @@ public sealed class AtasMarketStructureCollector : Indicator
 
             _heartbeat[bar] = Enabled ? close : 0m;
             _latestObservedBarIndex = Math.Max(_latestObservedBarIndex, bar);
-            _lastPrice = close;
+            if (_lastPrice is null)
+            {
+                _lastPrice = close;
+            }
             _sessionStartUtc ??= observedAtUtc;
             _sessionOpenPrice ??= candle.Open;
             if ((observedAtUtc - _sessionStartUtc.Value).TotalMinutes <= Math.Max(1, OpeningRangeMinutes))
@@ -387,6 +482,19 @@ public sealed class AtasMarketStructureCollector : Indicator
                 _harvestState.HighestAfterCompletion = Math.Max(_harvestState.HighestAfterCompletion, high);
                 _harvestState.LowestAfterCompletion = Math.Min(_harvestState.LowestAfterCompletion, low);
             }
+
+            // Fallback: if the timer callback has stalled (e.g. after CME maintenance
+            // window), piggyback on OnCalculate to keep the data flowing.
+            // We must NOT call OnTimerTick() here because it also acquires _sync.
+            // Instead, set a flag and call it outside the lock.
+            shouldFallbackTick = _transport is not null
+                && _lastPrice is not null
+                && (DateTime.UtcNow - _lastHeartbeatUtc).TotalSeconds >= 5;
+        }
+
+        if (shouldFallbackTick)
+        {
+            OnTimerTick();
         }
     }
 
@@ -394,6 +502,7 @@ public sealed class AtasMarketStructureCollector : Indicator
     {
         lock (_sync)
         {
+            var observedAtUtc = ToUtc(marketData.Time);
             if (marketData.IsBid)
             {
                 _bestBid = marketData.Price;
@@ -403,7 +512,17 @@ public sealed class AtasMarketStructureCollector : Indicator
                 _bestAsk = marketData.Price;
             }
 
-            EnsureSecondAccumulator(ToUtc(marketData.Time), marketData.Price);
+            var fallbackPrice = _bestBid is not null && _bestAsk is not null
+                ? (_bestBid.Value + _bestAsk.Value) / 2m
+                : marketData.Price;
+
+            if (_lastTradeObservedUtc is null || (observedAtUtc - _lastTradeObservedUtc.Value).TotalSeconds >= 2)
+            {
+                _lastPrice = fallbackPrice;
+            }
+
+            EnsureSecondAccumulator(observedAtUtc, _lastPrice ?? fallbackPrice);
+            _currentSecond?.ObservePrice(_lastPrice ?? fallbackPrice);
             _currentSecond?.ObserveBestBid(_bestBid);
             _currentSecond?.ObserveBestAsk(_bestAsk);
         }
@@ -442,127 +561,169 @@ public sealed class AtasMarketStructureCollector : Indicator
     {
         lock (_sync)
         {
-            if (!Enabled || _transport is null || _lastPrice is null)
+            var hadInternalError = false;
+
+            void Guard(string scope, Action action)
             {
-                return;
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    hadInternalError = true;
+                    RecordCollectorInternalError(scope, ex);
+                }
             }
 
-            var nowUtc = DateTime.UtcNow;
-            var chartInstanceId = ResolveChartInstanceId();
-            PollDisplayedLiquiditySnapshot(nowUtc);
-            FinalizeCurrentSecond(nowUtc);
-            if ((nowUtc - _lastHeartbeatUtc).TotalMilliseconds < Math.Max(250, ContinuousCadenceMilliseconds) - 25)
+            try
             {
-                return;
+                if (!Enabled || _transport is null || _lastPrice is null)
+                {
+                    return;
+                }
+
+                var nowUtc = DateTime.UtcNow;
+                var chartInstanceId = ResolveChartInstanceId();
+
+                Guard("depth_snapshot", () => PollDisplayedLiquiditySnapshot(nowUtc));
+                Guard("finalize_current_second", () => FinalizeCurrentSecond(nowUtc));
+
+                if ((nowUtc - _lastHeartbeatUtc).TotalMilliseconds < Math.Max(250, ContinuousCadenceMilliseconds) - 25)
+                {
+                    if (!hadInternalError)
+                    {
+                        ClearCollectorInternalError();
+                    }
+                    return;
+                }
+
+                var lastPrice = _lastPrice.Value;
+                var recentSeconds = _secondBuffer.Snapshot(nowUtc.AddSeconds(-Math.Max(2, BurstLookbackSeconds)), nowUtc);
+                var activeLiquidityTracks = _liquidityTracks.Values
+                    .Where(item => item.CurrentSize > 0 && item.Status == "active")
+                    .OrderByDescending(item => item.HeatScore)
+                    .ToList();
+                _transport.TryEnqueueContinuousState(new ContinuousStatePayload
+                {
+                    MessageId = $"collector-shell-{nowUtc:yyyyMMddHHmmssfff}",
+                    EmittedAt = nowUtc,
+                    ObservedWindowStart = _lastHeartbeatUtc == default ? nowUtc.AddSeconds(-1) : _lastHeartbeatUtc,
+                    ObservedWindowEnd = nowUtc,
+                    Source = new SourceEnvelope
+                    {
+                        System = "ATAS",
+                        InstanceId = Environment.MachineName,
+                        ChartInstanceId = chartInstanceId,
+                        AdapterVersion = CollectorVersion,
+                    },
+                    Instrument = new InstrumentEnvelope
+                    {
+                        Symbol = ResolveEffectiveSymbol(),
+                        Venue = Venue,
+                        TickSize = (double)EffectiveTickSize,
+                        Currency = Currency,
+                    },
+                    SessionContext = new SessionContextPayload
+                    {
+                        SessionCode = DetermineSessionCode(nowUtc),
+                        TradingDate = DetermineTradingDate(nowUtc),
+                        IsRthOpen = nowUtc.Hour >= 14 && nowUtc.Hour < 21,
+                        PriorRthClose = (double)PriorRthClose,
+                        PriorRthHigh = (double)PriorRthHigh,
+                        PriorRthLow = (double)PriorRthLow,
+                        PriorValueAreaLow = NullIfZero(PriorValueAreaLow),
+                        PriorValueAreaHigh = NullIfZero(PriorValueAreaHigh),
+                        PriorPointOfControl = NullIfZero(PriorPointOfControl),
+                        OvernightHigh = NullIfZero(OvernightHigh),
+                        OvernightLow = NullIfZero(OvernightLow),
+                        OvernightMid = OvernightHigh > 0m && OvernightLow > 0m ? (double)((OvernightHigh + OvernightLow) / 2m) : null,
+                    },
+                    PriceState = new PriceStatePayload
+                    {
+                        LastPrice = (double)lastPrice,
+                        BestBid = _bestBid is null ? null : (double)_bestBid.Value,
+                        BestAsk = _bestAsk is null ? null : (double)_bestAsk.Value,
+                        LocalRangeLow = recentSeconds.Count == 0 ? (double)lastPrice : recentSeconds.Min(item => item.Low),
+                        LocalRangeHigh = recentSeconds.Count == 0 ? (double)lastPrice : recentSeconds.Max(item => item.High),
+                        OpeningRangeLow = _openingRangeLow == decimal.MaxValue ? null : (double)_openingRangeLow,
+                        OpeningRangeHigh = _openingRangeHigh == decimal.MinValue ? null : (double)_openingRangeHigh,
+                        OpeningRangeSizeTicks = _openingRangeLow == decimal.MaxValue || _openingRangeHigh == decimal.MinValue
+                            ? null
+                            : PriceMath.ToTicks(_openingRangeHigh - _openingRangeLow, EffectiveTickSize),
+                    },
+                    TradeSummary = _tradeAccumulator.ToPayload(),
+                    DepthCoverage = BuildDepthCoveragePayload(),
+                    SignificantLiquidity = activeLiquidityTracks
+                        .Take(8)
+                        .Select(item => item.ToPayload(lastPrice, EffectiveTickSize))
+                        .ToList(),
+                    SamePriceReplenishment = BuildSamePriceReplenishmentPayloads(lastPrice),
+                    GapReference = _gapReference,
+                    ActiveInitiativeDrive = BuildActiveDrivePayload(),
+                    ActiveManipulationLeg = BuildManipulationLegPayload(),
+                    ActiveMeasuredMove = BuildMeasuredMovePayload(),
+                    ActivePostHarvestResponse = BuildPostHarvestPayload(),
+                    ActiveZoneInteraction = BuildZoneInteractionPayload(),
+                    EmaContext = BuildEmaContextPayload(lastPrice),
+                    ReferenceLevels = BuildReferenceLevels(),
+                });
+
+                _tradeAccumulator.Reset(nowUtc);
+                _lastHeartbeatUtc = nowUtc;
+                Guard("history_bars_sync", () => TrySyncHistoryBars(nowUtc, chartInstanceId));
+                Guard("history_footprint_sync", () => TrySyncHistoryFootprint(nowUtc, chartInstanceId));
+                Guard("backfill_execute", () => TryExecutePendingBackfill(nowUtc, chartInstanceId));
+                Guard("backfill_poll", () => ScheduleBackfillPoll(nowUtc, chartInstanceId));
+
+                if (!hadInternalError)
+                {
+                    ClearCollectorInternalError();
+                }
             }
-
-            var lastPrice = _lastPrice.Value;
-            var recentSeconds = _secondBuffer.Snapshot(nowUtc.AddSeconds(-Math.Max(2, BurstLookbackSeconds)), nowUtc);
-            var activeLiquidityTracks = _liquidityTracks.Values
-                .Where(item => item.CurrentSize > 0 && item.Status == "active")
-                .OrderByDescending(item => item.HeatScore)
-                .ToList();
-            _transport.TryEnqueueContinuousState(new ContinuousStatePayload
+            catch (Exception ex)
             {
-                MessageId = $"collector-shell-{nowUtc:yyyyMMddHHmmssfff}",
-                EmittedAt = nowUtc,
-                ObservedWindowStart = _lastHeartbeatUtc == default ? nowUtc.AddSeconds(-1) : _lastHeartbeatUtc,
-                ObservedWindowEnd = nowUtc,
-                Source = new SourceEnvelope
-                {
-                    System = "ATAS",
-                    InstanceId = Environment.MachineName,
-                    ChartInstanceId = chartInstanceId,
-                    AdapterVersion = CollectorVersion,
-                },
-                Instrument = new InstrumentEnvelope
-                {
-                    Symbol = ResolveEffectiveSymbol(),
-                    Venue = Venue,
-                    TickSize = (double)EffectiveTickSize,
-                    Currency = Currency,
-                },
-                SessionContext = new SessionContextPayload
-                {
-                    SessionCode = DetermineSessionCode(nowUtc),
-                    TradingDate = DetermineTradingDate(nowUtc),
-                    IsRthOpen = nowUtc.Hour >= 14 && nowUtc.Hour < 21,
-                    PriorRthClose = (double)PriorRthClose,
-                    PriorRthHigh = (double)PriorRthHigh,
-                    PriorRthLow = (double)PriorRthLow,
-                    PriorValueAreaLow = NullIfZero(PriorValueAreaLow),
-                    PriorValueAreaHigh = NullIfZero(PriorValueAreaHigh),
-                    PriorPointOfControl = NullIfZero(PriorPointOfControl),
-                    OvernightHigh = NullIfZero(OvernightHigh),
-                    OvernightLow = NullIfZero(OvernightLow),
-                    OvernightMid = OvernightHigh > 0m && OvernightLow > 0m ? (double)((OvernightHigh + OvernightLow) / 2m) : null,
-                },
-                PriceState = new PriceStatePayload
-                {
-                    LastPrice = (double)lastPrice,
-                    BestBid = _bestBid is null ? null : (double)_bestBid.Value,
-                    BestAsk = _bestAsk is null ? null : (double)_bestAsk.Value,
-                    LocalRangeLow = recentSeconds.Count == 0 ? (double)lastPrice : recentSeconds.Min(item => item.Low),
-                    LocalRangeHigh = recentSeconds.Count == 0 ? (double)lastPrice : recentSeconds.Max(item => item.High),
-                    OpeningRangeLow = _openingRangeLow == decimal.MaxValue ? null : (double)_openingRangeLow,
-                    OpeningRangeHigh = _openingRangeHigh == decimal.MinValue ? null : (double)_openingRangeHigh,
-                    OpeningRangeSizeTicks = _openingRangeLow == decimal.MaxValue || _openingRangeHigh == decimal.MinValue
-                        ? null
-                        : PriceMath.ToTicks(_openingRangeHigh - _openingRangeLow, EffectiveTickSize),
-                },
-                TradeSummary = _tradeAccumulator.ToPayload(),
-                DepthCoverage = BuildDepthCoveragePayload(),
-                SignificantLiquidity = activeLiquidityTracks
-                    .Take(8)
-                    .Select(item => item.ToPayload(lastPrice, EffectiveTickSize))
-                    .ToList(),
-                SamePriceReplenishment = BuildSamePriceReplenishmentPayloads(lastPrice),
-                GapReference = _gapReference,
-                ActiveInitiativeDrive = BuildActiveDrivePayload(),
-                ActiveManipulationLeg = BuildManipulationLegPayload(),
-                ActiveMeasuredMove = BuildMeasuredMovePayload(),
-                ActivePostHarvestResponse = BuildPostHarvestPayload(),
-                ActiveZoneInteraction = BuildZoneInteractionPayload(),
-                EmaContext = BuildEmaContextPayload(lastPrice),
-                ReferenceLevels = BuildReferenceLevels(),
-            });
-
-            _tradeAccumulator.Reset(nowUtc);
-            _lastHeartbeatUtc = nowUtc;
-            TrySyncHistoryBars(nowUtc, chartInstanceId);
-            TrySyncHistoryFootprint(nowUtc, chartInstanceId);
+                RecordCollectorInternalError("timer_tick", ex);
+            }
         }
     }
 
-    private void TrySyncHistoryBars(DateTime nowUtc, string chartInstanceId)
+    private bool TrySyncHistoryBars(DateTime nowUtc, string chartInstanceId, bool forceSync = false)
     {
-        if (_latestObservedBarIndex < 0)
+        if (_transport is null || _latestObservedBarIndex < 0)
         {
-            return;
+            return false;
+        }
+
+        var queueLimit = forceSync ? Math.Max(12, QueueLimit - 4) : Math.Max(8, QueueLimit / 2);
+        if (_transport.QueueLength >= queueLimit)
+        {
+            return false;
         }
 
         var bars = BuildLoadedHistoryBars();
         if (bars.Count == 0)
         {
-            return;
+            return false;
         }
 
         var latestBarStartedAt = bars[^1].StartedAt;
-        var shouldSync = (nowUtc - _lastHistorySyncUtc).TotalSeconds >= Math.Max(15, HistorySyncCadenceSeconds)
+        var shouldSync = forceSync
+            || (nowUtc - _lastHistorySyncUtc).TotalSeconds >= Math.Max(5, HistorySyncCadenceSeconds)
             || bars.Count != _lastHistoryBarCount
             || _lastHistoryBarStartedAt != latestBarStartedAt;
         if (!shouldSync)
         {
-            return;
+            return false;
         }
 
         var timeframe = DetermineHistoryBarTimeframe(bars);
         if (string.IsNullOrWhiteSpace(timeframe))
         {
-            return;
+            return false;
         }
 
-        if (_transport!.TryEnqueueHistoryBars(new HistoryBarsPayload
+        if (_transport.TryEnqueueHistoryBars(new HistoryBarsPayload
             {
                 MessageId = $"collector-history-{nowUtc:yyyyMMddHHmmssfff}",
                 EmittedAt = nowUtc,
@@ -589,32 +750,43 @@ public sealed class AtasMarketStructureCollector : Indicator
             _lastHistorySyncUtc = nowUtc;
             _lastHistoryBarCount = bars.Count;
             _lastHistoryBarStartedAt = latestBarStartedAt;
+            return true;
         }
+
+        return false;
     }
 
-    private void TrySyncHistoryFootprint(DateTime nowUtc, string chartInstanceId)
+    private bool TrySyncHistoryFootprint(DateTime nowUtc, string chartInstanceId, bool forceSync = false)
     {
         if (_transport is null || _latestObservedBarIndex < 0)
         {
-            return;
+            return false;
         }
 
-        if (_lastHistoryFootprintSyncUtc != DateTime.MinValue
+        var queueLimit = forceSync ? Math.Max(12, QueueLimit - 4) : Math.Max(8, QueueLimit / 2);
+        if (_transport.QueueLength >= queueLimit)
+        {
+            return false;
+        }
+
+        if (!forceSync
+            && _lastHistoryFootprintSyncUtc != DateTime.MinValue
             && (nowUtc - _lastHistoryFootprintSyncUtc).TotalMinutes < Math.Max(1, HistoryFootprintSyncMinutes))
         {
-            return;
+            return false;
         }
 
         var bars = BuildLoadedHistoryFootprintBars();
         if (bars.Count == 0)
         {
-            return;
+            return false;
         }
 
         var chunkSize = Math.Max(50, HistoryFootprintChunkBars);
         var chunkCount = (int)Math.Ceiling((double)bars.Count / chunkSize);
         var batchId = $"history-footprint-{ResolveEffectiveSymbol().ToLowerInvariant()}-{nowUtc:yyyyMMddHHmmss}";
         var timeframe = DetermineHistoryFootprintTimeframe(bars);
+        var enqueuedAny = false;
         for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
         {
             var chunkBars = bars.Skip(chunkIndex * chunkSize).Take(chunkSize).ToList();
@@ -623,7 +795,7 @@ public sealed class AtasMarketStructureCollector : Indicator
                 continue;
             }
 
-            _transport.TryEnqueueHistoryFootprint(new HistoryFootprintPayload
+            if (_transport.TryEnqueueHistoryFootprint(new HistoryFootprintPayload
             {
                 MessageId = $"{batchId}-chunk-{chunkIndex:D3}",
                 EmittedAt = nowUtc,
@@ -648,10 +820,179 @@ public sealed class AtasMarketStructureCollector : Indicator
                 ChunkIndex = chunkIndex,
                 ChunkCount = chunkCount,
                 Bars = chunkBars,
-            });
+            }))
+            {
+                enqueuedAny = true;
+            }
         }
 
-        _lastHistoryFootprintSyncUtc = nowUtc;
+        if (enqueuedAny)
+        {
+            _lastHistoryFootprintSyncUtc = nowUtc;
+        }
+
+        return enqueuedAny;
+    }
+
+    private void TryExecutePendingBackfill(DateTime nowUtc, string chartInstanceId)
+    {
+        if (_pendingBackfillCommand is null)
+        {
+            return;
+        }
+
+        var command = _pendingBackfillCommand;
+        _pendingBackfillCommand = null;
+
+        var historyBarsSynced = false;
+        var historyFootprintSynced = false;
+        string? note = null;
+
+        try
+        {
+            if (command.RequestHistoryBars)
+            {
+                historyBarsSynced = TrySyncHistoryBars(nowUtc, chartInstanceId, forceSync: true);
+            }
+
+            if (command.RequestHistoryFootprint)
+            {
+                historyFootprintSynced = TrySyncHistoryFootprint(nowUtc, chartInstanceId, forceSync: true);
+            }
+
+            if (!historyBarsSynced && !historyFootprintSynced)
+            {
+                note = "history resend skipped because queue or loaded bars were unavailable";
+            }
+        }
+        catch (Exception ex)
+        {
+            note = $"{ex.GetType().Name}: {ex.Message}";
+            RecordCollectorInternalError("backfill_execute", ex);
+        }
+
+        ScheduleBackfillAcknowledge(
+            command,
+            chartInstanceId,
+            historyBarsSynced,
+            historyFootprintSynced,
+            _lastHistoryBarStartedAt,
+            note);
+    }
+
+    private void ScheduleBackfillPoll(DateTime nowUtc, string chartInstanceId)
+    {
+        if (_controlPlaneClient is null)
+        {
+            return;
+        }
+
+        if ((nowUtc - _lastBackfillPollUtc).TotalSeconds < Math.Max(1, BackfillPollSeconds))
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _backfillPollInFlight, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _lastBackfillPollUtc = nowUtc;
+        var instrumentSymbol = ResolveEffectiveSymbol();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var request = await PollBackfillCommandAsync(instrumentSymbol, chartInstanceId).ConfigureAwait(false);
+                if (request is null)
+                {
+                    return;
+                }
+
+                lock (_sync)
+                {
+                    if (_pendingBackfillCommand is null || !string.Equals(_pendingBackfillCommand.RequestId, request.RequestId, StringComparison.Ordinal))
+                    {
+                        _pendingBackfillCommand = request;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lock (_sync)
+                {
+                    RecordCollectorInternalError("backfill_poll", ex);
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _backfillPollInFlight, 0);
+            }
+        });
+    }
+
+    private async Task<AdapterBackfillCommandPayload?> PollBackfillCommandAsync(string instrumentSymbol, string chartInstanceId)
+    {
+        if (_controlPlaneClient is null)
+        {
+            return null;
+        }
+
+        var requestUri = $"{BackfillPollEndpoint}?instrument_symbol={Uri.EscapeDataString(instrumentSymbol)}&chart_instance_id={Uri.EscapeDataString(chartInstanceId)}";
+        using var response = await _controlPlaneClient.GetAsync(requestUri).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        var payload = await JsonSerializer.DeserializeAsync<AdapterBackfillDispatchResponsePayload>(stream, PayloadJson.Options).ConfigureAwait(false);
+        return payload?.Request;
+    }
+
+    private void ScheduleBackfillAcknowledge(
+        AdapterBackfillCommandPayload command,
+        string chartInstanceId,
+        bool historyBarsSynced,
+        bool historyFootprintSynced,
+        DateTime? latestLoadedBarStartedAt,
+        string? note)
+    {
+        if (_controlPlaneClient is null)
+        {
+            return;
+        }
+
+        var instrumentSymbol = ResolveEffectiveSymbol();
+        var payload = new AdapterBackfillAcknowledgeRequestPayload
+        {
+            RequestId = command.RequestId,
+            InstrumentSymbol = instrumentSymbol,
+            ChartInstanceId = chartInstanceId,
+            AcknowledgedAt = DateTime.UtcNow,
+            AcknowledgedHistoryBars = historyBarsSynced,
+            AcknowledgedHistoryFootprint = historyFootprintSynced,
+            LatestLoadedBarStartedAt = latestLoadedBarStartedAt,
+            Note = note,
+        };
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (_controlPlaneClient is null)
+                {
+                    return;
+                }
+
+                using var content = new StringContent(JsonSerializer.Serialize(payload, PayloadJson.Options), System.Text.Encoding.UTF8, "application/json");
+                using var response = await _controlPlaneClient.PostAsync(BackfillAckEndpoint, content).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+            }
+            catch (Exception ex)
+            {
+                lock (_sync)
+                {
+                    RecordCollectorInternalError("backfill_ack", ex);
+                }
+            }
+        });
     }
 
     private void ProcessCumulativeTrade(CumulativeTrade trade, bool countVolume)
@@ -662,6 +1003,7 @@ public sealed class AtasMarketStructureCollector : Indicator
         var side = AtasReflection.ReadSide(trade);
 
         _lastPrice = price;
+        _lastTradeObservedUtc = eventTimeUtc;
         _bestBid = trade.NewBid?.Price ?? trade.PreviousBid?.Price ?? _bestBid;
         _bestAsk = trade.NewAsk?.Price ?? trade.PreviousAsk?.Price ?? _bestAsk;
 
@@ -978,7 +1320,7 @@ public sealed class AtasMarketStructureCollector : Indicator
             _harvestState.FirstPullbackAtUtc = eventTimeUtc;
         }
 
-        if (_harvestState.FirstReversalAtUtc is null && reversalTicks >= 8)
+        if (_harvestState.FirstReversalAtUtc is null && reversalTicks >= 6)
         {
             _harvestState.FirstReversalAtUtc = eventTimeUtc;
             ScheduleTriggerBurst(
@@ -1583,6 +1925,18 @@ public sealed class AtasMarketStructureCollector : Indicator
         }
 
         return levels;
+    }
+
+    private void RecordCollectorInternalError(string scope, Exception ex)
+    {
+        _lastCollectorInternalErrorUtc = DateTime.UtcNow;
+        _lastCollectorInternalError = $"{scope}: {ex.GetType().Name}: {ex.Message}";
+    }
+
+    private void ClearCollectorInternalError()
+    {
+        _lastCollectorInternalErrorUtc = null;
+        _lastCollectorInternalError = string.Empty;
     }
 
     private decimal EffectiveTickSize => UseTickSizeOverride && TickSizeOverride > 0m

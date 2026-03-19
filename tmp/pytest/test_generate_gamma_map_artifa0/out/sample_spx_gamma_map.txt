@@ -1,0 +1,38 @@
+来源文件: D:\docker\atas-market-structure\tmp\pytest\test_generate_gamma_map_artifa0\sample_spx.csv
+报价时间: 2026-03-19 10:30:00
+SPX 现价: 5,000.00
+ES 价格: 5,042.00
+Gamma 环境: 负 Gamma / 更容易扩张和加速
+Zero Gamma 参考位: SPX 5,020.00 | ES 5,062.00
+Call GEX 代理值 (1% move): $2.24B
+Put GEX 代理值 (1% move): -$2.46B
+Net GEX 代理值 (1% move): -$221.55M
+纳入到期日: 2026-03-19
+
+到达后容易减速的价位:
+  阻力 1: SPX 5,010.00 | ES 5,052.00 | 压力 $935.00M
+  阻力 2: SPX 5,020.00 | ES 5,062.00 | 压力 $675.00M
+
+到达后容易承接和减速的价位:
+  支撑 1: SPX 4,990.00 | ES 5,032.00 | 支撑 $500.00M
+  支撑 2: SPX 4,980.00 | ES 5,022.00 | 支撑 $350.00M
+
+破位后容易加速的提醒:
+  上破提醒: ES 5,052.00 上方容易加速，目标先看 ES 5,062.00
+  下破提醒: ES 5,032.00 下方容易加速，目标先看 ES 5,022.00
+
+结构状态:
+  宏观: 宏观负 Gamma / 更容易放大和延续
+  局部: 局部正 Gamma / 现价附近更容易钉住和来回 | 区间 SPX 4,980.00 - 5,020.00 | local net $674.00M
+  Put Wall: SPX 4,950.00 | ES 4,992.00 | OI 15,000 | 距现价 -50.00
+  Call Wall: SPX 5,010.00 | ES 5,052.00 | OI 3,400 | 距现价 +10.00
+  期限结构: 仅纳入一个到期日，无法判断前端期限结构。
+  前端 skew: 25Δ put/call 1.71x | RR25Δ -12.0%
+  Gap&Chop 结构分数: 95/100 | Gap-and-chop 倾向强
+  - 总净 Gamma 仍偏负，墙位一旦被打穿，盘面更容易放大。
+  - 现价附近局部 Gamma 转正，更容易被钉在关键执行价之间来回。
+  - 现价被 put wall 和 call wall 夹在较窄区间内，RTH 更容易反复 chop。
+  - 前端 25Δ put/call IV ratio 偏高，put skew 仍在为尾部风险定高价。
+
+按到期日观察:
+  2026-03-19 (DTE 0): ATM IV 22.5% | 25Δ put/call 1.71x | 净 GEX -$221.55M | put wall 4,950.00 | call wall 5,010.00

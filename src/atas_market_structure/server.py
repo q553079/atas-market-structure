@@ -79,7 +79,12 @@ def main() -> None:
     application = build_application(config)
     ApplicationRequestHandler.application = application
     server = ThreadingHTTPServer((config.host, config.port), ApplicationRequestHandler)
-    logging.getLogger(__name__).info("ATAS market structure server listening on http://%s:%s", config.host, config.port)
+    logging.getLogger(__name__).info(
+        "ATAS market structure server listening on http://%s:%s (db=%s)",
+        config.host,
+        config.port,
+        str(config.database_path.resolve()),
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

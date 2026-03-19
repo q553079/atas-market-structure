@@ -523,8 +523,11 @@ class SQLiteAnalysisRepository:
         return cursor.rowcount
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self._database_path)
+        connection = sqlite3.connect(self._database_path, timeout=30.0)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=30000")
+        connection.execute("PRAGMA synchronous=NORMAL")
         return connection
 
     def _row_to_liquidity_memory(self, row: sqlite3.Row) -> StoredLiquidityMemory:

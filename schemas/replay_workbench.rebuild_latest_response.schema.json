@@ -1,0 +1,558 @@
+{
+  "$defs": {
+    "ReplayAcquisitionMode": {
+      "enum": [
+        "cache_reuse",
+        "atas_fetch"
+      ],
+      "title": "ReplayAcquisitionMode",
+      "type": "string"
+    },
+    "ReplayCachePolicy": {
+      "description": "Replay cache policy controlling when ATAS should be queried and when snapshots become durable.",
+      "properties": {
+        "fetch_only_when_missing": {
+          "default": true,
+          "description": "Only fetch from ATAS when the replay packet is missing from local storage.",
+          "title": "Fetch Only When Missing",
+          "type": "boolean"
+        },
+        "max_verifications_per_day": {
+          "default": 1,
+          "description": "Maximum number of verification passes allowed per day.",
+          "minimum": 1,
+          "title": "Max Verifications Per Day",
+          "type": "integer"
+        },
+        "verification_passes_to_lock": {
+          "default": 3,
+          "description": "How many successful verifications are required before the replay packet is locked as durable.",
+          "minimum": 1,
+          "title": "Verification Passes To Lock",
+          "type": "integer"
+        },
+        "manual_reimport_required_after_invalidation": {
+          "default": true,
+          "description": "Whether replay acquisition must stay disabled until the operator explicitly re-enables it after invalidation.",
+          "title": "Manual Reimport Required After Invalidation",
+          "type": "boolean"
+        }
+      },
+      "title": "ReplayCachePolicy",
+      "type": "object"
+    },
+    "ReplayVerificationState": {
+      "description": "Current verification state of the replay packet stored in the workbench cache.",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/ReplayVerificationStatus",
+          "default": "unverified",
+          "description": "Verification state of the cached replay packet."
+        },
+        "verification_count": {
+          "default": 0,
+          "description": "How many successful verification passes have been completed for this replay packet.",
+          "minimum": 0,
+          "title": "Verification Count",
+          "type": "integer"
+        },
+        "last_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the replay packet was last verified against ATAS or other trusted source.",
+          "title": "Last Verified At"
+        },
+        "next_verification_due_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Next time a verification pass is allowed or required.",
+          "title": "Next Verification Due At"
+        },
+        "invalidated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the replay packet was manually invalidated, if it was invalidated.",
+          "title": "Invalidated At"
+        },
+        "invalidation_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional operator note explaining why the replay packet was invalidated.",
+          "title": "Invalidation Reason"
+        },
+        "locked_until_manual_reset": {
+          "default": false,
+          "description": "Whether this replay packet should remain durable until the operator manually invalidates it.",
+          "title": "Locked Until Manual Reset",
+          "type": "boolean"
+        }
+      },
+      "title": "ReplayVerificationState",
+      "type": "object"
+    },
+    "ReplayVerificationStatus": {
+      "enum": [
+        "unverified",
+        "verified",
+        "durable",
+        "invalidated"
+      ],
+      "title": "ReplayVerificationStatus",
+      "type": "string"
+    },
+    "ReplayWorkbenchAcceptedSummary": {
+      "description": "Compact summary returned after a replay workbench packet is stored.",
+      "properties": {
+        "instrument_symbol": {
+          "description": "Instrument symbol for the replay packet.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "display_timeframe": {
+          "$ref": "#/$defs/Timeframe",
+          "description": "Primary replay timeframe."
+        },
+        "acquisition_mode": {
+          "$ref": "#/$defs/ReplayAcquisitionMode",
+          "description": "Whether this replay packet was fetched from ATAS or reused from cache."
+        },
+        "verification_status": {
+          "$ref": "#/$defs/ReplayVerificationStatus",
+          "description": "Current verification status for the replay packet."
+        },
+        "verification_count": {
+          "description": "How many successful verification passes have been recorded.",
+          "minimum": 0,
+          "title": "Verification Count",
+          "type": "integer"
+        },
+        "locked_until_manual_reset": {
+          "description": "Whether the replay packet is now durable until manual invalidation.",
+          "title": "Locked Until Manual Reset",
+          "type": "boolean"
+        },
+        "fetch_only_when_missing": {
+          "description": "Whether the cache policy forbids reacquisition while local data exists.",
+          "title": "Fetch Only When Missing",
+          "type": "boolean"
+        },
+        "max_verifications_per_day": {
+          "description": "How many verification passes are allowed per day.",
+          "minimum": 1,
+          "title": "Max Verifications Per Day",
+          "type": "integer"
+        },
+        "verification_passes_to_lock": {
+          "description": "How many verification passes are required before permanent retention.",
+          "minimum": 1,
+          "title": "Verification Passes To Lock",
+          "type": "integer"
+        },
+        "candle_count": {
+          "description": "How many candles were stored.",
+          "minimum": 0,
+          "title": "Candle Count",
+          "type": "integer"
+        },
+        "event_annotation_count": {
+          "description": "How many event markers were stored.",
+          "minimum": 0,
+          "title": "Event Annotation Count",
+          "type": "integer"
+        },
+        "focus_region_count": {
+          "description": "How many focus regions were stored.",
+          "minimum": 0,
+          "title": "Focus Region Count",
+          "type": "integer"
+        },
+        "strategy_candidate_count": {
+          "description": "How many strategy-library candidates were attached.",
+          "minimum": 0,
+          "title": "Strategy Candidate Count",
+          "type": "integer"
+        },
+        "has_ai_briefing": {
+          "description": "Whether the packet already includes an AI briefing.",
+          "title": "Has Ai Briefing",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "instrument_symbol",
+        "display_timeframe",
+        "acquisition_mode",
+        "verification_status",
+        "verification_count",
+        "locked_until_manual_reset",
+        "fetch_only_when_missing",
+        "max_verifications_per_day",
+        "verification_passes_to_lock",
+        "candle_count",
+        "event_annotation_count",
+        "focus_region_count",
+        "strategy_candidate_count",
+        "has_ai_briefing"
+      ],
+      "title": "ReplayWorkbenchAcceptedSummary",
+      "type": "object"
+    },
+    "ReplayWorkbenchBuildAction": {
+      "enum": [
+        "cache_hit",
+        "built_from_atas_history",
+        "built_from_local_history",
+        "atas_fetch_required"
+      ],
+      "title": "ReplayWorkbenchBuildAction",
+      "type": "string"
+    },
+    "ReplayWorkbenchBuildResponse": {
+      "description": "Result of a replay-workbench build attempt.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ReplayWorkbenchBuildAction",
+          "description": "Whether the builder reused cache, built locally, or needs ATAS history."
+        },
+        "cache_key": {
+          "description": "Replay cache key handled by this request.",
+          "title": "Cache Key",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Short explanation of the chosen action.",
+          "title": "Reason",
+          "type": "string"
+        },
+        "local_message_count": {
+          "description": "How many local continuous-state messages matched the request window.",
+          "minimum": 0,
+          "title": "Local Message Count",
+          "type": "integer"
+        },
+        "replay_snapshot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replay packet identifier when a packet exists or was built.",
+          "title": "Replay Snapshot Id"
+        },
+        "ingestion_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stored ingestion identifier when a packet exists or was built.",
+          "title": "Ingestion Id"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchAcceptedSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stored or newly created replay summary when available."
+        },
+        "cache_record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchCacheRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Latest cache record after the build decision."
+        },
+        "atas_fetch_request": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimal ATAS history request guidance when local history is insufficient.",
+          "title": "Atas Fetch Request"
+        }
+      },
+      "required": [
+        "action",
+        "cache_key",
+        "reason",
+        "local_message_count"
+      ],
+      "title": "ReplayWorkbenchBuildResponse",
+      "type": "object"
+    },
+    "ReplayWorkbenchCacheRecord": {
+      "description": "Index view of the latest cached replay packet for one cache key.",
+      "properties": {
+        "ingestion_id": {
+          "description": "Stored ingestion identifier.",
+          "title": "Ingestion Id",
+          "type": "string"
+        },
+        "replay_snapshot_id": {
+          "description": "Replay packet identifier.",
+          "title": "Replay Snapshot Id",
+          "type": "string"
+        },
+        "cache_key": {
+          "description": "Stable replay cache key.",
+          "title": "Cache Key",
+          "type": "string"
+        },
+        "stored_at": {
+          "description": "Persistence timestamp.",
+          "format": "date-time",
+          "title": "Stored At",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "When the replay packet was generated.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "display_timeframe": {
+          "$ref": "#/$defs/Timeframe",
+          "description": "Primary replay timeframe."
+        },
+        "window_start": {
+          "description": "Replay window start.",
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "description": "Replay window end.",
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "acquisition_mode": {
+          "$ref": "#/$defs/ReplayAcquisitionMode",
+          "description": "Whether the packet came from cache reuse or ATAS fetch."
+        },
+        "cache_policy": {
+          "$ref": "#/$defs/ReplayCachePolicy",
+          "description": "Cache policy attached to the replay packet."
+        },
+        "verification_state": {
+          "$ref": "#/$defs/ReplayVerificationState",
+          "description": "Verification state attached to the replay packet."
+        },
+        "candle_count": {
+          "description": "How many candles were stored in the replay packet.",
+          "minimum": 0,
+          "title": "Candle Count",
+          "type": "integer"
+        },
+        "event_annotation_count": {
+          "description": "How many event annotations were stored.",
+          "minimum": 0,
+          "title": "Event Annotation Count",
+          "type": "integer"
+        },
+        "focus_region_count": {
+          "description": "How many focus regions were stored.",
+          "minimum": 0,
+          "title": "Focus Region Count",
+          "type": "integer"
+        },
+        "strategy_candidate_count": {
+          "description": "How many strategy-library candidates were attached.",
+          "minimum": 0,
+          "title": "Strategy Candidate Count",
+          "type": "integer"
+        },
+        "has_ai_briefing": {
+          "description": "Whether an AI briefing is already attached.",
+          "title": "Has Ai Briefing",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ingestion_id",
+        "replay_snapshot_id",
+        "cache_key",
+        "stored_at",
+        "created_at",
+        "instrument_symbol",
+        "display_timeframe",
+        "window_start",
+        "window_end",
+        "acquisition_mode",
+        "cache_policy",
+        "verification_state",
+        "candle_count",
+        "event_annotation_count",
+        "focus_region_count",
+        "strategy_candidate_count",
+        "has_ai_briefing"
+      ],
+      "title": "ReplayWorkbenchCacheRecord",
+      "type": "object"
+    },
+    "ReplayWorkbenchInvalidationResponse": {
+      "description": "REST response after a replay cache record is manually invalidated.",
+      "properties": {
+        "ingestion_id": {
+          "description": "Stored ingestion identifier.",
+          "title": "Ingestion Id",
+          "type": "string"
+        },
+        "replay_snapshot_id": {
+          "description": "Replay packet identifier.",
+          "title": "Replay Snapshot Id",
+          "type": "string"
+        },
+        "cache_key": {
+          "description": "Replay cache key.",
+          "title": "Cache Key",
+          "type": "string"
+        },
+        "invalidated_at": {
+          "description": "Manual invalidation timestamp.",
+          "format": "date-time",
+          "title": "Invalidated At",
+          "type": "string"
+        },
+        "invalidation_reason": {
+          "description": "Operator reason preserved with the packet.",
+          "title": "Invalidation Reason",
+          "type": "string"
+        },
+        "verification_status": {
+          "$ref": "#/$defs/ReplayVerificationStatus",
+          "description": "Updated verification status."
+        },
+        "locked_until_manual_reset": {
+          "description": "Updated durable lock state after invalidation.",
+          "title": "Locked Until Manual Reset",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ingestion_id",
+        "replay_snapshot_id",
+        "cache_key",
+        "invalidated_at",
+        "invalidation_reason",
+        "verification_status",
+        "locked_until_manual_reset"
+      ],
+      "title": "ReplayWorkbenchInvalidationResponse",
+      "type": "object"
+    },
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "Result of invalidating the active replay cache and rebuilding from the newest synced payloads.",
+  "properties": {
+    "cache_key": {
+      "description": "Replay cache key that was rebuilt.",
+      "title": "Cache Key",
+      "type": "string"
+    },
+    "invalidated_existing_cache": {
+      "description": "Whether an existing cache record was invalidated first.",
+      "title": "Invalidated Existing Cache",
+      "type": "boolean"
+    },
+    "invalidation_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReplayWorkbenchInvalidationResponse"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Invalidation details when a prior cache record existed."
+    },
+    "build_result": {
+      "$ref": "#/$defs/ReplayWorkbenchBuildResponse",
+      "description": "Fresh build result created from the latest synced payloads."
+    }
+  },
+  "required": [
+    "cache_key",
+    "invalidated_existing_cache",
+    "build_result"
+  ],
+  "title": "ReplayWorkbenchRebuildLatestResponse",
+  "type": "object"
+}

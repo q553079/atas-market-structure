@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -83,6 +84,7 @@ class FakeReplayChatAssistant:
         operator_entries,
         manual_regions,
         live_context_messages,
+        attachments=None,
         preset,
         user_message: str,
         history,
@@ -167,12 +169,31 @@ def test_replay_workbench_page_is_served() -> None:
     assert response.status_code == 200
     assert response.headers["Content-Type"] == "text/html; charset=utf-8"
     assert "<title>盘前复盘工作台</title>".encode("utf-8") in response.body
+    assert 'href="/static/chat_window.css"'.encode("utf-8") in response.body
+    assert 'src="/static/chat_window.js"'.encode("utf-8") in response.body
     assert "AI 分析".encode("utf-8") in response.body
     assert "7天 1分".encode("utf-8") in response.body
     assert "7天 5分".encode("utf-8") in response.body
     assert "手工区域".encode("utf-8") in response.body
     assert "分析已标注区域".encode("utf-8") in response.body
     assert "分析选中K线足迹".encode("utf-8") in response.body
+
+
+def test_replay_workbench_chat_static_assets_are_served() -> None:
+    application = build_application()
+
+    css_response = application.dispatch("GET", "/static/chat_window.css")
+    js_response = application.dispatch("GET", "/static/chat_window.js")
+
+    assert css_response.status_code == 200
+    assert css_response.headers["Content-Type"] == "text/css; charset=utf-8"
+    assert ".chat-message.user".encode("utf-8") in css_response.body
+    assert ".ai-chat-module".encode("utf-8") in css_response.body
+
+    assert js_response.status_code == 200
+    assert js_response.headers["Content-Type"] == "application/javascript; charset=utf-8"
+    assert "window.ReplayChatWindow".encode("utf-8") in js_response.body
+    assert "renderThread".encode("utf-8") in js_response.body
 
 
 def test_invalid_layer_timeframe_is_rejected() -> None:
@@ -413,6 +434,69 @@ def test_adapter_history_bars_ingestion_and_replay_builder_prefers_atas_history(
     assert replay_ingestion_body["observed_payload"]["candles"][0]["open"] == 21498.0
 
 
+def test_replay_workbench_builder_overlays_latest_continuous_candles_on_history() -> None:
+    application = build_application()
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    history_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(history_payload).encode("utf-8"),
+    )
+    assert history_response.status_code == 201
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    overlay_prices = [21505.5, 21507.25]
+    base_time = datetime.fromisoformat("2026-03-17T09:01:00+00:00")
+    for index, price in enumerate(overlay_prices):
+        payload = json.loads(json.dumps(continuous_payload))
+        emitted_at = base_time + timedelta(minutes=index)
+        payload["message_id"] = f"adapter-msg-overlay-{index:02d}"
+        payload["emitted_at"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_start"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_end"] = (emitted_at + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        payload["source"]["chart_instance_id"] = "NQ-03d4a876"
+        payload["instrument"]["symbol"] = "NQ"
+        payload["price_state"]["last_price"] = price
+        payload["price_state"]["local_range_low"] = min(overlay_prices)
+        payload["price_state"]["local_range_high"] = max(overlay_prices)
+        continuous_response = application.dispatch(
+            "POST",
+            "/api/v1/adapter/continuous-state",
+            json.dumps(payload).encode("utf-8"),
+        )
+        assert continuous_response.status_code == 201
+
+    build_request = {
+        "cache_key": "NQ|1m|2026-03-17T08:55:00Z|2026-03-17T09:02:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-17T08:55:00Z",
+        "window_end": "2026-03-17T09:02:59Z",
+        "force_rebuild": True,
+        "min_continuous_messages": 1,
+    }
+    build_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+
+    assert build_response.status_code == 200
+    build_body = json.loads(build_response.body)
+    assert build_body["action"] == "built_from_atas_history"
+
+    replay_ingestion_response = application.dispatch("GET", f"/api/v1/ingestions/{build_body['ingestion_id']}")
+    assert replay_ingestion_response.status_code == 200
+    replay_ingestion_body = json.loads(replay_ingestion_response.body)
+    observed_payload = replay_ingestion_body["observed_payload"]
+    candles = observed_payload["candles"]
+    assert candles[-1]["started_at"] == "2026-03-17T09:02:00Z"
+    assert candles[-1]["ended_at"] == "2026-03-17T09:02:59Z"
+    assert candles[-1]["close"] == 21507.25
+    assert observed_payload["window_end"] == "2026-03-17T09:02:59Z"
+    assert observed_payload["raw_features"]["continuous_overlay_candle_count"] >= 2
+
+
 def test_adapter_history_footprint_ingestion_enriches_replay_raw_features() -> None:
     application = build_application()
     history_bars_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
@@ -540,7 +624,6 @@ def test_replay_workbench_cache_lookup_and_invalidation() -> None:
     assert invalidation_payload["cache_key"] == "NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z"
     assert invalidation_payload["verification_status"] == "invalidated"
     assert invalidation_payload["locked_until_manual_reset"] is False
-
     lookup_after_response = application.dispatch(
         "GET",
         "/api/v1/workbench/replay-cache?cache_key=NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z",
@@ -549,6 +632,191 @@ def test_replay_workbench_cache_lookup_and_invalidation() -> None:
     lookup_after_payload = json.loads(lookup_after_response.body)
     assert lookup_after_payload["record"]["verification_state"]["status"] == "invalidated"
     assert lookup_after_payload["record"]["verification_state"]["invalidation_reason"] == "operator found mismatched historical footprint window"
+
+
+def test_replay_cache_rebuild_latest_invalidates_old_cache_and_uses_latest_history() -> None:
+    application = build_application()
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+
+    first_history_payload = json.loads(json.dumps(history_payload))
+    first_history_payload["message_id"] = "collector-history-rebuild-01"
+    first_history_payload["emitted_at"] = "2026-03-17T09:01:00Z"
+    first_history_payload["source"]["chart_instance_id"] = "NQ-03d4a876"
+    first_history_payload["bars"][0]["open"] = 21498.0
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(first_history_payload).encode("utf-8"),
+    )
+
+    build_request = {
+        "cache_key": "NQ|5m|2026-03-17T08:55:00Z|2026-03-17T09:00:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "5m",
+        "window_start": "2026-03-17T08:55:00Z",
+        "window_end": "2026-03-17T09:00:59Z",
+        "force_rebuild": True,
+        "min_continuous_messages": 10,
+    }
+    first_build_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+    assert first_build_response.status_code == 200
+    first_build_payload = json.loads(first_build_response.body)
+
+    second_history_payload = json.loads(json.dumps(history_payload))
+    second_history_payload["message_id"] = "collector-history-rebuild-02"
+    second_history_payload["emitted_at"] = "2026-03-17T09:05:00Z"
+    second_history_payload["source"]["chart_instance_id"] = "NQ-03d4a876"
+    second_history_payload["bars"][0]["open"] = 21470.0
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(second_history_payload).encode("utf-8"),
+    )
+
+    rebuild_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-cache/rebuild-latest",
+        json.dumps(
+            {
+                "cache_key": "NQ|5m|2026-03-17T08:55:00Z|2026-03-17T09:00:59Z",
+                "instrument_symbol": "NQ",
+                "display_timeframe": "5m",
+                "window_start": "2026-03-17T08:55:00Z",
+                "window_end": "2026-03-17T09:00:59Z",
+                "invalidation_reason": "atas bug fixed; rebuild from latest sync",
+            }
+        ).encode("utf-8"),
+    )
+
+    assert rebuild_response.status_code == 200
+    rebuild_payload = json.loads(rebuild_response.body)
+    assert rebuild_payload["cache_key"] == "NQ|5m|2026-03-17T08:55:00Z|2026-03-17T09:00:59Z"
+    assert rebuild_payload["invalidated_existing_cache"] is True
+    assert rebuild_payload["invalidation_result"]["verification_status"] == "invalidated"
+    assert rebuild_payload["build_result"]["action"] == "built_from_atas_history"
+    assert rebuild_payload["build_result"]["ingestion_id"] != first_build_payload["ingestion_id"]
+
+    old_replay_ingestion_response = application.dispatch(
+        "GET",
+        f"/api/v1/ingestions/{first_build_payload['ingestion_id']}",
+    )
+    assert old_replay_ingestion_response.status_code == 200
+    old_replay_ingestion_payload = json.loads(old_replay_ingestion_response.body)
+    assert old_replay_ingestion_payload["observed_payload"]["verification_state"]["status"] == "invalidated"
+    assert (
+        old_replay_ingestion_payload["observed_payload"]["verification_state"]["invalidation_reason"]
+        == "atas bug fixed; rebuild from latest sync"
+    )
+
+    rebuilt_replay_ingestion_response = application.dispatch(
+        "GET",
+        f"/api/v1/ingestions/{rebuild_payload['build_result']['ingestion_id']}",
+    )
+    assert rebuilt_replay_ingestion_response.status_code == 200
+    rebuilt_replay_ingestion_payload = json.loads(rebuilt_replay_ingestion_response.body)
+    assert rebuilt_replay_ingestion_payload["observed_payload"]["candles"][0]["open"] == 21470.0
+
+
+def test_replay_live_status_reports_latest_adapter_sync_and_refresh_need() -> None:
+    application = build_application()
+
+    replay_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-snapshots",
+        load_fixture("replay_workbench.snapshot.sample.json"),
+    )
+    replay_payload = json.loads(replay_response.body)
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "NQ"
+    continuous_payload["source"]["instrument_symbol"] = "NQ"
+    continuous_payload["source"]["emitted_at"] = "2026-03-17T09:00:10Z"
+    continuous_payload["observed_at"] = "2026-03-17T09:00:10Z"
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/continuous-state",
+        json.dumps(continuous_payload).encode("utf-8"),
+    )
+
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    history_payload["instrument"]["symbol"] = "NQ"
+    history_payload["source"]["instrument_symbol"] = "NQ"
+    history_payload["emitted_at"] = "2026-03-17T09:00:15Z"
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(history_payload).encode("utf-8"),
+    )
+
+    status_response = application.dispatch(
+        "GET",
+        f"/api/v1/workbench/live-status?instrument_symbol=NQ&replay_ingestion_id={replay_payload['ingestion_id']}",
+    )
+
+    assert status_response.status_code == 200
+    status_payload = json.loads(status_response.body)
+    assert status_payload["instrument_symbol"] == "NQ"
+    assert status_payload["latest_continuous_state"]["latest_ingestion_id"] is not None
+    assert status_payload["latest_history_bars"]["latest_ingestion_id"] is not None
+    assert status_payload["latest_adapter_sync_at"] is not None
+    assert status_payload["stream_state"] in {"live", "delayed", "stale"}
+    assert status_payload["should_refresh_snapshot"] is True
+
+
+def test_replay_live_tail_returns_latest_price_and_recent_candles() -> None:
+    application = build_application()
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "NQ"
+    continuous_payload["source"]["instrument_symbol"] = "NQ"
+    continuous_payload["source"]["chart_instance_id"] = "NQ-live-tail"
+    continuous_payload["observed_window_start"] = "2026-03-17T09:00:00Z"
+    continuous_payload["observed_window_end"] = "2026-03-17T09:00:01Z"
+    continuous_payload["emitted_at"] = "2026-03-17T09:00:01Z"
+    continuous_payload["price_state"]["last_price"] = 24843.0
+    continuous_payload["price_state"]["best_bid"] = 24842.75
+    continuous_payload["price_state"]["best_ask"] = 24843.0
+
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/continuous-state",
+        json.dumps(continuous_payload).encode("utf-8"),
+    )
+
+    follow_up_payload = copy.deepcopy(continuous_payload)
+    follow_up_payload["message_id"] = "adapter-msg-20260317-090002"
+    follow_up_payload["observed_window_end"] = "2026-03-17T09:00:02Z"
+    follow_up_payload["emitted_at"] = "2026-03-17T09:00:02Z"
+    follow_up_payload["price_state"]["last_price"] = 24843.25
+    follow_up_payload["price_state"]["best_bid"] = 24843.0
+    follow_up_payload["price_state"]["best_ask"] = 24843.25
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/continuous-state",
+        json.dumps(follow_up_payload).encode("utf-8"),
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=NQ&display_timeframe=1m&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["instrument_symbol"] == "NQ"
+    assert payload["latest_price"] == 24843.25
+    assert payload["best_bid"] == 24843.0
+    assert payload["best_ask"] == 24843.25
+    assert payload["latest_observed_at"].startswith("2026-03-17T09:00:02")
+    assert payload["source_message_count"] >= 2
+    assert len(payload["candles"]) >= 1
+    assert payload["trade_summary"]["volume"] >= 0
+    assert isinstance(payload["significant_liquidity"], list)
+    assert isinstance(payload["same_price_replenishment"], list)
 
 
 def test_replay_ai_review_endpoint_returns_structured_review() -> None:
@@ -879,3 +1147,189 @@ def test_replay_workbench_builder_rebuilds_from_local_history() -> None:
     assert payload["summary"]["verification_status"] == "unverified"
     assert payload["summary"]["candle_count"] >= 2
     assert payload["cache_record"]["cache_key"] == "NQ|5m|2026-03-16T14:30:00Z|2026-03-16T14:41:00Z"
+
+
+def test_replay_workbench_builder_fills_missing_candles_with_synthetic_bars() -> None:
+    application = build_application()
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+
+    # Intentionally skip one minute so the built candles have a gap.
+    base_time = datetime.fromisoformat("2026-03-16T14:30:00+00:00")
+    minutes = [0, 2, 3]
+    for index, minute_offset in enumerate(minutes):
+        payload = json.loads(json.dumps(continuous_payload))
+        emitted_at = base_time + timedelta(minutes=minute_offset)
+        payload["message_id"] = f"adapter-msg-gap-{index:02d}"
+        payload["emitted_at"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_start"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_end"] = (emitted_at + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        payload["source"]["chart_instance_id"] = "NQ-gap-test"
+        payload["instrument"]["symbol"] = "NQ"
+        payload["price_state"]["last_price"] = 21520.0 + index
+        payload["trade_summary"]["volume"] = 50
+        payload["trade_summary"]["net_delta"] = 5
+        application.dispatch(
+            "POST",
+            "/api/v1/adapter/continuous-state",
+            json.dumps(payload).encode("utf-8"),
+        )
+
+    build_request = {
+        "cache_key": "NQ|1m|2026-03-16T14:30:00Z|2026-03-16T14:33:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:30:00Z",
+        "window_end": "2026-03-16T14:33:59Z",
+        "force_rebuild": True,
+        "min_continuous_messages": 1,
+    }
+    build_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+    assert build_response.status_code == 200
+    build_body = json.loads(build_response.body)
+    assert build_body["action"] == "built_from_local_history"
+
+    replay_ingestion_response = application.dispatch("GET", f"/api/v1/ingestions/{build_body['ingestion_id']}")
+    assert replay_ingestion_response.status_code == 200
+    replay_payload = json.loads(replay_ingestion_response.body)["observed_payload"]
+    candles = replay_payload["candles"]
+
+    # Expect the missing 14:31 bar to be present as a synthetic flat candle.
+    filler = next((c for c in candles if str(c["started_at"]).startswith("2026-03-16T14:31:00")), None)
+    assert filler is not None
+    assert filler["volume"] == 0
+    assert filler["delta"] == 0
+
+    raw = replay_payload.get("raw_features") or {}
+    assert raw.get("candle_gap_count", 0) >= 1
+    assert raw.get("candle_gap_missing_bar_count", 0) >= 1
+    assert raw.get("candle_gap_fill_bar_count", 0) >= 1
+
+
+def test_workbench_atas_backfill_request_poll_and_acknowledge_flow() -> None:
+    application = build_application()
+    request_payload = {
+        "cache_key": "NQ|1m|2026-03-16T14:30:00Z|2026-03-16T15:00:00Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:30:00Z",
+        "window_end": "2026-03-16T15:00:00Z",
+        "chart_instance_id": "NQ-chart-main",
+        "reason": "candle_gap_detected",
+        "request_history_bars": True,
+        "request_history_footprint": True,
+        "missing_segments": [
+            {
+                "prev_ended_at": "2026-03-16T14:39:59Z",
+                "next_started_at": "2026-03-16T14:42:00Z",
+                "missing_bar_count": 2,
+            }
+        ],
+    }
+
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+    assert create_response.status_code == 201
+    create_body = json.loads(create_response.body)
+    assert create_body["reused_existing_request"] is False
+    assert create_body["request"]["status"] == "pending"
+
+    mismatch_poll = application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-chart-other",
+    )
+    assert mismatch_poll.status_code == 200
+    assert json.loads(mismatch_poll.body)["request"] is None
+
+    poll_response = application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-chart-main",
+    )
+    assert poll_response.status_code == 200
+    poll_body = json.loads(poll_response.body)
+    assert poll_body["request"]["request_id"] == create_body["request"]["request_id"]
+    assert poll_body["request"]["dispatch_count"] == 1
+    assert poll_body["request"]["request_history_bars"] is True
+    assert poll_body["request"]["request_history_footprint"] is True
+
+    immediate_poll = application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-chart-main",
+    )
+    assert immediate_poll.status_code == 200
+    assert json.loads(immediate_poll.body)["request"] is None
+
+    ack_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/backfill-ack",
+        json.dumps(
+            {
+                "request_id": create_body["request"]["request_id"],
+                "instrument_symbol": "NQ",
+                "chart_instance_id": "NQ-chart-main",
+                "acknowledged_at": "2026-03-16T15:01:00Z",
+                "acknowledged_history_bars": True,
+                "acknowledged_history_footprint": True,
+                "latest_loaded_bar_started_at": "2026-03-16T15:00:00Z",
+                "note": "forced history resend completed",
+            }
+        ).encode("utf-8"),
+    )
+    assert ack_response.status_code == 200
+    ack_body = json.loads(ack_response.body)
+    assert ack_body["request"]["status"] == "acknowledged"
+    assert ack_body["request"]["acknowledged_chart_instance_id"] == "NQ-chart-main"
+    assert ack_body["request"]["acknowledged_history_bars"] is True
+    assert ack_body["request"]["acknowledged_history_footprint"] is True
+
+    final_poll = application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-chart-main",
+    )
+    assert final_poll.status_code == 200
+    assert json.loads(final_poll.body)["request"] is None
+
+
+def test_workbench_atas_backfill_request_reuses_matching_active_request() -> None:
+    application = build_application()
+    request_payload = {
+        "cache_key": "NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "5m",
+        "window_start": "2026-03-12T07:00:00Z",
+        "window_end": "2026-03-17T02:15:00Z",
+        "reason": "snapshot_gap_detected",
+        "request_history_bars": True,
+        "request_history_footprint": False,
+        "missing_segments": [
+            {
+                "prev_ended_at": "2026-03-14T01:24:59Z",
+                "next_started_at": "2026-03-14T01:35:00Z",
+                "missing_bar_count": 2,
+            }
+        ],
+    }
+
+    first_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+    second_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    first_body = json.loads(first_response.body)
+    second_body = json.loads(second_response.body)
+    assert first_body["request"]["request_id"] == second_body["request"]["request_id"]
+    assert second_body["reused_existing_request"] is True

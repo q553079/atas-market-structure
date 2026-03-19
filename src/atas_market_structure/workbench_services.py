@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
 from atas_market_structure.models import (
+    AdapterBackfillAcknowledgeRequest,
+    AdapterBackfillAcknowledgeResponse,
+    AdapterBackfillCommand,
+    AdapterBackfillDispatchResponse,
     AdapterHistoryBarsPayload,
     AdapterHistoryFootprintBar,
     AdapterHistoryFootprintPayload,
+    AdapterInitiativeDriveState,
+    AdapterPostHarvestResponseState,
+    AdapterSamePriceReplenishmentState,
+    AdapterSignificantLiquidityLevel,
+    AdapterTradeSummary,
     ReplayAcquisitionMode,
     ReplayAiBriefing,
     ReplayCachePolicy,
@@ -25,6 +35,10 @@ from atas_market_structure.models import (
     ReplayVerificationStatus,
     ReplayWorkbenchAcceptedResponse,
     ReplayWorkbenchAcceptedSummary,
+    ReplayWorkbenchAtasBackfillAcceptedResponse,
+    ReplayWorkbenchAtasBackfillRecord,
+    ReplayWorkbenchAtasBackfillRequest,
+    ReplayWorkbenchAtasBackfillStatus,
     ReplayWorkbenchBuildAction,
     ReplayWorkbenchBuildRequest,
     ReplayWorkbenchBuildResponse,
@@ -32,19 +46,32 @@ from atas_market_structure.models import (
     ReplayWorkbenchCacheRecord,
     ReplayWorkbenchInvalidationRequest,
     ReplayWorkbenchInvalidationResponse,
+    ReplayWorkbenchLiveSourceStatus,
+    ReplayWorkbenchLiveStatusResponse,
+    ReplayWorkbenchLiveTailResponse,
+    ReplayWorkbenchRebuildLatestRequest,
+    ReplayWorkbenchRebuildLatestResponse,
     ReplayWorkbenchSnapshotPayload,
     ReplayChartBar,
     ReplayEventAnnotation,
     ReplayFocusRegion,
+    ReplayLiveStreamState,
     ReplayStrategyCandidate,
     StructureSide,
     Timeframe,
 )
 from atas_market_structure.repository import AnalysisRepository, StoredIngestion
+from atas_market_structure.strategy_selection_engine import StrategySelectionEngine
 
 
 class ReplayWorkbenchNotFoundError(RuntimeError):
     """Raised when a requested replay cache record does not exist."""
+
+
+def payload_to_model(payload: Any, model_type):
+    if payload is None:
+        return None
+    return model_type.model_validate(payload)
 
 
 class ReplayWorkbenchService:
@@ -59,8 +86,17 @@ class ReplayWorkbenchService:
         Timeframe.DAY_1: 1440,
     }
 
+    # Defensive limit: never insert an unbounded amount of synthetic filler bars.
+    # (UI would choke, and it usually indicates upstream history coverage issues.)
+    _MAX_GAP_FILL_BARS: int = 600
+    _BACKFILL_REQUEST_TTL = timedelta(minutes=5)
+    _BACKFILL_DISPATCH_LEASE = timedelta(seconds=12)
+    _BACKFILL_RECORD_RETENTION = timedelta(hours=2)
+
     def __init__(self, repository: AnalysisRepository) -> None:
         self._repository = repository
+        self._backfill_lock = Lock()
+        self._backfill_requests: dict[str, ReplayWorkbenchAtasBackfillRecord] = {}
 
     def ingest_replay_snapshot(self, payload: ReplayWorkbenchSnapshotPayload) -> ReplayWorkbenchAcceptedResponse:
         stored_at = datetime.now(tz=UTC)
@@ -80,8 +116,15 @@ class ReplayWorkbenchService:
             summary=self._build_summary(payload),
         )
 
-    def get_cache_record(self, cache_key: str) -> ReplayWorkbenchCacheEnvelope:
+    def get_cache_record(self, cache_key: str, allow_fuzzy: bool = False) -> ReplayWorkbenchCacheEnvelope:
         stored = self._find_latest_replay_snapshot(cache_key=cache_key)
+        matched_cache_key = cache_key
+
+        if stored is None and allow_fuzzy:
+            fuzzy_match = self._find_latest_replay_snapshot_by_cache_identity(cache_key)
+            if fuzzy_match is not None:
+                matched_cache_key, stored = fuzzy_match
+
         if stored is None:
             return ReplayWorkbenchCacheEnvelope(
                 cache_key=cache_key,
@@ -94,7 +137,7 @@ class ReplayWorkbenchService:
         verification_due_now = self._is_verification_due(payload=payload)
         auto_fetch_allowed = self._is_auto_fetch_allowed(payload=payload)
         return ReplayWorkbenchCacheEnvelope(
-            cache_key=cache_key,
+            cache_key=matched_cache_key,
             record=self._build_cache_record(stored, payload),
             auto_fetch_allowed=auto_fetch_allowed,
             verification_due_now=verification_due_now,
@@ -133,6 +176,320 @@ class ReplayWorkbenchService:
             verification_status=payload.verification_state.status,
             locked_until_manual_reset=payload.verification_state.locked_until_manual_reset,
         )
+
+    def get_live_status(
+        self,
+        *,
+        instrument_symbol: str,
+        replay_ingestion_id: str | None = None,
+    ) -> ReplayWorkbenchLiveStatusResponse:
+        now = datetime.now(tz=UTC)
+        latest_continuous_state = self._get_latest_ingestion_status(
+            now=now,
+            ingestion_kind="adapter_continuous_state",
+            instrument_symbol=instrument_symbol,
+        )
+        latest_history_bars = self._get_latest_ingestion_status(
+            now=now,
+            ingestion_kind="adapter_history_bars",
+            instrument_symbol=instrument_symbol,
+        )
+        latest_history_footprint = self._get_latest_ingestion_status(
+            now=now,
+            ingestion_kind="adapter_history_footprint",
+            instrument_symbol=instrument_symbol,
+        )
+
+        latest_times = [
+            item.latest_stored_at
+            for item in (latest_continuous_state, latest_history_bars, latest_history_footprint)
+            if item.latest_stored_at is not None
+        ]
+        latest_adapter_sync_at = max(latest_times) if latest_times else None
+        latest_adapter_sync_lag_seconds = (
+            max(0, int((now - latest_adapter_sync_at).total_seconds()))
+            if latest_adapter_sync_at is not None
+            else None
+        )
+
+        if latest_adapter_sync_lag_seconds is None:
+            stream_state = ReplayLiveStreamState.OFFLINE
+        elif latest_adapter_sync_lag_seconds <= 10:
+            stream_state = ReplayLiveStreamState.LIVE
+        elif latest_adapter_sync_lag_seconds <= 60:
+            stream_state = ReplayLiveStreamState.DELAYED
+        else:
+            stream_state = ReplayLiveStreamState.STALE
+
+        replay_snapshot_stored_at: datetime | None = None
+        if replay_ingestion_id is not None:
+            replay_ingestion = self._repository.get_ingestion(replay_ingestion_id)
+            if replay_ingestion is not None:
+                replay_snapshot_stored_at = replay_ingestion.stored_at
+
+        should_refresh_snapshot = bool(
+            latest_adapter_sync_at is not None
+            and (
+                replay_snapshot_stored_at is None
+                or latest_adapter_sync_at > replay_snapshot_stored_at
+            )
+        )
+
+        return ReplayWorkbenchLiveStatusResponse(
+            instrument_symbol=instrument_symbol,
+            replay_ingestion_id=replay_ingestion_id,
+            replay_snapshot_stored_at=replay_snapshot_stored_at,
+            latest_adapter_sync_at=latest_adapter_sync_at,
+            latest_adapter_sync_lag_seconds=latest_adapter_sync_lag_seconds,
+            stream_state=stream_state,
+            should_refresh_snapshot=should_refresh_snapshot,
+            latest_continuous_state=latest_continuous_state,
+            latest_history_bars=latest_history_bars,
+            latest_history_footprint=latest_history_footprint,
+        )
+
+    def get_live_tail(
+        self,
+        *,
+        instrument_symbol: str,
+        display_timeframe: Timeframe,
+        chart_instance_id: str | None = None,
+        lookback_bars: int = 4,
+    ) -> ReplayWorkbenchLiveTailResponse:
+        # Pull enough recent continuous-state messages to build `lookback_bars` candles.
+        # Repository only supports "latest N" so we oversample and filter by time cutoff.
+        timeframe_minutes = self._TIMEFRAME_MINUTES.get(display_timeframe, 1)
+        required_minutes = (timeframe_minutes * max(lookback_bars, 2)) + 3
+        estimated_messages_per_minute = 6  # ~10s cadence (tune if adapter cadence changes)
+        candidates_limit = int(required_minutes * estimated_messages_per_minute * 3)
+        candidates_limit = max(5000, min(50000, candidates_limit))
+
+        candidates = self._repository.list_ingestions(
+            ingestion_kind="adapter_continuous_state",
+            instrument_symbol=instrument_symbol,
+            limit=candidates_limit,
+        )
+        matched: list[tuple[datetime, StoredIngestion]] = []
+        latest_payload: dict[str, Any] | None = None
+        latest_observed_at: datetime | None = None
+        for stored in candidates:
+            payload = stored.observed_payload
+            if chart_instance_id is not None and payload.get("source", {}).get("chart_instance_id") != chart_instance_id:
+                continue
+            observed_at = self._payload_observed_at(payload)
+            matched.append((observed_at, stored))
+            if latest_observed_at is None or observed_at > latest_observed_at:
+                latest_observed_at = observed_at
+                latest_payload = payload
+
+        if latest_observed_at is None or latest_payload is None:
+            return ReplayWorkbenchLiveTailResponse(
+                instrument_symbol=instrument_symbol,
+                display_timeframe=display_timeframe,
+                latest_observed_at=None,
+                latest_price=None,
+                best_bid=None,
+                best_ask=None,
+                source_message_count=0,
+                candles=[],
+                trade_summary=None,
+                significant_liquidity=[],
+                same_price_replenishment=[],
+                active_initiative_drive=None,
+                active_post_harvest_response=None,
+            )
+
+        recent_cutoff = latest_observed_at - timedelta(
+            minutes=(self._TIMEFRAME_MINUTES.get(display_timeframe, 1) * max(lookback_bars, 2)) + 1
+        )
+        recent_messages = [stored for observed_at, stored in matched if observed_at >= recent_cutoff]
+        recent_messages.sort(key=lambda item: self._payload_observed_at(item.observed_payload))
+        live_candles = self._build_candles(display_timeframe, recent_messages)[-max(lookback_bars, 1):]
+
+        # --- auto gap-fill: patch holes in live candles using history-bars ---
+        live_candles = self._patch_live_candle_gaps(
+            instrument_symbol=instrument_symbol,
+            display_timeframe=display_timeframe,
+            chart_instance_id=chart_instance_id,
+            candles=live_candles,
+        )
+
+        # --- still expose remaining gaps as explicit synthetic bars (so UI can see missing time) ---
+        live_candles, _, _ = self._fill_candle_time_gaps(live_candles, display_timeframe)
+
+        price_state = latest_payload.get("price_state", {})
+        return ReplayWorkbenchLiveTailResponse(
+            instrument_symbol=instrument_symbol,
+            display_timeframe=display_timeframe,
+            latest_observed_at=latest_observed_at,
+            latest_price=price_state.get("last_price"),
+            best_bid=price_state.get("best_bid"),
+            best_ask=price_state.get("best_ask"),
+            source_message_count=len(recent_messages),
+            candles=live_candles,
+            trade_summary=payload_to_model(latest_payload.get("trade_summary"), AdapterTradeSummary),
+            significant_liquidity=[
+                model
+                for model in (
+                    payload_to_model(item, AdapterSignificantLiquidityLevel)
+                    for item in latest_payload.get("significant_liquidity", [])
+                )
+                if model is not None
+            ],
+            same_price_replenishment=[
+                model
+                for model in (
+                    payload_to_model(item, AdapterSamePriceReplenishmentState)
+                    for item in latest_payload.get("same_price_replenishment", [])
+                )
+                if model is not None
+            ],
+            active_initiative_drive=payload_to_model(
+                latest_payload.get("active_initiative_drive"),
+                AdapterInitiativeDriveState,
+            ),
+            active_post_harvest_response=payload_to_model(
+                latest_payload.get("active_post_harvest_response"),
+                AdapterPostHarvestResponseState,
+            ),
+        )
+
+    def rebuild_cache_from_latest_sync(
+        self,
+        request: ReplayWorkbenchRebuildLatestRequest,
+    ) -> ReplayWorkbenchRebuildLatestResponse:
+        cache = self.get_cache_record(request.cache_key)
+        invalidation_result: ReplayWorkbenchInvalidationResponse | None = None
+        invalidated_existing_cache = False
+        if cache.record is not None and cache.record.verification_state.status != ReplayVerificationStatus.INVALIDATED:
+            invalidation_result = self.invalidate_cache_record(
+                ReplayWorkbenchInvalidationRequest(
+                    cache_key=request.cache_key,
+                    invalidation_reason=request.invalidation_reason,
+                )
+            )
+            invalidated_existing_cache = True
+
+        build_result = self.build_replay_snapshot(
+            ReplayWorkbenchBuildRequest(
+                cache_key=request.cache_key,
+                instrument_symbol=request.instrument_symbol,
+                display_timeframe=request.display_timeframe,
+                window_start=request.window_start,
+                window_end=request.window_end,
+                chart_instance_id=request.chart_instance_id,
+                force_rebuild=True,
+                min_continuous_messages=request.min_continuous_messages,
+            )
+        )
+        return ReplayWorkbenchRebuildLatestResponse(
+            cache_key=request.cache_key,
+            invalidated_existing_cache=invalidated_existing_cache,
+            invalidation_result=invalidation_result,
+            build_result=build_result,
+        )
+
+    def request_atas_backfill(
+        self,
+        request: ReplayWorkbenchAtasBackfillRequest,
+    ) -> ReplayWorkbenchAtasBackfillAcceptedResponse:
+        now = datetime.now(tz=UTC)
+        with self._backfill_lock:
+            self._expire_backfill_requests_locked(now)
+            reusable = self._find_reusable_backfill_request_locked(request, now)
+            if reusable is not None:
+                return ReplayWorkbenchAtasBackfillAcceptedResponse(
+                    request=reusable,
+                    reused_existing_request=True,
+                )
+
+            record = ReplayWorkbenchAtasBackfillRecord(
+                request_id=f"atas-backfill-{uuid4().hex}",
+                cache_key=request.cache_key,
+                instrument_symbol=request.instrument_symbol,
+                display_timeframe=request.display_timeframe,
+                window_start=request.window_start,
+                window_end=request.window_end,
+                chart_instance_id=request.chart_instance_id,
+                missing_segments=request.missing_segments,
+                reason=request.reason,
+                request_history_bars=request.request_history_bars,
+                request_history_footprint=request.request_history_footprint,
+                status=ReplayWorkbenchAtasBackfillStatus.PENDING,
+                requested_at=now,
+                expires_at=now + self._BACKFILL_REQUEST_TTL,
+                dispatch_count=0,
+            )
+            self._backfill_requests[record.request_id] = record
+            self._prune_backfill_requests_locked(now)
+            return ReplayWorkbenchAtasBackfillAcceptedResponse(
+                request=record,
+                reused_existing_request=False,
+            )
+
+    def poll_atas_backfill(
+        self,
+        *,
+        instrument_symbol: str,
+        chart_instance_id: str | None = None,
+    ) -> AdapterBackfillDispatchResponse:
+        now = datetime.now(tz=UTC)
+        with self._backfill_lock:
+            self._expire_backfill_requests_locked(now)
+            for record in self._iter_matching_backfill_requests_locked(
+                instrument_symbol=instrument_symbol,
+                chart_instance_id=chart_instance_id,
+            ):
+                if not self._is_backfill_dispatchable(record, now):
+                    continue
+                updated = record.model_copy(
+                    update={
+                        "status": ReplayWorkbenchAtasBackfillStatus.DISPATCHED,
+                        "dispatch_count": record.dispatch_count + 1,
+                        "dispatched_at": now,
+                        "dispatched_chart_instance_id": chart_instance_id,
+                    }
+                )
+                self._backfill_requests[record.request_id] = updated
+                return AdapterBackfillDispatchResponse(
+                    instrument_symbol=instrument_symbol,
+                    chart_instance_id=chart_instance_id,
+                    polled_at=now,
+                    request=self._build_backfill_command(updated),
+                )
+
+        return AdapterBackfillDispatchResponse(
+            instrument_symbol=instrument_symbol,
+            chart_instance_id=chart_instance_id,
+            polled_at=now,
+            request=None,
+        )
+
+    def acknowledge_atas_backfill(
+        self,
+        request: AdapterBackfillAcknowledgeRequest,
+    ) -> AdapterBackfillAcknowledgeResponse:
+        with self._backfill_lock:
+            record = self._backfill_requests.get(request.request_id)
+            if record is None:
+                raise ReplayWorkbenchNotFoundError(
+                    f"ATAS backfill request '{request.request_id}' not found."
+                )
+
+            updated = record.model_copy(
+                update={
+                    "status": ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED,
+                    "acknowledged_at": request.acknowledged_at,
+                    "acknowledged_chart_instance_id": request.chart_instance_id,
+                    "acknowledged_history_bars": request.acknowledged_history_bars,
+                    "acknowledged_history_footprint": request.acknowledged_history_footprint,
+                    "latest_loaded_bar_started_at": request.latest_loaded_bar_started_at,
+                    "note": request.note,
+                }
+            )
+            self._backfill_requests[request.request_id] = updated
+            self._prune_backfill_requests_locked(request.acknowledged_at)
+            return AdapterBackfillAcknowledgeResponse(request=updated)
 
     def build_replay_snapshot(self, request: ReplayWorkbenchBuildRequest) -> ReplayWorkbenchBuildResponse:
         history_payload = self._find_matching_history_payload(request)
@@ -223,6 +580,16 @@ class ReplayWorkbenchService:
         candles = self._build_candles_from_history_payload(history_payload, request)
         if not candles:
             return self._build_snapshot_from_local_history(request, continuous_messages)
+        continuous_overlay_count = 0
+        if continuous_messages:
+            candles, continuous_overlay_count = self._merge_history_candles_with_continuous_overlay(
+                history_candles=candles,
+                continuous_messages=continuous_messages,
+                timeframe=request.display_timeframe,
+            )
+
+        # Detect + fill any remaining candle gaps so the UI does not silently compress missing time.
+        candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(candles, request.display_timeframe)
 
         actual_window_start = candles[0].started_at
         actual_window_end = candles[-1].ended_at
@@ -275,8 +642,41 @@ class ReplayWorkbenchService:
                 "history_footprint_available": bool(footprint_payloads),
                 "history_footprint_digest": footprint_digest,
                 "local_message_count": len(continuous_messages),
+                "continuous_overlay_candle_count": continuous_overlay_count,
+                "candle_gap_count": len(candle_gaps),
+                "candle_gap_missing_bar_count": sum(item["missing_bar_count"] for item in candle_gaps),
+                "candle_gap_fill_bar_count": gap_fill_bar_count,
+                "candle_gaps": candle_gaps,
                 "build_reason": "atas_chart_loaded_history_rebuild",
             },
+        )
+
+    def _get_latest_ingestion_status(
+        self,
+        *,
+        now: datetime,
+        ingestion_kind: str,
+        instrument_symbol: str,
+    ) -> ReplayWorkbenchLiveSourceStatus:
+        latest = self._repository.list_ingestions(
+            ingestion_kind=ingestion_kind,
+            instrument_symbol=instrument_symbol,
+            limit=1,
+        )
+        if not latest:
+            return ReplayWorkbenchLiveSourceStatus(
+                ingestion_kind=ingestion_kind,
+                latest_ingestion_id=None,
+                latest_stored_at=None,
+                lag_seconds=None,
+            )
+
+        latest_item = latest[0]
+        return ReplayWorkbenchLiveSourceStatus(
+            ingestion_kind=ingestion_kind,
+            latest_ingestion_id=latest_item.ingestion_id,
+            latest_stored_at=latest_item.stored_at,
+            lag_seconds=max(0, int((now - latest_item.stored_at).total_seconds())),
         )
 
     def record_operator_entry(self, request: ReplayOperatorEntryRequest) -> ReplayOperatorEntryAcceptedResponse:
@@ -444,6 +844,7 @@ class ReplayWorkbenchService:
         replay_snapshot_id = f"replay-{request.instrument_symbol.lower()}-{created_at.strftime('%Y%m%dT%H%M%SZ')}"
 
         candles = self._build_candles(request.display_timeframe, ingestions)
+        candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(candles, request.display_timeframe)
         actual_window_start = candles[0].started_at if candles else request.window_start
         actual_window_end = candles[-1].ended_at if candles else request.window_end
         event_annotations = self._build_event_annotations(ingestions)
@@ -488,6 +889,10 @@ class ReplayWorkbenchService:
                 "requested_window_end": request.window_end,
                 "actual_window_start": actual_window_start,
                 "actual_window_end": actual_window_end,
+                "candle_gap_count": len(candle_gaps),
+                "candle_gap_missing_bar_count": sum(item["missing_bar_count"] for item in candle_gaps),
+                "candle_gap_fill_bar_count": gap_fill_bar_count,
+                "candle_gaps": candle_gaps,
             },
         )
 
@@ -812,8 +1217,8 @@ class ReplayWorkbenchService:
         buckets: dict[datetime, dict[str, Any]] = {}
         for stored in ingestions:
             payload = stored.observed_payload
-            emitted_at = datetime.fromisoformat(payload["emitted_at"])
-            bucket_start = self._bucket_start(emitted_at, timeframe)
+            observed_at = self._payload_observed_at(payload)
+            bucket_start = self._bucket_start(observed_at, timeframe)
             bucket = buckets.setdefault(
                 bucket_start,
                 {
@@ -858,6 +1263,240 @@ class ReplayWorkbenchService:
             for _, bucket in sorted(buckets.items(), key=lambda item: item[0])
             if bucket["open"] is not None
         ]
+
+    @staticmethod
+    def _payload_observed_at(payload: dict[str, Any]) -> datetime:
+        return datetime.fromisoformat(payload.get("observed_window_end") or payload["emitted_at"])
+
+    def _patch_live_candle_gaps(
+        self,
+        *,
+        instrument_symbol: str,
+        display_timeframe: Timeframe,
+        chart_instance_id: str | None,
+        candles: list[ReplayChartBar],
+    ) -> list[ReplayChartBar]:
+        """Detect time gaps in live candles and fill them from the latest history-bars payload.
+
+        Note: this runs only for the *live tail* path. The replay snapshot builder has its
+        own gap-filling logic.
+        """
+        if len(candles) < 2:
+            return candles
+
+        expected_delta = timedelta(minutes=self._TIMEFRAME_MINUTES.get(display_timeframe, 1))
+        tolerance = timedelta(seconds=5)
+
+        # Detect if any gap exists
+        has_gap = False
+        gap_window_start: datetime | None = None
+        gap_window_end: datetime | None = None
+        for i in range(1, len(candles)):
+            delta = candles[i].started_at - candles[i - 1].started_at
+            if delta > expected_delta + tolerance:
+                has_gap = True
+                # Missing window is between the end of previous candle and start of next candle.
+                start = candles[i - 1].ended_at + timedelta(seconds=1)
+                end = candles[i].started_at - timedelta(seconds=1)
+                if gap_window_start is None or start < gap_window_start:
+                    gap_window_start = start
+                if gap_window_end is None or end > gap_window_end:
+                    gap_window_end = end
+
+        if not has_gap or gap_window_start is None or gap_window_end is None or gap_window_end < gap_window_start:
+            return candles
+
+        # Find the best history-bars payload covering the gap
+        history_candidates = self._repository.list_ingestions(
+            ingestion_kind="adapter_history_bars",
+            instrument_symbol=instrument_symbol,
+            limit=50,
+        )
+        best_payload: AdapterHistoryBarsPayload | None = None
+        best_overlap = 0.0
+        for stored in history_candidates:
+            payload = AdapterHistoryBarsPayload.model_validate(stored.observed_payload)
+            if chart_instance_id is not None and payload.source.chart_instance_id != chart_instance_id:
+                continue
+            if not self._can_build_timeframe_from_history(payload.bar_timeframe, display_timeframe):
+                continue
+            overlap = self._overlap_seconds(
+                payload.observed_window_start,
+                payload.observed_window_end,
+                gap_window_start,
+                gap_window_end,
+            )
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_payload = payload
+
+        if best_payload is None:
+            return candles
+
+        # Build filler candles from history-bars for the gap region
+        filler_request = ReplayWorkbenchBuildRequest(
+            cache_key="__gap_fill_internal__",
+            instrument_symbol=instrument_symbol,
+            display_timeframe=display_timeframe,
+            window_start=gap_window_start,
+            window_end=gap_window_end,
+        )
+        filler_candles = self._build_candles_from_history_payload(best_payload, filler_request)
+        if not filler_candles:
+            return candles
+
+        # Merge: existing candles take priority, fillers only fill empty slots
+        merged: dict[datetime, ReplayChartBar] = {}
+        for bar in filler_candles:
+            merged[bar.started_at] = bar
+        for bar in candles:
+            merged[bar.started_at] = bar  # live data wins
+
+        return [merged[key] for key in sorted(merged)]
+
+    def _detect_candle_time_gaps(
+        self,
+        candles: list[ReplayChartBar],
+        timeframe: Timeframe,
+    ) -> list[dict[str, Any]]:
+        """Detect missing-time gaps based on candle started_at spacing.
+
+        Returns a list of dicts, each describing a single gap segment.
+        """
+        if timeframe not in self._TIMEFRAME_MINUTES or len(candles) < 2:
+            return []
+
+        expected_seconds = int(self._TIMEFRAME_MINUTES[timeframe] * 60)
+        tolerance_seconds = 5
+
+        gaps: list[dict[str, Any]] = []
+        for prev, nxt in zip(candles, candles[1:]):
+            actual_seconds = int((nxt.started_at - prev.started_at).total_seconds())
+            if actual_seconds <= expected_seconds + tolerance_seconds:
+                continue
+
+            # Estimate how many bars should exist between these starts.
+            # If there is a remainder > tolerance, we treat it as needing one extra bar.
+            bars_between = max(1, actual_seconds // expected_seconds)
+            remainder = actual_seconds % expected_seconds
+            if remainder > tolerance_seconds:
+                bars_between += 1
+            missing = max(1, bars_between - 1)
+
+            gaps.append(
+                {
+                    "prev_started_at": prev.started_at,
+                    "prev_ended_at": prev.ended_at,
+                    "next_started_at": nxt.started_at,
+                    "next_ended_at": nxt.ended_at,
+                    "expected_delta_seconds": expected_seconds,
+                    "actual_delta_seconds": actual_seconds,
+                    "missing_bar_count": missing,
+                }
+            )
+
+        return gaps
+
+    def _fill_candle_time_gaps(
+        self,
+        candles: list[ReplayChartBar],
+        timeframe: Timeframe,
+    ) -> tuple[list[ReplayChartBar], list[dict[str, Any]], int]:
+        """Fill time gaps by inserting synthetic flat bars.
+
+        This is a pragmatic UI/analytics workaround: the replay chart is index-based.
+        If we do not insert missing bars, gaps get visually compressed and are easy to miss.
+
+        Returns (filled_candles, gaps, inserted_bar_count).
+        """
+        gaps = self._detect_candle_time_gaps(candles, timeframe)
+        if not gaps:
+            return candles, [], 0
+
+        expected_delta = timedelta(minutes=self._TIMEFRAME_MINUTES.get(timeframe, 1))
+        inserted = 0
+        output: list[ReplayChartBar] = []
+
+        # Ensure sorted and unique by started_at (existing candles win).
+        candle_map: dict[datetime, ReplayChartBar] = {bar.started_at: bar for bar in candles}
+        sorted_starts = sorted(candle_map)
+        sorted_candles = [candle_map[start] for start in sorted_starts]
+
+        for idx, bar in enumerate(sorted_candles):
+            output.append(bar)
+            if idx >= len(sorted_candles) - 1:
+                continue
+
+            next_bar = sorted_candles[idx + 1]
+            delta = next_bar.started_at - bar.started_at
+            tolerance = timedelta(seconds=5)
+            if delta <= expected_delta + tolerance:
+                continue
+
+            # Recompute missing count deterministically from timedelta.
+            expected_seconds = expected_delta.total_seconds()
+            actual_seconds = delta.total_seconds()
+            bars_between = int(actual_seconds // expected_seconds)
+            remainder = actual_seconds % expected_seconds
+            if remainder > tolerance.total_seconds():
+                bars_between += 1
+            missing = max(1, bars_between - 1)
+
+            for j in range(1, missing + 1):
+                if inserted >= self._MAX_GAP_FILL_BARS:
+                    return output + sorted_candles[idx + 1 :], gaps, inserted
+                start = bar.started_at + expected_delta * j
+                end = start + expected_delta - timedelta(seconds=1)
+                price = bar.close
+                filler = ReplayChartBar(
+                    started_at=start,
+                    ended_at=end,
+                    open=price,
+                    high=price,
+                    low=price,
+                    close=price,
+                    volume=0,
+                    delta=0,
+                    bid_volume=0,
+                    ask_volume=0,
+                )
+                # Don't override real bars if they exist
+                if filler.started_at not in candle_map:
+                    output.append(filler)
+                    inserted += 1
+
+        output.sort(key=lambda item: item.started_at)
+        return output, gaps, inserted
+
+    def _merge_history_candles_with_continuous_overlay(
+        self,
+        *,
+        history_candles: list[ReplayChartBar],
+        continuous_messages: list[StoredIngestion],
+        timeframe: Timeframe,
+    ) -> tuple[list[ReplayChartBar], int]:
+        if not history_candles or not continuous_messages:
+            return history_candles, 0
+
+        continuous_candles = self._build_candles(timeframe, continuous_messages)
+        if not continuous_candles:
+            return history_candles, 0
+
+        # Only overlay continuous bars that start STRICTLY AFTER the last completed history bar.
+        # Using ended_at (exclusive boundary) prevents in-progress real-time bars from
+        # overwriting the last completed history bar and creating abnormal giant wicks.
+        last_history_bar = history_candles[-1]
+        overlay_cutoff = last_history_bar.ended_at
+        merged: dict[datetime, ReplayChartBar] = {bar.started_at: bar for bar in history_candles}
+        overlay_count = 0
+        for bar in continuous_candles:
+            if bar.started_at <= overlay_cutoff:
+                continue
+            merged[bar.started_at] = bar
+            overlay_count += 1
+
+        return [merged[key] for key in sorted(merged)], overlay_count
+
 
     def _can_build_timeframe_from_history(self, source_timeframe: Timeframe, target_timeframe: Timeframe) -> bool:
         if source_timeframe not in self._TIMEFRAME_MINUTES or target_timeframe not in self._TIMEFRAME_MINUTES:
@@ -1149,7 +1788,13 @@ class ReplayWorkbenchService:
                     return bar
         return None
 
-    def _build_strategy_candidates(self, event_annotations: list[ReplayEventAnnotation]) -> list[ReplayStrategyCandidate]:
+    def _build_strategy_candidates(
+        self,
+        event_annotations: list[ReplayEventAnnotation],
+        focus_regions: list[ReplayFocusRegion] | None = None,
+        instrument_symbol: str = "NQ",
+    ) -> list[ReplayStrategyCandidate]:
+        # Legacy hardcoded candidates (preserved for backward compat)
         kinds = {item.event_kind for item in event_annotations}
         candidates: list[ReplayStrategyCandidate] = []
         if "same_price_replenishment" in kinds:
@@ -1185,6 +1830,21 @@ class ReplayWorkbenchService:
                     why_relevant=["gap reference remained active inside the replay window"],
                 )
             )
+        # Data-driven enrichment from strategy_index.json
+        try:
+            engine = StrategySelectionEngine(root_dir=self._repository._database_path.parent.parent if hasattr(self._repository, '_database_path') else None)
+            engine_candidates = engine.select_candidates(
+                event_annotations,
+                focus_regions or [],
+                instrument_symbol=instrument_symbol,
+            )
+            existing_ids = {c.strategy_id for c in candidates}
+            for ec in engine_candidates:
+                if ec.strategy_id not in existing_ids:
+                    candidates.append(ec)
+                    existing_ids.add(ec.strategy_id)
+        except Exception:
+            pass  # Graceful fallback to legacy-only
         return candidates
 
     @staticmethod
@@ -1225,6 +1885,34 @@ class ReplayWorkbenchService:
             if replay_snapshot_id is not None and payload.get("replay_snapshot_id") == replay_snapshot_id:
                 return stored
         return None
+
+    def _find_latest_replay_snapshot_by_cache_identity(self, cache_key: str) -> tuple[str, StoredIngestion] | None:
+        """Find the newest snapshot with the same symbol/timeframe/window_start even if window_end drifted.
+
+        This helps during closed sessions or page refreshes where the UI rebuilds cache_key with a new
+        current-time window_end, while the operator really wants to reopen the most recent cached replay
+        for the same symbol/timeframe/lookback identity.
+        """
+        symbol, timeframe, window_start, _window_end = self._split_cache_key(cache_key)
+        if symbol is None or timeframe is None or window_start is None:
+            return None
+
+        for stored in self._repository.list_ingestions(ingestion_kind="replay_workbench_snapshot", limit=500):
+            payload = stored.observed_payload
+            payload_key = payload.get("cache_key")
+            if not isinstance(payload_key, str):
+                continue
+            p_symbol, p_timeframe, p_window_start, _p_window_end = self._split_cache_key(payload_key)
+            if p_symbol == symbol and p_timeframe == timeframe and p_window_start == window_start:
+                return payload_key, stored
+        return None
+
+    @staticmethod
+    def _split_cache_key(cache_key: str) -> tuple[str | None, str | None, str | None, str | None]:
+        parts = (cache_key or "").split("|", 3)
+        if len(parts) != 4:
+            return None, None, None, None
+        return parts[0], parts[1], parts[2], parts[3]
 
     @staticmethod
     def _build_summary(payload: ReplayWorkbenchSnapshotPayload) -> ReplayWorkbenchAcceptedSummary:
@@ -1282,6 +1970,128 @@ class ReplayWorkbenchService:
         if payload.verification_state.next_verification_due_at is None:
             return payload.verification_state.status == ReplayVerificationStatus.UNVERIFIED
         return payload.verification_state.next_verification_due_at <= datetime.now(tz=UTC)
+
+    def _iter_matching_backfill_requests_locked(
+        self,
+        *,
+        instrument_symbol: str,
+        chart_instance_id: str | None,
+    ) -> list[ReplayWorkbenchAtasBackfillRecord]:
+        return sorted(
+            (
+                record
+                for record in self._backfill_requests.values()
+                if record.instrument_symbol == instrument_symbol
+                and (
+                    record.chart_instance_id is None
+                    or (
+                        chart_instance_id is not None
+                        and record.chart_instance_id == chart_instance_id
+                    )
+                )
+            ),
+            key=lambda item: (item.requested_at, item.request_id),
+        )
+
+    def _find_reusable_backfill_request_locked(
+        self,
+        request: ReplayWorkbenchAtasBackfillRequest,
+        now: datetime,
+    ) -> ReplayWorkbenchAtasBackfillRecord | None:
+        for record in self._backfill_requests.values():
+            if record.status not in {
+                ReplayWorkbenchAtasBackfillStatus.PENDING,
+                ReplayWorkbenchAtasBackfillStatus.DISPATCHED,
+            }:
+                continue
+            if record.expires_at <= now:
+                continue
+            if (
+                record.cache_key == request.cache_key
+                and record.instrument_symbol == request.instrument_symbol
+                and record.display_timeframe == request.display_timeframe
+                and record.window_start == request.window_start
+                and record.window_end == request.window_end
+                and record.chart_instance_id == request.chart_instance_id
+                and record.reason == request.reason
+                and record.request_history_bars == request.request_history_bars
+                and record.request_history_footprint == request.request_history_footprint
+                and self._gap_segments_equal(record.missing_segments, request.missing_segments)
+            ):
+                return record
+        return None
+
+    def _expire_backfill_requests_locked(self, now: datetime) -> None:
+        for request_id, record in list(self._backfill_requests.items()):
+            if (
+                record.status in {
+                    ReplayWorkbenchAtasBackfillStatus.PENDING,
+                    ReplayWorkbenchAtasBackfillStatus.DISPATCHED,
+                }
+                and record.expires_at <= now
+            ):
+                self._backfill_requests[request_id] = record.model_copy(
+                    update={
+                        "status": ReplayWorkbenchAtasBackfillStatus.EXPIRED,
+                        "note": record.note or "expired before adapter acknowledgement",
+                    }
+                )
+        self._prune_backfill_requests_locked(now)
+
+    def _prune_backfill_requests_locked(self, now: datetime) -> None:
+        cutoff = now - self._BACKFILL_RECORD_RETENTION
+        for request_id, record in list(self._backfill_requests.items()):
+            if record.requested_at < cutoff and record.status in {
+                ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED,
+                ReplayWorkbenchAtasBackfillStatus.EXPIRED,
+            }:
+                self._backfill_requests.pop(request_id, None)
+
+    def _is_backfill_dispatchable(
+        self,
+        record: ReplayWorkbenchAtasBackfillRecord,
+        now: datetime,
+    ) -> bool:
+        if record.status == ReplayWorkbenchAtasBackfillStatus.PENDING:
+            return True
+        if record.status != ReplayWorkbenchAtasBackfillStatus.DISPATCHED:
+            return False
+        if record.dispatched_at is None:
+            return True
+        return now - record.dispatched_at >= self._BACKFILL_DISPATCH_LEASE
+
+    @staticmethod
+    def _build_backfill_command(record: ReplayWorkbenchAtasBackfillRecord) -> AdapterBackfillCommand:
+        dispatched_at = record.dispatched_at or datetime.now(tz=UTC)
+        return AdapterBackfillCommand(
+            request_id=record.request_id,
+            cache_key=record.cache_key,
+            instrument_symbol=record.instrument_symbol,
+            display_timeframe=record.display_timeframe,
+            window_start=record.window_start,
+            window_end=record.window_end,
+            chart_instance_id=record.chart_instance_id,
+            missing_segments=record.missing_segments,
+            reason=record.reason,
+            request_history_bars=record.request_history_bars,
+            request_history_footprint=record.request_history_footprint,
+            dispatch_count=record.dispatch_count,
+            requested_at=record.requested_at,
+            dispatched_at=dispatched_at,
+        )
+
+    @staticmethod
+    def _gap_segments_equal(left: list[Any], right: list[Any]) -> bool:
+        if len(left) != len(right):
+            return False
+
+        def _normalize(segment: Any) -> tuple[Any, Any, int]:
+            prev_ended_at = getattr(segment, "prev_ended_at", None)
+            next_started_at = getattr(segment, "next_started_at", None)
+            missing_bar_count = getattr(segment, "missing_bar_count", None)
+            return prev_ended_at, next_started_at, int(missing_bar_count or 0)
+
+        return [_normalize(item) for item in left] == [_normalize(item) for item in right]
 
     def _bucket_start(self, value: datetime, timeframe: Timeframe) -> datetime:
         value = value.astimezone(UTC)

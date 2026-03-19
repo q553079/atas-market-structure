@@ -951,3 +951,109 @@ internal sealed class TriggerBurstPayload
     [JsonPropertyName("post_window")]
     public BurstWindowPayload PostWindow { get; init; } = new();
 }
+
+internal sealed class BackfillGapSegmentPayload
+{
+    [JsonPropertyName("prev_ended_at")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? PrevEndedAt { get; init; }
+
+    [JsonPropertyName("next_started_at")]
+    public DateTime NextStartedAt { get; init; }
+
+    [JsonPropertyName("missing_bar_count")]
+    public int MissingBarCount { get; init; }
+}
+
+internal sealed class AdapterBackfillCommandPayload
+{
+    [JsonPropertyName("request_id")]
+    public string RequestId { get; init; } = string.Empty;
+
+    [JsonPropertyName("cache_key")]
+    public string CacheKey { get; init; } = string.Empty;
+
+    [JsonPropertyName("instrument_symbol")]
+    public string InstrumentSymbol { get; init; } = string.Empty;
+
+    [JsonPropertyName("display_timeframe")]
+    public string DisplayTimeframe { get; init; } = string.Empty;
+
+    [JsonPropertyName("window_start")]
+    public DateTime WindowStart { get; init; }
+
+    [JsonPropertyName("window_end")]
+    public DateTime WindowEnd { get; init; }
+
+    [JsonPropertyName("chart_instance_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartInstanceId { get; init; }
+
+    [JsonPropertyName("missing_segments")]
+    public List<BackfillGapSegmentPayload> MissingSegments { get; init; } = new();
+
+    [JsonPropertyName("reason")]
+    public string Reason { get; init; } = string.Empty;
+
+    [JsonPropertyName("request_history_bars")]
+    public bool RequestHistoryBars { get; init; }
+
+    [JsonPropertyName("request_history_footprint")]
+    public bool RequestHistoryFootprint { get; init; }
+
+    [JsonPropertyName("dispatch_count")]
+    public int DispatchCount { get; init; }
+
+    [JsonPropertyName("requested_at")]
+    public DateTime RequestedAt { get; init; }
+
+    [JsonPropertyName("dispatched_at")]
+    public DateTime DispatchedAt { get; init; }
+}
+
+internal sealed class AdapterBackfillDispatchResponsePayload
+{
+    [JsonPropertyName("instrument_symbol")]
+    public string InstrumentSymbol { get; init; } = string.Empty;
+
+    [JsonPropertyName("chart_instance_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartInstanceId { get; init; }
+
+    [JsonPropertyName("polled_at")]
+    public DateTime PolledAt { get; init; }
+
+    [JsonPropertyName("request")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AdapterBackfillCommandPayload? Request { get; init; }
+}
+
+internal sealed class AdapterBackfillAcknowledgeRequestPayload
+{
+    [JsonPropertyName("request_id")]
+    public string RequestId { get; init; } = string.Empty;
+
+    [JsonPropertyName("instrument_symbol")]
+    public string InstrumentSymbol { get; init; } = string.Empty;
+
+    [JsonPropertyName("chart_instance_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartInstanceId { get; init; }
+
+    [JsonPropertyName("acknowledged_at")]
+    public DateTime AcknowledgedAt { get; init; }
+
+    [JsonPropertyName("acknowledged_history_bars")]
+    public bool AcknowledgedHistoryBars { get; init; }
+
+    [JsonPropertyName("acknowledged_history_footprint")]
+    public bool AcknowledgedHistoryFootprint { get; init; }
+
+    [JsonPropertyName("latest_loaded_bar_started_at")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? LatestLoadedBarStartedAt { get; init; }
+
+    [JsonPropertyName("note")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Note { get; init; }
+}

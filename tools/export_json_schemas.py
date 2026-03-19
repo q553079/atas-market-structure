@@ -18,6 +18,10 @@ from atas_market_structure.models import (
     ReplayOperatorEntryRequest,
     ReplayOperatorEntryEnvelope,
     ReplayWorkbenchBuildRequest,
+    ReplayWorkbenchLiveTailResponse,
+    ReplayWorkbenchLiveStatusResponse,
+    ReplayWorkbenchRebuildLatestRequest,
+    ReplayWorkbenchRebuildLatestResponse,
     ReplayWorkbenchSnapshotPayload,
 )
 
@@ -47,6 +51,10 @@ def main() -> None:
     write_schema("replay_workbench.ai_chat_request.schema.json", ReplayAiChatRequest.model_json_schema())
     write_schema("replay_workbench.ai_chat_response.schema.json", ReplayAiChatResponse.model_json_schema())
     write_schema("replay_workbench.build_request.schema.json", ReplayWorkbenchBuildRequest.model_json_schema())
+    write_schema("replay_workbench.live_tail.schema.json", ReplayWorkbenchLiveTailResponse.model_json_schema())
+    write_schema("replay_workbench.live_status.schema.json", ReplayWorkbenchLiveStatusResponse.model_json_schema())
+    write_schema("replay_workbench.rebuild_latest_request.schema.json", ReplayWorkbenchRebuildLatestRequest.model_json_schema())
+    write_schema("replay_workbench.rebuild_latest_response.schema.json", ReplayWorkbenchRebuildLatestResponse.model_json_schema())
     write_schema("replay_workbench.snapshot.schema.json", ReplayWorkbenchSnapshotPayload.model_json_schema())
 
 

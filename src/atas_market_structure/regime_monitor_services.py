@@ -1,0 +1,343 @@
+"""Lightweight market regime monitor.
+
+Infers the current market regime (trending, ranging, volatile, quiet) from
+replay candles and event annotations without external API calls.
+
+Also maintains a lightweight rolling per-instrument bar cache so low-latency
+adapter ingestion can query adaptive thresholds in O(1) for repeated requests
+within the same minute.
+
+Consumers:
+- strategy_selection_engine (session_scope filter + regime-aware ranking)
+- ai_review_services (prompt context)
+- adapter_bridge (dynamic adaptive event filtering)
+
+Does NOT modify: models.py, app.py routes
+"""
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from atas_market_structure.models import (
+    AdapterContinuousStatePayload,
+    AdapterHistoryBarsPayload,
+    ReplayChartBar,
+    ReplayWorkbenchSnapshotPayload,
+)
+
+
+@dataclass
+class RegimeAssessment:
+    """Machine-readable market regime snapshot."""
+    regime: str  # "trending_up", "trending_down", "ranging", "volatile", "quiet"
+    confidence: float  # 0.0 to 1.0
+    atr_estimate: float  # average true range over sampled candles
+    directional_bias: str  # "bullish", "bearish", "neutral"
+    volatility_state: str  # "expanding", "contracting", "stable"
+    evidence: list[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "regime": self.regime,
+            "confidence": round(self.confidence, 2),
+            "atr_estimate": round(self.atr_estimate, 4),
+            "directional_bias": self.directional_bias,
+            "volatility_state": self.volatility_state,
+            "evidence": self.evidence,
+            "details": self.details,
+        }
+
+
+@dataclass(frozen=True)
+class DynamicThresholds:
+    """Adaptive threshold snapshot derived from recent rolling bars."""
+
+    instrument_symbol: str
+    minute_bucket: datetime
+    lookback_bars: int
+    bars_available: int
+    current_atr_ticks: float
+    baseline_bar_volume: float
+    baseline_abs_delta: float
+    current_bar_range_ticks: float
+    volatility_ratio: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "instrument_symbol": self.instrument_symbol,
+            "minute_bucket": self.minute_bucket.isoformat(),
+            "lookback_bars": self.lookback_bars,
+            "bars_available": self.bars_available,
+            "current_atr_ticks": round(self.current_atr_ticks, 4),
+            "baseline_bar_volume": round(self.baseline_bar_volume, 2),
+            "baseline_abs_delta": round(self.baseline_abs_delta, 2),
+            "current_bar_range_ticks": round(self.current_bar_range_ticks, 4),
+            "volatility_ratio": round(self.volatility_ratio, 4),
+        }
+
+
+@dataclass
+class _InstrumentRollingBar:
+    started_at: datetime
+    ended_at: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int = 0
+    delta: int = 0
+
+
+class RegimeMonitor:
+    """Infers market regime and serves cached adaptive thresholds from rolling bars."""
+
+    def __init__(self) -> None:
+        self._rolling_bars: dict[str, deque[_InstrumentRollingBar]] = {}
+        self._dynamic_threshold_cache: dict[tuple[str, datetime], DynamicThresholds] = {}
+        self._max_cached_bars = 512
+
+    def assess(
+        self,
+        snapshot: ReplayWorkbenchSnapshotPayload,
+        *,
+        lookback_bars: int = 20,
+    ) -> RegimeAssessment:
+        candles = snapshot.candles
+        if not candles:
+            return RegimeAssessment(
+                regime="quiet",
+                confidence=0.0,
+                atr_estimate=0.0,
+                directional_bias="neutral",
+                volatility_state="stable",
+                evidence=["No candles available."],
+            )
+
+        sample = candles[-lookback_bars:] if len(candles) > lookback_bars else candles
+        atr = self._compute_atr(sample)
+        net_change = sample[-1].close - sample[0].open if sample else 0.0
+        abs_change = abs(net_change)
+        total_range = max(c.high for c in sample) - min(c.low for c in sample) if sample else 0.0
+
+        higher_closes = sum(1 for i in range(1, len(sample)) if sample[i].close > sample[i - 1].close)
+        lower_closes = len(sample) - 1 - higher_closes if len(sample) > 1 else 0
+        close_ratio = higher_closes / max(1, higher_closes + lower_closes)
+
+        if close_ratio >= 0.65:
+            directional_bias = "bullish"
+        elif close_ratio <= 0.35:
+            directional_bias = "bearish"
+        else:
+            directional_bias = "neutral"
+
+        mid = len(sample) // 2
+        if mid > 0:
+            early_atr = self._compute_atr(sample[:mid])
+            late_atr = self._compute_atr(sample[mid:])
+            if late_atr > early_atr * 1.3:
+                volatility_state = "expanding"
+            elif late_atr < early_atr * 0.7:
+                volatility_state = "contracting"
+            else:
+                volatility_state = "stable"
+        else:
+            volatility_state = "stable"
+
+        evidence: list[str] = []
+        if total_range > 0 and abs_change / total_range > 0.6:
+            regime = "trending_up" if net_change > 0 else "trending_down"
+            confidence = min(1.0, abs_change / total_range)
+            evidence.append(f"net_change/total_range={abs_change / total_range:.2f}")
+        elif atr > 0 and total_range / (atr * len(sample)) > 1.5:
+            regime = "volatile"
+            confidence = min(1.0, total_range / (atr * len(sample)))
+            evidence.append(f"range_expansion={total_range / (atr * len(sample)):.2f}")
+        elif atr > 0 and abs_change / (atr * len(sample)) < 0.15:
+            regime = "quiet"
+            confidence = 0.6
+            evidence.append("Low directional movement relative to ATR.")
+        else:
+            regime = "ranging"
+            confidence = 0.5
+            evidence.append("No strong trend or volatility signal.")
+
+        evidence.append(f"atr={atr:.4f}")
+        evidence.append(f"close_ratio={close_ratio:.2f}")
+        evidence.append(f"volatility_state={volatility_state}")
+
+        events = snapshot.event_annotations
+        if events:
+            event_density = len(events) / max(1, len(sample))
+            evidence.append(f"event_density={event_density:.2f}")
+            if event_density > 2.0:
+                evidence.append("High event density — active market.")
+
+        return RegimeAssessment(
+            regime=regime,
+            confidence=confidence,
+            atr_estimate=atr,
+            directional_bias=directional_bias,
+            volatility_state=volatility_state,
+            evidence=evidence,
+            details={
+                "sample_bar_count": len(sample),
+                "net_change": round(net_change, 4),
+                "total_range": round(total_range, 4),
+                "higher_close_count": higher_closes,
+                "lower_close_count": lower_closes,
+            },
+        )
+
+    def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> None:
+        symbol = payload.instrument.symbol.upper()
+        bars = self._rolling_bars.setdefault(symbol, deque(maxlen=self._max_cached_bars))
+        by_start = {item.started_at: item for item in bars}
+        for item in payload.bars:
+            by_start[item.started_at] = _InstrumentRollingBar(
+                started_at=item.started_at.astimezone(UTC),
+                ended_at=item.ended_at.astimezone(UTC),
+                open=item.open,
+                high=item.high,
+                low=item.low,
+                close=item.close,
+                volume=item.volume or 0,
+                delta=item.delta or 0,
+            )
+        merged = sorted(by_start.values(), key=lambda item: item.started_at)
+        self._rolling_bars[symbol] = deque(merged[-self._max_cached_bars :], maxlen=self._max_cached_bars)
+        self._evict_cache_for_symbol(symbol)
+
+    def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> None:
+        symbol = payload.instrument.symbol.upper()
+        bars = self._rolling_bars.setdefault(symbol, deque(maxlen=self._max_cached_bars))
+        bucket_start = payload.observed_window_end.astimezone(UTC).replace(second=0, microsecond=0)
+        bucket_end = bucket_start.replace(second=59)
+        price_state = payload.price_state
+        volume = payload.trade_summary.volume or 0
+        delta = payload.trade_summary.net_delta or 0
+
+        if bars and bars[-1].started_at == bucket_start:
+            current = bars[-1]
+            current.high = max(current.high, price_state.local_range_high, price_state.last_price)
+            current.low = min(current.low, price_state.local_range_low, price_state.last_price)
+            current.close = price_state.last_price
+            current.ended_at = max(current.ended_at, payload.observed_window_end.astimezone(UTC), bucket_end)
+            current.volume += volume
+            current.delta += delta
+        else:
+            open_price = bars[-1].close if bars else price_state.last_price
+            bars.append(
+                _InstrumentRollingBar(
+                    started_at=bucket_start,
+                    ended_at=max(payload.observed_window_end.astimezone(UTC), bucket_end),
+                    open=open_price,
+                    high=max(price_state.local_range_high, price_state.last_price),
+                    low=min(price_state.local_range_low, price_state.last_price),
+                    close=price_state.last_price,
+                    volume=volume,
+                    delta=delta,
+                )
+            )
+        self._evict_cache_for_symbol(symbol)
+
+    def get_dynamic_thresholds(
+        self,
+        instrument_symbol: str,
+        current_timestamp: datetime,
+        *,
+        tick_size: float,
+        lookback_bars: int = 20,
+        fallback_price_range: float | None = None,
+        fallback_volume: int | None = None,
+        fallback_abs_delta: int | None = None,
+    ) -> DynamicThresholds:
+        symbol = instrument_symbol.upper()
+        minute_bucket = current_timestamp.astimezone(UTC).replace(second=0, microsecond=0)
+        cache_key = (symbol, minute_bucket)
+        cached = self._dynamic_threshold_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        bars = list(self._rolling_bars.get(symbol, ()))
+        sample = bars[-lookback_bars:] if len(bars) > lookback_bars else bars
+
+        if sample:
+            atr_ticks = self._compute_atr_ticks(sample, tick_size)
+            avg_volume = sum(max(0, item.volume) for item in sample) / len(sample)
+            avg_abs_delta = sum(abs(item.delta) for item in sample) / len(sample)
+            current_range_ticks = max(0.0, (sample[-1].high - sample[-1].low) / max(tick_size, 1e-9))
+        else:
+            atr_ticks = max(1.0, (fallback_price_range or 0.0) / max(tick_size, 1e-9))
+            avg_volume = float(max(0, fallback_volume or 0))
+            avg_abs_delta = float(max(0, fallback_abs_delta or 0))
+            current_range_ticks = atr_ticks
+
+        thresholds = DynamicThresholds(
+            instrument_symbol=symbol,
+            minute_bucket=minute_bucket,
+            lookback_bars=lookback_bars,
+            bars_available=len(sample),
+            current_atr_ticks=max(1.0, atr_ticks),
+            baseline_bar_volume=max(1.0, avg_volume),
+            baseline_abs_delta=max(1.0, avg_abs_delta),
+            current_bar_range_ticks=max(0.0, current_range_ticks),
+            volatility_ratio=max(0.1, current_range_ticks / max(1.0, atr_ticks)),
+        )
+        self._dynamic_threshold_cache[cache_key] = thresholds
+        self._trim_threshold_cache(symbol=symbol, keep_after=minute_bucket)
+        return thresholds
+
+    @staticmethod
+    def _compute_atr(candles: list[ReplayChartBar]) -> float:
+        if not candles:
+            return 0.0
+        true_ranges: list[float] = []
+        previous_close: float | None = None
+        for candle in candles:
+            bar_range = candle.high - candle.low
+            if previous_close is None:
+                true_range = bar_range
+            else:
+                true_range = max(
+                    bar_range,
+                    abs(candle.high - previous_close),
+                    abs(candle.low - previous_close),
+                )
+            true_ranges.append(max(0.0, true_range))
+            previous_close = candle.close
+        return sum(true_ranges) / len(true_ranges)
+
+    @staticmethod
+    def _compute_atr_ticks(candles: list[_InstrumentRollingBar], tick_size: float) -> float:
+        if not candles or tick_size <= 0:
+            return 0.0
+        true_ranges: list[float] = []
+        previous_close: float | None = None
+        for candle in candles:
+            bar_range = candle.high - candle.low
+            if previous_close is None:
+                true_range = bar_range
+            else:
+                true_range = max(
+                    bar_range,
+                    abs(candle.high - previous_close),
+                    abs(candle.low - previous_close),
+                )
+            true_ranges.append(max(0.0, true_range) / tick_size)
+            previous_close = candle.close
+        return sum(true_ranges) / len(true_ranges)
+
+    def _evict_cache_for_symbol(self, symbol: str) -> None:
+        stale_keys = [key for key in self._dynamic_threshold_cache if key[0] == symbol]
+        for key in stale_keys:
+            self._dynamic_threshold_cache.pop(key, None)
+
+    def _trim_threshold_cache(self, *, symbol: str, keep_after: datetime) -> None:
+        cutoff = keep_after - timedelta(minutes=3)
+        stale_keys = [key for key in self._dynamic_threshold_cache if key[0] == symbol and key[1] < cutoff]
+        for key in stale_keys:
+            self._dynamic_threshold_cache.pop(key, None)

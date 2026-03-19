@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import re
 
+from atas_market_structure.regime_monitor_services import RegimeMonitor
+
 from atas_market_structure.models import (
     AdapterBurstWindow,
     AdapterContinuousStatePayload,
@@ -68,6 +70,9 @@ class BurstAggregate:
 
 class AdapterPayloadBridge:
     """Maps ATAS adapter payloads into durable market-structure payloads."""
+
+    def __init__(self, regime_monitor: RegimeMonitor | None = None) -> None:
+        self.regime_monitor = regime_monitor or RegimeMonitor()
 
     def build_market_structure(self, payload: AdapterContinuousStatePayload) -> MarketStructurePayload:
         dominant_side = self._dominant_side_from_trade_summary(
@@ -391,6 +396,17 @@ class AdapterPayloadBridge:
         drive = payload.active_initiative_drive
         if drive is None:
             return None
+        if not self._drive_passes_dynamic_thresholds(
+            instrument_symbol=payload.instrument.symbol,
+            observed_at=payload.observed_window_end,
+            tick_size=payload.instrument.tick_size,
+            price_travel_ticks=drive.price_travel_ticks,
+            net_delta=drive.net_delta,
+            fallback_price_range=payload.price_state.local_range_high - payload.price_state.local_range_low,
+            fallback_volume=payload.trade_summary.volume,
+            fallback_abs_delta=abs(payload.trade_summary.net_delta),
+        ):
+            return None
         return ObservedInitiativeDrive(
             drive_id=drive.drive_id,
             started_at=drive.started_at,
@@ -613,6 +629,19 @@ class AdapterPayloadBridge:
         if not trades or dominant_side is StructureSide.NEUTRAL:
             return None
         aggressive_volume = sum(item.size for item in trades if item.aggressor_side is dominant_side)
+        price_travel_ticks = self._ticks_between(aggregate.price_range.low, aggregate.price_range.high, payload.instrument.tick_size)
+        signed_delta = aggregate.delta if dominant_side is StructureSide.BUY else -aggregate.delta
+        if not self._drive_passes_dynamic_thresholds(
+            instrument_symbol=payload.instrument.symbol,
+            observed_at=payload.trigger.triggered_at,
+            tick_size=payload.instrument.tick_size,
+            price_travel_ticks=price_travel_ticks,
+            net_delta=signed_delta,
+            fallback_price_range=aggregate.price_range.high - aggregate.price_range.low,
+            fallback_volume=aggregate.volume,
+            fallback_abs_delta=abs(aggregate.delta),
+        ):
+            return None
         return ObservedInitiativeDrive(
             drive_id=f"drive-{payload.trigger.trigger_id}",
             started_at=min(item.event_time for item in trades),
@@ -621,10 +650,10 @@ class AdapterPayloadBridge:
             price_low=aggregate.price_range.low,
             price_high=aggregate.price_range.high,
             aggressive_volume=aggressive_volume,
-            net_delta=aggregate.delta if dominant_side is StructureSide.BUY else -aggregate.delta,
+            net_delta=signed_delta,
             trade_count=len(trades),
-            consumed_price_levels=self._ticks_between(aggregate.price_range.low, aggregate.price_range.high, payload.instrument.tick_size),
-            price_travel_ticks=self._ticks_between(aggregate.price_range.low, aggregate.price_range.high, payload.instrument.tick_size),
+            consumed_price_levels=price_travel_ticks,
+            price_travel_ticks=price_travel_ticks,
             max_counter_move_ticks=self._burst_counter_move_ticks(payload, dominant_side),
             continuation_seconds=self._window_seconds(max(item.event_time for item in trades), self._latest_burst_time(payload) or max(item.event_time for item in trades)),
             raw_features={"bridge_source": "adapter_trigger_burst"},
@@ -888,6 +917,31 @@ class AdapterPayloadBridge:
         if trade_summary.volume <= 0:
             return 0.0
         return round(min(1.0, abs(trade_summary.net_delta) / max(1, trade_summary.volume)), 2)
+
+    def _drive_passes_dynamic_thresholds(
+        self,
+        *,
+        instrument_symbol: str,
+        observed_at: datetime,
+        tick_size: float,
+        price_travel_ticks: int,
+        net_delta: int,
+        fallback_price_range: float,
+        fallback_volume: int,
+        fallback_abs_delta: int,
+    ) -> bool:
+        thresholds = self.regime_monitor.get_dynamic_thresholds(
+            instrument_symbol,
+            observed_at,
+            tick_size=tick_size,
+            lookback_bars=20,
+            fallback_price_range=fallback_price_range,
+            fallback_volume=fallback_volume,
+            fallback_abs_delta=fallback_abs_delta,
+        )
+        min_travel_ticks = max(5.0, thresholds.current_atr_ticks * 0.45)
+        min_abs_delta = max(25.0, thresholds.baseline_abs_delta * 1.5)
+        return float(price_travel_ticks) >= min_travel_ticks and abs(net_delta) >= min_abs_delta
 
     def _extract_measured_multiple(self, values: list[str]) -> float | None:
         for value in values:

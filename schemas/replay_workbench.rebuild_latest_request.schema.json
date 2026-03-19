@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "One-shot request that invalidates the current cache and rebuilds it from the latest synced data.",
+  "properties": {
+    "cache_key": {
+      "description": "Stable replay cache key to rebuild.",
+      "title": "Cache Key",
+      "type": "string"
+    },
+    "instrument_symbol": {
+      "description": "Instrument symbol for the replay window.",
+      "examples": [
+        "NQ"
+      ],
+      "title": "Instrument Symbol",
+      "type": "string"
+    },
+    "display_timeframe": {
+      "$ref": "#/$defs/Timeframe",
+      "description": "Primary replay bar timeframe."
+    },
+    "window_start": {
+      "description": "Inclusive replay window start.",
+      "format": "date-time",
+      "title": "Window Start",
+      "type": "string"
+    },
+    "window_end": {
+      "description": "Inclusive replay window end.",
+      "format": "date-time",
+      "title": "Window End",
+      "type": "string"
+    },
+    "chart_instance_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional ATAS chart-instance filter when multiple charts for the same symbol are running.",
+      "title": "Chart Instance Id"
+    },
+    "min_continuous_messages": {
+      "default": 10,
+      "description": "Minimum number of local continuous-state messages required before local-history rebuild is allowed.",
+      "minimum": 1,
+      "title": "Min Continuous Messages",
+      "type": "integer"
+    },
+    "invalidation_reason": {
+      "default": "operator requested rebuild from latest synced data",
+      "description": "Reason stored on the invalidated cache record before rebuilding.",
+      "minLength": 1,
+      "title": "Invalidation Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cache_key",
+    "instrument_symbol",
+    "display_timeframe",
+    "window_start",
+    "window_end"
+  ],
+  "title": "ReplayWorkbenchRebuildLatestRequest",
+  "type": "object"
+}

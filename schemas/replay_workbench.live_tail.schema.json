@@ -1,0 +1,952 @@
+{
+  "$defs": {
+    "AdapterInitiativeDriveState": {
+      "description": "Compact initiative-drive state used in the always-on adapter stream.",
+      "properties": {
+        "drive_id": {
+          "description": "Drive identifier.",
+          "title": "Drive Id",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Directional side of the drive."
+        },
+        "started_at": {
+          "description": "When the drive began.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "price_low": {
+          "description": "Lower boundary of the drive path.",
+          "examples": [
+            21560.0
+          ],
+          "title": "Price Low",
+          "type": "number"
+        },
+        "price_high": {
+          "description": "Upper boundary of the drive path.",
+          "examples": [
+            21574.25
+          ],
+          "title": "Price High",
+          "type": "number"
+        },
+        "aggressive_volume": {
+          "description": "Aggressive volume attributed to the drive.",
+          "examples": [
+            1420
+          ],
+          "minimum": 0,
+          "title": "Aggressive Volume",
+          "type": "integer"
+        },
+        "net_delta": {
+          "description": "Net delta of the drive.",
+          "examples": [
+            1180
+          ],
+          "title": "Net Delta",
+          "type": "integer"
+        },
+        "trade_count": {
+          "description": "Trade count inside the drive.",
+          "examples": [
+            268
+          ],
+          "minimum": 0,
+          "title": "Trade Count",
+          "type": "integer"
+        },
+        "consumed_price_levels": {
+          "description": "How many price levels were consumed.",
+          "examples": [
+            7
+          ],
+          "minimum": 0,
+          "title": "Consumed Price Levels",
+          "type": "integer"
+        },
+        "price_travel_ticks": {
+          "description": "Drive travel in ticks.",
+          "examples": [
+            57
+          ],
+          "minimum": 0,
+          "title": "Price Travel Ticks",
+          "type": "integer"
+        },
+        "max_counter_move_ticks": {
+          "description": "Largest counter move while the drive was active.",
+          "examples": [
+            4
+          ],
+          "minimum": 0,
+          "title": "Max Counter Move Ticks",
+          "type": "integer"
+        },
+        "continuation_seconds": {
+          "description": "Continuation duration after the initial release.",
+          "examples": [
+            80
+          ],
+          "minimum": 0,
+          "title": "Continuation Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "drive_id",
+        "side",
+        "started_at",
+        "price_low",
+        "price_high",
+        "aggressive_volume",
+        "net_delta",
+        "trade_count",
+        "consumed_price_levels",
+        "price_travel_ticks",
+        "max_counter_move_ticks",
+        "continuation_seconds"
+      ],
+      "title": "AdapterInitiativeDriveState",
+      "type": "object"
+    },
+    "AdapterPostHarvestResponseState": {
+      "description": "Compact post-harvest state used after a liquidity objective has been reached.",
+      "properties": {
+        "response_id": {
+          "description": "Post-harvest response identifier.",
+          "title": "Response Id",
+          "type": "string"
+        },
+        "harvest_subject_id": {
+          "description": "Observed subject that completed the harvest.",
+          "title": "Harvest Subject Id",
+          "type": "string"
+        },
+        "harvest_subject_kind": {
+          "description": "Kind of observed subject that completed the harvest.",
+          "examples": [
+            "initiative_drive"
+          ],
+          "title": "Harvest Subject Kind",
+          "type": "string"
+        },
+        "harvest_side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Directional side of the completed harvest move."
+        },
+        "harvest_completed_at": {
+          "description": "When the harvest was considered complete.",
+          "format": "date-time",
+          "title": "Harvest Completed At",
+          "type": "string"
+        },
+        "harvested_price_low": {
+          "description": "Lower bound of the harvested price zone.",
+          "examples": [
+            21573.5
+          ],
+          "title": "Harvested Price Low",
+          "type": "number"
+        },
+        "harvested_price_high": {
+          "description": "Upper bound of the harvested price zone.",
+          "examples": [
+            21576.0
+          ],
+          "title": "Harvested Price High",
+          "type": "number"
+        },
+        "completion_ratio": {
+          "description": "Observed completion ratio for the targeted liquidity pocket.",
+          "examples": [
+            1.0
+          ],
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Completion Ratio",
+          "type": "number"
+        },
+        "continuation_ticks_after_completion": {
+          "description": "Additional same-side travel after the harvest completed, in ticks.",
+          "examples": [
+            6
+          ],
+          "minimum": 0,
+          "title": "Continuation Ticks After Completion",
+          "type": "integer"
+        },
+        "consolidation_range_ticks": {
+          "description": "Observed consolidation width after the harvest completed, in ticks.",
+          "examples": [
+            8
+          ],
+          "minimum": 0,
+          "title": "Consolidation Range Ticks",
+          "type": "integer"
+        },
+        "pullback_ticks": {
+          "description": "Largest pullback after the harvest completed, in ticks.",
+          "examples": [
+            10
+          ],
+          "minimum": 0,
+          "title": "Pullback Ticks",
+          "type": "integer"
+        },
+        "reversal_ticks": {
+          "description": "Largest opposite-direction reversal after the harvest completed, in ticks.",
+          "examples": [
+            18
+          ],
+          "minimum": 0,
+          "title": "Reversal Ticks",
+          "type": "integer"
+        },
+        "seconds_to_first_pullback": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds between harvest completion and the first meaningful pullback.",
+          "examples": [
+            11
+          ],
+          "title": "Seconds To First Pullback"
+        },
+        "seconds_to_reversal": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds between harvest completion and the strongest reversal print.",
+          "examples": [
+            54
+          ],
+          "title": "Seconds To Reversal"
+        },
+        "reached_next_opposing_liquidity": {
+          "description": "Whether price reached the next opposing liquidity after completing the harvest.",
+          "examples": [
+            true
+          ],
+          "title": "Reached Next Opposing Liquidity",
+          "type": "boolean"
+        },
+        "next_opposing_liquidity_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed price of the next opposing liquidity pocket when it was reached.",
+          "examples": [
+            21567.0
+          ],
+          "title": "Next Opposing Liquidity Price"
+        },
+        "post_harvest_delta": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Net delta observed after completion inside the response window.",
+          "examples": [
+            -212
+          ],
+          "title": "Post Harvest Delta"
+        },
+        "outcome": {
+          "$ref": "#/$defs/PostHarvestOutcome",
+          "description": "Observed outcome after the liquidity harvest completed."
+        }
+      },
+      "required": [
+        "response_id",
+        "harvest_subject_id",
+        "harvest_subject_kind",
+        "harvest_side",
+        "harvest_completed_at",
+        "harvested_price_low",
+        "harvested_price_high",
+        "completion_ratio",
+        "continuation_ticks_after_completion",
+        "consolidation_range_ticks",
+        "pullback_ticks",
+        "reversal_ticks",
+        "reached_next_opposing_liquidity",
+        "outcome"
+      ],
+      "title": "AdapterPostHarvestResponseState",
+      "type": "object"
+    },
+    "AdapterSamePriceReplenishmentState": {
+      "description": "Compact repeated-replenishment observation for a defended price.",
+      "properties": {
+        "track_id": {
+          "description": "Tracked liquidity identifier.",
+          "title": "Track Id",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Side defending the price."
+        },
+        "price": {
+          "description": "Defended price.",
+          "examples": [
+            21574.0
+          ],
+          "title": "Price",
+          "type": "number"
+        },
+        "current_size": {
+          "description": "Current displayed size at the defended price.",
+          "examples": [
+            64
+          ],
+          "minimum": 0,
+          "title": "Current Size",
+          "type": "integer"
+        },
+        "distance_from_price_ticks": {
+          "description": "Distance from current price in ticks.",
+          "examples": [
+            1
+          ],
+          "minimum": 0,
+          "title": "Distance From Price Ticks",
+          "type": "integer"
+        },
+        "touch_count": {
+          "description": "Observed touch count at this price.",
+          "examples": [
+            3
+          ],
+          "minimum": 0,
+          "title": "Touch Count",
+          "type": "integer"
+        },
+        "replenishment_count": {
+          "description": "Observed replenishment count at this price.",
+          "examples": [
+            4
+          ],
+          "minimum": 0,
+          "title": "Replenishment Count",
+          "type": "integer"
+        },
+        "buyers_hitting_same_level_count": {
+          "description": "Buyer hits when the defended side is bid.",
+          "examples": [
+            3
+          ],
+          "minimum": 0,
+          "title": "Buyers Hitting Same Level Count",
+          "type": "integer"
+        },
+        "sellers_hitting_same_level_count": {
+          "description": "Seller hits when the defended side is ask.",
+          "examples": [
+            0
+          ],
+          "minimum": 0,
+          "title": "Sellers Hitting Same Level Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "track_id",
+        "side",
+        "price",
+        "current_size",
+        "distance_from_price_ticks",
+        "touch_count",
+        "replenishment_count",
+        "buyers_hitting_same_level_count",
+        "sellers_hitting_same_level_count"
+      ],
+      "title": "AdapterSamePriceReplenishmentState",
+      "type": "object"
+    },
+    "AdapterSignificantLiquidityLevel": {
+      "description": "Compact significant-liquidity state used by the always-on adapter stream.",
+      "properties": {
+        "track_id": {
+          "description": "Stable track identifier.",
+          "title": "Track Id",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/StructureSide",
+          "description": "Book side of the tracked liquidity."
+        },
+        "price": {
+          "description": "Tracked price.",
+          "examples": [
+            21576.0
+          ],
+          "title": "Price",
+          "type": "number"
+        },
+        "current_size": {
+          "description": "Current displayed size.",
+          "examples": [
+            188
+          ],
+          "minimum": 0,
+          "title": "Current Size",
+          "type": "integer"
+        },
+        "max_seen_size": {
+          "description": "Largest displayed size seen so far.",
+          "examples": [
+            342
+          ],
+          "minimum": 0,
+          "title": "Max Seen Size",
+          "type": "integer"
+        },
+        "distance_from_price_ticks": {
+          "description": "Distance from current price in ticks.",
+          "examples": [
+            7
+          ],
+          "minimum": 0,
+          "title": "Distance From Price Ticks",
+          "type": "integer"
+        },
+        "first_observed_at": {
+          "description": "When the track first appeared.",
+          "format": "date-time",
+          "title": "First Observed At",
+          "type": "string"
+        },
+        "last_observed_at": {
+          "description": "Most recent update time for the track.",
+          "format": "date-time",
+          "title": "Last Observed At",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/LargeLiquidityStatus",
+          "description": "Current lifecycle status of the track."
+        },
+        "touch_count": {
+          "description": "How many touches or near-touches occurred.",
+          "examples": [
+            2
+          ],
+          "minimum": 0,
+          "title": "Touch Count",
+          "type": "integer"
+        },
+        "executed_volume_estimate": {
+          "description": "Estimated executed volume at the tracked price.",
+          "examples": [
+            104
+          ],
+          "minimum": 0,
+          "title": "Executed Volume Estimate",
+          "type": "integer"
+        },
+        "replenishment_count": {
+          "description": "Observed replenishment count.",
+          "examples": [
+            3
+          ],
+          "minimum": 0,
+          "title": "Replenishment Count",
+          "type": "integer"
+        },
+        "buyers_hitting_same_level_count": {
+          "default": 0,
+          "description": "Observed buyer hits into the same price when this is a defending bid.",
+          "examples": [
+            2
+          ],
+          "minimum": 0,
+          "title": "Buyers Hitting Same Level Count",
+          "type": "integer"
+        },
+        "sellers_hitting_same_level_count": {
+          "default": 0,
+          "description": "Observed seller hits into the same price when this is a defending ask.",
+          "examples": [
+            0
+          ],
+          "minimum": 0,
+          "title": "Sellers Hitting Same Level Count",
+          "type": "integer"
+        },
+        "pull_count": {
+          "description": "Observed pull count.",
+          "examples": [
+            0
+          ],
+          "minimum": 0,
+          "title": "Pull Count",
+          "type": "integer"
+        },
+        "move_count": {
+          "description": "Observed repricing count.",
+          "examples": [
+            0
+          ],
+          "minimum": 0,
+          "title": "Move Count",
+          "type": "integer"
+        },
+        "price_reaction_ticks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed reaction after interacting with the level, in ticks.",
+          "examples": [
+            5
+          ],
+          "title": "Price Reaction Ticks"
+        },
+        "heat_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized prominence score for the tracked liquidity.",
+          "examples": [
+            0.87
+          ],
+          "title": "Heat Score"
+        }
+      },
+      "required": [
+        "track_id",
+        "side",
+        "price",
+        "current_size",
+        "max_seen_size",
+        "distance_from_price_ticks",
+        "first_observed_at",
+        "last_observed_at",
+        "status",
+        "touch_count",
+        "executed_volume_estimate",
+        "replenishment_count",
+        "pull_count",
+        "move_count"
+      ],
+      "title": "AdapterSignificantLiquidityLevel",
+      "type": "object"
+    },
+    "AdapterTradeSummary": {
+      "description": "Always-on aggressive-trade summary for the current window.",
+      "properties": {
+        "trade_count": {
+          "description": "Observed trade count inside the window.",
+          "examples": [
+            162
+          ],
+          "minimum": 0,
+          "title": "Trade Count",
+          "type": "integer"
+        },
+        "volume": {
+          "description": "Observed traded volume inside the window.",
+          "examples": [
+            914
+          ],
+          "minimum": 0,
+          "title": "Volume",
+          "type": "integer"
+        },
+        "aggressive_buy_volume": {
+          "description": "Aggressive buy-side volume.",
+          "examples": [
+            642
+          ],
+          "minimum": 0,
+          "title": "Aggressive Buy Volume",
+          "type": "integer"
+        },
+        "aggressive_sell_volume": {
+          "description": "Aggressive sell-side volume.",
+          "examples": [
+            272
+          ],
+          "minimum": 0,
+          "title": "Aggressive Sell Volume",
+          "type": "integer"
+        },
+        "net_delta": {
+          "description": "Observed net delta for the window.",
+          "examples": [
+            370
+          ],
+          "title": "Net Delta",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "trade_count",
+        "volume",
+        "aggressive_buy_volume",
+        "aggressive_sell_volume",
+        "net_delta"
+      ],
+      "title": "AdapterTradeSummary",
+      "type": "object"
+    },
+    "LargeLiquidityStatus": {
+      "enum": [
+        "active",
+        "pulled",
+        "filled",
+        "partially_filled",
+        "moved",
+        "expired"
+      ],
+      "title": "LargeLiquidityStatus",
+      "type": "string"
+    },
+    "PostHarvestOutcome": {
+      "enum": [
+        "continuation",
+        "consolidation",
+        "pullback",
+        "reversal",
+        "mixed"
+      ],
+      "title": "PostHarvestOutcome",
+      "type": "string"
+    },
+    "ReplayChartBar": {
+      "description": "Chart bar reconstructed for the standalone replay workbench UI.",
+      "properties": {
+        "started_at": {
+          "description": "Inclusive bar start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Inclusive bar end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "open": {
+          "description": "Bar open.",
+          "examples": [
+            21540.25
+          ],
+          "title": "Open",
+          "type": "number"
+        },
+        "high": {
+          "description": "Bar high.",
+          "examples": [
+            21548.0
+          ],
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "Bar low.",
+          "examples": [
+            21535.5
+          ],
+          "title": "Low",
+          "type": "number"
+        },
+        "close": {
+          "description": "Bar close.",
+          "examples": [
+            21544.75
+          ],
+          "title": "Close",
+          "type": "number"
+        },
+        "volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional total volume for the bar.",
+          "examples": [
+            842
+          ],
+          "title": "Volume"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional net delta for the bar.",
+          "examples": [
+            121
+          ],
+          "title": "Delta"
+        },
+        "bid_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional bid-side traded volume.",
+          "examples": [
+            360
+          ],
+          "title": "Bid Volume"
+        },
+        "ask_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional ask-side traded volume.",
+          "examples": [
+            481
+          ],
+          "title": "Ask Volume"
+        }
+      },
+      "required": [
+        "started_at",
+        "ended_at",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "title": "ReplayChartBar",
+      "type": "object"
+    },
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    },
+    "Timeframe": {
+      "enum": [
+        "1mo",
+        "1w",
+        "1d",
+        "3d",
+        "1h",
+        "30m",
+        "15m",
+        "5m",
+        "1m",
+        "footprint",
+        "dom"
+      ],
+      "title": "Timeframe",
+      "type": "string"
+    }
+  },
+  "description": "Latest in-flight tail built from continuous adapter messages for realtime UI patching.",
+  "properties": {
+    "instrument_symbol": {
+      "description": "Instrument symbol being patched in realtime.",
+      "title": "Instrument Symbol",
+      "type": "string"
+    },
+    "display_timeframe": {
+      "$ref": "#/$defs/Timeframe",
+      "description": "Display timeframe used to bucket the live tail."
+    },
+    "latest_observed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Latest observed ATAS timestamp carried by the continuous-state stream.",
+      "title": "Latest Observed At"
+    },
+    "latest_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Most recent last-traded price from the adapter stream.",
+      "title": "Latest Price"
+    },
+    "best_bid": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Most recent best bid from the adapter stream when available.",
+      "title": "Best Bid"
+    },
+    "best_ask": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Most recent best ask from the adapter stream when available.",
+      "title": "Best Ask"
+    },
+    "source_message_count": {
+      "description": "How many recent continuous-state messages were used to build this live tail.",
+      "minimum": 0,
+      "title": "Source Message Count",
+      "type": "integer"
+    },
+    "candles": {
+      "description": "Latest reconstructed bars that should patch the right edge of the replay chart.",
+      "items": {
+        "$ref": "#/$defs/ReplayChartBar"
+      },
+      "title": "Candles",
+      "type": "array"
+    },
+    "trade_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AdapterTradeSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Latest rolling trade summary from the continuous-state stream."
+    },
+    "significant_liquidity": {
+      "description": "Latest significant displayed-liquidity tracks for realtime overlays.",
+      "items": {
+        "$ref": "#/$defs/AdapterSignificantLiquidityLevel"
+      },
+      "title": "Significant Liquidity",
+      "type": "array"
+    },
+    "same_price_replenishment": {
+      "description": "Latest repeated-replenishment observations for realtime overlays.",
+      "items": {
+        "$ref": "#/$defs/AdapterSamePriceReplenishmentState"
+      },
+      "title": "Same Price Replenishment",
+      "type": "array"
+    },
+    "active_initiative_drive": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AdapterInitiativeDriveState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Latest active initiative-drive state for realtime overlays."
+    },
+    "active_post_harvest_response": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AdapterPostHarvestResponseState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Latest post-harvest response state for realtime overlays."
+    }
+  },
+  "required": [
+    "instrument_symbol",
+    "display_timeframe",
+    "source_message_count"
+  ],
+  "title": "ReplayWorkbenchLiveTailResponse",
+  "type": "object"
+}

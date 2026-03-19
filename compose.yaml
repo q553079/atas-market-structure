@@ -8,6 +8,8 @@ services:
       ATAS_MS_HOST: 0.0.0.0
       ATAS_MS_PORT: 8080
       ATAS_MS_DB_PATH: /app/data/market_structure.db
+    env_file:
+      - .env
     ports:
       - "8080:8080"
     volumes:

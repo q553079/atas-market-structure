@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "ReplayLiveStreamState": {
+      "enum": [
+        "live",
+        "delayed",
+        "stale",
+        "offline"
+      ],
+      "title": "ReplayLiveStreamState",
+      "type": "string"
+    },
+    "ReplayWorkbenchLiveSourceStatus": {
+      "description": "Latest stored-ingestion timestamp for one adapter feed kind.",
+      "properties": {
+        "ingestion_kind": {
+          "description": "Adapter ingestion kind being summarized.",
+          "title": "Ingestion Kind",
+          "type": "string"
+        },
+        "latest_ingestion_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Most recent stored ingestion identifier for this kind.",
+          "title": "Latest Ingestion Id"
+        },
+        "latest_stored_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Most recent backend persistence timestamp for this kind.",
+          "title": "Latest Stored At"
+        },
+        "lag_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Current lag in whole seconds from latest_stored_at to now.",
+          "title": "Lag Seconds"
+        }
+      },
+      "required": [
+        "ingestion_kind"
+      ],
+      "title": "ReplayWorkbenchLiveSourceStatus",
+      "type": "object"
+    }
+  },
+  "description": "Freshness summary used by the workbench to decide whether an old replay can be reused.",
+  "properties": {
+    "instrument_symbol": {
+      "description": "Instrument symbol being checked.",
+      "title": "Instrument Symbol",
+      "type": "string"
+    },
+    "replay_ingestion_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Replay ingestion currently shown in the UI, when known.",
+      "title": "Replay Ingestion Id"
+    },
+    "replay_snapshot_stored_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stored_at timestamp of the replay currently shown.",
+      "title": "Replay Snapshot Stored At"
+    },
+    "latest_adapter_sync_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Most recent adapter timestamp across continuous state and history sync feeds.",
+      "title": "Latest Adapter Sync At"
+    },
+    "latest_adapter_sync_lag_seconds": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Current lag in whole seconds from latest_adapter_sync_at to now.",
+      "title": "Latest Adapter Sync Lag Seconds"
+    },
+    "stream_state": {
+      "$ref": "#/$defs/ReplayLiveStreamState",
+      "description": "High-level health state of the adapter feed for this symbol."
+    },
+    "should_refresh_snapshot": {
+      "description": "Whether adapter data is newer than the replay snapshot currently shown.",
+      "title": "Should Refresh Snapshot",
+      "type": "boolean"
+    },
+    "latest_continuous_state": {
+      "$ref": "#/$defs/ReplayWorkbenchLiveSourceStatus",
+      "description": "Latest continuous-state ingestion for this symbol."
+    },
+    "latest_history_bars": {
+      "$ref": "#/$defs/ReplayWorkbenchLiveSourceStatus",
+      "description": "Latest history-bars ingestion for this symbol."
+    },
+    "latest_history_footprint": {
+      "$ref": "#/$defs/ReplayWorkbenchLiveSourceStatus",
+      "description": "Latest history-footprint ingestion for this symbol."
+    }
+  },
+  "required": [
+    "instrument_symbol",
+    "stream_state",
+    "should_refresh_snapshot",
+    "latest_continuous_state",
+    "latest_history_bars",
+    "latest_history_footprint"
+  ],
+  "title": "ReplayWorkbenchLiveStatusResponse",
+  "type": "object"
+}

@@ -10,6 +10,7 @@ from openai import OpenAI
 from atas_market_structure.models import (
     AdapterContinuousStatePayload,
     MachineStrategyCard,
+    ReplayAiChatAttachment,
     ReplayAiChatContent,
     ReplayAiChatMessage,
     ReplayAiChatPreset,
@@ -58,6 +59,7 @@ class ReplayAiChatAssistant(Protocol):
         preset: ReplayAiChatPreset,
         user_message: str,
         history: list[ReplayAiChatMessage],
+        attachments: list[ReplayAiChatAttachment],
         model_override: str | None = None,
     ) -> tuple[str, str, ReplayAiChatContent]:
         ...
@@ -234,6 +236,7 @@ class OpenAiReplayChatAssistant:
         preset: ReplayAiChatPreset,
         user_message: str,
         history: list[ReplayAiChatMessage],
+        attachments: list[ReplayAiChatAttachment],
         model_override: str | None = None,
     ) -> tuple[str, str, ReplayAiChatContent]:
         if not self._api_key:
@@ -248,6 +251,44 @@ class OpenAiReplayChatAssistant:
         compact_payload = _compact_replay_payload(payload, operator_entries, manual_regions, preset=preset)
         compact_live_context = _compact_live_context_messages(live_context_messages)
         compact_strategy_cards = StrategyLibraryService.compact_cards(strategy_cards)
+        attachment_summaries = [
+            _summarize_chat_attachment(item, index)
+            for index, item in enumerate(attachments[:3], start=1)
+        ]
+        request_payload = {
+            "schema": ReplayAiChatContent.model_json_schema(),
+            "preset": preset.value,
+            "preset_instruction": self._PRESET_INSTRUCTIONS[preset],
+            "strategy_candidates_first": True,
+            "strategy_library_cards": compact_strategy_cards,
+            "latest_user_request": user_message,
+            "replay_packet": compact_payload,
+            "live_context": compact_live_context,
+            "image_attachments": attachment_summaries,
+        }
+        user_content: object = json.dumps(
+            request_payload,
+            ensure_ascii=False,
+            default=_json_default,
+        )
+        if attachments:
+            user_content = [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        request_payload,
+                        ensure_ascii=False,
+                        default=_json_default,
+                    ),
+                },
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": item.data_url},
+                    }
+                    for item in attachments[:3]
+                ],
+            ]
         response = client.chat.completions.create(
             model=chosen_model,
             messages=[
@@ -257,6 +298,7 @@ class OpenAiReplayChatAssistant:
                         "You are the replay-workbench copilot for short-term futures review. "
                         "Always reason in this order: strategy candidates first, then replay events/focus regions, "
                         "then operator entries, then live depth context. "
+                        "If screenshot attachments are present, use them only as supplemental context and do not override structured replay facts. "
                         "Be explicit about where the operator should not open. "
                         "When evidence is missing, say so instead of inventing order-flow facts. "
                         "Return only valid JSON matching the supplied schema."
@@ -271,20 +313,7 @@ class OpenAiReplayChatAssistant:
                 ],
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "schema": ReplayAiChatContent.model_json_schema(),
-                            "preset": preset.value,
-                            "preset_instruction": self._PRESET_INSTRUCTIONS[preset],
-                            "strategy_candidates_first": True,
-                            "strategy_library_cards": compact_strategy_cards,
-                            "latest_user_request": user_message,
-                            "replay_packet": compact_payload,
-                            "live_context": compact_live_context,
-                        },
-                        ensure_ascii=False,
-                        default=_json_default,
-                    ),
+                    "content": user_content,
                 },
             ],
             response_format={"type": "json_object"},
@@ -295,7 +324,14 @@ class OpenAiReplayChatAssistant:
         if not raw_text.strip():
             raise ReplayAiReviewUnavailableError("AI chat returned no text output.")
         parsed = ReplayAiChatContent.model_validate_json(OpenAiReplayReviewer._extract_json_text(raw_text))
+        if attachment_summaries and not parsed.attachment_summaries:
+            parsed.attachment_summaries = attachment_summaries
         return self._provider_name, chosen_model, parsed
+
+
+def _summarize_chat_attachment(attachment: ReplayAiChatAttachment, index: int) -> str:
+    label = attachment.name or f"image_{index}"
+    return f"{label} ({attachment.media_type})"
 
 
 def _json_default(value: object) -> str:
@@ -406,6 +442,7 @@ class ReplayAiChatService:
             preset=request.preset,
             user_message=request.user_message,
             history=request.history,
+            attachments=request.attachments,
             model_override=request.model_override,
         )
         known_strategy_ids = {item.strategy_id for item in replay_payload.strategy_candidates}
@@ -428,6 +465,7 @@ class ReplayAiChatService:
             live_context_summary=content.live_context_summary,
             referenced_strategy_ids=referenced_strategy_ids,
             follow_up_suggestions=content.follow_up_suggestions,
+            attachment_summaries=content.attachment_summaries,
             raw_text=json.dumps(content.model_dump(mode="json"), ensure_ascii=False, indent=2),
         )
         self._repository.save_ingestion(
@@ -563,7 +601,12 @@ def _summarize_live_context_messages(messages: list[AdapterContinuousStatePayloa
         )
     if latest.active_post_harvest_response is not None:
         summary.append(
-            f"post_harvest outcome={latest.active_post_harvest_response.outcome.value} reaction_ticks={latest.active_post_harvest_response.reaction_ticks}"
+            "post_harvest "
+            f"outcome={latest.active_post_harvest_response.outcome.value} "
+            f"continuation_ticks={latest.active_post_harvest_response.continuation_ticks_after_completion} "
+            f"pullback_ticks={latest.active_post_harvest_response.pullback_ticks} "
+            f"reversal_ticks={latest.active_post_harvest_response.reversal_ticks} "
+            f"next_opposing_liquidity_price={latest.active_post_harvest_response.next_opposing_liquidity_price}"
         )
     if latest.gap_reference is not None:
         summary.append(

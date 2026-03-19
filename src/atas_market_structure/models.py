@@ -2551,6 +2551,310 @@ class ReplayWorkbenchBuildResponse(BaseModel):
     )
 
 
+class ReplayWorkbenchGapSegment(BaseModel):
+    """One missing candle-time segment detected in a rebuilt replay packet."""
+
+    prev_ended_at: datetime | None = Field(
+        None,
+        description="End timestamp of the candle immediately before the gap when available.",
+    )
+    next_started_at: datetime = Field(
+        ...,
+        description="Start timestamp of the first observed candle after the gap.",
+    )
+    missing_bar_count: int = Field(
+        ...,
+        ge=1,
+        description="How many bars are missing between prev_ended_at and next_started_at.",
+    )
+
+
+class ReplayWorkbenchAtasBackfillStatus(str, Enum):
+    """Lifecycle state of a server-side request asking the ATAS adapter to resend history."""
+
+    PENDING = "pending"
+    DISPATCHED = "dispatched"
+    ACKNOWLEDGED = "acknowledged"
+    EXPIRED = "expired"
+
+
+class ReplayWorkbenchAtasBackfillRequest(BaseModel):
+    """UI or service-side request asking the ATAS collector to resend loaded history coverage."""
+
+    cache_key: str = Field(..., description="Replay cache key whose missing coverage should be repaired.")
+    instrument_symbol: str = Field(..., description="Instrument symbol to repair.", examples=["NQ"])
+    display_timeframe: Timeframe = Field(..., description="Display timeframe where the missing bars were detected.")
+    window_start: datetime = Field(..., description="Inclusive replay window start needing repair.")
+    window_end: datetime = Field(..., description="Inclusive replay window end needing repair.")
+    chart_instance_id: str | None = Field(
+        None,
+        description="Optional preferred ATAS chart instance when a specific chart should fulfill the request.",
+    )
+    missing_segments: list[ReplayWorkbenchGapSegment] = Field(
+        default_factory=list,
+        description="Detected candle-time holes to help the adapter understand what should be resent.",
+    )
+    reason: str = Field(
+        "candle_gap_detected",
+        min_length=1,
+        description="Why this backfill request was issued.",
+    )
+    request_history_bars: bool = Field(
+        True,
+        description="Whether the adapter should resend loaded history bars.",
+    )
+    request_history_footprint: bool = Field(
+        True,
+        description="Whether the adapter should resend loaded footprint history.",
+    )
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "ReplayWorkbenchAtasBackfillRequest":
+        if self.window_end < self.window_start:
+            raise ValueError("window_end must be greater than or equal to window_start")
+        return self
+
+
+class ReplayWorkbenchAtasBackfillRecord(BaseModel):
+    """Durable server-side record for one ATAS history repair request."""
+
+    request_id: str = Field(..., description="Stable server-generated request identifier.")
+    cache_key: str = Field(..., description="Replay cache key whose coverage should be repaired.")
+    instrument_symbol: str = Field(..., description="Instrument symbol being repaired.")
+    display_timeframe: Timeframe = Field(..., description="Timeframe where the gap was observed.")
+    window_start: datetime = Field(..., description="Inclusive replay window start.")
+    window_end: datetime = Field(..., description="Inclusive replay window end.")
+    chart_instance_id: str | None = Field(None, description="Preferred chart instance when explicitly targeted.")
+    missing_segments: list[ReplayWorkbenchGapSegment] = Field(default_factory=list, description="Observed missing segments.")
+    reason: str = Field(..., description="Why the request exists.")
+    request_history_bars: bool = Field(..., description="Whether history bars should be resent.")
+    request_history_footprint: bool = Field(..., description="Whether history footprint should be resent.")
+    status: ReplayWorkbenchAtasBackfillStatus = Field(..., description="Current lifecycle state of the request.")
+    requested_at: datetime = Field(..., description="When the request was created.")
+    expires_at: datetime = Field(..., description="When the request should no longer be dispatched.")
+    dispatch_count: int = Field(..., ge=0, description="How many times the request was handed to an adapter.")
+    dispatched_at: datetime | None = Field(None, description="Last dispatch timestamp when handed to an adapter.")
+    dispatched_chart_instance_id: str | None = Field(
+        None,
+        description="Chart instance that most recently received this request.",
+    )
+    acknowledged_at: datetime | None = Field(None, description="When the adapter acknowledged the request.")
+    acknowledged_chart_instance_id: str | None = Field(
+        None,
+        description="Chart instance that acknowledged the request.",
+    )
+    acknowledged_history_bars: bool = Field(
+        False,
+        description="Whether the adapter reported re-enqueuing history bars.",
+    )
+    acknowledged_history_footprint: bool = Field(
+        False,
+        description="Whether the adapter reported re-enqueuing history footprint payloads.",
+    )
+    latest_loaded_bar_started_at: datetime | None = Field(
+        None,
+        description="Latest loaded historical bar start known to the adapter when it acknowledged the request.",
+    )
+    note: str | None = Field(None, description="Optional adapter or server note attached to the request.")
+
+
+class ReplayWorkbenchAtasBackfillAcceptedResponse(BaseModel):
+    """REST response after a backfill request is queued or deduplicated."""
+
+    request: ReplayWorkbenchAtasBackfillRecord = Field(..., description="Server-side request record.")
+    reused_existing_request: bool = Field(
+        ...,
+        description="Whether the server reused a recent active request instead of creating a new one.",
+    )
+
+
+class AdapterBackfillCommand(BaseModel):
+    """Minimal command payload consumed by the ATAS adapter control loop."""
+
+    request_id: str = Field(..., description="Server-generated request identifier.")
+    cache_key: str = Field(..., description="Replay cache key affected by this request.")
+    instrument_symbol: str = Field(..., description="Instrument symbol to repair.")
+    display_timeframe: Timeframe = Field(..., description="Display timeframe where the gap was detected.")
+    window_start: datetime = Field(..., description="Inclusive replay window start.")
+    window_end: datetime = Field(..., description="Inclusive replay window end.")
+    chart_instance_id: str | None = Field(None, description="Preferred chart instance when targeted.")
+    missing_segments: list[ReplayWorkbenchGapSegment] = Field(default_factory=list, description="Observed missing segments.")
+    reason: str = Field(..., description="Why the request was created.")
+    request_history_bars: bool = Field(..., description="Whether history bars should be resent.")
+    request_history_footprint: bool = Field(..., description="Whether history footprint should be resent.")
+    dispatch_count: int = Field(..., ge=1, description="Current dispatch attempt number.")
+    requested_at: datetime = Field(..., description="When the request was first created.")
+    dispatched_at: datetime = Field(..., description="When this dispatch lease was granted.")
+
+
+class AdapterBackfillDispatchResponse(BaseModel):
+    """Response returned to the adapter when it polls for pending repair work."""
+
+    instrument_symbol: str = Field(..., description="Instrument symbol that was polled.")
+    chart_instance_id: str | None = Field(None, description="Polling chart instance when supplied.")
+    polled_at: datetime = Field(..., description="Server poll timestamp.")
+    request: AdapterBackfillCommand | None = Field(
+        None,
+        description="Pending backfill command when work is available, otherwise null.",
+    )
+
+
+class AdapterBackfillAcknowledgeRequest(BaseModel):
+    """Adapter callback confirming whether a dispatched backfill request was actioned."""
+
+    request_id: str = Field(..., description="Request identifier previously dispatched by the server.")
+    instrument_symbol: str = Field(..., description="Instrument symbol that acknowledged the request.")
+    chart_instance_id: str | None = Field(None, description="Chart instance that handled the request.")
+    acknowledged_at: datetime = Field(..., description="When the adapter finished handling the request.")
+    acknowledged_history_bars: bool = Field(
+        False,
+        description="Whether history bars were re-enqueued.",
+    )
+    acknowledged_history_footprint: bool = Field(
+        False,
+        description="Whether history footprint chunks were re-enqueued.",
+    )
+    latest_loaded_bar_started_at: datetime | None = Field(
+        None,
+        description="Latest loaded historical bar start available in the chart when acknowledged.",
+    )
+    note: str | None = Field(None, description="Optional adapter note.")
+
+
+class AdapterBackfillAcknowledgeResponse(BaseModel):
+    """Server confirmation after recording an adapter backfill acknowledgement."""
+
+    request: ReplayWorkbenchAtasBackfillRecord = Field(..., description="Updated durable request record.")
+
+
+class ReplayWorkbenchRebuildLatestRequest(BaseModel):
+    """One-shot request that invalidates the current cache and rebuilds it from the latest synced data."""
+
+    cache_key: str = Field(..., description="Stable replay cache key to rebuild.")
+    instrument_symbol: str = Field(..., description="Instrument symbol for the replay window.", examples=["NQ"])
+    display_timeframe: Timeframe = Field(..., description="Primary replay bar timeframe.")
+    window_start: datetime = Field(..., description="Inclusive replay window start.")
+    window_end: datetime = Field(..., description="Inclusive replay window end.")
+    chart_instance_id: str | None = Field(
+        None,
+        description="Optional ATAS chart-instance filter when multiple charts for the same symbol are running.",
+    )
+    min_continuous_messages: int = Field(
+        10,
+        ge=1,
+        description="Minimum number of local continuous-state messages required before local-history rebuild is allowed.",
+    )
+    invalidation_reason: str = Field(
+        "operator requested rebuild from latest synced data",
+        min_length=1,
+        description="Reason stored on the invalidated cache record before rebuilding.",
+    )
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "ReplayWorkbenchRebuildLatestRequest":
+        if self.window_end < self.window_start:
+            raise ValueError("window_end must be greater than or equal to window_start")
+        return self
+
+
+class ReplayWorkbenchRebuildLatestResponse(BaseModel):
+    """Result of invalidating the active replay cache and rebuilding from the newest synced payloads."""
+
+    cache_key: str = Field(..., description="Replay cache key that was rebuilt.")
+    invalidated_existing_cache: bool = Field(..., description="Whether an existing cache record was invalidated first.")
+    invalidation_result: ReplayWorkbenchInvalidationResponse | None = Field(
+        None,
+        description="Invalidation details when a prior cache record existed.",
+    )
+    build_result: ReplayWorkbenchBuildResponse = Field(
+        ...,
+        description="Fresh build result created from the latest synced payloads.",
+    )
+
+
+class ReplayLiveStreamState(str, Enum):
+    LIVE = "live"
+    DELAYED = "delayed"
+    STALE = "stale"
+    OFFLINE = "offline"
+
+
+class ReplayWorkbenchLiveSourceStatus(BaseModel):
+    """Latest stored-ingestion timestamp for one adapter feed kind."""
+
+    ingestion_kind: str = Field(..., description="Adapter ingestion kind being summarized.")
+    latest_ingestion_id: str | None = Field(None, description="Most recent stored ingestion identifier for this kind.")
+    latest_stored_at: datetime | None = Field(None, description="Most recent backend persistence timestamp for this kind.")
+    lag_seconds: int | None = Field(None, ge=0, description="Current lag in whole seconds from latest_stored_at to now.")
+
+
+class ReplayWorkbenchLiveStatusResponse(BaseModel):
+    """Freshness summary used by the workbench to decide whether an old replay can be reused."""
+
+    instrument_symbol: str = Field(..., description="Instrument symbol being checked.")
+    replay_ingestion_id: str | None = Field(None, description="Replay ingestion currently shown in the UI, when known.")
+    replay_snapshot_stored_at: datetime | None = Field(None, description="Stored_at timestamp of the replay currently shown.")
+    latest_adapter_sync_at: datetime | None = Field(None, description="Most recent adapter timestamp across continuous state and history sync feeds.")
+    latest_adapter_sync_lag_seconds: int | None = Field(None, ge=0, description="Current lag in whole seconds from latest_adapter_sync_at to now.")
+    stream_state: ReplayLiveStreamState = Field(..., description="High-level health state of the adapter feed for this symbol.")
+    should_refresh_snapshot: bool = Field(..., description="Whether adapter data is newer than the replay snapshot currently shown.")
+    latest_continuous_state: ReplayWorkbenchLiveSourceStatus = Field(..., description="Latest continuous-state ingestion for this symbol.")
+    latest_history_bars: ReplayWorkbenchLiveSourceStatus = Field(..., description="Latest history-bars ingestion for this symbol.")
+    latest_history_footprint: ReplayWorkbenchLiveSourceStatus = Field(..., description="Latest history-footprint ingestion for this symbol.")
+
+
+class ReplayWorkbenchLiveTailResponse(BaseModel):
+    """Latest in-flight tail built from continuous adapter messages for realtime UI patching."""
+
+    instrument_symbol: str = Field(..., description="Instrument symbol being patched in realtime.")
+    display_timeframe: Timeframe = Field(..., description="Display timeframe used to bucket the live tail.")
+    latest_observed_at: datetime | None = Field(
+        None,
+        description="Latest observed ATAS timestamp carried by the continuous-state stream.",
+    )
+    latest_price: float | None = Field(
+        None,
+        description="Most recent last-traded price from the adapter stream.",
+    )
+    best_bid: float | None = Field(
+        None,
+        description="Most recent best bid from the adapter stream when available.",
+    )
+    best_ask: float | None = Field(
+        None,
+        description="Most recent best ask from the adapter stream when available.",
+    )
+    source_message_count: int = Field(
+        ...,
+        ge=0,
+        description="How many recent continuous-state messages were used to build this live tail.",
+    )
+    candles: list[ReplayChartBar] = Field(
+        default_factory=list,
+        description="Latest reconstructed bars that should patch the right edge of the replay chart.",
+    )
+    trade_summary: AdapterTradeSummary | None = Field(
+        None,
+        description="Latest rolling trade summary from the continuous-state stream.",
+    )
+    significant_liquidity: list[AdapterSignificantLiquidityLevel] = Field(
+        default_factory=list,
+        description="Latest significant displayed-liquidity tracks for realtime overlays.",
+    )
+    same_price_replenishment: list[AdapterSamePriceReplenishmentState] = Field(
+        default_factory=list,
+        description="Latest repeated-replenishment observations for realtime overlays.",
+    )
+    active_initiative_drive: AdapterInitiativeDriveState | None = Field(
+        None,
+        description="Latest active initiative-drive state for realtime overlays.",
+    )
+    active_post_harvest_response: AdapterPostHarvestResponseState | None = Field(
+        None,
+        description="Latest post-harvest response state for realtime overlays.",
+    )
+
+
 class ReplayOperatorEntryListQuery(BaseModel):
     """Query object used when listing operator entries for one replay packet."""
 
@@ -2675,6 +2979,14 @@ class ReplayAiChatPreset(str, Enum):
     LIVE_DEPTH = "live_depth"
 
 
+class ReplayAiChatAttachment(BaseModel):
+    """Optional image attachment sent with one replay-workbench AI chat request."""
+
+    name: str | None = Field(None, description="Optional attachment name shown in the UI.")
+    media_type: str = Field(..., description="Attachment MIME type.", examples=["image/png"])
+    data_url: str = Field(..., min_length=16, description="Inline data URL used for lightweight pasted screenshots.")
+
+
 class ReplayAiChatMessage(BaseModel):
     """Conversation turn shown in the replay workbench AI pane."""
 
@@ -2691,6 +3003,10 @@ class ReplayAiChatRequest(BaseModel):
     history: list[ReplayAiChatMessage] = Field(default_factory=list, description="Previous chat turns to preserve continuity.")
     model_override: str | None = Field(None, description="Optional AI model override for this request.")
     include_live_context: bool = Field(True, description="Whether to merge the latest live adapter context into the discussion.")
+    attachments: list[ReplayAiChatAttachment] = Field(
+        default_factory=list,
+        description="Optional pasted screenshots or chart snippets attached to the question.",
+    )
 
 
 class ReplayAiChatContent(BaseModel):
@@ -2700,6 +3016,7 @@ class ReplayAiChatContent(BaseModel):
     live_context_summary: list[str] = Field(default_factory=list, description="Short live-context facts attached to this turn.")
     referenced_strategy_ids: list[str] = Field(default_factory=list, description="Strategy-library candidates considered for this turn.")
     follow_up_suggestions: list[str] = Field(default_factory=list, description="Suggested follow-up prompts for the operator.")
+    attachment_summaries: list[str] = Field(default_factory=list, description="Short summaries of user-provided image attachments.")
 
 
 class ReplayAiChatResponse(BaseModel):
@@ -2717,6 +3034,7 @@ class ReplayAiChatResponse(BaseModel):
     live_context_summary: list[str] = Field(default_factory=list, description="Short live-context facts attached to this turn.")
     referenced_strategy_ids: list[str] = Field(default_factory=list, description="Strategy-library candidates considered for this turn.")
     follow_up_suggestions: list[str] = Field(default_factory=list, description="Suggested follow-up prompts for the operator.")
+    attachment_summaries: list[str] = Field(default_factory=list, description="Short summaries of user-provided image attachments.")
     raw_text: str = Field(..., description="Provider raw text output preserved for debugging and audit.")
 
 

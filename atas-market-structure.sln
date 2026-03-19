@@ -1,0 +1,78 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src-csharp", "src-csharp", "{4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.Adapter", "src-csharp\AtasMarketStructure.Adapter\AtasMarketStructure.Adapter.csproj", "{A524D936-7C9B-7081-FA05-4FF184748B9A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.ExtendedProbe", "src-csharp\AtasMarketStructure.ExtendedProbe\AtasMarketStructure.ExtendedProbe.csproj", "{495DF05C-D517-6CFF-4D45-8B57163E905A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.LoaderCheck", "src-csharp\AtasMarketStructure.LoaderCheck\AtasMarketStructure.LoaderCheck.csproj", "{06051DD3-4E76-E234-FB7E-20F98EBE68AA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.Probe", "src-csharp\AtasMarketStructure.Probe\AtasMarketStructure.Probe.csproj", "{6898492A-AD9A-A7F9-293F-5592C0A06B0E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.Probe.BestBidAsk", "src-csharp\AtasMarketStructure.Probe.BestBidAsk\AtasMarketStructure.Probe.BestBidAsk.csproj", "{D12B9757-1348-EED0-76A0-02C8CC10BE9D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.Probe.CumulativeTrade", "src-csharp\AtasMarketStructure.Probe.CumulativeTrade\AtasMarketStructure.Probe.CumulativeTrade.csproj", "{2D6D2005-5E8B-97E1-CF56-061901899914}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.Probe.MarketByOrders", "src-csharp\AtasMarketStructure.Probe.MarketByOrders\AtasMarketStructure.Probe.MarketByOrders.csproj", "{08AC6B8F-8298-B6D1-59C5-B69B805D20EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AtasMarketStructure.Probe.MarketDepth", "src-csharp\AtasMarketStructure.Probe.MarketDepth\AtasMarketStructure.Probe.MarketDepth.csproj", "{8C51348D-5382-C9B2-4345-2C276E331BEF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A524D936-7C9B-7081-FA05-4FF184748B9A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A524D936-7C9B-7081-FA05-4FF184748B9A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A524D936-7C9B-7081-FA05-4FF184748B9A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A524D936-7C9B-7081-FA05-4FF184748B9A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{495DF05C-D517-6CFF-4D45-8B57163E905A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{495DF05C-D517-6CFF-4D45-8B57163E905A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{495DF05C-D517-6CFF-4D45-8B57163E905A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{495DF05C-D517-6CFF-4D45-8B57163E905A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{06051DD3-4E76-E234-FB7E-20F98EBE68AA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{06051DD3-4E76-E234-FB7E-20F98EBE68AA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{06051DD3-4E76-E234-FB7E-20F98EBE68AA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{06051DD3-4E76-E234-FB7E-20F98EBE68AA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6898492A-AD9A-A7F9-293F-5592C0A06B0E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6898492A-AD9A-A7F9-293F-5592C0A06B0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6898492A-AD9A-A7F9-293F-5592C0A06B0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6898492A-AD9A-A7F9-293F-5592C0A06B0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12B9757-1348-EED0-76A0-02C8CC10BE9D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12B9757-1348-EED0-76A0-02C8CC10BE9D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12B9757-1348-EED0-76A0-02C8CC10BE9D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12B9757-1348-EED0-76A0-02C8CC10BE9D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2D6D2005-5E8B-97E1-CF56-061901899914}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D6D2005-5E8B-97E1-CF56-061901899914}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2D6D2005-5E8B-97E1-CF56-061901899914}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2D6D2005-5E8B-97E1-CF56-061901899914}.Release|Any CPU.Build.0 = Release|Any CPU
+		{08AC6B8F-8298-B6D1-59C5-B69B805D20EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{08AC6B8F-8298-B6D1-59C5-B69B805D20EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{08AC6B8F-8298-B6D1-59C5-B69B805D20EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{08AC6B8F-8298-B6D1-59C5-B69B805D20EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8C51348D-5382-C9B2-4345-2C276E331BEF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8C51348D-5382-C9B2-4345-2C276E331BEF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8C51348D-5382-C9B2-4345-2C276E331BEF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8C51348D-5382-C9B2-4345-2C276E331BEF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A524D936-7C9B-7081-FA05-4FF184748B9A} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+		{495DF05C-D517-6CFF-4D45-8B57163E905A} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+		{06051DD3-4E76-E234-FB7E-20F98EBE68AA} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+		{6898492A-AD9A-A7F9-293F-5592C0A06B0E} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+		{D12B9757-1348-EED0-76A0-02C8CC10BE9D} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+		{2D6D2005-5E8B-97E1-CF56-061901899914} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+		{08AC6B8F-8298-B6D1-59C5-B69B805D20EE} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+		{8C51348D-5382-C9B2-4345-2C276E331BEF} = {4096C7B0-4C23-1A46-0D1D-C9BB4F2AE7D0}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {80EBEF08-7416-4AF2-AEF8-8D232EF380CE}
+	EndGlobalSection
+EndGlobal

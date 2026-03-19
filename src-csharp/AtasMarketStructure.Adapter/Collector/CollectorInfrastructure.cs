@@ -26,6 +26,20 @@ internal interface IAdapterTransport : IDisposable
     bool TryEnqueueHistoryFootprint(HistoryFootprintPayload payload);
 
     bool TryEnqueueTriggerBurst(TriggerBurstPayload payload);
+
+    int QueueLength { get; }
+
+    int DroppedMessageCount { get; }
+
+    int ConsecutiveSendFailures { get; }
+
+    DateTime? LastAttemptUtc { get; }
+
+    DateTime? LastSuccessfulPostUtc { get; }
+
+    DateTime? LastFailureUtc { get; }
+
+    string LastTransportError { get; }
 }
 
 internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
@@ -43,6 +57,12 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
     private readonly Task _pumpTask;
     private readonly SemaphoreSlim _signal = new(0);
     private int _queueLength;
+    private int _droppedMessageCount;
+    private int _consecutiveSendFailures;
+    private DateTime? _lastAttemptUtc;
+    private DateTime? _lastSuccessfulPostUtc;
+    private DateTime? _lastFailureUtc;
+    private string _lastTransportError = string.Empty;
 
     public BufferedHttpAdapterTransport(
         Uri baseUri,
@@ -74,7 +94,7 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
     }
 
     public bool TryEnqueueContinuousState(ContinuousStatePayload payload)
-        => TryEnqueue(new OutboundMessage(_continuousEndpoint, payload, false));
+        => TryEnqueue(new OutboundMessage(_continuousEndpoint, payload, true));
 
     public bool TryEnqueueHistoryBars(HistoryBarsPayload payload)
         => TryEnqueue(new OutboundMessage(_historyBarsEndpoint, payload, false));
@@ -84,6 +104,20 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
 
     public bool TryEnqueueTriggerBurst(TriggerBurstPayload payload)
         => TryEnqueue(new OutboundMessage(_triggerEndpoint, payload, true));
+
+    public int QueueLength => Volatile.Read(ref _queueLength);
+
+    public int DroppedMessageCount => Volatile.Read(ref _droppedMessageCount);
+
+    public int ConsecutiveSendFailures => Volatile.Read(ref _consecutiveSendFailures);
+
+    public DateTime? LastAttemptUtc => _lastAttemptUtc;
+
+    public DateTime? LastSuccessfulPostUtc => _lastSuccessfulPostUtc;
+
+    public DateTime? LastFailureUtc => _lastFailureUtc;
+
+    public string LastTransportError => _lastTransportError;
 
     public void Dispose()
     {
@@ -109,7 +143,10 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
     {
         if (!message.HighPriority && Volatile.Read(ref _queueLength) >= _maxQueueLength)
         {
-            _warnLogger($"Adapter queue full ({_maxQueueLength}). Dropping low-priority continuous_state payload.");
+            Interlocked.Increment(ref _droppedMessageCount);
+            _lastFailureUtc = DateTime.UtcNow;
+            _lastTransportError = $"Queue full ({_maxQueueLength}); dropped low-priority payload for {message.Endpoint}.";
+            _warnLogger(_lastTransportError);
             return false;
         }
 
@@ -155,16 +192,47 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
     private async Task PostAsync(OutboundMessage message, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(message.Payload, PayloadJson.Options);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        using var response = await _httpClient.PostAsync(message.Endpoint, content, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        Exception? lastException = null;
+        var maxAttempts = message.HighPriority ? 3 : 2;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException(
-                $"HTTP {(int)response.StatusCode} for {message.Endpoint}: {responseBody}");
+            _lastAttemptUtc = DateTime.UtcNow;
+            try
+            {
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                using var response = await _httpClient.PostAsync(message.Endpoint, content, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    throw new InvalidOperationException(
+                        $"HTTP {(int)response.StatusCode} for {message.Endpoint}: {responseBody}");
+                }
+
+                Interlocked.Exchange(ref _consecutiveSendFailures, 0);
+                _lastSuccessfulPostUtc = DateTime.UtcNow;
+                _lastTransportError = string.Empty;
+                _infoLogger($"Adapter payload delivered to {message.Endpoint}.");
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                if (attempt < maxAttempts)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+            }
         }
 
-        _infoLogger($"Adapter payload delivered to {message.Endpoint}.");
+        Interlocked.Increment(ref _consecutiveSendFailures);
+        _lastFailureUtc = DateTime.UtcNow;
+        _lastTransportError = lastException?.Message ?? $"Unknown transport error for {message.Endpoint}.";
+        throw lastException ?? new InvalidOperationException(_lastTransportError);
     }
 
     private sealed record OutboundMessage(string Endpoint, object Payload, bool HighPriority);

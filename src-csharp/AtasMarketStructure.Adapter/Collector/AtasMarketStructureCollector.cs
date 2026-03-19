@@ -97,10 +97,10 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
     public int StrongReplenishmentCount { get; set; } = 2;
 
     [Display(Name = "Drive Min Net Delta", GroupName = "6. Drive", Order = 10)]
-    public int DriveMinNetDelta { get; set; } = 60;
+    public int DriveMinNetDelta { get; set; } = 20;
 
     [Display(Name = "Drive Min Travel Ticks", GroupName = "6. Drive", Order = 20)]
-    public int DriveMinTravelTicks { get; set; } = 8;
+    public int DriveMinTravelTicks { get; set; } = 6;
 
     [Display(Name = "Drive Merge Gap Seconds", GroupName = "6. Drive", Order = 30)]
     public int DriveMergeGapSeconds { get; set; } = 6;
@@ -492,12 +492,12 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             _harvestState.FirstPullbackAtUtc = eventTimeUtc;
         }
 
-        if (_harvestState.FirstReversalAtUtc is null && reversalTicks >= 8)
+        if (_harvestState.FirstReversalAtUtc is null && reversalTicks >= 6)
         {
             _harvestState.FirstReversalAtUtc = eventTimeUtc;
             ScheduleTriggerBurst(TriggerKinds.PostHarvestReversal, eventTimeUtc, price, new[] { "post_harvest_reversal", "watch_bigger_rotation" }, $"post-rev:{_harvestState.ResponseId}");
         }
-        else if (pullbackTicks >= 4)
+        else if (pullbackTicks >= 2)
         {
             ScheduleTriggerBurst(TriggerKinds.PostHarvestPullback, eventTimeUtc, price, new[] { "post_harvest_pullback", "watch_retest_or_balance" }, $"post-pb:{_harvestState.ResponseId}");
         }
@@ -934,17 +934,17 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
 
     private static string DeterminePostHarvestOutcome(int continuationTicks, int consolidationRangeTicks, int pullbackTicks, int reversalTicks)
     {
-        if (reversalTicks >= 8)
+        if (reversalTicks >= 6)
         {
             return "reversal";
         }
 
-        if (pullbackTicks >= 4)
+        if (pullbackTicks >= 2)
         {
             return "pullback";
         }
 
-        if (continuationTicks >= 4 && consolidationRangeTicks <= 6)
+        if (continuationTicks >= 3 && consolidationRangeTicks <= 8)
         {
             return "continuation";
         }

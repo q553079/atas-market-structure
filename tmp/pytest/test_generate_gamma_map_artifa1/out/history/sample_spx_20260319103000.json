@@ -1,0 +1,277 @@
+{
+  "source_file": "D:\\docker\\atas-market-structure\\tmp\\pytest\\test_generate_gamma_map_artifa1\\sample_spx.csv",
+  "quote_time": "2026-03-19 10:30:00",
+  "spx_spot": 5000.0,
+  "es_price": 5042.0,
+  "max_dte": 30,
+  "min_open_interest": 1,
+  "strike_step": 10.0,
+  "included_expirations": [
+    "2026-03-19",
+    "2026-04-16"
+  ],
+  "regime": "\u8d1f Gamma / \u66f4\u5bb9\u6613\u6269\u5f20\u548c\u52a0\u901f",
+  "zero_gamma_proxy": 5020.0,
+  "zero_gamma_proxy_es": 5062.0,
+  "total_call_gex_1pct": 3140950000.0,
+  "total_put_gex_1pct": -3422500000.0,
+  "total_net_gex_1pct": -281550000.00000006,
+  "resistance_levels": [
+    {
+      "strike": 5010.0,
+      "es_equivalent": 5052.0,
+      "score": 1285000000.0,
+      "label": "Resistance",
+      "call_open_interest": 5400,
+      "put_open_interest": 1800,
+      "call_volume": 1940,
+      "put_volume": 1500
+    },
+    {
+      "strike": 5020.0,
+      "es_equivalent": 5062.0,
+      "score": 1032499999.9999999,
+      "label": "Resistance",
+      "call_open_interest": 5200,
+      "put_open_interest": 1300,
+      "call_volume": 1750,
+      "put_volume": 1000
+    }
+  ],
+  "support_levels": [
+    {
+      "strike": 4980.0,
+      "es_equivalent": 5022.0,
+      "score": 650000000.0,
+      "label": "Support",
+      "call_open_interest": 320,
+      "put_open_interest": 11800,
+      "call_volume": 210,
+      "put_volume": 3700
+    },
+    {
+      "strike": 5000.0,
+      "es_equivalent": 5042.0,
+      "score": 575000000.0,
+      "label": "Support",
+      "call_open_interest": 3600,
+      "put_open_interest": 2900,
+      "call_volume": 330,
+      "put_volume": 2100
+    }
+  ],
+  "upside_acceleration_zones": [
+    {
+      "direction": "up",
+      "trigger_strike": 5010.0,
+      "trigger_es": 5052.0,
+      "target_strike": 5020.0,
+      "target_es": 5062.0,
+      "label": "Above 5,010.00 can squeeze toward 5,020.00",
+      "score": 2317500000.0
+    }
+  ],
+  "downside_acceleration_zones": [
+    {
+      "direction": "down",
+      "trigger_strike": 5000.0,
+      "trigger_es": 5042.0,
+      "target_strike": 4980.0,
+      "target_es": 5022.0,
+      "label": "Below 5,000.00 can slide toward 4,980.00",
+      "score": 1225000000.0
+    }
+  ],
+  "strike_metrics": [
+    {
+      "strike": 4950.0,
+      "call_proxy": 0.132,
+      "put_proxy": 18.0,
+      "net_proxy": -17.868000000000002,
+      "call_gex_1pct": 3300000.0,
+      "put_gex_1pct": -450000000.0,
+      "net_gex_1pct": -446700000.0,
+      "call_volume": 150,
+      "put_volume": 4400,
+      "call_open_interest": 140,
+      "put_open_interest": 21000,
+      "expirations": 2
+    },
+    {
+      "strike": 4960.0,
+      "call_proxy": 0.05,
+      "put_proxy": 12.0,
+      "net_proxy": -11.95,
+      "call_gex_1pct": 1250000.0,
+      "put_gex_1pct": -300000000.0,
+      "net_gex_1pct": -298750000.0,
+      "call_volume": 90,
+      "put_volume": 3000,
+      "call_open_interest": 50,
+      "put_open_interest": 12000,
+      "expirations": 1
+    },
+    {
+      "strike": 4970.0,
+      "call_proxy": 0.09599999999999999,
+      "put_proxy": 11.999999999999998,
+      "net_proxy": -11.903999999999998,
+      "call_gex_1pct": 2400000.0,
+      "put_gex_1pct": -299999999.99999994,
+      "net_gex_1pct": -297599999.99999994,
+      "call_volume": 100,
+      "put_volume": 2800,
+      "call_open_interest": 80,
+      "put_open_interest": 10000,
+      "expirations": 1
+    },
+    {
+      "strike": 4980.0,
+      "call_proxy": 0.74,
+      "put_proxy": 26.0,
+      "net_proxy": -25.259999999999998,
+      "call_gex_1pct": 18500000.0,
+      "put_gex_1pct": -650000000.0,
+      "net_gex_1pct": -631500000.0,
+      "call_volume": 210,
+      "put_volume": 3700,
+      "call_open_interest": 320,
+      "put_open_interest": 11800,
+      "expirations": 2
+    },
+    {
+      "strike": 4990.0,
+      "call_proxy": 0.72,
+      "put_proxy": 20.0,
+      "net_proxy": -19.28,
+      "call_gex_1pct": 18000000.0,
+      "put_gex_1pct": -500000000.0,
+      "net_gex_1pct": -482000000.0,
+      "call_volume": 140,
+      "put_volume": 2000,
+      "call_open_interest": 180,
+      "put_open_interest": 5000,
+      "expirations": 1
+    },
+    {
+      "strike": 5000.0,
+      "call_proxy": 31.2,
+      "put_proxy": 23.0,
+      "net_proxy": 8.2,
+      "call_gex_1pct": 780000000.0,
+      "put_gex_1pct": -575000000.0,
+      "net_gex_1pct": 205000000.0,
+      "call_volume": 330,
+      "put_volume": 2100,
+      "call_open_interest": 3600,
+      "put_open_interest": 2900,
+      "expirations": 2
+    },
+    {
+      "strike": 5010.0,
+      "call_proxy": 51.4,
+      "put_proxy": 16.2,
+      "net_proxy": 35.2,
+      "call_gex_1pct": 1285000000.0,
+      "put_gex_1pct": -405000000.0,
+      "net_gex_1pct": 880000000.0,
+      "call_volume": 1940,
+      "put_volume": 1500,
+      "call_open_interest": 5400,
+      "put_open_interest": 1800,
+      "expirations": 2
+    },
+    {
+      "strike": 5020.0,
+      "call_proxy": 41.3,
+      "put_proxy": 9.7,
+      "net_proxy": 31.599999999999994,
+      "call_gex_1pct": 1032499999.9999999,
+      "put_gex_1pct": -242500000.0,
+      "net_gex_1pct": 789999999.9999999,
+      "call_volume": 1750,
+      "put_volume": 1000,
+      "call_open_interest": 5200,
+      "put_open_interest": 1300,
+      "expirations": 2
+    }
+  ],
+  "expiration_metrics": [
+    {
+      "expiration": "2026-03-19",
+      "dte": 0,
+      "rows": 8,
+      "call_gex_1pct": 2238450000.0,
+      "put_gex_1pct": -2460000000.0,
+      "net_gex_1pct": -221550000.0,
+      "atm_strike": 5000.0,
+      "atm_call_iv": 0.22,
+      "atm_put_iv": 0.23,
+      "atm_iv": 0.225,
+      "call_25d_iv": 0.17,
+      "put_25d_iv": 0.29,
+      "put_call_iv_ratio_25d": 1.7058823529411762,
+      "risk_reversal_25d": -0.11999999999999997,
+      "dominant_call_oi_strike": 5010.0,
+      "dominant_put_oi_strike": 4950.0
+    },
+    {
+      "expiration": "2026-04-16",
+      "dte": 28,
+      "rows": 5,
+      "call_gex_1pct": 902500000.0,
+      "put_gex_1pct": -962500000.0,
+      "net_gex_1pct": -60000000.0,
+      "atm_strike": 5000.0,
+      "atm_call_iv": 0.18,
+      "atm_put_iv": 0.18,
+      "atm_iv": 0.18,
+      "call_25d_iv": 0.16,
+      "put_25d_iv": 0.24,
+      "put_call_iv_ratio_25d": 1.5,
+      "risk_reversal_25d": -0.07999999999999999,
+      "dominant_call_oi_strike": 5020.0,
+      "dominant_put_oi_strike": 4950.0
+    }
+  ],
+  "structural_regime": {
+    "macro_gamma_regime": "\u5b8f\u89c2\u8d1f Gamma / \u66f4\u5bb9\u6613\u653e\u5927\u548c\u5ef6\u7eed",
+    "local_gamma_regime": "\u5c40\u90e8\u6b63 Gamma / \u73b0\u4ef7\u9644\u8fd1\u66f4\u5bb9\u6613\u9489\u4f4f\u548c\u6765\u56de",
+    "local_net_gex_1pct": 761499999.9999999,
+    "local_strike_span_low": 4980.0,
+    "local_strike_span_high": 5020.0,
+    "dominant_call_wall": {
+      "label": "Call Wall",
+      "strike": 5010.0,
+      "es_equivalent": 5052.0,
+      "open_interest": 5400,
+      "gex_1pct": 1285000000.0,
+      "distance_from_spot": 10.0
+    },
+    "dominant_put_wall": {
+      "label": "Put Wall",
+      "strike": 4950.0,
+      "es_equivalent": 4992.0,
+      "open_interest": 21000,
+      "gex_1pct": 450000000.0,
+      "distance_from_spot": 50.0
+    },
+    "term_structure_label": "\u8fd1\u7aef ATM IV \u9ad8\u4e8e\u6b21\u8fd1\u6708\uff0c\u524d\u7aef\u4fdd\u62a4\u66f4\u8d35\uff0c\u4e8b\u4ef6/\u9694\u591c\u98ce\u9669\u66f4\u96c6\u4e2d\u3002",
+    "front_expiry": "2026-03-19",
+    "front_atm_iv": 0.225,
+    "next_expiry": "2026-04-16",
+    "next_atm_iv": 0.18,
+    "front_put_call_iv_ratio_25d": 1.7058823529411762,
+    "front_risk_reversal_25d": -0.11999999999999997,
+    "gap_chop_score": 100,
+    "gap_chop_bias": "Gap-and-chop \u503e\u5411\u5f3a",
+    "gap_chop_reasons": [
+      "\u603b\u51c0 Gamma \u4ecd\u504f\u8d1f\uff0c\u5899\u4f4d\u4e00\u65e6\u88ab\u6253\u7a7f\uff0c\u76d8\u9762\u66f4\u5bb9\u6613\u653e\u5927\u3002",
+      "\u73b0\u4ef7\u9644\u8fd1\u5c40\u90e8 Gamma \u8f6c\u6b63\uff0c\u66f4\u5bb9\u6613\u88ab\u9489\u5728\u5173\u952e\u6267\u884c\u4ef7\u4e4b\u95f4\u6765\u56de\u3002",
+      "\u73b0\u4ef7\u88ab put wall \u548c call wall \u5939\u5728\u8f83\u7a84\u533a\u95f4\u5185\uff0cRTH \u66f4\u5bb9\u6613\u53cd\u590d chop\u3002",
+      "\u524d\u7aef 25\u0394 put/call IV ratio \u504f\u9ad8\uff0cput skew \u4ecd\u5728\u4e3a\u5c3e\u90e8\u98ce\u9669\u5b9a\u9ad8\u4ef7\u3002",
+      "\u8fd1\u7aef IV \u9ad8\u4e8e\u6b21\u8fd1\u6708\uff0c\u9694\u591c\u548c\u4e8b\u4ef6\u98ce\u9669\u66f4\u591a\u88ab\u538b\u5728\u524d\u7aef\u3002"
+    ]
+  },
+  "tracking_delta": null
+}
