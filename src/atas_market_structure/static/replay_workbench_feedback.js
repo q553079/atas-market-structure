@@ -23,6 +23,15 @@ export function createWorkbenchFeedback({
       chips.push({ label: `核对：${translateVerificationStatus(result.summary.verification_status)}`, variant: result.summary.verification_status === "durable" ? "good" : "emphasis" });
       chips.push({ label: `${result.summary.verification_count}/${result.summary.verification_passes_to_lock} 次核对`, variant: "emphasis" });
     }
+    if (result.integrity) {
+      chips.push({ label: `完整性：${result.integrity.status}`, variant: result.integrity.status === "complete" ? "good" : "warn" });
+      if (result.integrity.missing_bar_count) {
+        chips.push({ label: `缺失 ${result.integrity.missing_bar_count} 根`, variant: "warn" });
+      }
+    }
+    if (result.atas_backfill_request?.request_id) {
+      chips.push({ label: `补数 ${result.atas_backfill_request.status}`, variant: "emphasis" });
+    }
     if (result.local_message_count) {
       chips.push({ label: `${result.local_message_count} 条本地消息`, variant: "" });
     }

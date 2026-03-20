@@ -12,22 +12,17 @@ from urllib.parse import parse_qs, urlsplit
 from pydantic import BaseModel, ValidationError
 
 from atas_market_structure.adapter_services import AdapterIngestionService
-from atas_market_structure.analysis_orchestration_services import (
-    DeepRegionAnalysisService,
-    FullMarketAnalysisService,
-    LightweightMonitorService,
-)
-from atas_market_structure.focus_region_review_services import (
-    FocusRegionReviewService,
-    ScreenshotAnalysisInput,
-)
-from atas_market_structure.strategy_selection_engine import StrategySelectionEngine
 from atas_market_structure.ai_review_services import (
-    ReplayAiChatService,
+    ReplayAiChatResponse,
     ReplayAiReviewNotFoundError,
+    ReplayAiReviewResponse,
     ReplayAiReviewService,
     ReplayAiReviewUnavailableError,
+    ReplayAiChatService,
 )
+from atas_market_structure.app_routes import handle_analysis_routes, handle_chat_routes, handle_options_routes
+from atas_market_structure.app_shared import NotFoundError
+from atas_market_structure.config import AppConfig
 from atas_market_structure.depth_services import DepthMonitoringService
 from atas_market_structure.models import (
     AdapterBackfillAcknowledgeRequest,
@@ -47,17 +42,13 @@ from atas_market_structure.models import (
     LiquidityMemoryEnvelope,
     LiquidityMemoryRecord,
     MarketStructurePayload,
-    ReplayAiReviewRequest,
-    ReplayAiReviewResponse,
-    ReplayAiChatRequest,
-    ReplayAiChatResponse,
-    ReplayOperatorEntryAcceptedResponse,
-    ReplayOperatorEntryEnvelope,
-    ReplayOperatorEntryRequest,
+    ReplayFootprintBarDetail,
     ReplayManualRegionAnnotationAcceptedResponse,
     ReplayManualRegionAnnotationEnvelope,
     ReplayManualRegionAnnotationRequest,
-    ReplayFootprintBarDetail,
+    ReplayOperatorEntryAcceptedResponse,
+    ReplayOperatorEntryEnvelope,
+    ReplayOperatorEntryRequest,
     ReplayWorkbenchAcceptedResponse,
     ReplayWorkbenchAtasBackfillAcceptedResponse,
     ReplayWorkbenchAtasBackfillRequest,
@@ -74,22 +65,24 @@ from atas_market_structure.models import (
 )
 from atas_market_structure.repository import AnalysisRepository
 from atas_market_structure.services import IngestionOrchestrator
-from atas_market_structure.workbench_services import ReplayWorkbenchNotFoundError, ReplayWorkbenchService
+from atas_market_structure.workbench_services import (
+    ReplayWorkbenchChatError,
+    ReplayWorkbenchChatService,
+    ReplayWorkbenchNotFoundError,
+    ReplayWorkbenchService,
+)
 
 
 LOGGER = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-class NotFoundError(RuntimeError):
-    """Raised when a requested resource does not exist."""
-
-
 @dataclass(frozen=True)
 class HttpResponse:
     status_code: int
-    body: bytes
+    body: bytes = b""
     headers: dict[str, str] = field(default_factory=dict)
+    stream_chunks: tuple[bytes, ...] | None = None
 
 
 class MarketStructureApplication:
@@ -104,8 +97,10 @@ class MarketStructureApplication:
         replay_workbench_service: ReplayWorkbenchService | None = None,
         replay_ai_review_service: ReplayAiReviewService | None = None,
         replay_ai_chat_service: ReplayAiChatService | None = None,
+        config: AppConfig | None = None,
     ) -> None:
         self._repository = repository
+        self._config = config or AppConfig.from_env()
         self._orchestrator = orchestrator or IngestionOrchestrator(repository=repository)
         self._depth_monitoring_service = depth_monitoring_service or DepthMonitoringService(repository=repository)
         self._adapter_ingestion_service = adapter_ingestion_service or AdapterIngestionService(
@@ -115,8 +110,14 @@ class MarketStructureApplication:
         self._replay_workbench_service = replay_workbench_service or ReplayWorkbenchService(repository=repository)
         self._replay_ai_review_service = replay_ai_review_service
         self._replay_ai_chat_service = replay_ai_chat_service
+        self._replay_workbench_chat_service = (
+            ReplayWorkbenchChatService(repository=repository, replay_ai_chat_service=self._replay_ai_chat_service)
+            if self._replay_ai_chat_service is not None
+            else None
+        )
         self._analysis_pattern = re.compile(r"^/api/v1/analyses/(?P<analysis_id>[^/]+)$")
         self._ingestion_pattern = re.compile(r"^/api/v1/ingestions/(?P<ingestion_id>[^/]+)$")
+        self._logger = LOGGER
 
     def dispatch(self, method: str, path: str, body: bytes | None = None) -> HttpResponse:
         route = urlsplit(path)
@@ -128,7 +129,6 @@ class MarketStructureApplication:
 
             if method == "GET" and route_path in {"/workbench/replay", "/static/replay_workbench.html"}:
                 html = (STATIC_DIR / "replay_workbench.html").read_text(encoding="utf-8")
-                # Avoid browser caching during rapid UI iterations (timeframe switching, etc.).
                 return self._text_response(
                     200,
                     html,
@@ -140,7 +140,6 @@ class MarketStructureApplication:
                 )
 
             if method == "GET" and route_path.startswith("/static/"):
-                # Minimal static file handler (helps when operators bookmark /static/...)
                 rel = route_path.removeprefix("/static/")
                 candidate = (STATIC_DIR / rel).resolve()
                 if STATIC_DIR not in candidate.parents and candidate != STATIC_DIR:
@@ -301,10 +300,17 @@ class MarketStructureApplication:
                     instrument_symbol=instrument_symbol,
                     display_timeframe=timeframe,
                     chart_instance_id=chart_instance_id,
-                    # UI may request larger tails (e.g. 50 bars). Keep a reasonable cap to avoid accidental abuse.
                     lookback_bars=max(1, min(500, lookback_bars)),
                 )
                 return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/instruments":
+                try:
+                    ingestions = self._repository.list_ingestions(limit=1000)
+                    symbols = sorted(set(i.instrument_symbol for i in ingestions))
+                    return self._json_response(200, {"instruments": symbols})
+                except Exception as e:
+                    return self._json_response(500, {"error": str(e)})
 
             if method == "POST" and route_path == "/api/v1/workbench/operator-entries":
                 payload = ReplayOperatorEntryRequest.model_validate_json(body or b"{}")
@@ -353,151 +359,17 @@ class MarketStructureApplication:
                 )
                 return self._json_model_response(200, response)
 
-            if method == "POST" and route_path == "/api/v1/workbench/replay-ai-review":
-                if self._replay_ai_review_service is None:
-                    return self._json_response(
-                        503,
-                        {
-                            "error": "ai_review_unavailable",
-                            "detail": "Replay AI review service is not configured.",
-                        },
-                    )
-                payload = ReplayAiReviewRequest.model_validate_json(body or b"{}")
-                response = self._replay_ai_review_service.review_replay(payload)
-                return self._json_model_response(200, response)
+            chat_response = handle_chat_routes(self, method, route_path, query, body)
+            if chat_response is not None:
+                return chat_response
 
-            if method == "POST" and route_path == "/api/v1/workbench/replay-ai-chat":
-                if self._replay_ai_chat_service is None:
-                    return self._json_response(
-                        503,
-                        {
-                            "error": "ai_chat_unavailable",
-                            "detail": "Replay AI chat service is not configured.",
-                        },
-                    )
-                payload = ReplayAiChatRequest.model_validate_json(body or b"{}")
-                response = self._replay_ai_chat_service.chat(payload)
-                return self._json_model_response(200, response)
+            options_response = handle_options_routes(self, method, route_path, query, body)
+            if options_response is not None:
+                return options_response
 
-            # --- Analysis Pipeline endpoints (new) ---
-
-            if method == "POST" and route_path == "/api/v1/analysis/lightweight-monitor":
-                req = json.loads(body or b"{}")
-                snapshot = self._resolve_snapshot_for_analysis(req)
-                entries = self._resolve_entries_for_analysis(req, snapshot)
-                engine = StrategySelectionEngine()
-                svc = LightweightMonitorService(strategy_engine=engine)
-                result = svc.run(snapshot, entries, previous_focus_region_count=req.get("previous_focus_region_count", 0))
-                return self._json_response(200, result.to_dict())
-
-            if method == "POST" and route_path == "/api/v1/analysis/full-market":
-                req = json.loads(body or b"{}")
-                snapshot = self._resolve_snapshot_for_analysis(req)
-                entries = self._resolve_entries_for_analysis(req, snapshot)
-                engine = StrategySelectionEngine()
-                svc = FullMarketAnalysisService(strategy_engine=engine)
-                result = svc.analyze(snapshot, entries)
-                return self._json_response(200, result.to_dict())
-
-            if method == "POST" and route_path == "/api/v1/analysis/deep-region":
-                req = json.loads(body or b"{}")
-                snapshot = self._resolve_snapshot_for_analysis(req)
-                entries = self._resolve_entries_for_analysis(req, snapshot)
-                region_data = req.get("region")
-                if region_data is None:
-                    return self._json_response(400, {"error": "missing_field", "detail": "region is required."})
-                from atas_market_structure.models import ReplayManualRegionAnnotationRecord
-                region = ReplayManualRegionAnnotationRecord(**region_data)
-                engine = StrategySelectionEngine()
-                svc = DeepRegionAnalysisService(strategy_engine=engine)
-                source_type = req.get("source_type", "manual_marked")
-                result = svc.analyze_region(snapshot, region, entries, source_type=source_type)
-                return self._json_response(200, result.to_dict())
-
-            if method == "POST" and route_path == "/api/v1/analysis/store-review":
-                req = json.loads(body or b"{}")
-                snapshot = self._resolve_snapshot_for_analysis(req)
-                entries = self._resolve_entries_for_analysis(req, snapshot)
-                region_data = req.get("region")
-                if region_data is None:
-                    return self._json_response(400, {"error": "missing_field", "detail": "region is required."})
-                from atas_market_structure.models import ReplayManualRegionAnnotationRecord
-                region = ReplayManualRegionAnnotationRecord(**region_data)
-                engine = StrategySelectionEngine()
-                deep_svc = DeepRegionAnalysisService(strategy_engine=engine)
-                deep_result = deep_svc.analyze_region(snapshot, region, entries, source_type=req.get("source_type", "manual_marked"))
-                review_svc = FocusRegionReviewService(repository=self._repository)
-                record = review_svc.store_review(
-                    deep_result,
-                    replay_ingestion_id=req.get("replay_ingestion_id", ""),
-                    market_context=req.get("market_context"),
-                    reviewer_notes=req.get("reviewer_notes", ""),
-                )
-                return self._json_response(201, record.to_dict())
-
-            if method == "POST" and route_path == "/api/v1/analysis/confirm-review":
-                req = json.loads(body or b"{}")
-                review_id = req.get("review_id")
-                if not review_id:
-                    return self._json_response(400, {"error": "missing_field", "detail": "review_id is required."})
-                review_svc = FocusRegionReviewService(repository=self._repository)
-                record = review_svc.confirm_review(review_id, reviewer_notes=req.get("reviewer_notes", ""))
-                if record is None:
-                    return self._json_response(404, {"error": "not_found", "detail": f"review '{review_id}' not found"})
-                return self._json_response(200, record.to_dict())
-
-            if method == "POST" and route_path == "/api/v1/analysis/reject-review":
-                req = json.loads(body or b"{}")
-                review_id = req.get("review_id")
-                if not review_id:
-                    return self._json_response(400, {"error": "missing_field", "detail": "review_id is required."})
-                review_svc = FocusRegionReviewService(repository=self._repository)
-                record = review_svc.reject_review(review_id, reviewer_notes=req.get("reviewer_notes", ""))
-                if record is None:
-                    return self._json_response(404, {"error": "not_found", "detail": f"review '{review_id}' not found"})
-                return self._json_response(200, record.to_dict())
-
-            if method == "GET" and route_path == "/api/v1/analysis/reviews":
-                instrument_symbol = query.get("instrument_symbol", [None])[0]
-                status_filter = query.get("status", [None])[0]
-                review_svc = FocusRegionReviewService(repository=self._repository)
-                records = review_svc.list_reviews(instrument_symbol=instrument_symbol, status_filter=status_filter)
-                return self._json_response(200, {"reviews": [r.to_dict() for r in records]})
-
-            if method == "GET" and route_path == "/api/v1/analysis/review-feedback":
-                instrument_symbol = query.get("instrument_symbol", [None])[0]
-                if not instrument_symbol:
-                    return self._json_response(400, {"error": "missing_query_parameter", "detail": "instrument_symbol is required."})
-                review_svc = FocusRegionReviewService(repository=self._repository)
-                feedback = review_svc.get_feedback_for_briefing(instrument_symbol)
-                return self._json_response(200, {"feedback": feedback})
-
-            if method == "POST" and route_path == "/api/v1/analysis/screenshot-input":
-                req = json.loads(body or b"{}")
-                from uuid import uuid4 as _uuid4
-                inp = ScreenshotAnalysisInput(
-                    input_id=req.get("input_id", f"si-{_uuid4().hex[:8]}"),
-                    source_type=req.get("source_type", "atas_screenshot"),
-                    instrument_symbol=req.get("instrument_symbol"),
-                    timeframe=req.get("timeframe"),
-                    session=req.get("session"),
-                    time_range_start=datetime.fromisoformat(req["time_range_start"]) if req.get("time_range_start") else None,
-                    time_range_end=datetime.fromisoformat(req["time_range_end"]) if req.get("time_range_end") else None,
-                    price_range_low=req.get("price_range_low"),
-                    price_range_high=req.get("price_range_high"),
-                    image_url=req.get("image_url"),
-                    observed_visual_cues=req.get("observed_visual_cues", []),
-                    chart_id=req.get("chart_id"),
-                    snapshot_id=req.get("snapshot_id"),
-                    pane_type=req.get("pane_type"),
-                    selected_at=datetime.fromisoformat(req["selected_at"]) if req.get("selected_at") else datetime.now(tz=UTC),
-                    selected_by=req.get("selected_by", "operator"),
-                    linked_replay_ingestion_id=req.get("linked_replay_ingestion_id"),
-                    notes=req.get("notes", ""),
-                )
-                review_svc = FocusRegionReviewService(repository=self._repository)
-                ingestion_id = review_svc.store_screenshot_input(inp)
-                return self._json_response(201, {"ingestion_id": ingestion_id, "input_id": inp.input_id})
+            analysis_response = handle_analysis_routes(self, method, route_path, query, body)
+            if analysis_response is not None:
+                return analysis_response
 
             if method == "GET" and route_path == "/api/v1/liquidity-memory":
                 instrument_symbol = query.get("symbol", [None])[0]
@@ -533,46 +405,41 @@ class MarketStructureApplication:
             return self._json_response(422, {"error": "validation_error", "detail": json.loads(exc.json())})
         except (NotFoundError, ReplayWorkbenchNotFoundError, ReplayAiReviewNotFoundError) as exc:
             return self._json_response(404, {"error": "not_found", "detail": str(exc)})
+        except ReplayWorkbenchChatError as exc:
+            return self._json_response(400, {"error": "chat_error", "detail": str(exc)})
         except ReplayAiReviewUnavailableError as exc:
             return self._json_response(503, {"error": "ai_review_unavailable", "detail": str(exc)})
         except json.JSONDecodeError:
             return self._json_response(400, {"error": "invalid_json", "detail": "Request body is not valid JSON."})
-        except Exception as exc:  # pragma: no cover - last-resort path
+        except Exception as exc:  # pragma: no cover
             LOGGER.exception("Unhandled application error: %s", exc)
             return self._json_response(500, {"error": "internal_error", "detail": "Unexpected server error."})
-
-    def _resolve_snapshot_for_analysis(self, req: dict[str, Any]) -> ReplayWorkbenchSnapshotPayload:
-        """Resolve a snapshot for analysis endpoints. Accepts either inline snapshot or cache_key."""
-        if "snapshot" in req:
-            return ReplayWorkbenchSnapshotPayload.model_validate(req["snapshot"])
-        cache_key = req.get("cache_key")
-        if cache_key:
-            cache_record = self._replay_workbench_service.get_cache_record(cache_key)
-            return ReplayWorkbenchSnapshotPayload.model_validate_json(
-                json.dumps(cache_record.snapshot_payload).encode()
-            )
-        raise NotFoundError("Either 'snapshot' or 'cache_key' must be provided.")
-
-    def _resolve_entries_for_analysis(
-        self, req: dict[str, Any], snapshot: ReplayWorkbenchSnapshotPayload,
-    ) -> list:
-        """Resolve operator entries for analysis. Uses inline entries or fetches from repository."""
-        if "entries" in req:
-            from atas_market_structure.models import ReplayOperatorEntryRecord
-            return [ReplayOperatorEntryRecord(**e) for e in req["entries"]]
-        replay_ingestion_id = req.get("replay_ingestion_id")
-        if replay_ingestion_id:
-            envelope = self._replay_workbench_service.list_operator_entries(replay_ingestion_id)
-            return envelope.entries
-        return []
 
     @staticmethod
     def _json_model_response(
         status_code: int,
-        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail,
+        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse,
     ) -> HttpResponse:
         payload = model.model_dump(mode="json")
         return MarketStructureApplication._json_response(status_code, payload)
+
+    @staticmethod
+    def _sse_response(events: list[dict[str, Any]]) -> HttpResponse:
+        chunks: list[bytes] = []
+        for item in events:
+            event_name = item.get("event", "message")
+            data = json.dumps(item.get("data", {}), ensure_ascii=True, separators=(",", ":"), default=_default_json_serializer)
+            chunks.append(f"event: {event_name}\ndata: {data}\n\n".encode("utf-8"))
+        return HttpResponse(
+            status_code=200,
+            headers={
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "Cache-Control": "no-store",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+            stream_chunks=tuple(chunks),
+        )
 
     @staticmethod
     def _json_response(status_code: int, payload: dict[str, Any]) -> HttpResponse:
@@ -610,7 +477,6 @@ def _default_json_serializer(value: Any) -> str:
 
 
 def _normalize_query_datetime(value: str) -> str:
-    """Recover timezone offsets where '+' was decoded into a space by query parsing."""
     if "T" in value and "+" not in value and value.count(" ") == 1:
         date_part, offset_part = value.split(" ", maxsplit=1)
         if ":" in offset_part:

@@ -34,6 +34,18 @@ export function createSidepaneRenderer({ state, els, escapeHtml, renderList, tra
       );
     }
 
+    if (result.atas_backfill_request) {
+      summaryParts.push(
+        `<div class="info-card"><h4>自动补数请求</h4><p class="mono">${escapeHtml(JSON.stringify(result.atas_backfill_request, null, 2))}</p></div>`,
+      );
+    }
+
+    if (result.integrity) {
+      summaryParts.push(
+        `<div class="info-card"><h4>完整性</h4><p class="mono">status=${escapeHtml(String(result.integrity.status))} gaps=${escapeHtml(String(result.integrity.gap_count || 0))} missing=${escapeHtml(String(result.integrity.missing_bar_count || 0))}</p></div>`,
+      );
+    }
+
     els.buildSummary.className = "meta-grid";
     els.buildSummary.innerHTML = summaryParts.join("");
   }

@@ -1,3 +1,5 @@
+const STORAGE_PREFIX = "replay-workbench/v2";
+
 export function timeframeLabel(value) {
   return {
     "1m": "1分",
@@ -5,6 +7,7 @@ export function timeframeLabel(value) {
     "15m": "15分",
     "30m": "30分",
     "1h": "1小时",
+    "4h": "4小时",
     "1d": "日线",
   }[value] || value;
 }
@@ -20,10 +23,19 @@ export function translateAction(action) {
 
 export function translateVerificationStatus(status) {
   return {
+    draft: "草稿",
     unverified: "未核对",
     verified: "已核对",
     durable: "已固化",
     invalidated: "已作废",
+    active: "活动中",
+    triggered: "已触发",
+    tp_hit: "止盈命中",
+    sl_hit: "止损命中",
+    expired: "已过期",
+    hidden: "已隐藏",
+    archived: "已归档",
+    completed: "已完成",
   }[status] || status;
 }
 
@@ -35,19 +47,13 @@ export function translateAcquisitionMode(mode) {
   }[mode] || mode;
 }
 
-export function createThreadId() {
-  return `thread-${Math.random().toString(16).slice(2, 10)}`;
-}
-
-export function getPresetThreadMeta(preset) {
-  return {
-    recent_20_bars: { id: "recent-20-bars", title: "最近20根K线" },
-    recent_20_minutes: { id: "recent-20-minutes", title: "最近20分钟" },
-    focus_regions: { id: "focus-regions", title: "重点区域" },
-    trapped_large_orders: { id: "trapped-large-orders", title: "被套大单" },
-    live_depth: { id: "live-depth", title: "实时挂单" },
-    general: { id: "main", title: "主线程" },
-  }[preset] || { id: createThreadId(), title: "新线程" };
+export function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 export function renderList(items) {
@@ -57,11 +63,92 @@ export function renderList(items) {
   return `<ul>${items.map((item) => `<li>${escapeHtml(String(item))}</li>`).join("")}</ul>`;
 }
 
-export function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
+export function createThreadId(prefix = "session") {
+  return `${prefix}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+export function createMessageId() {
+  return `msg-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+export function createPlanId() {
+  return `plan-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+export function getPresetThreadMeta(preset) {
+  return {
+    recent_20_bars: { id: "recent-20-bars", title: "最近20根K线" },
+    recent_20_minutes: { id: "recent-20-minutes", title: "最近20分钟" },
+    focus_regions: { id: "focus-regions", title: "重点区域" },
+    trapped_large_orders: { id: "trapped-large-orders", title: "挂单结构" },
+    live_depth: { id: "live-depth", title: "实时挂单" },
+    general: { id: "session-01", title: "01" },
+  }[preset] || { id: createThreadId(), title: "新会话" };
+}
+
+export function safeJsonParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+}
+
+export function readStorage(key, fallback = null) {
+  try {
+    const raw = window.localStorage.getItem(`${STORAGE_PREFIX}:${key}`);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+export function writeStorage(key, value) {
+  try {
+    window.localStorage.setItem(`${STORAGE_PREFIX}:${key}`, JSON.stringify(value));
+  } catch (error) {
+    // ignore persistence errors
+  }
+}
+
+export function removeStorage(key) {
+  try {
+    window.localStorage.removeItem(`${STORAGE_PREFIX}:${key}`);
+  } catch (error) {
+    // ignore persistence errors
+  }
+}
+
+export function pickModelOptions() {
+  return [
+    { value: "", label: "服务端默认" },
+    { value: "gpt-4.1", label: "GPT-4.1" },
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "claude-sonnet", label: "Claude Sonnet" },
+    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  ];
+}
+
+export function formatPrice(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num.toFixed(2) : "待定";
+}
+
+export function summarizeText(text, maxLength = 180) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}…`;
+}
+
+export function normalizeParagraphs(text) {
+  return String(text || "")
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function deriveSessionOrdinal(index) {
+  return String(index + 1).padStart(2, "0");
 }

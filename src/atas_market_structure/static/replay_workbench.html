@@ -4,147 +4,143 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>盘前复盘工作台</title>
-  <link rel="stylesheet" href="./replay_workbench.css">
+  <script src="/static/chat_window.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+  <link rel="stylesheet" href="/static/chat_window.css">
+  <link rel="stylesheet" href="/static/replay_workbench.css">
 </head>
 <body>
-  <div class="shell" id="shellLayout">
-    <section class="panel" id="leftPanel">
-      <div class="panel-header">
-        <div class="header-bar">
-          <div>
-            <h1>回放构建器</h1>
-            <p>优先复用本地缓存，其次用 ATAS 已加载历史重建。只有历史覆盖不足时，才回到实时连续流。</p>
-          </div>
-          <div class="header-actions">
-            <button id="toggleLeftPanelButton" class="panel-toggle" type="button" title="折叠左侧面板">◀</button>
-          </div>
+  <div class="replay-workbench" id="shellLayout">
+    <header class="workbench-header-bar">
+      <div class="header-group header-group-main">
+        <div class="field compact searchable-field">
+          <label for="instrumentSymbol">品种</label>
+          <input id="instrumentSymbol" type="text" list="symbolOptions" value="NQ">
+          <datalist id="symbolOptions">
+            <option value="NQ">NQ · 纳指</option>
+            <option value="ES">ES · 标普</option>
+            <option value="CL">CL · 原油</option>
+            <option value="YM">YM · 道指</option>
+            <option value="RTY">RTY · 罗素</option>
+          </datalist>
         </div>
-      </div>
-      <div class="panel-body">
-        <div class="field-grid">
-          <div class="field span-2">
-            <label for="cacheKey">缓存键</label>
-            <input id="cacheKey" type="text" value="">
-          </div>
-          <div class="field">
-            <label for="instrumentSymbol">品种</label>
-            <input id="instrumentSymbol" type="text" value="NQ">
-          </div>
-          <div class="field">
-            <label for="displayTimeframe">显示周期</label>
-            <select id="displayTimeframe">
-              <option value="1m">1分</option>
-              <option value="5m" selected>5分</option>
-              <option value="15m">15分</option>
-              <option value="30m">30分</option>
-              <option value="1h">1小时</option>
-              <option value="1d">日线</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="windowStart">开始时间</label>
-            <input id="windowStart" type="datetime-local" value="">
-          </div>
-          <div class="field">
-            <label for="windowEnd">结束时间</label>
-            <input id="windowEnd" type="datetime-local" value="">
-          </div>
-          <div class="field span-2">
-            <label for="chartInstanceId">图表实例 ID（可选）</label>
-            <input id="chartInstanceId" type="text" value="" placeholder="默认按同品种合并历史，不区分图表">
-          </div>
-          <div class="field">
-            <label for="minContinuousMessages">最少本地消息数</label>
-            <input id="minContinuousMessages" type="number" min="1" step="1" value="10">
-          </div>
-          <div class="field">
-            <label>构建模式</label>
-            <div class="toggle-row">
-              <input id="forceRebuild" type="checkbox" checked>
-              <span>优先用最新历史强制重建，不直接复用旧快照</span>
-            </div>
-          </div>
-          <div class="field span-2">
-            <label for="invalidateReason">失效原因</label>
-            <textarea id="invalidateReason">操作员要求重新刷新回放</textarea>
-          </div>
-          <div class="field">
-            <label for="aiModelOverride">AI 模型覆盖</label>
-            <input id="aiModelOverride" type="text" placeholder="默认使用服务端模型">
-          </div>
-          <div class="field">
-            <label>AI 刷新</label>
-            <div class="toggle-row">
-              <input id="forceAiRefresh" type="checkbox">
-              <span>忽略已存分析并重新生成</span>
-            </div>
-          </div>
-          <div class="field">
-            <label for="entryExecutedAt">开仓时间</label>
-            <input id="entryExecutedAt" type="datetime-local">
-          </div>
-          <div class="field">
-            <label for="entrySide">开仓方向</label>
-            <select id="entrySide">
-              <option value="buy">做多</option>
-              <option value="sell">做空</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="entryPrice">开仓价格</label>
-            <input id="entryPrice" type="number" step="0.01" placeholder="开仓价">
-          </div>
-          <div class="field">
-            <label for="entryStopPrice">止损价格</label>
-            <input id="entryStopPrice" type="number" step="0.01" placeholder="可选止损">
-          </div>
-          <div class="field">
-            <label for="entryQuantity">数量</label>
-            <input id="entryQuantity" type="number" step="0.01" value="1">
-          </div>
-          <div class="field">
-            <label for="entryTimeframe">开仓周期</label>
-            <select id="entryTimeframe">
-              <option value="">未设置</option>
+        <div class="field compact timeframe-tabs-field">
+          <label>周期</label>
+          <div class="timeframe-tabs" id="timeframeTabs">
+            <button type="button" class="timeframe-tab active" data-timeframe="1m">1m</button>
+            <button type="button" class="timeframe-tab" data-timeframe="5m">5m</button>
+            <button type="button" class="timeframe-tab" data-timeframe="15m">15m</button>
+            <button type="button" class="timeframe-tab" data-timeframe="30m">30m</button>
+            <select id="displayTimeframe" class="timeframe-more-select">
               <option value="1m">1m</option>
               <option value="5m">5m</option>
               <option value="15m">15m</option>
               <option value="30m">30m</option>
               <option value="1h">1h</option>
+              <option value="4h">4h</option>
+              <option value="1d">1d</option>
             </select>
           </div>
-          <div class="field span-2">
-            <label for="entryThesis">开仓逻辑</label>
-            <textarea id="entryThesis">微趋势延续 / 剥头皮逻辑</textarea>
-          </div>
         </div>
-
-        <div class="button-row">
-          <button id="buildButton" type="button">立即刷新</button>
-          <button id="preset7d1mButton" class="secondary" type="button">7天 5分</button>
-          <button id="preset3d5mButton" class="secondary" type="button">7天 1分</button>
-          <button id="preset1d1mButton" class="secondary" type="button">15天 5分</button>
-          <button id="aiReviewButton" type="button">AI 分析</button>
-          <button id="recordEntryButton" class="secondary" type="button">记录开仓</button>
-          <button id="lookupButton" class="secondary" type="button">查询缓存</button>
-          <button id="invalidateButton" class="warn" type="button">作废缓存</button>
+        <div class="field compact range-field">
+          <label for="quickRangeSelect">时间</label>
+          <select id="quickRangeSelect">
+            <option value="1d">最近1天</option>
+            <option value="3d">最近3天</option>
+            <option value="7d" selected>最近7天</option>
+            <option value="15d">最近15天</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="field compact">
+          <label for="windowStart">开始</label>
+          <input id="windowStart" type="datetime-local">
+        </div>
+        <div class="field compact">
+          <label for="windowEnd">结束</label>
+          <input id="windowEnd" type="datetime-local">
         </div>
       </div>
-    </section>
+      <div class="header-group header-group-actions">
+        <div class="button-row tight header-actions-row">
+          <button id="buildButton" type="button">加载图表</button>
+          <button id="refreshAllButton" type="button" class="secondary">刷新当前数据</button>
+          <button id="headerMoreButton" type="button" class="secondary">更多▼</button>
+          <button id="restoreLayoutButton" type="button" class="secondary">恢复上次布局</button>
+        </div>
+        <div id="headerMoreMenu" class="header-more-menu card-surface" hidden>
+          <button id="lookupCacheButton" type="button" class="secondary tiny">查看缓存</button>
+          <button id="invalidateCacheButton" type="button" class="secondary tiny">重置缓存</button>
+          <button id="exportSettingsButton" type="button" class="secondary tiny">导出当前设置</button>
+        </div>
+        <div class="status-cluster">
+          <div class="status-chip" id="statusSymbolChip">NQ</div>
+          <div class="status-chip" id="statusTimeframeChip">1m</div>
+          <div class="status-chip" id="statusWindowChip">最近7天</div>
+          <div class="status-chip emphasis" id="statusDataChip">数据状态：历史</div>
+          <div class="status-chip" id="statusSyncChip">最近同步：--</div>
+        </div>
+      </div>
+      <input id="cacheKey" type="hidden" value="">
+      <input id="chartInstanceId" type="hidden" value="">
+      <input id="minContinuousMessages" type="hidden" value="10">
+      <input id="forceRebuild" type="checkbox" checked hidden>
+      <input id="forceAiRefresh" type="checkbox" hidden>
+      <input id="aiModelOverride" type="hidden" value="">
+      <textarea id="invalidateReason" hidden>操作员要求重新刷新回放</textarea>
+    </header>
 
-    <div class="resize-handle" id="leftResizeHandle" title="拖动调整左侧面板宽度"></div>
+    <!-- AI 侧边栏触发器 -->
+    <div class="ai-sidebar-trigger" id="aiSidebarTrigger" title="打开 AI 助手">
+      <div class="ai-trigger-avatar">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.1"/>
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+        </svg>
+      </div>
+    </div>
 
-    <main class="workspace">
-      <div class="workspace-header">
-        <div class="header-bar">
+    <main class="workbench-main" id="workbenchMain">
+      <section class="chart-workspace panel-surface" id="chartWorkspace">
+        <div class="workspace-section-header">
           <div>
-            <h2>复盘图表</h2>
-            <p>中心图表优先接近 ATAS 的看盘方式：时间轴、价格轴、成交量、EMA、大单气泡、足迹细节和手工区域同屏。</p>
+            <h2>图表工作区</h2>
+            <p>图表是主战场，AI 标记、重点区域与交易计划统一在此协作。</p>
           </div>
-          <div class="header-actions">ATAS 风格工作台</div>
+          <div class="panel-actions">
+            <button id="annotationManagerButton" class="secondary" type="button">标记管理</button>
+          </div>
         </div>
-      </div>
-      <div class="workspace-body">
+
+        <div class="drawer-tabs-top">
+          <button id="drawerContextButton" class="drawer-tab" type="button">上下文</button>
+          <button id="drawerManualButton" class="drawer-tab" type="button">手工区域</button>
+          <button id="drawerFocusButton" class="drawer-tab" type="button">焦点区域</button>
+          <button id="drawerStrategyButton" class="drawer-tab" type="button">策略匹配</button>
+          <button id="drawerEntriesButton" class="drawer-tab" type="button">开仓记录</button>
+          <button id="drawerRecapButton" class="drawer-tab" type="button">复盘简报</button>
+          <button id="drawerGammaButton" class="drawer-tab" type="button">Gamma</button>
+        </div>
+
+        <div class="chart-toolbar primary-toolbar">
+          <button id="zoomInButton" class="secondary" type="button">放大</button>
+          <button id="zoomOutButton" class="secondary" type="button">缩小</button>
+          <button id="zoomPriceInButton" class="secondary" type="button">价格放大</button>
+          <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
+          <button id="resetViewButton" class="secondary" type="button">重置视图</button>
+          <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
+          <button id="sendViewportButton" class="secondary" type="button">发送当前可视区域到聊天</button>
+          <span class="meta" id="chartViewportMeta">视图未初始化</span>
+        </div>
+
+        <div class="layer-strip" id="chartLayerStrip">
+          <label><input id="layerEvents" type="checkbox" checked>事件</label>
+          <label><input id="layerFocusRegions" type="checkbox" checked>重点区域</label>
+          <label><input id="layerManualRegions" type="checkbox" checked>手工区域</label>
+          <label><input id="layerOperatorEntries" type="checkbox" checked>开仓记录</label>
+          <label><input id="layerAiAnnotations" type="checkbox" checked>AI标记</label>
+        </div>
+
         <div class="status-strip" id="statusStrip"></div>
         <div class="build-progress" id="buildProgress">
           <div class="build-progress-head">
@@ -155,137 +151,477 @@
             <div class="build-progress-fill" id="buildProgressFill"></div>
           </div>
         </div>
-        <div class="chart-toolbar">
-          <button id="zoomInButton" class="secondary" type="button">放大</button>
-          <button id="zoomOutButton" class="secondary" type="button">缩小</button>
-          <button id="zoomPriceInButton" class="secondary" type="button">价格放大</button>
-          <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
-          <button id="resetViewButton" class="secondary" type="button">重置视图</button>
-          <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
-          <span class="legend-chip"><span class="legend-symbol circle"></span>短时聚合大单</span>
-          <span class="legend-chip"><span class="legend-symbol diamond"></span>独立大单 / 极端 Delta</span>
-          <span class="meta" id="chartViewportMeta">视图未初始化</span>
-        </div>
+
         <div class="chart-frame" id="chartFrame">
-          <div class="placeholder" id="chartPlaceholder">先点击“构建 / 复用回放”。<br>如果本地已有 ATAS 历史，就直接重建完整图表；如果不足，页面会明确提示当前缺口。</div>
-          <svg id="chartSvg" viewBox="0 0 1200 560" preserveAspectRatio="none" style="display:none"></svg>
+          <div class="chart-info-badge" id="chartInfoBadge">
+            <span class="chart-info-symbol" id="chartInfoSymbol">-</span>
+            <span class="chart-info-timeframe" id="chartInfoTimeframe">-</span>
+            <span class="chart-info-time" id="chartInfoTime">UTC</span>
+          </div>
+          <div class="placeholder" id="chartPlaceholder">先点击“加载图表”，然后在右侧工作区与 AI 协作。</div>
+          <div id="chartContainer" class="chart-container" style="display:none"></div>
+          <div id="volumeChartContainer" class="volume-chart-container" style="display:none"></div>
+          <svg id="chartSvg" viewBox="0 0 1200 760" preserveAspectRatio="none" style="display:none"></svg>
         </div>
-      </div>
+      </section>
+
+      <div class="resize-handle vertical" id="rightResizeHandle" title="拖动调整右侧聊天宽度"></div>
+
+      <!-- AI 侧边栏（可折叠） -->
+      <aside class="ai-sidebar" id="aiSidebar">
+        <!-- 侧边栏头部 -->
+        <div class="ai-sidebar-header">
+          <div class="ai-sidebar-header-left">
+            <div class="ai-sidebar-avatar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.1"/>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+              </svg>
+            </div>
+            <div class="ai-sidebar-title">
+              <strong>AI 交易助手</strong>
+              <span class="ai-sidebar-subtitle">智能分析与交易计划</span>
+            </div>
+          </div>
+          <div class="ai-sidebar-header-actions">
+            <button id="aiSidebarPinButton" class="ai-header-icon" type="button" title="固定面板">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M16 12V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v8c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2z" fill="currentColor"/>
+              </svg>
+            </button>
+            <button id="aiSidebarCloseButton" class="ai-header-icon" type="button" title="关闭">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 合约导航栏（左侧垂直） -->
+        <div class="ai-contract-nav" id="aiContractNav">
+          <!-- 合约卡片将通过 JS 动态生成 -->
+        </div>
+
+        <!-- 主内容区 -->
+        <div class="ai-sidebar-content" id="aiSidebarContent">
+          <div class="chat-workspace panel-surface" id="rightPanel">
+            <div class="workspace-section-header compact">
+              <div class="panel-actions">
+                <button id="toggleAnnotationPanelButton" class="secondary tiny" type="button">标记管理</button>
+              </div>
+            </div>
+
+        <div class="chat-session-strip" id="aiThreadTabs"></div>
+
+        <div class="analysis-template-panel card-surface">
+          <div class="field compact">
+            <label for="analysisTypeSelect">分析类型</label>
+            <select id="analysisTypeSelect">
+              <option value="recent_20_bars">最近20根K线</option>
+              <option value="recent_20_minutes">最近20分钟</option>
+              <option value="focus_regions">重点价格区域</option>
+              <option value="live_depth">实时挂单结构</option>
+              <option value="selected_bar">选中K线足迹</option>
+              <option value="manual_region">手工区域复盘</option>
+              <option value="entry_review">开仓评价</option>
+              <option value="event_timeline">事件时间线总结</option>
+            </select>
+          </div>
+          <div class="field compact">
+            <label for="analysisRangeSelect">分析范围</label>
+            <select id="analysisRangeSelect">
+              <option value="current_window">当前窗口</option>
+              <option value="1h">最近1小时</option>
+              <option value="3h">最近3小时</option>
+              <option value="selected_region">当前选中区域</option>
+              <option value="selected_bar">当前选中K线</option>
+              <option value="latest_entry">最近一次开仓</option>
+            </select>
+          </div>
+          <div class="field compact">
+            <label for="analysisStyleSelect">输出风格</label>
+            <select id="analysisStyleSelect">
+              <option value="brief">简短结论</option>
+              <option value="standard" selected>标准分析</option>
+              <option value="longform">长文复盘</option>
+              <option value="trade_only">只给交易建议</option>
+              <option value="risk_only">只给风险提示</option>
+            </select>
+          </div>
+          <div class="button-row tight">
+            <button id="analysisSendCurrentButton" type="button">发送到当前会话</button>
+            <button id="analysisSendNewButton" type="button" class="secondary">新会话发送</button>
+          </div>
+        </div>
+
+        <div class="chat-toolbar secondary-toolbar card-surface">
+          <button id="recent20BarsButton" class="secondary" type="button">最近20K</button>
+          <button id="recent20MinutesButton" class="secondary" type="button">最近20分钟</button>
+          <button id="focusRegionsButton" class="secondary" type="button">重点区域</button>
+          <button id="liveDepthButton" class="secondary" type="button">实时挂单</button>
+          <button id="manualRegionButton" class="secondary" type="button">插入手工区域</button>
+          <button id="selectedBarButton" class="secondary" type="button">插入选中K线</button>
+          <button id="chartScreenshotButton" class="secondary" type="button">图表截图</button>
+          <button id="externalScreenshotButton" class="secondary" type="button">外部截图</button>
+          <button id="addAttachmentButton" class="secondary" type="button">附件</button>
+          <button id="aiModelSwitcherButton" class="secondary" type="button">AI切换</button>
+          <input id="attachmentInput" type="file" accept="image/*,.pdf,.txt,.md" multiple hidden>
+        </div>
+
+        <div class="chat-current-session card-surface">
+          <div class="chat-current-session-head">
+            <strong id="currentSessionTitle">当前会话：01</strong>
+            <span class="mono" id="currentSessionModelLabel">模型：服务端默认</span>
+          </div>
+          <div class="button-row tight session-manage-row">
+            <button id="sessionRenameButton" type="button" class="secondary tiny">重命名</button>
+            <button id="sessionPinButton" type="button" class="secondary tiny">固定/取消固定</button>
+            <button id="sessionDeleteButton" type="button" class="secondary tiny">删除会话</button>
+            <button id="sessionMoreButton" type="button" class="secondary tiny">更多▼</button>
+          </div>
+          <div id="sessionMoreMenu" class="session-more-menu" hidden></div>
+          <div class="chat-memory-summary" id="sessionMemorySummary">当前会话还没有摘要。</div>
+        </div>
+
+        <div class="chat-pinned-plan card-surface" id="pinnedPlanCard" hidden>
+          <div class="strip-head">
+            <span class="strip-title">当前主计划</span>
+            <button id="clearPinnedPlanButton" type="button" class="secondary tiny">取消固定</button>
+          </div>
+          <div id="pinnedPlanCardBody" class="chat-plan-card-summary">暂无固定计划</div>
+          <div class="button-row tight" id="pinnedPlanCardActions"></div>
+        </div>
+
+        <div class="session-context-strip card-surface" id="sessionContextStrip">
+          <div class="strip-head">
+            <span class="strip-title">会话主信息</span>
+          </div>
+          <div class="meta">当前会话还没有形成主信息摘要。</div>
+        </div>
+
+        <div class="mounted-reply-strip card-surface" id="mountedReplyStrip" hidden>
+          <div class="strip-head">
+            <span class="strip-title">已挂载回复 / 计划</span>
+          </div>
+          <div class="strip-chip-row"></div>
+        </div>
+
+        <div class="prompt-selection-bar card-surface" id="promptSelectionBar" hidden>
+          <div class="strip-head">
+            <span class="strip-title">当前 Prompt 上下文</span>
+          </div>
+          <div class="strip-chip-row"></div>
+        </div>
+
+        <div class="chat-thread-shell">
+          <div id="aiChatThread" class="chat-thread embedded-chat-thread"></div>
+          <button id="aiChatScrollToBottomButton" class="secondary tiny chat-scroll-to-bottom" type="button" hidden>回到底部</button>
+        </div>
+        <div id="aiChatResizeHandle" class="chat-resize-handle" title="拖动调整聊天窗口高度"></div>
+
+        <div class="attachment-preview card-surface" id="attachmentPreviewBar" hidden>
+          <div class="attachment-preview-head">
+            <strong>附件预览</strong>
+            <button id="clearAttachmentsButton" type="button" class="secondary">清空</button>
+          </div>
+          <div id="attachmentPreviewList" class="attachment-preview-list"></div>
+        </div>
+
+            <!-- 快速技能选择面板 -->
+            <div class="ai-skill-panel card-surface" id="aiSkillPanel" hidden>
+              <div class="ai-skill-search">
+                <input type="text" id="aiSkillSearch" placeholder="搜索技能..." autocomplete="off">
+              </div>
+              <div class="ai-skill-grid" id="aiSkillGrid">
+                <!-- 技能卡片将通过 JS 动态生成 -->
+              </div>
+            </div>
+
+            <!-- 快速操作按钮 -->
+            <div class="ai-quick-actions">
+              <button id="aiVoiceButton" class="ai-quick-action-pill" type="button" title="语音输入">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/>
+                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="currentColor"/>
+                </svg>
+                <span>语音</span>
+              </button>
+              <button id="aiKlineAnalysisButton" class="ai-quick-action-pill" type="button" title="K线分析">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" fill="currentColor"/>
+                </svg>
+                <span>K线分析</span>
+              </button>
+              <button id="aiMoreButton" class="ai-quick-action-pill" type="button" title="更多">
+                <span>更多</span>
+              </button>
+            </div>
+
+            <div class="chat-composer card-surface">
+              <div class="chat-composer-input-wrapper">
+                <textarea id="aiChatInput" placeholder="发消息、输入 @ 或 / 选择技能"></textarea>
+                <div class="chat-composer-tools">
+                  <button id="aiAttachmentButton" class="ai-composer-icon" type="button" title="附件">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.31 2.69 6 6 6s6-2.69 6-6V6h-2.5z" fill="currentColor"/>
+                    </svg>
+                  </button>
+                  <button id="aiScreenshotButton" class="ai-composer-icon" type="button" title="截图">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M17.5 4.5c-1.95 0-4.05.4-5.5 1.5l-5 5c-1.9 1.9-1.9 5.1 0 7s5.1 1.9 7 0l3.5-3.5c.78-.78.78-2.05 0-2.83-.78-.78-2.05-.78-2.83 0L12 13.5c-.39.39-1.02.39-1.41 0-.39-.39-.39-1.02 0-1.41l3.5-3.5c1.17-1.17 3.07-1.17 4.24 0 1.17 1.17 1.17 3.07 0 4.24l-3.5 3.5c-1.56 1.56-4.09 1.56-5.65 0-1.56-1.56-1.56-4.09 0-5.65l5-5c1.45-1.45 3.55-1.5 5-1.5 2.76 0 5 2.24 5 5s-2.24 5-5 5c-1.1 0-2-.9-2-2s.9-2 2-2c.55 0 1 .45 1 1s-.45 1-1 1c-.83 0-1.5-.67-1.5-1.5S16.67 4.5 17.5 4.5z" fill="currentColor"/>
+                    </svg>
+                  </button>
+                  <button id="aiVoiceInputButton" class="ai-composer-icon" type="button" title="语音输入">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/>
+                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="currentColor"/>
+                    </svg>
+                  </button>
+                  <button id="aiChatStopButton" class="ai-composer-icon" type="button" title="停止生成" hidden>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+                    </svg>
+                  </button>
+                  <button id="aiChatSendButton" class="ai-composer-send" type="button" title="发送">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="chat-composer-actions">
+                <button id="aiNewThreadButton" class="secondary tiny" type="button">+ 新会话</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
     </main>
 
-    <div class="resize-handle" id="rightResizeHandle" title="拖动调整右侧面板宽度"></div>
-
-    <aside class="sidebar" id="rightPanel">
-      <div class="sidebar-header">
-        <div class="header-bar">
-          <div>
-            <h2>上下文与 AI</h2>
-            <p>右侧集中放焦点区域、足迹细节、策略匹配、手工区域、AI 对话和战术复盘。</p>
-          </div>
-          <div class="header-actions">
-            <button id="toggleRightPanelButton" class="panel-toggle" type="button" title="折叠右侧面板">▶</button>
-          </div>
+    <section class="annotation-filter-panel panel-surface is-hidden" id="annotationPanel">
+      <div class="workspace-section-header small">
+        <div>
+          <h3>标记管理器</h3>
+          <p>按会话 / 消息 / 对象类型筛选 AI 标记，避免图表过乱。</p>
+        </div>
+        <div class="panel-actions">
+          <button id="closeAnnotationPanelButton" class="secondary" type="button">关闭</button>
         </div>
       </div>
-      <div class="sidebar-body">
-        <div class="section">
-          <h3>构建摘要</h3>
-          <div id="buildSummary" class="empty-note">还没有 build 结果。</div>
+      <div class="annotation-filter-toolbar">
+        <label><input id="filterOnlyCurrentSession" type="checkbox" checked>只看当前会话</label>
+        <label><input id="filterHideCompleted" type="checkbox" checked>隐藏已完成</label>
+        <label><input id="filterShowPaths" type="checkbox">显示路径箭头</label>
+        <label><input id="filterShowInvalidated" type="checkbox">显示失效对象</label>
+        <button id="annotationShowSelectedOnlyButton" class="secondary" type="button">仅显示当前选中</button>
+        <button id="annotationHideAllButton" class="secondary" type="button">全部隐藏</button>
+        <button id="annotationShowPinnedButton" class="secondary" type="button">显示固定对象</button>
+        <button id="annotationFilterResetButton" class="secondary" type="button">重置</button>
+      </div>
+      <div class="annotation-filter-grid">
+        <div class="filter-column">
+          <h4>按会话</h4>
+          <div id="annotationSessionFilters" class="filter-list"></div>
         </div>
-        <div class="section">
-          <h3>选中 K 线</h3>
-          <div id="selectedCandle" class="empty-note">点击图上的 K 线，查看该 bar 的 OHLC、bid/ask、delta 和 footprint 细节。</div>
+        <div class="filter-column">
+          <h4>按消息</h4>
+          <div id="annotationMessageFilters" class="filter-list"></div>
         </div>
-        <div class="section">
-          <h3>足迹梯子</h3>
-          <div id="footprintLadder" class="empty-note">历史 footprint 细节会在选中 K 线后加载。</div>
+        <div class="filter-column">
+          <h4>按对象类型</h4>
+          <div id="annotationTypeFilters" class="filter-list"></div>
         </div>
-        <div class="section">
-          <h3>手工区域</h3>
-          <div class="field-grid">
-            <div class="field span-2">
-              <label for="regionLabel">区域标题</label>
-              <input id="regionLabel" type="text" value="多头防守候选区">
+        <div class="filter-column filter-column-wide">
+          <h4>对象列表</h4>
+          <div id="annotationObjectList" class="filter-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="annotation-popover modal-surface is-hidden" id="annotationPopover">
+      <div class="modal-card annotation-popover-card">
+        <div class="workspace-section-header small">
+          <div>
+            <h3 id="annotationPopoverTitle">AI 标记</h3>
+            <p id="annotationPopoverMeta">来源会话 / 消息</p>
+          </div>
+          <div class="panel-actions">
+            <button id="closeAnnotationPopoverButton" class="secondary" type="button">关闭</button>
+          </div>
+        </div>
+        <div id="annotationPopoverBody" class="summary-preview"></div>
+        <div class="button-row tight">
+          <button id="annotationPopoverSourceButton" type="button">查看原消息</button>
+          <button id="annotationPopoverOnlyButton" type="button" class="secondary">只显示此计划</button>
+          <button id="annotationPopoverHideButton" type="button" class="secondary">隐藏</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="cache-viewer-modal modal-surface is-hidden" id="cacheViewerModal">
+      <div class="modal-card">
+        <div class="workspace-section-header small">
+          <div>
+            <h3>缓存信息</h3>
+            <p>查看当前缓存状态和详细信息。</p>
+          </div>
+          <div class="panel-actions">
+            <button id="closeCacheViewerButton" class="secondary" type="button">关闭</button>
+          </div>
+        </div>
+        <div class="cache-info-content">
+          <div class="field">
+            <label>缓存键</label>
+            <div class="mono cache-value" id="cacheViewerKey">-</div>
+          </div>
+          <div class="field">
+            <label>数据摄取 ID</label>
+            <div class="mono cache-value" id="cacheViewerIngestionId">-</div>
+          </div>
+          <div class="field">
+            <label>快照状态</label>
+            <div class="cache-value" id="cacheViewerSnapshotStatus">未加载</div>
+          </div>
+          <div class="field" id="cacheViewerDetails" style="display:none">
+            <label>详细信息</label>
+            <pre class="cache-details-json" id="cacheViewerDetailsJson"></pre>
+          </div>
+        </div>
+        <div class="button-row tight">
+          <button id="refreshCacheViewerButton" type="button" class="secondary">刷新信息</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="ai-model-switcher modal-surface is-hidden" id="aiModelSwitcherModal">
+      <div class="modal-card">
+        <div class="workspace-section-header small">
+          <div>
+            <h3>AI 切换</h3>
+            <p>切换模型时保留会话主信息、活动计划与关键标记。</p>
+          </div>
+          <div class="panel-actions">
+            <button id="closeModelSwitcherButton" class="secondary" type="button">关闭</button>
+          </div>
+        </div>
+        <div class="field-grid two-cols">
+          <div class="field">
+            <label for="activeModelSelect">目标模型</label>
+            <select id="activeModelSelect"></select>
+          </div>
+          <div class="field">
+            <label for="handoffModeSelect">交接模式</label>
+            <select id="handoffModeSelect">
+              <option value="summary_only">保留会话主信息</option>
+              <option value="summary_plus_recent_3">最近3轮原文 + 主信息摘要</option>
+              <option value="question_only">仅保留当前问题</option>
+            </select>
+          </div>
+        </div>
+        <div class="button-row tight">
+          <button id="confirmModelSwitchButton" type="button">确认切换</button>
+          <button id="showHandoffSummaryButton" type="button" class="secondary">查看交接摘要</button>
+        </div>
+        <pre id="handoffSummaryPreview" class="summary-preview"></pre>
+      </div>
+    </section>
+
+    <footer class="bottom-context-drawer panel-surface">
+      <div class="drawer-panels">
+        <div id="drawerContextPanel" class="drawer-panel"></div>
+        <div id="drawerManualPanel" class="drawer-panel">
+          <div class="drawer-form-grid">
+            <div class="field compact">
+              <label for="regionLabel">区域名称</label>
+              <input id="regionLabel" type="text" placeholder="手工区域">
             </div>
-            <div class="field span-2">
-              <label for="regionThesis">区域观点</label>
-              <textarea id="regionThesis">这里可能是多头买入区域，若回到此区出现承接和反应，可以考虑反转开仓。</textarea>
-            </div>
-            <div class="field">
+            <div class="field compact">
               <label for="regionSideBias">方向偏向</label>
               <select id="regionSideBias">
-                <option value="">中性</option>
+                <option value="">无</option>
                 <option value="buy">偏多</option>
                 <option value="sell">偏空</option>
               </select>
             </div>
-            <div class="field">
-              <label for="regionTags">区域标签</label>
-              <input id="regionTags" type="text" value="support, trapped_inventory, review">
+            <div class="field compact drawer-form-full">
+              <label for="regionThesis">区域 thesis</label>
+              <input id="regionThesis" type="text" placeholder="例如：回踩承接 / 结构防守区">
             </div>
-            <div class="field span-2">
-              <label for="regionNotes">区域备注</label>
-              <textarea id="regionNotes">若价格回到此区，需要观察主动单、补单、delta 与拒绝反应，不要预判直接开。</textarea>
+            <div class="field compact drawer-form-full">
+              <label for="regionTags">标签</label>
+              <input id="regionTags" type="text" placeholder="support, rotation, watch">
+            </div>
+            <div class="field compact drawer-form-full">
+              <label for="regionNotes">备注</label>
+              <textarea id="regionNotes" rows="3" placeholder="每行一条备注"></textarea>
             </div>
           </div>
-          <div class="button-row">
-            <button id="saveRegionButton" class="secondary" type="button">保存当前框选区域</button>
+          <div class="button-row tight">
+            <button id="saveRegionButton" type="button">保存区域</button>
           </div>
-          <div id="manualRegions" class="card-list"></div>
+          <div id="manualRegionList"></div>
         </div>
-        <div class="section">
-          <h3>重点区域</h3>
-          <div id="focusRegions" class="card-list"></div>
-        </div>
-        <div class="section compact">
-          <h3>策略候选</h3>
-          <div id="strategyCandidates" class="card-list"></div>
-        </div>
-        <div class="section">
-          <h3>开仓记录</h3>
-          <div id="operatorEntries" class="card-list"></div>
-        </div>
-        <div class="section">
-          <h3>AI 复盘</h3>
-          <div id="aiReview" class="empty-note">当前还没有 AI 复盘。先构建回放，再点击“AI 分析”。</div>
-        </div>
-        <div class="section">
-          <h3>AI 对话</h3>
-          <div class="preset-grid">
-            <button id="refreshAllButton" class="secondary" type="button">马上更新所有数据</button>
-            <button id="recent20BarsButton" class="secondary" type="button">分析最近20根K线</button>
-            <button id="recent20MinutesButton" class="secondary" type="button">分析最近20分钟K线</button>
-            <button id="focusRegionsButton" class="secondary" type="button">分析重点价格区域</button>
-            <button id="trappedOrdersButton" class="secondary" type="button">分析大单是否被套</button>
-            <button id="liveDepthButton" class="secondary" type="button">分析实时挂单数据</button>
-            <button id="manualRegionButton" class="secondary" type="button">分析已标注区域</button>
-            <button id="selectedBarButton" class="secondary" type="button">分析选中K线足迹</button>
+        <div id="drawerFocusPanel" class="drawer-panel"></div>
+        <div id="drawerStrategyPanel" class="drawer-panel"></div>
+        <div id="drawerEntriesPanel" class="drawer-panel">
+          <div class="drawer-form-grid">
+            <div class="field compact">
+              <label for="entryExecutedAt">开仓时间</label>
+              <input id="entryExecutedAt" type="datetime-local">
+            </div>
+            <div class="field compact">
+              <label for="entrySide">方向</label>
+              <select id="entrySide">
+                <option value="buy">做多</option>
+                <option value="sell">做空</option>
+              </select>
+            </div>
+            <div class="field compact">
+              <label for="entryPrice">入场价</label>
+              <input id="entryPrice" type="number" step="0.01">
+            </div>
+            <div class="field compact">
+              <label for="entryStopPrice">止损价</label>
+              <input id="entryStopPrice" type="number" step="0.01">
+            </div>
+            <div class="field compact">
+              <label for="entryQuantity">数量</label>
+              <input id="entryQuantity" type="number" step="1">
+            </div>
+            <div class="field compact">
+              <label for="entryTimeframe">周期上下文</label>
+              <input id="entryTimeframe" type="text" placeholder="1m / 5m">
+            </div>
+            <div class="field compact drawer-form-full">
+              <label for="entryThesis">开仓理由</label>
+              <textarea id="entryThesis" rows="3" placeholder="记录这笔交易的 thesis"></textarea>
+            </div>
           </div>
-          <div class="thread-bar">
-            <div class="thread-tabs" id="aiThreadTabs"></div>
-            <button id="aiNewThreadButton" class="thread-add-button" type="button">新线程</button>
+          <div class="button-row tight">
+            <button id="recordEntryButton" type="button">保存开仓记录</button>
           </div>
-          <div id="aiChatThread" class="chat-thread">
-            <div class="empty-note">当前还没有 AI 对话。先构建回放，然后点击预设按钮或直接提问。</div>
-          </div>
-          <div id="aiChatResizeHandle" class="chat-resize-handle" title="拖动调整聊天窗口高度"></div>
-          <div class="chat-input-row">
-            <textarea id="aiChatInput" placeholder="输入你要复盘的问题，例如：这笔开仓为什么不该开？"></textarea>
-            <button id="aiChatSendButton" type="button">发送</button>
-          </div>
+          <div id="operatorEntryList"></div>
         </div>
-        <div class="section">
-          <h3>AI 简报</h3>
-          <div id="aiBriefing" class="empty-note">当前 replay 还没有 AI briefing。</div>
-        </div>
-        <div class="section">
-          <h3>事件时间线</h3>
-          <div id="eventTimeline" class="card-list"></div>
+        <div id="drawerRecapPanel" class="drawer-panel"></div>
+        <div id="drawerGammaPanel" class="drawer-panel">
+          <div class="drawer-form-grid">
+            <div class="field compact drawer-form-full">
+              <label for="gammaCsvPath">CSV 路径</label>
+              <input id="gammaCsvPath" type="text" placeholder="留空后可自动发现最新 CSV">
+            </div>
+          </div>
+          <div class="button-row tight">
+            <button id="gammaAutoDiscoverButton" type="button" class="secondary">自动发现最新 CSV</button>
+            <button id="gammaLoadButton" type="button">加载 / 刷新 Gamma</button>
+            <button id="gammaSendCurrentButton" type="button" class="secondary">发送到当前会话</button>
+            <button id="gammaSendNewButton" type="button" class="secondary">发送到新会话</button>
+          </div>
+          <div id="gammaSummaryContainer"></div>
+          <div id="gammaMapContainer"></div>
+          <div id="gammaAiContainer"></div>
         </div>
       </div>
-    </aside>
-    <button id="restoreLeftPanelButton" class="panel-restore left" type="button" title="展开左侧面板">▶</button>
-    <button id="restoreRightPanelButton" class="panel-restore right" type="button" title="展开右侧面板">◀</button>
+    </footer>
   </div>
 
   <script type="module">
@@ -295,15 +631,21 @@
       derivePriceEnvelope,
       computeEmaSeries,
       collectFootprintBubbles,
-    } from "./replay_workbench_chart_utils.js";
-    import { escapeHtml } from "./replay_workbench_ui_utils.js";
-    import { toUtcString } from "./replay_workbench_data_utils.js";
-    import { appendChartOverlayMarkup } from "./replay_workbench_chart_overlays.js";
-    import { appendChartSeriesMarkup } from "./replay_workbench_chart_series.js";
-    import { appendChartBubbleMarkup } from "./replay_workbench_chart_bubbles.js";
-    import { appendChartAxesMarkup } from "./replay_workbench_chart_axes.js";
-    import { createChartViewportContext } from "./replay_workbench_chart_viewport.js";
-    import { bootReplayWorkbench } from "./replay_workbench_bootstrap.js";
+    } from "/static/replay_workbench_chart_utils.js";
+    import { escapeHtml } from "/static/replay_workbench_ui_utils.js";
+    import { appendChartOverlayMarkup } from "/static/replay_workbench_chart_overlays.js";
+    import { appendChartSeriesMarkup } from "/static/replay_workbench_chart_series.js";
+    import { appendChartBubbleMarkup } from "/static/replay_workbench_chart_bubbles.js";
+    import { appendChartAxesMarkup } from "/static/replay_workbench_chart_axes.js";
+    import { createChartViewportContext } from "/static/replay_workbench_chart_viewport.js";
+    import { bootReplayWorkbench } from "/static/replay_workbench_bootstrap.js";
+    import {
+      initLightweightCharts,
+      updateChartData,
+      getChartInstance,
+      subscribeCrosshairMove,
+      subscribeClick,
+    } from "/static/init_lightweight_chart.js";
 
     const app = {};
 
@@ -314,11 +656,11 @@
         cache_key: els.cacheKey.value.trim(),
         instrument_symbol: els.instrumentSymbol.value.trim(),
         display_timeframe: els.displayTimeframe.value,
-        window_start: toUtcString(els.windowStart.value),
-        window_end: toUtcString(els.windowEnd.value),
-        chart_instance_id: els.chartInstanceId.value.trim() || null,
-        force_rebuild: els.forceRebuild.checked,
-        min_continuous_messages: Number(els.minContinuousMessages.value || 10),
+        window_start: els.windowStart.value ? new Date(els.windowStart.value).toISOString() : null,
+        window_end: els.windowEnd.value ? new Date(els.windowEnd.value).toISOString() : null,
+        chart_instance_id: null,
+        force_rebuild: true,
+        min_continuous_messages: 10,
       };
     }
 
@@ -327,26 +669,195 @@
       const snapshot = state?.snapshot;
       if (!snapshot || !snapshot.candles || !snapshot.candles.length) {
         els.chartPlaceholder.style.display = "flex";
-        els.chartSvg.style.display = "none";
         els.chartViewportMeta.textContent = "视图未初始化";
         state.chartMetrics = null;
+        
+        // 更新图表信息标签
+        const symbol = els.instrumentSymbol?.value?.trim() || "-";
+        const timeframe = els.displayTimeframe?.value || "-";
+        if (els.chartInfoSymbol) els.chartInfoSymbol.textContent = symbol;
+        if (els.chartInfoTimeframe) els.chartInfoTimeframe.textContent = timeframe + "图";
+        if (els.chartInfoTime) {
+          const now = new Date();
+          els.chartInfoTime.textContent = "UTC " + now.toISOString().slice(0, 19).replace("T", " ");
+        }
+        
+        // 即使没有数据，也显示空板（空白图表框架）
+        const useLightweightCharts = typeof LightweightCharts !== "undefined" 
+          && els.chartContainer 
+          && els.volumeChartContainer;
+        
+        if (useLightweightCharts) {
+          els.chartContainer.style.display = "block";
+          els.volumeChartContainer.style.display = "block";
+          els.chartSvg.style.display = "none";
+          
+          // 初始化空图表
+          if (!window._lwChartsReady) {
+            const initEmptyChart = () => {
+              const chartWidth = els.chartContainer.clientWidth || els.chartContainer.offsetWidth || 1200;
+              const chartHeight = els.chartContainer.clientHeight || els.chartContainer.offsetHeight || 600;
+              
+              if (chartWidth <= 0 || chartHeight <= 0) {
+                setTimeout(initEmptyChart, 50);
+                return;
+              }
+              
+              try {
+                const chartEls = initLightweightCharts(els);
+                if (chartEls) {
+                  window._lwChartState = chartEls;
+                  window._lwChartsReady = true;
+                }
+              } catch (error) {
+                console.error("初始化空图表错误:", error);
+              }
+            };
+            initEmptyChart();
+          }
+        } else {
+          els.chartContainer.style.display = "none";
+          els.volumeChartContainer.style.display = "none";
+          els.chartSvg.style.display = "block";
+          // 显示空的 SVG 框架
+          const svg = els.chartSvg;
+          const width = svg.clientWidth || 1200;
+          const height = svg.clientHeight || 760;
+          svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+          svg.innerHTML = `<rect width="${width}" height="${height}" fill="#101827"/>`;
+        }
         return;
       }
 
       const candles = snapshot.candles;
-      const events = snapshot.event_annotations || [];
-      const focusRegions = snapshot.focus_regions || [];
-      const manualRegions = state.manualRegions || [];
-      const operatorEntries = state.operatorEntries || [];
       const view = ensureChartView(snapshot);
-      const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
-      if (!visibleCandles.length) {
-        return;
-      }
-
       els.chartPlaceholder.style.display = "none";
-      els.chartSvg.style.display = "block";
       els.chartFrame.classList.toggle("region-mode", state.chartInteraction.regionMode);
+
+      const useLightweightCharts = typeof LightweightCharts !== "undefined" 
+        && els.chartContainer 
+        && els.volumeChartContainer
+        && els.chartContainer.offsetParent !== null;
+      
+      if (useLightweightCharts) {
+        els.chartContainer.style.display = "block";
+        els.volumeChartContainer.style.display = "block";
+        els.chartSvg.style.display = "none";
+
+        if (!window._lwChartsReady) {
+          const initCharts = () => {
+            requestAnimationFrame(() => {
+              const chartWidth = els.chartContainer.clientWidth || els.chartContainer.offsetWidth || els.chartFrame.clientWidth - 32;
+              const chartHeight = els.chartContainer.clientHeight || els.chartContainer.offsetHeight || (els.chartFrame.clientHeight - 120);
+              const volumeHeight = els.volumeChartContainer.clientHeight || els.volumeChartContainer.offsetHeight || 120;
+              
+              if (chartWidth <= 0 || chartHeight <= 0) {
+                setTimeout(initCharts, 50);
+                return;
+              }
+              
+              try {
+                const chartEls = initLightweightCharts(els);
+                if (!chartEls) {
+                  console.warn("LightweightCharts 初始化失败，回退到 SVG 渲染");
+                  window._lwChartsReady = false;
+                  els.chartContainer.style.display = "none";
+                  els.volumeChartContainer.style.display = "none";
+                  els.chartSvg.style.display = "block";
+                  renderSvgChart();
+                  return;
+                }
+                window._lwChartState = chartEls;
+                window._lwChartsReady = true;
+
+                subscribeCrosshairMove((param) => {
+                  if (param.point && state.chartMetrics) {
+                    state.chartMetrics.currentX = param.point.x;
+                    state.chartMetrics.currentY = param.point.y;
+                  }
+                });
+
+                subscribeClick((param) => {
+                  if (param.time) {
+                    const timestamp = param.time * 1000;
+                    const bar = candles.find((c) => {
+                      const barTime = typeof c.started_at === "string" ? new Date(c.started_at).getTime() : c.started_at;
+                      return Math.abs(barTime - timestamp) < 60000;
+                    });
+                    if (bar) {
+                      const idx = candles.indexOf(bar);
+                      if (state.selectedCandleIndex !== idx) {
+                        state.selectedCandleIndex = idx;
+                        if (app.renderSnapshot) {
+                          app.renderSnapshot();
+                        }
+                      }
+                    }
+                  }
+                }, els);
+              } catch (error) {
+                console.error("LightweightCharts 初始化错误:", error);
+                window._lwChartsReady = false;
+                els.chartContainer.style.display = "none";
+                els.volumeChartContainer.style.display = "none";
+                els.chartSvg.style.display = "block";
+                renderSvgChart();
+                return;
+              }
+            });
+          };
+          
+          initCharts();
+        }
+
+        if (window._lwChartState && window._lwChartState.chartInstance) {
+          try {
+            updateChartData(snapshot, view, els);
+            const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
+            const firstCandle = visibleCandles.length ? visibleCandles[0] : null;
+            const lastCandle = visibleCandles.length ? visibleCandles[visibleCandles.length - 1] : null;
+            if (firstCandle && lastCandle) {
+              els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(firstCandle.started_at)} -> ${formatAxisTime(lastCandle.ended_at)}`;
+            }
+            // 更新图表信息标签
+            const symbol = els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-";
+            const timeframe = els.displayTimeframe?.value || snapshot?.display_timeframe || "-";
+            if (els.chartInfoSymbol) els.chartInfoSymbol.textContent = symbol;
+            if (els.chartInfoTimeframe) els.chartInfoTimeframe.textContent = timeframe + "图";
+            if (els.chartInfoTime) {
+              const lastTime = lastCandle ? new Date(lastCandle.started_at) : new Date();
+              els.chartInfoTime.textContent = "UTC " + lastTime.toISOString().slice(0, 19).replace("T", " ");
+            }
+          } catch (error) {
+            console.error("更新图表数据错误:", error);
+            els.chartContainer.style.display = "none";
+            els.volumeChartContainer.style.display = "none";
+            els.chartSvg.style.display = "block";
+            renderSvgChart();
+            return;
+          }
+        }
+      } else {
+        els.chartContainer.style.display = "none";
+        els.volumeChartContainer.style.display = "none";
+        els.chartSvg.style.display = "block";
+        renderSvgChart();
+      }
+    }
+
+    function renderSvgChart() {
+      const { state, els, ensureChartView } = app;
+      const snapshot = state?.snapshot;
+      if (!snapshot || !snapshot.candles?.length || !state.chartView) return;
+
+      const candles = snapshot.candles;
+      const view = state.chartView;
+      const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
+      if (!visibleCandles.length) return;
+
+      els.chartSvg.style.display = "block";
+      els.chartContainer.style.display = "none";
+      els.volumeChartContainer.style.display = "none";
 
       const svg = els.chartSvg;
       const width = svg.clientWidth || 1200;
@@ -377,27 +888,24 @@
         clampNumber,
       });
 
+      const events = els.layerEvents?.checked ? (snapshot.event_annotations || []) : [];
+      const focusRegions = els.layerFocusRegions?.checked ? (snapshot.focus_regions || []) : [];
+      const manualRegions = els.layerManualRegions?.checked ? (state.manualRegions || []) : [];
+      const operatorEntries = els.layerOperatorEntries?.checked ? (state.operatorEntries || []) : [];
+      const aiAnnotations = els.layerAiAnnotations?.checked ? (state.aiAnnotations || []) : [];
+
       const visibleBubbleMarks = collectFootprintBubbles(snapshot, visibleStartTime, visibleEndTime);
       const envelope = derivePriceEnvelope(visibleCandles, events, focusRegions, manualRegions, operatorEntries, visibleBubbleMarks);
       const yMin = state.chartView?.yMin ?? envelope.min;
       const yMax = state.chartView?.yMax ?? envelope.max;
       const emaSeries = computeEmaSeries(candles, 20);
-
-      const {
-        priceToY,
-        xToTime,
-        clampChartX,
-        clampChartY,
-      } = createPriceMappers({ yMin, yMax });
-      const sourceBars = snapshot.raw_features?.history_bar_count || candles.length;
-      els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / 历史源 ${sourceBars} 根 / ${formatAxisTime(visibleCandles[0].started_at)} -> ${formatAxisTime(visibleCandles[visibleCandles.length - 1].ended_at)} / 滚轮缩放时间轴 / Shift+滚轮缩放价格轴 / 拖拽平移`;
-      svg.style.cursor = state.chartInteraction.regionMode
-        ? "crosshair"
-        : (state.chartInteraction.panStartX != null ? "grabbing" : "grab");
+      const { priceToY, xToTime, clampChartX, clampChartY } = createPriceMappers({ yMin, yMax });
+      els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(visibleCandles[0].started_at)} -> ${formatAxisTime(visibleCandles[visibleCandles.length - 1].ended_at)}`;
 
       const markupParts = [];
       const volumeMax = Math.max(1, ...visibleCandles.map((bar) => Number(bar.volume || 0)));
       const axisTickCount = Math.max(4, Math.min(8, Math.floor(chartWidth / 160)));
+
       appendChartAxesMarkup({
         markupParts,
         width,
@@ -436,15 +944,13 @@
         state,
       });
 
-      const priceViewportScale = clampNumber((envelope.max - envelope.min) / Math.max(0.0001, yMax - yMin), 0.75, 2.2);
-      const viewportScale = clampNumber(140 / Math.max(visibleCandles.length, 24), 0.55, 2.4);
       appendChartBubbleMarkup({
         markupParts,
         visibleBubbleMarks,
         timeToX,
         clampNumber,
-        viewportScale,
-        priceViewportScale,
+        viewportScale: 1,
+        priceViewportScale: 1,
         priceToY,
         escapeHtml,
       });
@@ -454,6 +960,7 @@
         focusRegions,
         manualRegions,
         operatorEntries,
+        aiAnnotations,
         draft: state.chartInteraction.draftRegion,
         snapshot,
         events,
@@ -471,13 +978,62 @@
         escapeHtml,
         clampChartX,
         clampChartY,
+        state,
       });
       svg.innerHTML = markupParts.join("");
-
-      svg.onmousemove = null;
-      svg.onmouseleave = null;
       svg.dataset.rangeStart = xToTime(leftPad);
       svg.dataset.rangeEnd = xToTime(leftPad + chartWidth);
+    }
+
+    function renderOverlayLayers() {
+      const { state, els } = app;
+      const snapshot = state?.snapshot;
+      if (!snapshot || !state.chartView) return;
+
+      const chart = getChartInstance();
+      if (!chart) return;
+
+      const candles = snapshot.candles;
+      const events = els.layerEvents?.checked ? (snapshot.event_annotations || []) : [];
+      const focusRegions = els.layerFocusRegions?.checked ? (snapshot.focus_regions || []) : [];
+      const manualRegions = els.layerManualRegions?.checked ? (state.manualRegions || []) : [];
+      const operatorEntries = els.layerOperatorEntries?.checked ? (state.operatorEntries || []) : [];
+      const aiAnnotations = els.layerAiAnnotations?.checked ? (state.aiAnnotations || []) : [];
+
+      const view = state.chartView;
+      const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
+      const visibleStartTime = new Date(visibleCandles[0]?.started_at).getTime() || 0;
+      const visibleEndTime = new Date(visibleCandles[visibleCandles.length - 1]?.ended_at).getTime() || 0;
+      const chartWidth = els.chartContainer.clientWidth - 18 - 78;
+      const timeToX = (timestamp) => {
+        if (visibleEndTime === visibleStartTime) return 0;
+        return 18 + ((timestamp - visibleStartTime) / (visibleEndTime - visibleStartTime)) * chartWidth;
+      };
+
+      const priceRange = state.chartView?.yMax - state.chartView?.yMin;
+      const chartHeight = els.chartContainer.clientHeight - 20 - 42;
+      const priceToY = (price) => {
+        if (priceRange === 0) return chartHeight / 2;
+        return 20 + ((state.chartView.yMax - price) / priceRange) * chartHeight;
+      };
+
+      focusRegions.forEach((region) => {
+        const regionEnd = region.ended_at || snapshot.window_end;
+        if (region.started_at > visibleEndTime || regionEnd < visibleStartTime) return;
+      });
+
+      manualRegions.forEach((region) => {
+        const regionEnd = region.ended_at || snapshot.window_end;
+        if (region.started_at > visibleEndTime || regionEnd < visibleStartTime) return;
+      });
+
+      events.forEach((event) => {
+        if (event.observed_at < visibleStartTime || event.observed_at > visibleEndTime) return;
+      });
+
+      operatorEntries.forEach((entry) => {
+        if (entry.executed_at < visibleStartTime || entry.executed_at > visibleEndTime) return;
+      });
     }
 
     Object.assign(app, bootReplayWorkbench({

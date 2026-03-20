@@ -1,17 +1,120 @@
+import { deriveSessionOrdinal, pickModelOptions, readStorage } from "./replay_workbench_ui_utils.js";
+
+function createDefaultSession(index = 0) {
+  const ordinal = deriveSessionOrdinal(index);
+  const sessionId = `session-${ordinal}`;
+  return {
+    id: sessionId,
+    sessionId,
+    title: ordinal,
+    pinned: index < 3,
+    preset: "general",
+    symbol: "NQ",
+    contractId: "NQ",
+    timeframe: "1m",
+    windowRange: "最近7天",
+    unreadCount: 0,
+    selectedPromptBlockIds: [],
+    pinnedContextBlockIds: [],
+    promptBlocks: [],
+    mountedReplyIds: [],
+    activePlanId: null,
+    scrollOffset: 0,
+    messages: [],
+    turns: [],
+    draft: "",
+    draftText: "",
+    attachments: [],
+    draftAttachments: [],
+    analysisTemplate: {
+      type: "recent_20_bars",
+      range: "current_window",
+      style: "standard",
+      sendMode: "current",
+    },
+    activeModel: "",
+    handoffMode: "summary_only",
+    memory: {
+      session_id: sessionId,
+      summary_version: 1,
+      active_model: "",
+      symbol: "NQ",
+      timeframe: "1m",
+      window_range: "最近7天",
+      user_goal_summary: "",
+      market_context_summary: "",
+      key_zones_summary: [],
+      active_plans_summary: [],
+      invalidated_plans_summary: [],
+      important_messages: [],
+      current_user_intent: "",
+      latest_question: "",
+      latest_answer_summary: "",
+      selected_annotations: [],
+      last_updated_at: null,
+    },
+  };
+}
+
 export function createWorkbenchState() {
+  const persistedLayout = readStorage("layout", {});
+  const persistedWorkbench = readStorage("workbench", {});
+  const persistedSessions = readStorage("sessions", null);
+  const persistedFilters = readStorage("annotationFilters", null);
+  const sessions = (Array.isArray(persistedSessions) && persistedSessions.length
+    ? persistedSessions
+    : [createDefaultSession(0), createDefaultSession(1), createDefaultSession(2)])
+      .map((session, index) => ({
+        ...createDefaultSession(index),
+        ...session,
+        sessionId: session?.sessionId || session?.id || createDefaultSession(index).sessionId,
+        symbol: session?.symbol || session?.memory?.symbol || "NQ",
+        contractId: session?.contractId || session?.symbol || session?.memory?.symbol || "NQ",
+        timeframe: session?.timeframe || session?.memory?.timeframe || "1m",
+        windowRange: session?.windowRange || session?.memory?.window_range || "最近7天",
+        draftText: session?.draftText ?? session?.draft ?? "",
+        draftAttachments: Array.isArray(session?.draftAttachments) ? session.draftAttachments : (Array.isArray(session?.attachments) ? session.attachments : []),
+        selectedPromptBlockIds: Array.isArray(session?.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [],
+        pinnedContextBlockIds: Array.isArray(session?.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [],
+        promptBlocks: Array.isArray(session?.promptBlocks) ? session.promptBlocks : [],
+        mountedReplyIds: Array.isArray(session?.mountedReplyIds) ? session.mountedReplyIds : [],
+        unreadCount: Number.isFinite(session?.unreadCount) ? session.unreadCount : 0,
+        scrollOffset: Number.isFinite(session?.scrollOffset) ? session.scrollOffset : 0,
+        activePlanId: session?.activePlanId || null,
+        handoffMode: session?.handoffMode || "summary_only",
+      }));
+
   const state = {
     buildResponse: null,
     snapshot: null,
     operatorEntries: [],
     manualRegions: [],
     aiReview: null,
-    aiThreads: [],
-    activeAiThreadId: null,
+    aiThreads: sessions,
+    activeAiThreadId: persistedWorkbench.activeAiThreadId || sessions[0].id,
     currentReplayIngestionId: null,
     selectedCandleIndex: null,
     selectedFootprintBar: null,
+    selectedAnnotationId: null,
     chartView: null,
     chartMetrics: null,
+    buildInFlight: false,
+    followLatest: true,
+    integrity: null,
+    pendingBackfill: null,
+    lastLiveTailIntegrityHash: null,
+    autoBootstrapped: false,
+    pendingChartRerender: false,
+    symbolOptions: ["NQ", "ES", "CL", "YM", "RTY"],
+    timeframeOptions: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+    quickRanges: [
+      { value: "1d", label: "最近1天", days: 1 },
+      { value: "3d", label: "最近3天", days: 3 },
+      { value: "7d", label: "最近7天", days: 7 },
+      { value: "15d", label: "最近15天", days: 15 },
+      { value: "custom", label: "自定义", days: null },
+    ],
+    modelOptions: pickModelOptions(),
     chartInteraction: {
       regionMode: false,
       draftRegion: null,
@@ -20,23 +123,65 @@ export function createWorkbenchState() {
       panStartView: null,
       panStartPriceRange: null,
     },
+    layout: {
+      chartWidth: persistedLayout.chartWidth || 980,
+      chatWidth: persistedLayout.chatWidth || 430,
+      chatHeight: persistedLayout.chatHeight || 360,
+      dragKind: null,
+      dragStartX: null,
+      dragStartY: null,
+      dragStartChartWidth: null,
+      dragStartChatWidth: null,
+      dragStartChatHeight: null,
+    },
+    drawerState: {
+      context: persistedWorkbench.drawerState?.context ?? false,
+      manual: persistedWorkbench.drawerState?.manual ?? false,
+      focus: persistedWorkbench.drawerState?.focus ?? false,
+      strategy: persistedWorkbench.drawerState?.strategy ?? false,
+      entries: persistedWorkbench.drawerState?.entries ?? false,
+      recap: persistedWorkbench.drawerState?.recap ?? false,
+      gamma: persistedWorkbench.drawerState?.gamma ?? false,
+    },
+    annotationFilters: persistedFilters || {
+      onlyCurrentSession: true,
+      hideCompleted: true,
+      sessionIds: [],
+      messageIds: [],
+      annotationIds: [],
+      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone"],
+      showPaths: false,
+      showInvalidated: false,
+      selectedOnly: false,
+    },
+    annotationPanelOpen: false,
+    aiAnnotations: [],
+    pinnedPlanId: persistedWorkbench.pinnedPlanId || null,
+    annotationPopoverTargetId: null,
+    sessionComparisonEnabled: false,
+    topBar: {
+      symbol: persistedWorkbench.topBar?.symbol || "NQ",
+      timeframe: persistedWorkbench.topBar?.timeframe || "1m",
+      quickRange: persistedWorkbench.topBar?.quickRange || "7d",
+      lastSyncedAt: persistedWorkbench.topBar?.lastSyncedAt || null,
+    },
+    aiSidebarOpen: readStorage("aiSidebarState", {}).open ?? false,
+    aiSidebarPinned: readStorage("aiSidebarState", {}).pinned ?? false,
+    optionsGamma: {
+      loading: false,
+      error: null,
+      sourceCsvPath: "",
+      discoveredAt: null,
+      requestedSymbol: "SPX",
+      requestedTradeDate: null,
+      summary: null,
+      textReport: "",
+      artifacts: null,
+      aiInterpretation: "",
+      aiAnalysisError: null,
+      lastLoadedAt: null,
+    },
   };
-
-  state.layout = {
-    leftWidth: 320,
-    rightWidth: 340,
-    chatHeight: 420,
-    dragKind: null,
-    dragStartX: null,
-    dragStartY: null,
-    dragStartLeftWidth: null,
-    dragStartRightWidth: null,
-    dragStartChatHeight: null,
-  };
-
-  state.buildInFlight = false;
-  state.autoBootstrapped = false;
-  state.pendingChartRerender = false;
 
   return state;
 }

@@ -83,11 +83,11 @@ class AdapterPayloadBridge:
             schema_version=payload.schema_version,
             snapshot_id=f"bridge-ms-{payload.message_id}",
             observed_at=payload.observed_window_end,
-            source=payload.source,
-            instrument=payload.instrument,
-            decision_layers=self._continuous_decision_layers(payload, dominant_side),
-            process_context=self._continuous_process_context(payload, dominant_side),
-            observed_events=self._continuous_events(payload),
+            source=payload.source.model_dump(mode="json"),
+            instrument=payload.instrument.model_dump(mode="json"),
+            decision_layers=self._continuous_decision_layers(payload, dominant_side).model_dump(mode="json"),
+            process_context=self._continuous_process_context(payload, dominant_side).model_dump(mode="json"),
+            observed_events=[item.model_dump(mode="json") for item in self._continuous_events(payload)],
         )
 
     def build_event_snapshot(self, payload: AdapterTriggerBurstPayload) -> EventSnapshotPayload:
@@ -99,8 +99,8 @@ class AdapterPayloadBridge:
             event_snapshot_id=f"bridge-evt-{payload.message_id}",
             event_type=event_type,
             observed_at=payload.trigger.triggered_at,
-            source=payload.source,
-            instrument=payload.instrument,
+            source=payload.source.model_dump(mode="json"),
+            instrument=payload.instrument.model_dump(mode="json"),
             trigger_event=ObservedEventMarker(
                 event_type=event_type,
                 observed_at=payload.trigger.triggered_at,
@@ -110,9 +110,9 @@ class AdapterPayloadBridge:
                     "reason_codes": payload.trigger.reason_codes,
                     "message_id": payload.message_id,
                 },
-            ),
-            decision_layers=self._burst_decision_layers(payload, aggregate, dominant_side),
-            process_context=self._burst_process_context(payload, aggregate, dominant_side),
+            ).model_dump(mode="json"),
+            decision_layers=self._burst_decision_layers(payload, aggregate, dominant_side).model_dump(mode="json"),
+            process_context=self._burst_process_context(payload, aggregate, dominant_side).model_dump(mode="json"),
         )
 
     def _continuous_decision_layers(

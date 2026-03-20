@@ -37,8 +37,12 @@ export function createCacheKeyHelpers({ els }) {
   }
 
   function applyWindowPreset(timeframe, lookbackDays) {
+    // 限制最大加载天数为7天
+    const maxDays = 7;
+    const actualDays = Math.min(lookbackDays, maxDays);
+    
     const now = new Date();
-    const start = new Date(now.getTime() - (lookbackDays * 24 * 60 * 60 * 1000));
+    const start = new Date(now.getTime() - (actualDays * 24 * 60 * 60 * 1000));
     els.displayTimeframe.value = timeframe;
     els.windowStart.value = toLocalInputValue(start);
     els.windowEnd.value = toLocalInputValue(now);

@@ -38,6 +38,11 @@ class ApplicationRequestHandler(BaseHTTPRequestHandler):
         for header_name, header_value in response.headers.items():
             self.send_header(header_name, header_value)
         self.end_headers()
+        if response.stream_chunks is not None:
+            for chunk in response.stream_chunks:
+                self.wfile.write(chunk)
+                self.wfile.flush()
+            return
         self.wfile.write(response.body)
 
 
@@ -70,6 +75,7 @@ def build_application(config: AppConfig) -> MarketStructureApplication:
         repository=repository,
         replay_ai_review_service=replay_ai_review_service,
         replay_ai_chat_service=replay_ai_chat_service,
+        config=config,
     )
 
 

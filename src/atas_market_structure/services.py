@@ -918,5 +918,5 @@ class IngestionOrchestrator:
             analysis_id=analysis_id,
             route_key=knowledge_route.route_key,
             stored_at=stored_at,
-            analysis=analysis,
+            analysis=analysis.model_dump(mode="json"),
         )

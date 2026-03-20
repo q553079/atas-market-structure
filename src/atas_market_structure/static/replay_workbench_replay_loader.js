@@ -58,15 +58,19 @@ export function createReplayLoader({
     const ingestion = await fetchJson(`/api/v1/ingestions/${encodeURIComponent(ingestionId)}`);
     state.currentReplayIngestionId = ingestionId;
     state.snapshot = ingestion.observed_payload;
+    state.integrity = ingestion.observed_payload?.integrity || null;
+    state.pendingBackfill = state.buildResponse?.atas_backfill_request || null;
+    state.lastLiveTailIntegrityHash = state.integrity ? JSON.stringify(state.integrity) : null;
     state.operatorEntries = [];
     state.manualRegions = [];
     state.aiReview = null;
-    state.aiThreads = [];
-    state.activeAiThreadId = "main";
     state.selectedCandleIndex = null;
     state.selectedFootprintBar = null;
     state.chartView = null;
-    ensureThread("main", "主线程");
+    if (!state.aiThreads?.length) {
+      ensureThread("session-01", "01");
+      state.activeAiThreadId = "session-01";
+    }
     await loadOperatorEntries();
     await loadManualRegions();
     syncEntryDefaultsFromSnapshot();

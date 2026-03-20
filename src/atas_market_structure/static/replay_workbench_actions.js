@@ -58,6 +58,9 @@ export function createWorkbenchActions({
         body: JSON.stringify(payload),
       });
       state.buildResponse = result;
+      state.integrity = result.integrity || null;
+      state.pendingBackfill = result.atas_backfill_request || null;
+      state.lastLiveTailIntegrityHash = state.integrity ? JSON.stringify(state.integrity) : null;
       state.snapshot = null;
       state.aiReview = null;
       state.currentReplayIngestionId = result.ingestion_id || null;
@@ -109,7 +112,11 @@ export function createWorkbenchActions({
         } : null,
         cache_record: result.record,
         atas_fetch_request: result.record ? null : { cache_key: result.cache_key, instrument_symbol: els.instrumentSymbol.value.trim() },
+        atas_backfill_request: null,
+        integrity: result.record?.integrity || state.integrity || null,
       };
+      state.integrity = state.buildResponse.integrity;
+      state.pendingBackfill = state.buildResponse.atas_backfill_request;
       state.aiReview = null;
       state.currentReplayIngestionId = result.record?.ingestion_id || null;
       renderStatusStrip([

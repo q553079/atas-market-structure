@@ -12,6 +12,12 @@ export function createWorkbenchShell({
     window.requestAnimationFrame(() => {
       state.pendingChartRerender = false;
       if (state.snapshot?.candles?.length) {
+        if (window._lwChartState) {
+          const { resizeCharts } = window._lwChartState;
+          if (resizeCharts) {
+            resizeCharts(els);
+          }
+        }
         renderChart();
       }
     });

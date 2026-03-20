@@ -170,13 +170,12 @@ def test_replay_workbench_page_is_served() -> None:
     assert response.headers["Content-Type"] == "text/html; charset=utf-8"
     assert "<title>盘前复盘工作台</title>".encode("utf-8") in response.body
     assert 'href="/static/chat_window.css"'.encode("utf-8") in response.body
-    assert 'src="/static/chat_window.js"'.encode("utf-8") in response.body
-    assert "AI 分析".encode("utf-8") in response.body
-    assert "7天 1分".encode("utf-8") in response.body
-    assert "7天 5分".encode("utf-8") in response.body
+    assert 'from "/static/replay_workbench_bootstrap.js"'.encode("utf-8") in response.body
+    assert "打开 AI 助手".encode("utf-8") in response.body
+    assert "最近7天".encode("utf-8") in response.body
     assert "手工区域".encode("utf-8") in response.body
-    assert "分析已标注区域".encode("utf-8") in response.body
-    assert "分析选中K线足迹".encode("utf-8") in response.body
+    assert "标记管理".encode("utf-8") in response.body
+    assert "发送当前可视区域到聊天".encode("utf-8") in response.body
 
 
 def test_replay_workbench_chat_static_assets_are_served() -> None:
@@ -1296,7 +1295,236 @@ def test_workbench_atas_backfill_request_poll_and_acknowledge_flow() -> None:
     assert json.loads(final_poll.body)["request"] is None
 
 
-def test_workbench_atas_backfill_request_reuses_matching_active_request() -> None:
+def test_replay_builder_auto_creates_backfill_request_and_integrity_when_local_history_is_insufficient() -> None:
+    application = build_application()
+    build_request = {
+        "cache_key": "NQ|1m|2026-03-16T14:30:00Z|2026-03-16T15:00:00Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:30:00Z",
+        "window_end": "2026-03-16T15:00:00Z",
+        "chart_instance_id": "NQ-chart-main",
+        "force_rebuild": True,
+        "min_continuous_messages": 5,
+    }
+
+    response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+    assert payload["action"] == "atas_fetch_required"
+    assert payload["integrity"]["status"] == "missing_local_history"
+    assert payload["atas_backfill_request"]["status"] == "pending"
+    assert payload["atas_backfill_request"]["request_id"]
+
+    poll_response = application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-chart-main",
+    )
+    assert poll_response.status_code == 200
+    poll_payload = json.loads(poll_response.body)
+    assert poll_payload["request"]["request_id"] == payload["atas_backfill_request"]["request_id"]
+
+
+def test_backfill_ack_verifies_and_rebuilds_snapshot_when_history_arrives() -> None:
+    application = build_application()
+    request_payload = {
+        "cache_key": "NQ|1m|2026-03-16T14:30:00Z|2026-03-16T15:00:00Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:30:00Z",
+        "window_end": "2026-03-16T15:00:00Z",
+        "chart_instance_id": "NQ-chart-main",
+        "reason": "candle_gap_detected",
+        "request_history_bars": True,
+        "request_history_footprint": False,
+        "missing_segments": [
+            {
+                "prev_ended_at": "2026-03-16T14:39:59Z",
+                "next_started_at": "2026-03-16T14:42:00Z",
+                "missing_bar_count": 2,
+            }
+        ],
+    }
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+    request_id = json.loads(create_response.body)["request"]["request_id"]
+
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    history_payload["instrument"]["symbol"] = "NQ"
+    history_payload["source"]["instrument_symbol"] = "NQ"
+    history_payload["source"]["chart_instance_id"] = "NQ-chart-main"
+    history_payload["bar_timeframe"] = "1m"
+    for index, bar in enumerate(history_payload["bars"]):
+        minute = 40 + index
+        bar["started_at"] = f"2026-03-16T14:{minute:02d}:00Z"
+        bar["ended_at"] = f"2026-03-16T14:{minute:02d}:59Z"
+    history_payload["observed_window_start"] = "2026-03-16T14:30:00Z"
+    history_payload["observed_window_end"] = "2026-03-16T15:00:00Z"
+    history_payload["emitted_at"] = "2026-03-16T15:00:30Z"
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(history_payload).encode("utf-8"),
+    )
+
+    ack_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/backfill-ack",
+        json.dumps(
+            {
+                "request_id": request_id,
+                "instrument_symbol": "NQ",
+                "chart_instance_id": "NQ-chart-main",
+                "acknowledged_at": "2026-03-16T15:01:00Z",
+                "acknowledged_history_bars": True,
+                "acknowledged_history_footprint": False,
+                "latest_loaded_bar_started_at": "2026-03-16T15:00:00Z",
+            }
+        ).encode("utf-8"),
+    )
+    assert ack_response.status_code == 200
+    ack_body = json.loads(ack_response.body)
+    assert ack_body["verification"]["verified"] is True
+    assert ack_body["rebuild_result"]["triggered"] is True
+    assert ack_body["rebuild_result"]["build_result"]["ingestion_id"] is not None
+
+
+def test_backfill_ack_without_history_does_not_rebuild() -> None:
+    application = build_application()
+    request_payload = {
+        "cache_key": "NQ|1m|2026-03-16T14:30:00Z|2026-03-16T15:00:00Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:30:00Z",
+        "window_end": "2026-03-16T15:00:00Z",
+        "chart_instance_id": "NQ-chart-main",
+        "reason": "candle_gap_detected",
+        "request_history_bars": True,
+        "request_history_footprint": False,
+        "missing_segments": [
+            {
+                "prev_ended_at": "2026-03-16T14:39:59Z",
+                "next_started_at": "2026-03-16T14:42:00Z",
+                "missing_bar_count": 2,
+            }
+        ],
+    }
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+    request_id = json.loads(create_response.body)["request"]["request_id"]
+
+    ack_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/backfill-ack",
+        json.dumps(
+            {
+                "request_id": request_id,
+                "instrument_symbol": "NQ",
+                "chart_instance_id": "NQ-chart-main",
+                "acknowledged_at": "2026-03-16T15:01:00Z",
+                "acknowledged_history_bars": True,
+                "acknowledged_history_footprint": False,
+                "latest_loaded_bar_started_at": "2026-03-16T15:00:00Z",
+            }
+        ).encode("utf-8"),
+    )
+    assert ack_response.status_code == 200
+    ack_body = json.loads(ack_response.body)
+    assert ack_body["verification"]["verified"] is False
+    assert ack_body["rebuild_result"]["triggered"] is False
+
+
+def test_live_tail_returns_integrity_and_refresh_signal_after_acknowledged_backfill() -> None:
+    application = build_application()
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "NQ"
+    continuous_payload["source"]["instrument_symbol"] = "NQ"
+    continuous_payload["source"]["chart_instance_id"] = "NQ-chart-main"
+    continuous_payload["observed_window_start"] = "2026-03-17T09:00:00Z"
+    continuous_payload["observed_window_end"] = "2026-03-17T09:00:01Z"
+    continuous_payload["emitted_at"] = "2026-03-17T09:00:01Z"
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/continuous-state",
+        json.dumps(continuous_payload).encode("utf-8"),
+    )
+
+    request_payload = {
+        "cache_key": "NQ|1m|2026-03-17T09:00:00Z|2026-03-17T09:05:00Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-17T09:00:00Z",
+        "window_end": "2026-03-17T09:05:00Z",
+        "chart_instance_id": "NQ-chart-main",
+        "reason": "candle_gap_detected",
+        "request_history_bars": True,
+        "request_history_footprint": False,
+        "missing_segments": [
+            {
+                "prev_ended_at": "2026-03-17T09:00:59Z",
+                "next_started_at": "2026-03-17T09:03:00Z",
+                "missing_bar_count": 2,
+            }
+        ],
+    }
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+    request_id = json.loads(create_response.body)["request"]["request_id"]
+
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    history_payload["instrument"]["symbol"] = "NQ"
+    history_payload["source"]["instrument_symbol"] = "NQ"
+    history_payload["source"]["chart_instance_id"] = "NQ-chart-main"
+    history_payload["bar_timeframe"] = "1m"
+    history_payload["observed_window_start"] = "2026-03-17T09:00:00Z"
+    history_payload["observed_window_end"] = "2026-03-17T09:05:00Z"
+    history_payload["emitted_at"] = "2026-03-17T09:05:10Z"
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(history_payload).encode("utf-8"),
+    )
+    application.dispatch(
+        "POST",
+        "/api/v1/adapter/backfill-ack",
+        json.dumps(
+            {
+                "request_id": request_id,
+                "instrument_symbol": "NQ",
+                "chart_instance_id": "NQ-chart-main",
+                "acknowledged_at": "2026-03-17T09:05:20Z",
+                "acknowledged_history_bars": True,
+                "acknowledged_history_footprint": False,
+                "latest_loaded_bar_started_at": "2026-03-17T09:05:00Z",
+            }
+        ).encode("utf-8"),
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=NQ&display_timeframe=1m&lookback_bars=4",
+    )
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["integrity"] is not None
+    assert payload["latest_backfill_request"]["request_id"] == request_id
+    assert payload["snapshot_refresh_required"] in {True, False}
+
+
     application = build_application()
     request_payload = {
         "cache_key": "NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z",

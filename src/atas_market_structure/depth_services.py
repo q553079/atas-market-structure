@@ -68,8 +68,8 @@ class DepthMonitoringService:
                     track_key=record.track_key,
                     instrument_symbol=record.instrument_symbol,
                     coverage_state=DepthCoverageState(record.coverage_state),
-                    observed_track=ObservedLargeLiquidityLevel.model_validate(record.observed_track),
-                    derived_interpretation=DerivedLiquidityMemoryInterpretation.model_validate(record.derived_summary),
+                    observed_track=ObservedLargeLiquidityLevel.model_validate(record.observed_track).model_dump(mode="json"),
+                    derived_interpretation=DerivedLiquidityMemoryInterpretation.model_validate(record.derived_summary).model_dump(mode="json"),
                     expires_at=record.expires_at,
                     updated_at=record.updated_at,
                 )
@@ -111,8 +111,8 @@ class DepthMonitoringService:
             track_key=stored.track_key,
             instrument_symbol=stored.instrument_symbol,
             coverage_state=DepthCoverageState(stored.coverage_state),
-            observed_track=ObservedLargeLiquidityLevel.model_validate(stored.observed_track),
-            derived_interpretation=DerivedLiquidityMemoryInterpretation.model_validate(stored.derived_summary),
+            observed_track=ObservedLargeLiquidityLevel.model_validate(stored.observed_track).model_dump(mode="json"),
+            derived_interpretation=DerivedLiquidityMemoryInterpretation.model_validate(stored.derived_summary).model_dump(mode="json"),
             expires_at=stored.expires_at,
             updated_at=stored.updated_at,
         )

@@ -4,14 +4,20 @@ src/atas_market_structure/__init__.py
 src/atas_market_structure/adapter_bridge.py
 src/atas_market_structure/adapter_services.py
 src/atas_market_structure/ai_review_services.py
+src/atas_market_structure/analysis_orchestration_services.py
 src/atas_market_structure/app.py
 src/atas_market_structure/config.py
 src/atas_market_structure/depth_services.py
+src/atas_market_structure/focus_region_review_services.py
 src/atas_market_structure/models.py
+src/atas_market_structure/position_health_services.py
+src/atas_market_structure/regime_monitor_services.py
 src/atas_market_structure/repository.py
 src/atas_market_structure/server.py
 src/atas_market_structure/services.py
+src/atas_market_structure/spx_gamma_map.py
 src/atas_market_structure/strategy_library_services.py
+src/atas_market_structure/strategy_selection_engine.py
 src/atas_market_structure/workbench_services.py
 src/atas_market_structure.egg-info/PKG-INFO
 src/atas_market_structure.egg-info/SOURCES.txt
@@ -19,3 +25,5 @@ src/atas_market_structure.egg-info/dependency_links.txt
 src/atas_market_structure.egg-info/requires.txt
 src/atas_market_structure.egg-info/top_level.txt
 tests/test_app.py
+tests/test_new_modules.py
+tests/test_spx_gamma_map.py

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(pytest:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(PYTEST_DEBUG_TEMPROOT=\"D:/docker/atas-market-structure/tmp/pytest-tmp\" python -m pytest \"D:/docker/atas-market-structure/tests/test_spx_gamma_map.py\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm:*)",
+      "Bash(node:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
