@@ -96,6 +96,12 @@ function mapServerSessionToThread(serverSession, fallback = {}) {
     unreadCount: Number.isFinite(serverSession.unread_count) ? serverSession.unread_count : 0,
     selectedPromptBlockIds: Array.isArray(serverSession.selected_prompt_block_ids) ? serverSession.selected_prompt_block_ids : (fallback.selectedPromptBlockIds || []),
     pinnedContextBlockIds: Array.isArray(serverSession.pinned_context_block_ids) ? serverSession.pinned_context_block_ids : (fallback.pinnedContextBlockIds || []),
+    includeMemorySummary: typeof serverSession.include_memory_summary === "boolean"
+      ? serverSession.include_memory_summary
+      : !!fallback.includeMemorySummary,
+    includeRecentMessages: typeof serverSession.include_recent_messages === "boolean"
+      ? serverSession.include_recent_messages
+      : !!fallback.includeRecentMessages,
     mountedReplyIds: Array.isArray(serverSession.mounted_reply_ids) ? serverSession.mounted_reply_ids : (fallback.mountedReplyIds || []),
     activePlanId: serverSession.active_plan_id || fallback.activePlanId || null,
     scrollOffset: Number.isFinite(serverSession.scroll_offset) ? serverSession.scroll_offset : (fallback.scrollOffset || 0),
@@ -133,6 +139,8 @@ function normalizeSessionShape(session, fallback = {}) {
   session.promptBlockPreviewCache = session.promptBlockPreviewCache && typeof session.promptBlockPreviewCache === "object"
     ? session.promptBlockPreviewCache
     : {};
+  session.includeMemorySummary = !!session.includeMemorySummary;
+  session.includeRecentMessages = !!session.includeRecentMessages;
   session.mountedReplyIds = Array.isArray(session.mountedReplyIds) ? session.mountedReplyIds : [];
   session.activePlanId = session.activePlanId || null;
   session.scrollOffset = Number.isFinite(session.scrollOffset) ? session.scrollOffset : 0;
@@ -141,7 +149,7 @@ function normalizeSessionShape(session, fallback = {}) {
   session.draftText = session.draftText ?? session.draft ?? "";
   session.draft = session.draftText;
   session.draftAttachments = Array.isArray(session.draftAttachments) ? session.draftAttachments : (Array.isArray(session.attachments) ? session.attachments : []);
-  session.attachments = Array.isArray(session.attachments) ? session.attachments : [];
+  session.attachments = Array.isArray(session.attachments) ? session.attachments : [...session.draftAttachments];
   session.handoffMode = session.handoffMode || "summary_only";
   session.memory = {
     ...(session.memory || {}),
@@ -151,6 +159,38 @@ function normalizeSessionShape(session, fallback = {}) {
     window_range: windowRange,
   };
   return session;
+}
+
+function getDraftAttachments(session) {
+  if (!session) {
+    return [];
+  }
+  const attachments = Array.isArray(session.draftAttachments)
+    ? session.draftAttachments
+    : (Array.isArray(session.attachments) ? session.attachments : []);
+  session.draftAttachments = [...attachments];
+  session.attachments = [...attachments];
+  return session.draftAttachments;
+}
+
+function setDraftAttachments(session, items = []) {
+  const nextItems = Array.isArray(items) ? [...items] : [];
+  session.draftAttachments = nextItems;
+  session.attachments = [...nextItems];
+  return session.draftAttachments;
+}
+
+function isTrulyBlankSession(thread) {
+  const attachments = getDraftAttachments(thread);
+  return !(thread.messages?.length)
+    && !String(thread.draftText || thread.draft || "").trim()
+    && attachments.length === 0
+    && !(thread.selectedPromptBlockIds?.length)
+    && !(thread.mountedReplyIds?.length);
+}
+
+function isSyntheticSessionId(sessionId) {
+  return /^session-\d+$/i.test(String(sessionId || ""));
 }
 
 function getSessionById(state, sessionId) {
@@ -178,6 +218,8 @@ function ensureSession(state, sessionId, title = "01", overrides = {}) {
       unreadCount: 0,
       selectedPromptBlockIds: [],
       pinnedContextBlockIds: [],
+      includeMemorySummary: false,
+      includeRecentMessages: false,
       promptBlocks: [],
       mountedReplyIds: [],
       activePlanId: null,
@@ -282,6 +324,11 @@ function renderMessage(message) {
   if (message.meta?.preset) {
     metaChips.push(`<span class="chip">${escapeHtml(message.meta.preset)}</span>`);
   }
+  if (message.role === "assistant") {
+    const modeLabel = message.meta?.session_only ? "session-only" : "replay-aware";
+    const modeClass = message.meta?.session_only ? "warn" : "good";
+    metaChips.push(`<span class="chip ${modeClass}">${escapeHtml(modeLabel)}</span>`);
+  }
   if (message.meta?.model || message.meta?.provider) {
     metaChips.push(`<span class="chip emphasis">${escapeHtml([message.meta?.provider, message.meta?.model].filter(Boolean).join("/"))}</span>`);
   }
@@ -301,30 +348,6 @@ function renderMessage(message) {
       </div>
     </div>
   `;
-}
-
-function applyReplyMountState(session, messageId, { mounted = true, objectIds = [] } = {}) {
-  if (!session || !messageId) {
-    return null;
-  }
-  let updatedMessage = null;
-  session.messages = (session.messages || []).map((message) => {
-    if (message.message_id !== messageId) {
-      return message;
-    }
-    updatedMessage = {
-      ...message,
-      mountedToChart: mounted,
-      mountedObjectIds: Array.isArray(objectIds) ? objectIds : [],
-      meta: {
-        ...(message.meta || {}),
-        mountedToChart: mounted,
-        mountedObjectIds: Array.isArray(objectIds) ? objectIds : [],
-      },
-    };
-    return updatedMessage;
-  });
-  return updatedMessage;
 }
 
 function buildPinnedPlanMarkup(planCard) {
@@ -352,6 +375,7 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
       memory.market_context_summary ? `市场：${escapeHtml(memory.market_context_summary)}` : "",
       Array.isArray(memory.key_zones_summary) && memory.key_zones_summary.length ? `区域：${escapeHtml(memory.key_zones_summary.slice(-3).join("；"))}` : "",
     ].filter(Boolean);
+    els.sessionContextStrip.hidden = parts.length === 0;
     els.sessionContextStrip.innerHTML = `
       <div class="strip-head"><span class="strip-title">会话主信息</span></div>
       <div class="meta">${parts.join(" | ") || "当前会话还没有形成主信息摘要。"}</div>
@@ -359,8 +383,8 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
   }
 
   if (els.promptSelectionBar) {
-    const includeMemorySummary = !!(session.memory?.user_goal_summary || session.memory?.market_context_summary || session.memory?.latest_answer_summary);
-    const includeRecentMessages = Array.isArray(session.messages) && session.messages.length > 1;
+    const includeMemorySummary = !!session.includeMemorySummary;
+    const includeRecentMessages = !!session.includeRecentMessages;
     const selectedBlocks = selectedPromptBlockIds
       .map((blockId) => promptBlocks.find((item) => item.blockId === blockId || item.id === blockId))
       .filter(Boolean);
@@ -377,6 +401,8 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
       onPromptBlocksChanged?.(session, {
         selectedPromptBlockIds: session.selectedPromptBlockIds,
         pinnedContextBlockIds: session.pinnedContextBlockIds,
+        includeMemorySummary: session.includeMemorySummary,
+        includeRecentMessages: session.includeRecentMessages,
       });
       persistSessions(state);
       renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
@@ -387,7 +413,7 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
       }
       try {
         const envelope = await fetchJson(`/api/v1/workbench/chat/prompt-blocks/${encodeURIComponent(blockId)}`);
-        const detail = envelope?.prompt_block || envelope?.block || envelope || {};
+        const detail = envelope?.prompt_block || envelope?.block || envelope?.blocks?.[0] || envelope || {};
         blockPreviewCache[blockId] = {
           loaded: true,
           content: detail.full_payload != null
@@ -407,34 +433,137 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
         renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
       }
     };
-    const chips = selectedBlocks.map((block) => {
+    const orderedBlocks = [...selectedBlocks].sort((a, b) => {
+      const aId = a.blockId || a.id;
+      const bId = b.blockId || b.id;
+      return session.selectedPromptBlockIds.indexOf(aId) - session.selectedPromptBlockIds.indexOf(bId);
+    });
+    const movePromptBlock = (blockId, direction) => {
+      const currentIds = [...(session.selectedPromptBlockIds || [])];
+      const currentIndex = currentIds.indexOf(blockId);
+      if (currentIndex < 0) {
+        return;
+      }
+      const pinnedIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+      const isPinned = pinnedIds.includes(blockId);
+      const candidateIndex = currentIndex + direction;
+      if (candidateIndex < 0 || candidateIndex >= currentIds.length) {
+        return;
+      }
+      const neighborId = currentIds[candidateIndex];
+      const neighborPinned = pinnedIds.includes(neighborId);
+      if (isPinned !== neighborPinned) {
+        return;
+      }
+      [currentIds[currentIndex], currentIds[candidateIndex]] = [currentIds[candidateIndex], currentIds[currentIndex]];
+      session.selectedPromptBlockIds = currentIds;
+      onPromptBlocksChanged?.(session, {
+        selectedPromptBlockIds: session.selectedPromptBlockIds,
+        pinnedContextBlockIds: session.pinnedContextBlockIds,
+        includeMemorySummary: session.includeMemorySummary,
+        includeRecentMessages: session.includeRecentMessages,
+      });
+      persistSessions(state);
+      renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
+    };
+    const clearEphemeralPromptBlocks = () => {
+      const pinnedIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+      session.selectedPromptBlockIds = (session.selectedPromptBlockIds || []).filter((id) => pinnedIds.includes(id));
+      session.promptBlocks = (session.promptBlocks || []).filter((block) => pinnedIds.includes(block.blockId || block.id));
+      session.promptBlockPreviewCache = Object.fromEntries(
+        Object.entries(session.promptBlockPreviewCache || {}).filter(([blockId]) => pinnedIds.includes(blockId)),
+      );
+      onPromptBlocksChanged?.(session, {
+        selectedPromptBlockIds: session.selectedPromptBlockIds,
+        pinnedContextBlockIds: session.pinnedContextBlockIds,
+        includeMemorySummary: session.includeMemorySummary,
+        includeRecentMessages: session.includeRecentMessages,
+      });
+      persistSessions(state);
+      renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
+    };
+    const clearPinnedPromptBlocks = () => {
+      const pinnedIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+      session.selectedPromptBlockIds = (session.selectedPromptBlockIds || []).filter((id) => !pinnedIds.includes(id));
+      session.promptBlocks = (session.promptBlocks || []).filter((block) => !pinnedIds.includes(block.blockId || block.id));
+      session.promptBlockPreviewCache = Object.fromEntries(
+        Object.entries(session.promptBlockPreviewCache || {}).filter(([blockId]) => !pinnedIds.includes(blockId)),
+      );
+      session.pinnedContextBlockIds = [];
+      onPromptBlocksChanged?.(session, {
+        selectedPromptBlockIds: session.selectedPromptBlockIds,
+        pinnedContextBlockIds: session.pinnedContextBlockIds,
+        includeMemorySummary: session.includeMemorySummary,
+        includeRecentMessages: session.includeRecentMessages,
+      });
+      persistSessions(state);
+      renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
+    };
+    const buildBlockChip = (block, group) => {
       const blockId = block.blockId || block.id;
       const label = block.title || block.preview_text || block.previewText || block.kind || blockId;
       const preview = block.previewText || block.preview_text || "";
+      const sourceLabel = block.sourceLabel || block.source_label || block.kind || "上下文块";
       const pinned = Array.isArray(session.pinnedContextBlockIds) && session.pinnedContextBlockIds.includes(blockId);
       const isActive = Array.isArray(session.selectedPromptBlockIds) && session.selectedPromptBlockIds[session.selectedPromptBlockIds.length - 1] === blockId;
       const expanded = !!blockPreviewCache[blockId]?.loaded;
       const expandedContent = blockPreviewCache[blockId]?.content || "";
+      const sameGroupIds = (session.selectedPromptBlockIds || []).filter((id) => ((session.pinnedContextBlockIds || []).includes(id)) === (group === "pinned"));
+      const groupIndex = sameGroupIds.indexOf(blockId);
+      const canMoveUp = groupIndex > 0;
+      const canMoveDown = groupIndex >= 0 && groupIndex < sameGroupIds.length - 1;
       return `
         <span class="strip-chip prompt-chip ${pinned ? "pinned" : ""} ${isActive ? "active" : ""}" data-prompt-block-id="${escapeHtml(blockId)}" title="${escapeHtml(preview || label)}">
           <span class="strip-chip-text">
-            <span class="strip-chip-title">${escapeHtml(label)}</span>
+            <span class="strip-chip-title-row">
+              <span class="strip-chip-title">${escapeHtml(label)}</span>
+              <span class="strip-chip-kind">${escapeHtml(sourceLabel)}</span>
+            </span>
             ${preview && preview !== label ? `<span class="strip-chip-meta">${escapeHtml(preview)}</span>` : ""}
             ${expandedContent ? `<span class="strip-chip-detail">${escapeHtml(expandedContent)}</span>` : ""}
           </span>
           <span class="strip-chip-actions">
+            <button type="button" class="strip-chip-action" data-prompt-block-move-up="${escapeHtml(blockId)}" ${canMoveUp ? "" : "disabled"} aria-label="上移">↑</button>
+            <button type="button" class="strip-chip-action" data-prompt-block-move-down="${escapeHtml(blockId)}" ${canMoveDown ? "" : "disabled"} aria-label="下移">↓</button>
             <button type="button" class="strip-chip-action" data-prompt-block-toggle-pin="${escapeHtml(blockId)}" aria-label="${pinned ? "取消固定" : "固定上下文"}">${pinned ? "取消固定" : "固定"}</button>
             <button type="button" class="strip-chip-action" data-prompt-block-expand="${escapeHtml(blockId)}" aria-label="查看原始内容">${expanded ? "刷新详情" : "查看详情"}</button>
             <button type="button" class="strip-chip-remove" data-prompt-block-remove="${escapeHtml(blockId)}" aria-label="移除上下文">×</button>
           </span>
         </span>
       `;
-    });
-    if (!chips.length) {
-      chips.push(`<div class="strip-empty-state">当前还没有显式选择的 Prompt block。</div>`);
+    };
+    const pinnedChips = orderedBlocks
+      .filter((block) => (session.pinnedContextBlockIds || []).includes(block.blockId || block.id))
+      .map((block) => buildBlockChip(block, "pinned"));
+    const ephemeralChips = orderedBlocks
+      .filter((block) => !(session.pinnedContextBlockIds || []).includes(block.blockId || block.id))
+      .map((block) => buildBlockChip(block, "ephemeral"));
+    const chipSections = [];
+    if (pinnedChips.length) {
+      chipSections.push(`
+        <div class="prompt-chip-group">
+          <div class="prompt-chip-group-head">
+            <div class="prompt-chip-group-title">固定上下文</div>
+            <button type="button" class="secondary tiny" data-prompt-clear-pinned="true">清空固定上下文</button>
+          </div>
+          <div class="strip-chip-row">${pinnedChips.join("")}</div>
+        </div>
+      `);
     }
-    els.promptSelectionBar.hidden = false;
-    if (chips.length) {
+    if (ephemeralChips.length) {
+      chipSections.push(`
+        <div class="prompt-chip-group">
+          <div class="prompt-chip-group-head">
+            <div class="prompt-chip-group-title">本次临时上下文</div>
+            <button type="button" class="secondary tiny" data-prompt-clear-ephemeral="true">清空临时上下文</button>
+          </div>
+          <div class="strip-chip-row">${ephemeralChips.join("")}</div>
+        </div>
+      `);
+    }
+    const hasPromptSummary = chipSections.length > 0 || includeMemorySummary || includeRecentMessages;
+    els.promptSelectionBar.hidden = !hasPromptSummary;
+    if (hasPromptSummary) {
       els.promptSelectionBar.innerHTML = `
         <div class="strip-head"><span class="strip-title">本次发送上下文</span></div>
         <div class="meta">${[
@@ -442,8 +571,58 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
           `记忆摘要 ${includeMemorySummary ? "开启" : "关闭"}`,
           `最近消息 ${includeRecentMessages ? "开启" : "关闭"}`,
         ].join(" | ")}</div>
-        <div class="strip-chip-row">${chips.join("")}</div>
+        <div class="strip-chip-row prompt-send-flags">
+          <button type="button" class="secondary tiny ${includeMemorySummary ? "is-active" : ""}" data-prompt-toggle-memory="true">记忆摘要</button>
+          <button type="button" class="secondary tiny ${includeRecentMessages ? "is-active" : ""}" data-prompt-toggle-recent="true">最近消息</button>
+        </div>
+        ${chipSections.join("")}
       `;
+      els.promptSelectionBar.querySelectorAll("button[data-prompt-clear-pinned]").forEach((button) => {
+        button.addEventListener("click", () => {
+          clearPinnedPromptBlocks();
+        });
+      });
+      els.promptSelectionBar.querySelectorAll("button[data-prompt-clear-ephemeral]").forEach((button) => {
+        button.addEventListener("click", () => {
+          clearEphemeralPromptBlocks();
+        });
+      });
+      els.promptSelectionBar.querySelectorAll("button[data-prompt-toggle-memory]").forEach((button) => {
+        button.addEventListener("click", () => {
+          session.includeMemorySummary = !session.includeMemorySummary;
+          onPromptBlocksChanged?.(session, {
+            selectedPromptBlockIds: session.selectedPromptBlockIds,
+            pinnedContextBlockIds: session.pinnedContextBlockIds,
+            includeMemorySummary: session.includeMemorySummary,
+            includeRecentMessages: session.includeRecentMessages,
+          });
+          persistSessions(state);
+          renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
+        });
+      });
+      els.promptSelectionBar.querySelectorAll("button[data-prompt-toggle-recent]").forEach((button) => {
+        button.addEventListener("click", () => {
+          session.includeRecentMessages = !session.includeRecentMessages;
+          onPromptBlocksChanged?.(session, {
+            selectedPromptBlockIds: session.selectedPromptBlockIds,
+            pinnedContextBlockIds: session.pinnedContextBlockIds,
+            includeMemorySummary: session.includeMemorySummary,
+            includeRecentMessages: session.includeRecentMessages,
+          });
+          persistSessions(state);
+          renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
+        });
+      });
+      els.promptSelectionBar.querySelectorAll("button[data-prompt-block-move-up]").forEach((button) => {
+        button.addEventListener("click", () => {
+          movePromptBlock(button.dataset.promptBlockMoveUp, -1);
+        });
+      });
+      els.promptSelectionBar.querySelectorAll("button[data-prompt-block-move-down]").forEach((button) => {
+        button.addEventListener("click", () => {
+          movePromptBlock(button.dataset.promptBlockMoveDown, 1);
+        });
+      });
       els.promptSelectionBar.querySelectorAll("button[data-prompt-block-remove]").forEach((button) => {
         button.addEventListener("click", () => {
           const blockId = button.dataset.promptBlockRemove;
@@ -466,6 +645,8 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
           onPromptBlocksChanged?.(session, {
             selectedPromptBlockIds: session.selectedPromptBlockIds,
             pinnedContextBlockIds: session.pinnedContextBlockIds,
+            includeMemorySummary: session.includeMemorySummary,
+            includeRecentMessages: session.includeRecentMessages,
           });
           persistSessions(state);
           renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
@@ -500,10 +681,7 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
         </span>
       `;
     });
-    if (!chips.length) {
-      chips.push(`<div class="strip-empty-state">当前没有挂载到图表的回复。</div>`);
-    }
-    els.mountedReplyStrip.hidden = false;
+    els.mountedReplyStrip.hidden = chips.length === 0;
     if (chips.length) {
       els.mountedReplyStrip.innerHTML = `
         <div class="strip-head"><span class="strip-title">已挂载回复</span></div>
@@ -585,6 +763,8 @@ function persistSessions(state) {
         Object.entries(session.promptBlockPreviewCache || {}).filter(([blockId]) => selectedIds.includes(blockId)),
       ),
       pinnedContextBlockIds: pinnedIds.filter((blockId) => selectedIds.includes(blockId)),
+      includeMemorySummary: !!session.includeMemorySummary,
+      includeRecentMessages: !!session.includeRecentMessages,
     };
   }));
   writeStorage("workbench", {
@@ -704,7 +884,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     if (!els.attachmentPreviewBar || !els.attachmentPreviewList) {
       return;
     }
-    const attachments = Array.isArray(session.attachments) ? session.attachments : [];
+    const attachments = getDraftAttachments(session);
     els.attachmentPreviewBar.hidden = attachments.length === 0;
     els.attachmentPreviewList.innerHTML = attachments.map((item, index) => `
       <div class="attachment-row">
@@ -721,7 +901,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     els.attachmentPreviewList.querySelectorAll("button[data-attachment-remove]").forEach((button) => {
       button.addEventListener("click", () => {
         attachments.splice(Number(button.dataset.attachmentRemove), 1);
-        session.attachments = attachments;
+        setDraftAttachments(session, attachments);
         renderAttachments(session);
         persistSessions(state);
       });
@@ -733,12 +913,31 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       return getSessionById(state, sessionId);
     }
     const fallback = getSessionById(state, sessionId) || null;
+    const localDraftText = fallback?.draftText ?? fallback?.draft ?? "";
+    const localDraftAttachments = fallback ? getDraftAttachments(fallback) : [];
+    const localSelectedPromptBlockIds = Array.isArray(fallback?.selectedPromptBlockIds) ? [...fallback.selectedPromptBlockIds] : [];
+    const localMountedReplyIds = Array.isArray(fallback?.mountedReplyIds) ? [...fallback.mountedReplyIds] : [];
     const sessionEnvelope = await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(sessionId)}`);
     const serverSession = sessionEnvelope?.session;
     if (!serverSession) {
       return fallback;
     }
     const thread = mapServerSessionToThread(serverSession, fallback || {});
+    if (fallback) {
+      if (localDraftText) {
+        thread.draftText = localDraftText;
+        thread.draft = localDraftText;
+      }
+      if (localDraftAttachments.length) {
+        setDraftAttachments(thread, localDraftAttachments);
+      }
+      if (localSelectedPromptBlockIds.length) {
+        thread.selectedPromptBlockIds = localSelectedPromptBlockIds;
+      }
+      if (localMountedReplyIds.length) {
+        thread.mountedReplyIds = localMountedReplyIds;
+      }
+    }
     const messagesEnvelope = await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
     const memoryEnvelope = await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(sessionId)}/memory`);
     thread.memory = {
@@ -824,20 +1023,31 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     renderAttachments(session);
     persistSessions(state);
     if (fetchJson && !session.backendLoaded) {
+      if (isSyntheticSessionId(session.id)) {
+        onSessionActivated?.(session);
+        return session;
+      }
       session.loadingFromServer = true;
       renderAiChat();
       hydrateSessionFromServer(session.id, { activate: true })
         .then((hydrated) => {
           if (hydrated) {
             hydrated.loadingFromServer = false;
+            if (state.activeAiThreadId === hydrated.id) {
+              els.aiChatInput.value = hydrated.draftText || hydrated.draft || "";
+            }
             renderAiThreadTabs();
             renderAiChat();
+            renderAttachments(hydrated);
           }
         })
         .catch((error) => {
           session.loadingFromServer = false;
           console.warn("加载会话失败:", error);
           renderStatusStrip?.([{ label: error.message || String(error), variant: "warn" }]);
+          renderAiThreadTabs();
+          renderAiChat();
+          renderAttachments(session);
         });
     } else {
       onSessionActivated?.(session);
@@ -894,13 +1104,61 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     return thread;
   }
 
+  async function materializeSyntheticSession(session, { activate = true } = {}) {
+    if (!fetchJson || !session || !isSyntheticSessionId(session.id)) {
+      return session;
+    }
+    const localDraftText = session.draftText || session.draft || "";
+    const localDraftAttachments = getDraftAttachments(session);
+    const localAnalysisTemplate = session.analysisTemplate ? { ...session.analysisTemplate } : null;
+    const localPinned = !!session.pinned;
+    const localTitle = session.title || "新会话";
+    const localScope = getSessionScope(session, state);
+
+    state.aiThreads = state.aiThreads.filter((item) => item.id !== session.id);
+    if (state.activeAiThreadId === session.id) {
+      state.activeAiThreadId = null;
+    }
+
+    const created = await createBackendSession({
+      title: localTitle,
+      symbol: localScope.symbol,
+      contractId: localScope.contractId,
+      timeframe: localScope.timeframe,
+      windowRange: localScope.windowRange,
+      activate,
+    });
+
+    if (created) {
+      created.pinned = localPinned;
+      if (localAnalysisTemplate) {
+        created.analysisTemplate = {
+          ...created.analysisTemplate,
+          ...localAnalysisTemplate,
+        };
+      }
+      if (localDraftText) {
+        created.draftText = localDraftText;
+        created.draft = localDraftText;
+      }
+      if (localDraftAttachments.length) {
+        setDraftAttachments(created, localDraftAttachments);
+      }
+      persistSessions(state);
+    }
+    return created;
+  }
+
   const getOrCreateBlankSessionForSymbol = (symbol, contractId = symbol) => {
     const normalizedSymbol = String(symbol || "").trim().toUpperCase() || "NQ";
     const existing = state.aiThreads.find((thread) => {
       const scope = getSessionScope(thread, state);
-      return scope.symbol === normalizedSymbol && (!thread.messages?.length || !thread.memory?.latest_question);
+      return scope.symbol === normalizedSymbol && isTrulyBlankSession(thread);
     });
     if (existing) {
+      if (fetchJson && isSyntheticSessionId(existing.id)) {
+        return materializeSyntheticSession(existing, { activate: true });
+      }
       return setActiveThread(existing.id, existing.title, { symbol: normalizedSymbol, contractId });
     }
     const title = `${normalizedSymbol}-${String(state.aiThreads.filter((thread) => getSessionScope(thread, state).symbol === normalizedSymbol).length + 1).padStart(2, "0")}`;
@@ -948,9 +1206,10 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
 
   function appendAiChatMessage(role, content, meta = {}, threadId = null, threadTitle = "01") {
     const session = ensureSession(state, threadId || state.activeAiThreadId, threadTitle);
+    const activeDraftAttachments = getDraftAttachments(session);
     const mergedMeta = {
       ...meta,
-      attachments: meta.attachments || (role === "user" ? [...(session.attachments || [])] : meta.attachments),
+      attachments: meta.attachments || (role === "user" ? [...activeDraftAttachments] : meta.attachments),
     };
     const message = {
       message_id: createMessageId(),
@@ -972,10 +1231,9 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     if (role === "user") {
       session.draft = "";
       session.draftText = "";
-      session.draftAttachments = [];
+      setDraftAttachments(session, []);
       session.memory.latest_question = content;
       session.memory.current_user_intent = summarizeText(content, 80);
-      session.attachments = [];
     } else {
       session.memory.latest_answer_summary = summarizeText(content, 160);
       session.memory.important_messages = session.messages.slice(-4).map((item) => summarizeText(item.content, 80));
@@ -990,7 +1248,9 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
 
   function syncSessionMemorySummary(session) {
     els.currentSessionTitle.textContent = `当前会话：${session.title}`;
-    els.currentSessionModelLabel.textContent = `模型：${session.activeModel || session.memory?.active_model || "服务端默认"}`;
+    const latestAssistant = [...(session.messages || [])].reverse().find((item) => item.role === "assistant") || null;
+    const latestModeLabel = latestAssistant?.meta?.session_only ? "session-only" : "replay-aware";
+    els.currentSessionModelLabel.textContent = `模型：${session.activeModel || session.memory?.active_model || "服务端默认"} · 模式：${latestModeLabel}`;
     const memory = session.memory || {};
     const summaryParts = [
       memory.current_user_intent,
@@ -1018,7 +1278,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       return;
     }
     if (!session.messages.length) {
-      els.aiChatThread.innerHTML = `<div class="chat-empty-state">当前会话还没有消息。先发送问题，或用分析模板创建 AI 计划。</div>`;
+      els.aiChatThread.innerHTML = `<div class="chat-empty-state">当前会话还没有消息。可直接发送普通问题进入 session-only 聊天；如需图表分析，请先加载图表后再使用分析模板。</div>`;
       if (els.aiChatScrollToBottomButton) {
         els.aiChatScrollToBottomButton.hidden = true;
         els.aiChatScrollToBottomButton.textContent = getScrollToBottomLabel(session);
@@ -1149,7 +1409,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
 
   function addAttachments(items = []) {
     const session = getActiveThread();
-    session.attachments = [...(session.attachments || []), ...items];
+    setDraftAttachments(session, [...getDraftAttachments(session), ...items]);
     renderAttachments(session);
     persistSessions(state);
   }
@@ -1217,8 +1477,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
 
   function clearAttachments() {
     const session = getActiveThread();
-    session.attachments = [];
-    session.draftAttachments = [];
+    setDraftAttachments(session, []);
     renderAttachments(session);
     persistSessions(state);
   }

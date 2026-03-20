@@ -28,6 +28,8 @@ class ChatSession(BaseModel):
     draft_attachments: list[ReplayAiChatAttachment] = Field(default_factory=list, description="Draft attachments.")
     selected_prompt_block_ids: list[str] = Field(default_factory=list, description="Selected prompt block ids.")
     pinned_context_block_ids: list[str] = Field(default_factory=list, description="Pinned prompt block ids.")
+    include_memory_summary: bool = Field(False, description="Whether to include session memory summary by default.")
+    include_recent_messages: bool = Field(False, description="Whether to include recent messages by default.")
     mounted_reply_ids: list[str] = Field(default_factory=list, description="Mounted assistant message ids.")
     active_plan_id: str | None = Field(None, description="Currently highlighted plan id.")
     memory_summary_id: str | None = Field(None, description="Current memory summary id.")
@@ -165,6 +167,8 @@ class UpdateChatSessionRequest(BaseModel):
     mounted_reply_ids: list[str] | None = Field(None, description="Mounted reply ids.")
     selected_prompt_block_ids: list[str] | None = Field(None, description="Selected prompt block ids.")
     pinned_context_block_ids: list[str] | None = Field(None, description="Pinned prompt block ids.")
+    include_memory_summary: bool | None = Field(None, description="Whether to include session memory summary by default.")
+    include_recent_messages: bool | None = Field(None, description="Whether to include recent messages by default.")
     draft_text: str | None = Field(None, description="Draft text.")
     draft_attachments: list[ReplayAiChatAttachment] | None = Field(None, description="Draft attachments.")
     active_plan_id: str | None = Field(None, description="Active plan id.")
@@ -210,6 +214,7 @@ class ChatReplyResponse(BaseModel):
     live_context_summary: list[str] = Field(default_factory=list, description="Live context summary items.")
     follow_up_suggestions: list[str] = Field(default_factory=list, description="Follow-up suggestions.")
     attachment_summaries: list[str] = Field(default_factory=list, description="Attachment summaries.")
+    session_only: bool = Field(False, description="Whether the reply was generated without replay snapshot context.")
 
 
 class ChatSessionEnvelope(BaseModel):
@@ -235,6 +240,24 @@ class PromptBlocksEnvelope(BaseModel):
 class SessionMemoryEnvelope(BaseModel):
     ok: bool = Field(True, description="Whether the request succeeded.")
     memory: SessionMemory | None = Field(None, description="Session memory record.")
+
+
+class ChatLifecycleEvaluateRequest(BaseModel):
+    bars: list[dict[str, Any]] = Field(default_factory=list, description="Bars used for lifecycle evaluation.")
+    live_tail: dict[str, Any] | None = Field(None, description="Optional live tail snapshot.")
+    object_ids: list[str] = Field(default_factory=list, description="Object ids to evaluate.")
+
+
+class ChatLifecycleTransition(BaseModel):
+    object_id: str = Field(..., description="Object identifier.")
+    from_status: str = Field(..., description="Previous lifecycle status.")
+    to_status: str = Field(..., description="Next lifecycle status.")
+    event: str = Field(..., description="Transition event.")
+
+
+class ChatLifecycleEvaluateResponse(BaseModel):
+    ok: bool = Field(True, description="Whether the request succeeded.")
+    transitions: list[ChatLifecycleTransition] = Field(default_factory=list, description="Lifecycle transitions.")
 
 
 class ChatHandoffRequest(BaseModel):

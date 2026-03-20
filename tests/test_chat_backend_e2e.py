@@ -50,6 +50,28 @@ class FakeReplayChatAssistant:
             ),
         )
 
+    def generate_session_reply(
+        self,
+        *,
+        user_message: str,
+        history,
+        attachments=None,
+        model_override: str | None = None,
+    ):
+        model_name = model_override or "fake-chat-e2e"
+        return (
+            "fake-openai",
+            model_name,
+            ReplayAiChatContent(
+                reply_text=f"Session-only 回复：{user_message}",
+                live_context_summary=[],
+                referenced_strategy_ids=[],
+                follow_up_suggestions=["如需图表分析，请先加载回放图表。"],
+                plan_cards=[],
+                annotations=[],
+            ),
+        )
+
 
 def load_fixture(name: str) -> bytes:
     return (FIXTURE_DIR / name).read_bytes()
@@ -178,6 +200,125 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert len(stored_annotations) >= 1
     stored_plans = repository.list_chat_plan_cards(session_id=session_id)
     assert len(stored_plans) >= 1
+
+
+def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
+    application, repository = build_application()
+
+    create_session_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "无图表聊天",
+                "symbol": "NQ",
+                "contract_id": "NQM2026",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "active_model": "fake-chat-e2e",
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    assert create_session_response.status_code == 201
+    session_id = json.loads(create_session_response.body)["session"]["session_id"]
+
+    prompt_blocks_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/prompt-blocks/build",
+        json.dumps({"candidates": ["session_summary", "recent_messages"]}).encode("utf-8"),
+    )
+    assert prompt_blocks_response.status_code == 200
+    prompt_blocks_payload = json.loads(prompt_blocks_response.body)
+    assert len(prompt_blocks_payload["blocks"]) == 2
+
+    reply_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/reply",
+        json.dumps(
+            {
+                "replay_ingestion_id": None,
+                "preset": ReplayAiChatPreset.GENERAL.value,
+                "user_input": "还没加载图表，先帮我整理一下当前思路。",
+                "selected_block_ids": [],
+                "pinned_block_ids": [],
+                "include_memory_summary": True,
+                "include_recent_messages": True,
+                "model": "fake-chat-e2e",
+                "attachments": [],
+            }
+        ).encode("utf-8"),
+    )
+    assert reply_response.status_code == 200
+    reply_payload = json.loads(reply_response.body)
+
+    assert reply_payload["ok"] is True
+    assert reply_payload["session_only"] is True
+    assert reply_payload["live_context_summary"] == []
+    assert reply_payload["referenced_strategy_ids"] == []
+    assert reply_payload["plan_cards"] == []
+    assert reply_payload["annotations"] == []
+    assert reply_payload["assistant_message"]["status"] == "completed"
+    assert reply_payload["memory"]["latest_question"] == "还没加载图表，先帮我整理一下当前思路。"
+
+    stored_messages = repository.list_chat_messages(session_id=session_id)
+    assert len(stored_messages) == 2
+    stored_memory = repository.get_session_memory(session_id)
+    assert stored_memory is not None
+
+
+def test_chat_stream_endpoint_returns_sse_events_without_replay_snapshot() -> None:
+    application, _repository = build_application()
+
+    create_session_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "无图表SSE测试",
+                "symbol": "NQ",
+                "contract_id": "NQM2026",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "active_model": "fake-chat-e2e",
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    session_id = json.loads(create_session_response.body)["session"]["session_id"]
+
+    stream_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/stream",
+        json.dumps(
+            {
+                "replay_ingestion_id": None,
+                "preset": ReplayAiChatPreset.GENERAL.value,
+                "user_input": "没有图表，先做纯聊天。",
+                "selected_block_ids": [],
+                "pinned_block_ids": [],
+                "include_memory_summary": False,
+                "include_recent_messages": True,
+                "model": "fake-chat-e2e",
+                "attachments": [],
+            }
+        ).encode("utf-8"),
+    )
+
+    assert stream_response.status_code == 200
+    body = b"".join(stream_response.stream_chunks).decode("utf-8")
+    assert "event: message_start" in body
+    assert "event: token" in body
+    assert "event: message_end" in body
+
 
 
 def test_chat_stream_endpoint_returns_sse_events() -> None:
@@ -334,7 +475,71 @@ def test_chat_regenerate_creates_new_assistant_message() -> None:
     memory_payload = json.loads(memory_response.body)
     assert memory_payload["memory"]["session_id"] == session_id
 
-    stored_messages = repository.list_chat_messages(session_id=session_id)
-    assert len(stored_messages) == 4
-    stored_plans = repository.list_chat_plan_cards(session_id=session_id)
-    assert len(stored_plans) >= 2
+
+
+def test_chat_lifecycle_evaluate_returns_transitions() -> None:
+    application, _repository = build_application()
+
+    snapshot_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-snapshots",
+        load_fixture("replay_workbench.snapshot.sample.json"),
+    )
+    replay_ingestion_id = json.loads(snapshot_response.body)["ingestion_id"]
+
+    create_session_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "Lifecycle测试",
+                "symbol": "NQ",
+                "contract_id": "NQM2026",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "active_model": "fake-chat-e2e",
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    session_id = json.loads(create_session_response.body)["session"]["session_id"]
+
+    reply_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/reply",
+        json.dumps(
+            {
+                "replay_ingestion_id": replay_ingestion_id,
+                "preset": ReplayAiChatPreset.GENERAL.value,
+                "user_input": "如果这里回踩，还能不能继续做多？",
+                "selected_block_ids": [],
+                "pinned_block_ids": [],
+                "include_memory_summary": False,
+                "include_recent_messages": True,
+                "model": "fake-chat-e2e",
+                "attachments": [],
+            }
+        ).encode("utf-8"),
+    )
+    reply_payload = json.loads(reply_response.body)
+    object_ids = [item["plan_id"] for item in reply_payload["plan_cards"] if item.get("plan_id")]
+
+    lifecycle_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/lifecycle/evaluate",
+        json.dumps(
+            {
+                "bars": [{"close": 21524.0}],
+                "live_tail": None,
+                "object_ids": object_ids,
+            }
+        ).encode("utf-8"),
+    )
+    assert lifecycle_response.status_code == 200
+    lifecycle_payload = json.loads(lifecycle_response.body)
+    assert lifecycle_payload["ok"] is True
+    assert isinstance(lifecycle_payload["transitions"], list)

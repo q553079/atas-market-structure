@@ -164,11 +164,21 @@ function buildPromptBlockFromPreset(preset, message, session) {
     selected_bar: "选中K线",
     general: "当前问题",
   };
+  const sourceLabelMap = {
+    recent_20_bars: "快捷分析",
+    recent_20_minutes: "快捷分析",
+    focus_regions: "重点区域",
+    live_depth: "盘口上下文",
+    manual_region: "手工选择",
+    selected_bar: "选中K线",
+    general: "用户问题",
+  };
   return {
     blockId: `pb-${preset}-${now}`,
     kind: preset || "user_input",
     title: titleMap[preset] || titleMap.general,
     previewText: summarizeText(message, 60),
+    sourceLabel: sourceLabelMap[preset] || "用户问题",
     symbol: session?.symbol || session?.memory?.symbol || "NQ",
     contractId: session?.contractId || session?.symbol || session?.memory?.symbol || "NQ",
     ephemeral: true,
@@ -188,6 +198,7 @@ function normalizePromptBlock(raw = {}, session, fallback = {}) {
     title: raw.title || fallback.title || "上下文块",
     previewText: raw.preview_text || raw.previewText || fallback.previewText || "",
     preview_text: raw.preview_text || raw.previewText || fallback.previewText || "",
+    sourceLabel: raw.source_label || raw.sourceLabel || fallback.sourceLabel || fallback.kind || "上下文块",
     ephemeral: raw.ephemeral ?? fallback.ephemeral ?? true,
     pinned: !!(raw.pinned ?? fallback.pinned),
   };
@@ -327,6 +338,19 @@ function buildAnnotationBundle({ session, messageId, planCards = [], state, expl
   return Array.from(dedup.values());
 }
 
+function buildOutgoingAttachments(session) {
+  const attachments = Array.isArray(session?.draftAttachments)
+    ? session.draftAttachments
+    : (Array.isArray(session?.attachments) ? session.attachments : []);
+  return attachments
+    .map((item) => ({
+      name: item.name || null,
+      media_type: item.kind || item.media_type || "image/png",
+      data_url: item.data_url || item.preview_url || "",
+    }))
+    .filter((item) => item.data_url);
+}
+
 export function createAiChatController({
   state,
   els,
@@ -342,24 +366,86 @@ export function createAiChatController({
   sessionMemoryEngine = null,
   addPromptBlock = null,
   getOrCreateBlankSessionForSymbol = null,
+  renderAiChat = null,
 }) {
   let activeStreamController = null;
   let activeStreamMeta = null;
 
+  function setStreamingUiState(streaming) {
+    const nextStreaming = !!streaming;
+    if (els.aiChatSendButton) {
+      els.aiChatSendButton.dataset.busy = nextStreaming ? "true" : "false";
+      els.aiChatSendButton.setAttribute("aria-busy", nextStreaming ? "true" : "false");
+      els.aiChatSendButton.classList.toggle("is-active", nextStreaming);
+      els.aiChatSendButton.disabled = nextStreaming;
+    }
+    if (els.aiChatStopButton) {
+      els.aiChatStopButton.hidden = !nextStreaming;
+      els.aiChatStopButton.disabled = !nextStreaming;
+      els.aiChatStopButton.dataset.busy = "false";
+      els.aiChatStopButton.setAttribute("aria-pressed", nextStreaming ? "true" : "false");
+      els.aiChatStopButton.classList.toggle("is-active", nextStreaming);
+    }
+    const composer = els.aiChatInput?.closest(".chat-composer");
+    if (composer) {
+      composer.classList.toggle("is-streaming", nextStreaming);
+    }
+  }
+
+  function refreshChatUi() {
+    renderAiChat?.();
+  }
+
+  function isReplayRequiredPreset(preset) {
+    return ["recent_20_bars", "selected_bar", "manual_region", "live_depth"].includes(preset);
+  }
+
+  function ensureReplayIngestionReady({ preserveInput = true, reason = "请先加载图表 / 回放数据，再发送 AI 问题" } = {}) {
+    if (state.currentReplayIngestionId) {
+      return true;
+    }
+    const currentValue = preserveInput ? String(els.aiChatInput?.value || "").trim() : "";
+    if (preserveInput && currentValue && !els.aiChatInput.value) {
+      els.aiChatInput.value = currentValue;
+    }
+    renderStatusStrip?.([{ label: reason, variant: "warn" }]);
+    refreshChatUi();
+    return false;
+  }
+
+  function buildPromptBlockCandidates({ preset, includeMemorySummary, includeRecentMessages, hasReplayContext }) {
+    const candidates = [];
+    if (hasReplayContext) {
+      const presetMap = {
+        recent_20_bars: "candles_20",
+        recent_20_minutes: "event_summary",
+        focus_regions: "event_summary",
+        live_depth: "event_summary",
+        manual_region: "manual_region",
+        selected_bar: "selected_bar",
+        general: "event_summary",
+        viewport: "event_summary",
+      };
+      const primaryCandidate = presetMap[preset] || "event_summary";
+      candidates.push(primaryCandidate);
+    }
+    if (includeMemorySummary) {
+      candidates.push("session_summary");
+    }
+    if (includeRecentMessages) {
+      candidates.push("recent_messages");
+    }
+    return Array.from(new Set(candidates));
+  }
+
   async function buildPromptBlocks(session, request) {
     const payload = {
-      replay_ingestion_id: state.currentReplayIngestionId,
-      preset: request.preset || "general",
-      symbol: session.symbol || state.topBar?.symbol || "NQ",
-      contract_id: session.contractId || session.symbol || state.topBar?.symbol || "NQ",
-      timeframe: session.timeframe || state.topBar?.timeframe || "1m",
-      user_input: request.userInput || "",
-      analysis_type: request.analysisType || session.analysisTemplate?.type || request.preset || "general",
-      analysis_range: request.analysisRange || session.analysisTemplate?.range || "current_window",
-      analysis_style: request.analysisStyle || session.analysisTemplate?.style || "standard",
-      include_memory_summary: !!request.includeMemorySummary,
-      include_recent_messages: !!request.includeRecentMessages,
-      attachments: Array.isArray(request.attachments) ? request.attachments : [],
+      candidates: buildPromptBlockCandidates({
+        preset: request.preset,
+        includeMemorySummary: request.includeMemorySummary,
+        includeRecentMessages: request.includeRecentMessages,
+        hasReplayContext: !!request.hasReplayContext,
+      }),
     };
 
     if (fetchJson) {
@@ -438,6 +524,7 @@ export function createAiChatController({
       patch,
     );
     persistSessions();
+    refreshChatUi();
     return next;
   }
 
@@ -488,6 +575,7 @@ export function createAiChatController({
       replyTitle: payload.replyTitle || current?.replyTitle || structuredPlanCards[0]?.title || null,
       provider: payload.provider || current?.meta?.provider,
       model: payload.model || current?.model,
+      session_only: payload.sessionOnly ?? payload.session_only ?? current?.meta?.session_only ?? false,
       live_context_summary: payload.liveContextSummary || current?.meta?.live_context_summary || [],
       follow_up_suggestions: payload.followUpSuggestions || current?.meta?.follow_up_suggestions || [],
       status: payload.status || "completed",
@@ -496,15 +584,6 @@ export function createAiChatController({
     return assistantMessage;
   }
 
-  function failStreamingMessage(session, pendingMessageId, error, runtime = {}, eventData = {}) {
-    return syncStreamingMessage(session, pendingMessageId, {
-      content: error?.message || String(error || "流式输出失败"),
-      provider: "local-error",
-      model: "-",
-      replyTitle: "AI 对话失败",
-      status: "failed",
-    }, runtime, eventData);
-  }
 
   function handleChatStreamEvent(session, pendingMessageId, eventName, eventData, runtime = {}) {
     const payload = unwrapEventData(eventData);
@@ -527,6 +606,7 @@ export function createAiChatController({
         replyTitle: firstDefined(payload.reply_title, payload.replyTitle, payload.title, "AI 回复生成中"),
         model: firstDefined(payload.model, payload.model_name, runtime.model, null),
         provider: firstDefined(payload.provider, payload.vendor, runtime.provider, "stream"),
+        session_only: firstDefined(payload.session_only, payload.sessionOnly, false),
         status: pickStreamStatus(payload, "pending"),
       }, runtime, payload);
       return;
@@ -568,6 +648,7 @@ export function createAiChatController({
         annotations: pickStreamAnnotations(payload),
         provider: firstDefined(payload.provider, payload.vendor, runtime.provider),
         model: firstDefined(payload.model, payload.model_name, runtime.model),
+        sessionOnly: firstDefined(payload.session_only, payload.sessionOnly, false),
         liveContextSummary: firstDefined(payload.live_context_summary, payload.liveContextSummary),
         followUpSuggestions: firstDefined(payload.follow_up_suggestions, payload.followUpSuggestions, payload.suggestions),
         status: pickStreamStatus(payload, "completed"),
@@ -700,8 +781,10 @@ export function createAiChatController({
     if (!trimmedMessage) {
       throw new Error("请输入要分析的问题。");
     }
-    if (!state.currentReplayIngestionId) {
-      throw new Error("没有可分析的 replay ingestion。先加载图表。");
+    if (!state.currentReplayIngestionId && isReplayRequiredPreset(preset)) {
+      renderStatusStrip?.([{ label: "此功能需要先加载图表。普通文字聊天可直接发送。", variant: "warn" }]);
+      refreshChatUi();
+      return { blocked: true };
     }
     const descriptor = threadMeta || getPresetThreadMeta(preset);
     const session = setActiveThread(descriptor.id, descriptor.title, {
@@ -710,8 +793,8 @@ export function createAiChatController({
       timeframe: descriptor.timeframe || threadMeta?.timeframe || state.topBar?.timeframe,
       windowRange: descriptor.windowRange || threadMeta?.windowRange || state.topBar?.quickRange,
     });
-    const includeMemorySummary = !!(session.memory?.user_goal_summary || session.memory?.market_context_summary || session.memory?.latest_answer_summary);
-    const includeRecentMessages = Array.isArray(session.messages) && session.messages.length > 1;
+    const includeMemorySummary = !!session.includeMemorySummary;
+    const includeRecentMessages = !!session.includeRecentMessages;
     const builtBlocks = await buildPromptBlocks(session, {
       preset,
       userInput: trimmedMessage,
@@ -720,15 +803,8 @@ export function createAiChatController({
       analysisStyle: session.analysisTemplate?.style,
       includeMemorySummary,
       includeRecentMessages,
-      attachments: Array.isArray(session.attachments)
-        ? session.attachments
-            .map((item) => ({
-              name: item.name || null,
-              media_type: item.kind || item.media_type || "image/png",
-              data_url: item.data_url || item.preview_url || "",
-            }))
-            .filter((item) => item.data_url)
-        : [],
+      attachments: buildOutgoingAttachments(session),
+      hasReplayContext: !!state.currentReplayIngestionId,
     });
     resetPromptBlockSelection(session);
     builtBlocks.forEach((block) => {
@@ -736,10 +812,12 @@ export function createAiChatController({
     });
     const effectiveSelectedBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
     const effectivePinnedBlockIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+    const outgoingAttachments = buildOutgoingAttachments(session);
     appendAiChatMessage("user", trimmedMessage, {
       preset,
       selected_block_ids: effectiveSelectedBlockIds,
       pinned_block_ids: effectivePinnedBlockIds,
+      attachments: outgoingAttachments,
     }, session.id, session.title);
     const pendingAssistant = appendAiChatMessage("assistant", "正在思考中…", {
       preset,
@@ -759,13 +837,12 @@ export function createAiChatController({
     }
     renderStatusStrip([{ label: "AI 对话生成中", variant: "emphasis" }]);
     try {
-      const baseHistory = session.messages.map((item) => ({ role: item.role, content: item.content }));
       const selectedBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
       const pinnedBlockIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
-      const includeMemorySummary = !!(session.memory?.user_goal_summary || session.memory?.market_context_summary || session.memory?.latest_answer_summary);
-      const includeRecentMessages = baseHistory.length > 1;
+      const includeMemorySummary = !!session.includeMemorySummary;
+      const includeRecentMessages = !!session.includeRecentMessages;
       const requestPayload = {
-        replay_ingestion_id: state.currentReplayIngestionId,
+        replay_ingestion_id: state.currentReplayIngestionId || null,
         preset,
         user_input: trimmedMessage,
         selected_block_ids: selectedBlockIds,
@@ -776,15 +853,7 @@ export function createAiChatController({
         analysis_range: session.analysisTemplate?.range || "current_window",
         analysis_style: session.analysisTemplate?.style || "standard",
         model: session.activeModel || els.aiModelOverride.value.trim() || null,
-        attachments: Array.isArray(session.attachments)
-          ? session.attachments
-              .map((item) => ({
-                name: item.name || null,
-                media_type: item.kind || item.media_type || "image/png",
-                data_url: item.data_url || item.preview_url || "",
-              }))
-              .filter((item) => item.data_url)
-          : [],
+        attachments: buildOutgoingAttachments(session),
       };
       let result;
       try {
@@ -809,6 +878,7 @@ export function createAiChatController({
           }
           renderStatusStrip([{ label: "已停止生成", variant: "warn" }]);
           persistSessions();
+          refreshChatUi();
           writeStorage("annotationFilters", state.annotationFilters);
           return { interrupted: true };
         }
@@ -845,6 +915,7 @@ export function createAiChatController({
           { label: streamedMessage?.model || session.activeModel || "服务端默认", variant: "emphasis" },
         ]);
         persistSessions();
+        refreshChatUi();
         writeStorage("annotationFilters", state.annotationFilters);
         return {
           streamed: true,
@@ -872,6 +943,7 @@ export function createAiChatController({
         annotations: structuredAnnotations,
         replyTitle: result.assistant_message?.reply_title || fallbackPlanCards[0]?.title || null,
         mountedToChart: false,
+        session_only: !!result.session_only,
         status: "completed",
       }) || appendAiChatMessage("assistant", assistantContent, {
         preset: result.preset,
@@ -884,6 +956,7 @@ export function createAiChatController({
         annotations: structuredAnnotations,
         replyTitle: result.assistant_message?.reply_title || fallbackPlanCards[0]?.title || null,
         mountedToChart: false,
+        session_only: !!result.session_only,
       }, session.id, session.title);
       session.messages = session.messages.map((message) => message.message_id === assistantMessage.message_id
         ? {
@@ -928,6 +1001,7 @@ export function createAiChatController({
         { label: result.model || "服务端默认", variant: "emphasis" },
       ]);
       persistSessions();
+      refreshChatUi();
       writeStorage("annotationFilters", state.annotationFilters);
       return result;
     } catch (error) {
@@ -940,21 +1014,54 @@ export function createAiChatController({
       });
       renderStatusStrip([{ label: "AI 对话失败", variant: "warn" }]);
       persistSessions();
+      refreshChatUi();
       throw error;
     }
   }
 
   async function handleAiChatSend() {
-    const session = getActiveThread();
-    const message = els.aiChatInput.value.trim();
+    let session = getActiveThread();
+    const draftText = els.aiChatInput.value;
+    const message = draftText.trim();
+    const composerPreset = "general";
     if (!message) {
+      renderStatusStrip([{ label: "请先输入消息，再发送。", variant: "warn" }]);
+      els.aiChatInput.focus();
       return;
     }
-    session.draft = "";
-    session.draftText = "";
-    els.aiChatInput.value = "";
-    persistSessions();
-    await handleAiChat(session.analysisTemplate?.type || "general", message, session);
+    if (!state.currentReplayIngestionId && isReplayRequiredPreset(composerPreset)) {
+      if (!ensureReplayIngestionReady({ preserveInput: true, reason: "此功能需要先加载图表。普通文字聊天可直接发送。" })) {
+        return;
+      }
+    }
+    if (getOrCreateBlankSessionForSymbol && /^session-\d+$/i.test(String(session?.id || ""))) {
+      session = await getOrCreateBlankSessionForSymbol(
+        session?.symbol || state.topBar?.symbol || "NQ",
+        session?.contractId || session?.symbol || state.topBar?.symbol || "NQ",
+      );
+    }
+    const draftAttachmentsSnapshot = Array.isArray(session.draftAttachments)
+      ? [...session.draftAttachments]
+      : (Array.isArray(session.attachments) ? [...session.attachments] : []);
+    try {
+      await handleAiChat(composerPreset, message, session);
+      session.draft = "";
+      session.draftText = "";
+      session.draftAttachments = [];
+      session.attachments = [];
+      els.aiChatInput.value = "";
+      persistSessions();
+      refreshChatUi();
+    } catch (error) {
+      session.draft = draftText;
+      session.draftText = draftText;
+      session.draftAttachments = draftAttachmentsSnapshot;
+      session.attachments = [...draftAttachmentsSnapshot];
+      els.aiChatInput.value = draftText;
+      persistSessions();
+      refreshChatUi();
+      throw error;
+    }
   }
 
   function handleComposerInput(value) {
@@ -966,11 +1073,22 @@ export function createAiChatController({
 
   function bindStreamingControls() {
     els.aiChatStopButton?.addEventListener("click", () => {
-      stopActiveStream();
+      if (!activeStreamMeta) {
+        renderStatusStrip([{ label: "当前没有正在生成的回复。", variant: "warn" }]);
+        return;
+      }
+      els.aiChatStopButton.dataset.busy = "true";
+      renderStatusStrip([{ label: "正在停止生成…", variant: "emphasis" }]);
+      stopActiveStream().catch(() => {
+        els.aiChatStopButton.dataset.busy = "false";
+      });
     });
   }
 
   async function handlePresetAnalysis(preset, message, createNew = false) {
+    if (isReplayRequiredPreset(preset) && !ensureReplayIngestionReady({ preserveInput: false, reason: "此功能需要先加载图表。普通文字聊天可直接发送。" })) {
+      return { blocked: true };
+    }
     const session = createNew
       ? (getOrCreateBlankSessionForSymbol
           ? getOrCreateBlankSessionForSymbol(state.topBar?.symbol || "NQ", state.topBar?.symbol || "NQ")
@@ -1025,6 +1143,8 @@ export function createAiChatController({
       windowRange: state.topBar?.quickRange || "最近7天",
     });
   }
+
+  setStreamingUiState(false);
 
   return {
     handleAiChat,

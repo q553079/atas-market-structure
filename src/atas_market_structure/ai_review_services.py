@@ -64,9 +64,28 @@ class ReplayAiChatAssistant(Protocol):
     ) -> tuple[str, str, ReplayAiChatContent]:
         ...
 
+    def generate_session_reply(
+        self,
+        *,
+        user_message: str,
+        history: list[ReplayAiChatMessage],
+        attachments: list[ReplayAiChatAttachment],
+        model_override: str | None = None,
+    ) -> tuple[str, str, ReplayAiChatContent]:
+        ...
+
 
 class OpenAiReplayReviewer:
     """OpenAI-compatible replay reviewer using chat-completions JSON output."""
+
+    _SESSION_ONLY_SYSTEM_PROMPT = (
+        "You are the replay-workbench copilot in session-only chat mode. "
+        "No replay snapshot, chart packet, event annotations, focus regions, strategy cards, or live depth context are available unless explicitly stated in the conversation or attachments. "
+        "Use only the user's message, prior chat history, session memory excerpts, and optional screenshot attachments. "
+        "Do not claim to see candles, order-flow, replay events, or chart structure unless the user actually provided that information. "
+        "If chart-specific evidence is missing, say so clearly and answer at the session-chat level. "
+        "Return only valid JSON matching the supplied schema."
+    )
 
     def __init__(
         self,
@@ -324,6 +343,98 @@ class OpenAiReplayChatAssistant:
         if not raw_text.strip():
             raise ReplayAiReviewUnavailableError("AI chat returned no text output.")
         parsed = ReplayAiChatContent.model_validate_json(OpenAiReplayReviewer._extract_json_text(raw_text))
+        if attachment_summaries and not parsed.attachment_summaries:
+            parsed.attachment_summaries = attachment_summaries
+        return self._provider_name, chosen_model, parsed
+
+    def generate_session_reply(
+        self,
+        *,
+        user_message: str,
+        history: list[ReplayAiChatMessage],
+        attachments: list[ReplayAiChatAttachment],
+        model_override: str | None = None,
+    ) -> tuple[str, str, ReplayAiChatContent]:
+        if not self._api_key:
+            raise ReplayAiReviewUnavailableError(f"{self._provider_name} API key is not configured.")
+
+        client = OpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url or None,
+            timeout=self._timeout_seconds,
+        )
+        chosen_model = model_override or self._model
+        attachment_summaries = [
+            _summarize_chat_attachment(item, index)
+            for index, item in enumerate(attachments[:3], start=1)
+        ]
+        request_payload = {
+            "schema": ReplayAiChatContent.model_json_schema(),
+            "mode": "session_only",
+            "latest_user_request": user_message,
+            "conversation_context": [item.model_dump(mode="json") for item in history[-10:]],
+            "image_attachments": attachment_summaries,
+            "output_expectations": {
+                "live_context_summary": [],
+                "referenced_strategy_ids": [],
+                "annotations": [],
+                "plan_cards": [],
+            },
+        }
+        user_content: object = json.dumps(
+            request_payload,
+            ensure_ascii=False,
+            default=_json_default,
+        )
+        if attachments:
+            user_content = [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        request_payload,
+                        ensure_ascii=False,
+                        default=_json_default,
+                    ),
+                },
+                *[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": item.data_url},
+                    }
+                    for item in attachments[:3]
+                ],
+            ]
+        response = client.chat.completions.create(
+            model=chosen_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": self._SESSION_ONLY_SYSTEM_PROMPT,
+                },
+                *[
+                    {
+                        "role": item.role,
+                        "content": item.content,
+                    }
+                    for item in history[-10:]
+                ],
+                {
+                    "role": "user",
+                    "content": user_content,
+                },
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2,
+            max_tokens=1200,
+        )
+        raw_text = response.choices[0].message.content or ""
+        if not raw_text.strip():
+            raise ReplayAiReviewUnavailableError("AI chat returned no text output.")
+        parsed = ReplayAiChatContent.model_validate_json(OpenAiReplayReviewer._extract_json_text(raw_text))
+        parsed.live_context_summary = []
+        parsed.referenced_strategy_ids = []
+        parsed.annotations = []
+        parsed.plan_cards = []
         if attachment_summaries and not parsed.attachment_summaries:
             parsed.attachment_summaries = attachment_summaries
         return self._provider_name, chosen_model, parsed
