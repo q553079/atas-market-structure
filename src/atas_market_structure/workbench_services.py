@@ -121,13 +121,14 @@ def _slugify_title(value: str) -> str:
 
 
 class _PreparedReplyTurn:
-    def __init__(self, *, session: StoredChatSession, replay_ingestion_id: str, user_record: StoredChatMessage, assistant_pending: StoredChatMessage, history, request: ChatReplyRequest) -> None:
+    def __init__(self, *, session: StoredChatSession, replay_ingestion_id: str, user_record: StoredChatMessage, assistant_pending: StoredChatMessage, history, request: ChatReplyRequest, parent_message_id: str | None = None) -> None:
         self.session = session
         self.replay_ingestion_id = replay_ingestion_id
         self.user_record = user_record
         self.assistant_pending = assistant_pending
         self.history = history
         self.request = request
+        self.parent_message_id = parent_message_id
 
 
 class _FinalizedReplyTurn:
@@ -320,7 +321,10 @@ class ReplayWorkbenchChatService:
             attachments=[],
             replay_ingestion_id=message.response_payload.get("replay_ingestion_id") or request_payload.get("replay_ingestion_id"),
         )
-        return self.reply(session_id, request)
+        prepared = self._prepare_reply_turn(session_id, request, parent_message_id=message.message_id)
+        replay_response = self._run_reply_model(prepared)
+        finalized = self._finalize_reply_turn(prepared, replay_response)
+        return self._build_reply_response(finalized)
 
     def _find_regenerate_user_message(self, session_id: str, assistant_message: StoredChatMessage) -> StoredChatMessage | None:
         messages = self._repository.list_chat_messages(session_id=session_id, limit=500)
@@ -332,7 +336,7 @@ class ReplayWorkbenchChatService:
                 return candidate
         return None
 
-    def _prepare_reply_turn(self, session_id: str, request: ChatReplyRequest) -> _PreparedReplyTurn:
+    def _prepare_reply_turn(self, session_id: str, request: ChatReplyRequest, parent_message_id: str | None = None) -> _PreparedReplyTurn:
         session = self._require_stored_session(session_id)
         replay_ingestion_id = request.replay_ingestion_id or self._find_latest_replay_ingestion_id_for_symbol(session.symbol)
         if replay_ingestion_id is None:
@@ -369,7 +373,7 @@ class ReplayWorkbenchChatService:
         assistant_pending = self._repository.save_chat_message(
             message_id=f"msg-{uuid4().hex}",
             session_id=session_id,
-            parent_message_id=None,
+            parent_message_id=parent_message_id,
             role="assistant",
             content="",
             status="pending",
@@ -394,6 +398,7 @@ class ReplayWorkbenchChatService:
             assistant_pending=assistant_pending,
             history=history,
             request=request,
+            parent_message_id=parent_message_id,
         )
 
     def _run_reply_model(self, prepared: _PreparedReplyTurn):
@@ -410,8 +415,8 @@ class ReplayWorkbenchChatService:
         )
 
     def _finalize_reply_turn(self, prepared: _PreparedReplyTurn, replay_response) -> _FinalizedReplyTurn:
-        plan_cards = self._extract_plan_cards(prepared.session, prepared.assistant_pending.message_id, replay_response.reply_text)
-        annotations = self._build_annotations(prepared.session, prepared.assistant_pending.message_id, plan_cards)
+        plan_cards = self._extract_plan_cards(prepared.session, prepared.assistant_pending.message_id, replay_response)
+        annotations = self._build_annotations(prepared.session, prepared.assistant_pending.message_id, replay_response, plan_cards)
         assistant_record = self._repository.update_chat_message(
             prepared.assistant_pending.message_id,
             content=replay_response.reply_text,
@@ -809,8 +814,40 @@ class ReplayWorkbenchChatService:
         self._repository.update_chat_session(session_id, memory_summary_id=stored.memory_summary_id, updated_at=now)
         return self._memory_model(stored)
 
-    def _extract_plan_cards(self, session: StoredChatSession, message_id: str, reply_text: str) -> list[StoredChatPlanCard]:
-        text = str(reply_text or "")
+    def _extract_plan_cards(self, session: StoredChatSession, message_id: str, replay_response) -> list[StoredChatPlanCard]:
+        structured_candidates = list(getattr(replay_response, "plan_cards", []) or [])
+        if structured_candidates:
+            now = datetime.now(tz=UTC)
+            plans: list[StoredChatPlanCard] = []
+            for candidate in structured_candidates:
+                plan = self._repository.save_chat_plan_card(
+                    plan_id=f"plan-{uuid4().hex}",
+                    session_id=session.session_id,
+                    message_id=message_id,
+                    title=candidate.title or "AI计划卡",
+                    side=candidate.side or "buy",
+                    entry_type="range" if candidate.entry_price_low is not None or candidate.entry_price_high is not None else "point",
+                    entry_price=candidate.entry_price,
+                    entry_price_low=candidate.entry_price_low,
+                    entry_price_high=candidate.entry_price_high,
+                    stop_price=candidate.stop_price,
+                    take_profits=candidate.take_profits,
+                    invalidations=candidate.invalidations,
+                    time_validity=None,
+                    risk_reward=None,
+                    confidence=candidate.confidence,
+                    priority=candidate.priority,
+                    status="active",
+                    source_kind="replay_analysis",
+                    notes=candidate.notes or candidate.summary or replay_response.reply_text,
+                    payload=candidate.model_dump(mode="json"),
+                    created_at=now,
+                    updated_at=now,
+                )
+                plans.append(plan)
+            return plans
+
+        text = str(replay_response.reply_text or "")
         values = [float(item) for item in re.findall(r"\d{4,5}(?:\.\d{1,2})?", text)]
         if len(values) < 2 or not re.search(r"止损|止盈|TP|入场|做多|做空", text):
             return []
@@ -848,7 +885,41 @@ class ReplayWorkbenchChatService:
         )
         return [plan]
 
-    def _build_annotations(self, session: StoredChatSession, message_id: str, plans: list[StoredChatPlanCard]) -> list[StoredChatAnnotation]:
+    def _build_annotations(self, session: StoredChatSession, message_id: str, replay_response, plans: list[StoredChatPlanCard]) -> list[StoredChatAnnotation]:
+        structured_candidates = list(getattr(replay_response, "annotations", []) or [])
+        if structured_candidates:
+            annotations: list[StoredChatAnnotation] = []
+            now = datetime.now(tz=UTC)
+            for candidate in structured_candidates:
+                annotations.append(
+                    self._repository.save_chat_annotation(
+                        annotation_id=f"ann-{uuid4().hex}",
+                        session_id=session.session_id,
+                        message_id=message_id,
+                        plan_id=None,
+                        symbol=session.symbol,
+                        contract_id=session.contract_id,
+                        timeframe=session.timeframe,
+                        annotation_type=candidate.type,
+                        subtype=candidate.subtype,
+                        label=candidate.label or "AI标记",
+                        reason=candidate.reason or "",
+                        start_time=candidate.start_time or now,
+                        end_time=candidate.end_time,
+                        expires_at=candidate.expires_at,
+                        status=candidate.status or "active",
+                        priority=candidate.priority,
+                        confidence=candidate.confidence,
+                        visible=candidate.visible,
+                        pinned=candidate.pinned,
+                        source_kind=candidate.source_kind or "replay_analysis",
+                        payload=candidate.model_dump(mode="json"),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            return annotations
+
         annotations: list[StoredChatAnnotation] = []
         now = datetime.now(tz=UTC)
         for plan in plans:

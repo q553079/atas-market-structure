@@ -50,6 +50,46 @@ class ReplayAiChatAttachment(BaseModel):
 
 
 
+class ReplayAiChatPlanCandidate(BaseModel):
+    title: str | None = Field(None, description="Optional plan title.")
+    side: str | None = Field(None, description="Trade side.")
+    entry_price: float | None = Field(None, description="Entry price.")
+    entry_price_low: float | None = Field(None, description="Entry range low.")
+    entry_price_high: float | None = Field(None, description="Entry range high.")
+    stop_price: float | None = Field(None, description="Stop price.")
+    take_profits: list[dict[str, Any]] = Field(default_factory=list, description="Take profit definitions.")
+    invalidations: list[str] = Field(default_factory=list, description="Invalidation rules.")
+    summary: str | None = Field(None, description="Short plan summary.")
+    notes: str | None = Field(None, description="Plan notes.")
+    confidence: float | None = Field(None, description="Optional confidence.")
+    priority: int | None = Field(None, description="Optional priority.")
+    supporting_zones: list[dict[str, Any]] = Field(default_factory=list, description="Supporting zones.")
+
+
+class ReplayAiChatAnnotationCandidate(BaseModel):
+    type: str = Field(..., description="Annotation type.")
+    subtype: str | None = Field(None, description="Annotation subtype.")
+    label: str | None = Field(None, description="Annotation label.")
+    reason: str | None = Field(None, description="Annotation reason.")
+    start_time: datetime | None = Field(None, description="Optional start time.")
+    end_time: datetime | None = Field(None, description="Optional end time.")
+    expires_at: datetime | None = Field(None, description="Optional expiry time.")
+    status: str | None = Field(None, description="Optional status.")
+    priority: int | None = Field(None, description="Optional priority.")
+    confidence: float | None = Field(None, description="Optional confidence.")
+    visible: bool = Field(True, description="Whether annotation is visible.")
+    pinned: bool = Field(False, description="Whether annotation is pinned.")
+    source_kind: str | None = Field(None, description="Source kind.")
+    side: str | None = Field(None, description="Optional side.")
+    entry_price: float | None = Field(None, description="Optional entry price.")
+    stop_price: float | None = Field(None, description="Optional stop price.")
+    target_price: float | None = Field(None, description="Optional target price.")
+    tp_level: int | None = Field(None, description="Optional take-profit level.")
+    price_low: float | None = Field(None, description="Optional zone low.")
+    price_high: float | None = Field(None, description="Optional zone high.")
+    path_points: list[dict[str, Any]] = Field(default_factory=list, description="Optional path points.")
+
+
 class ReplayAiChatContent(BaseModel):
     """Structured AI chat payload returned by the provider before persistence."""
 
@@ -58,6 +98,8 @@ class ReplayAiChatContent(BaseModel):
     referenced_strategy_ids: list[str] = Field(default_factory=list, description="Strategy-library candidates considered for this turn.")
     follow_up_suggestions: list[str] = Field(default_factory=list, description="Suggested follow-up prompts for the operator.")
     attachment_summaries: list[str] = Field(default_factory=list, description="Short summaries of user-provided image attachments.")
+    plan_cards: list[ReplayAiChatPlanCandidate] = Field(default_factory=list, description="Optional structured plan cards.")
+    annotations: list[ReplayAiChatAnnotationCandidate] = Field(default_factory=list, description="Optional structured annotations.")
 
 
 
@@ -111,6 +153,8 @@ class ReplayAiChatResponse(BaseModel):
     referenced_strategy_ids: list[str] = Field(default_factory=list, description="Strategy-library candidates considered for this turn.")
     follow_up_suggestions: list[str] = Field(default_factory=list, description="Suggested follow-up prompts for the operator.")
     attachment_summaries: list[str] = Field(default_factory=list, description="Short summaries of user-provided image attachments.")
+    plan_cards: list[ReplayAiChatPlanCandidate] = Field(default_factory=list, description="Structured plan cards returned by the model.")
+    annotations: list[ReplayAiChatAnnotationCandidate] = Field(default_factory=list, description="Structured annotations returned by the model.")
     raw_text: str = Field(..., description="Provider raw text output preserved for debugging and audit.")
 
 
