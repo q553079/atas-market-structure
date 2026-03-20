@@ -466,6 +466,8 @@ class ReplayAiChatService:
             referenced_strategy_ids=referenced_strategy_ids,
             follow_up_suggestions=content.follow_up_suggestions,
             attachment_summaries=content.attachment_summaries,
+            plan_cards=content.plan_cards,
+            annotations=content.annotations,
             raw_text=json.dumps(content.model_dump(mode="json"), ensure_ascii=False, indent=2),
         )
         self._repository.save_ingestion(

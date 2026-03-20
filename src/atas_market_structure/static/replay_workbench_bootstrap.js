@@ -291,6 +291,22 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     })();
   }
 
+  function syncPromptBlocksToServer(session, { selectedPromptBlockIds = null, pinnedContextBlockIds = null } = {}) {
+    if (!fetchJson || !session?.id) {
+      return Promise.resolve();
+    }
+    return fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(session.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        selected_prompt_block_ids: Array.isArray(selectedPromptBlockIds) ? selectedPromptBlockIds : (Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : []),
+        pinned_context_block_ids: Array.isArray(pinnedContextBlockIds) ? pinnedContextBlockIds : (Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : []),
+      }),
+    }).catch((error) => {
+      console.warn("同步 prompt blocks 失败:", error);
+    });
+  }
+
   function mountReplyObjects(messageId, mode = "show", { sessionId = null, planId = null } = {}) {
     if (!messageId) {
       return [];
@@ -441,6 +457,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       queueSessionMemoryRefresh([session.id], { forceServer: true, delay: 120 });
       if (Array.isArray(nextIds) && session.id === state.activeAiThreadId) {
         renderSnapshot();
+      }
+    },
+    onPromptBlocksChanged: (session, { selectedPromptBlockIds, pinnedContextBlockIds } = {}) => {
+      void syncPromptBlocksToServer(session, { selectedPromptBlockIds, pinnedContextBlockIds });
+      if (session.id === state.activeAiThreadId) {
+        renderAiChat();
       }
     },
     fetchJson,

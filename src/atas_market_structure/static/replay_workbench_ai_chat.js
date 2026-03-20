@@ -193,6 +193,21 @@ function normalizePromptBlock(raw = {}, session, fallback = {}) {
   };
 }
 
+function resetPromptBlockSelection(session) {
+  if (!session) {
+    return;
+  }
+  const pinnedIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+  session.selectedPromptBlockIds = [...pinnedIds];
+  session.promptBlocks = (session.promptBlocks || []).filter((block) => {
+    const blockId = block.blockId || block.id;
+    return pinnedIds.includes(blockId);
+  });
+  session.promptBlockPreviewCache = Object.fromEntries(
+    Object.entries(session.promptBlockPreviewCache || {}).filter(([blockId]) => pinnedIds.includes(blockId)),
+  );
+}
+
 function replacePendingAssistantMessage(session, pendingMessageId, content, meta = {}) {
   if (!session || !pendingMessageId) return null;
   const nextMessages = (session.messages || []).map((message) => {
@@ -637,39 +652,47 @@ export function createAiChatController({
       setStreamingUiState(false);
     }
   }
+  let activeRegenerateMessageId = null;
+
   async function regenerateMessage(messageId) {
     const session = getActiveThread();
-    if (!messageId) {
+    if (!messageId || activeRegenerateMessageId === messageId) {
       return null;
     }
+    activeRegenerateMessageId = messageId;
     renderStatusStrip([{ label: "正在重新生成…", variant: "emphasis" }]);
-    const result = await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(session.id)}/messages/${encodeURIComponent(messageId)}/regenerate`, {
-      method: "POST",
-    });
-    const assistantContent = result.reply_text || result.assistant_message?.content || "";
-    const planCards = Array.isArray(result.plan_cards || result.planCards)
-      ? (result.plan_cards || result.planCards).map((plan) => upsertPlanCardToSession(normalizePlanCard(plan), session.id, result.assistant_message?.message_id))
-      : [];
-    const structuredAnnotations = Array.isArray(result.annotations) ? result.annotations : [];
-    appendAiChatMessage("assistant", assistantContent, {
-      preset: result.preset,
-      provider: result.provider,
-      model: result.model,
-      planCards,
-      annotations: structuredAnnotations,
-      replyTitle: result.assistant_message?.reply_title || planCards[0]?.title || null,
-      status: result.assistant_message?.status || "regenerated",
-    }, session.id, session.title);
-    mergeMessageAnnotations(state, session, result.assistant_message?.message_id, planCards, structuredAnnotations);
-    if (result.memory) {
-      session.memory = {
-        ...(session.memory || {}),
-        ...result.memory,
-      };
+    try {
+      const result = await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(session.id)}/messages/${encodeURIComponent(messageId)}/regenerate`, {
+        method: "POST",
+      });
+      const assistantContent = result.reply_text || result.assistant_message?.content || "";
+      const planCards = Array.isArray(result.plan_cards || result.planCards)
+        ? (result.plan_cards || result.planCards).map((plan) => upsertPlanCardToSession(normalizePlanCard(plan), session.id, result.assistant_message?.message_id))
+        : [];
+      const structuredAnnotations = Array.isArray(result.annotations) ? result.annotations : [];
+      appendAiChatMessage("assistant", assistantContent, {
+        preset: result.preset,
+        provider: result.provider,
+        model: result.model,
+        planCards,
+        annotations: structuredAnnotations,
+        replyTitle: result.assistant_message?.reply_title || planCards[0]?.title || null,
+        status: result.assistant_message?.status || "regenerated",
+        parent_message_id: messageId,
+      }, session.id, session.title);
+      mergeMessageAnnotations(state, session, result.assistant_message?.message_id, planCards, structuredAnnotations);
+      if (result.memory) {
+        session.memory = {
+          ...(session.memory || {}),
+          ...result.memory,
+        };
+      }
+      persistSessions();
+      renderStatusStrip([{ label: "重新生成完成", variant: "good" }]);
+      return result;
+    } finally {
+      activeRegenerateMessageId = null;
     }
-    persistSessions();
-    renderStatusStrip([{ label: "重新生成完成", variant: "good" }]);
-    return result;
   }
 
   async function handleAiChat(preset, userMessage, threadMeta = null) {
@@ -707,14 +730,11 @@ export function createAiChatController({
             .filter((item) => item.data_url)
         : [],
     });
-    const selectedBlockIds = [];
-    builtBlocks.forEach((block, index) => {
-      const normalizedBlock = addPromptBlock?.(block, { selected: true, pinned: !!block.pinned }) || block;
-      if (index === 0 && normalizedBlock?.blockId) {
-        selectedBlockIds.push(normalizedBlock.blockId);
-      }
+    resetPromptBlockSelection(session);
+    builtBlocks.forEach((block) => {
+      addPromptBlock?.(block, { selected: true, pinned: !!block.pinned });
     });
-    const effectiveSelectedBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : selectedBlockIds;
+    const effectiveSelectedBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
     const effectivePinnedBlockIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
     appendAiChatMessage("user", trimmedMessage, {
       preset,

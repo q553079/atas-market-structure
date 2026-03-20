@@ -130,6 +130,9 @@ function normalizeSessionShape(session, fallback = {}) {
   session.selectedPromptBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
   session.pinnedContextBlockIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
   session.promptBlocks = Array.isArray(session.promptBlocks) ? session.promptBlocks : [];
+  session.promptBlockPreviewCache = session.promptBlockPreviewCache && typeof session.promptBlockPreviewCache === "object"
+    ? session.promptBlockPreviewCache
+    : {};
   session.mountedReplyIds = Array.isArray(session.mountedReplyIds) ? session.mountedReplyIds : [];
   session.activePlanId = session.activePlanId || null;
   session.scrollOffset = Number.isFinite(session.scrollOffset) ? session.scrollOffset : 0;
@@ -273,6 +276,9 @@ function renderMessage(message) {
   if (message.status) {
     metaChips.push(`<span class="chip ${escapeHtml(message.status)}">${escapeHtml(message.status)}</span>`);
   }
+  if (message.parent_message_id || message.meta?.parent_message_id) {
+    metaChips.push(`<span class="chip emphasis">重新生成</span>`);
+  }
   if (message.meta?.preset) {
     metaChips.push(`<span class="chip">${escapeHtml(message.meta.preset)}</span>`);
   }
@@ -286,6 +292,7 @@ function renderMessage(message) {
       <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}">
         <div class="chat-bubble-body">
           ${buildLongTextMarkup(message.content || "")}
+          ${(message.parent_message_id || message.meta?.parent_message_id) ? `<div class="chat-regenerate-note">由上一条回复重新生成</div>` : ""}
           ${attachments.length ? `<div class="chat-attachment-list">${attachments.map((item) => renderAttachmentPreview(item)).join("")}</div>` : ""}
           ${metaChips.length ? `<div class="chat-meta">${metaChips.join("")}</div>` : ""}
           ${message.role === "assistant" ? `<div class="chat-message-actions"><button type="button" class="secondary tiny" data-message-action="regenerate" data-message-id="${escapeHtml(message.message_id || "")}">重新生成</button></div>` : ""}
@@ -334,7 +341,7 @@ function buildPinnedPlanMarkup(planCard) {
   return lines.join("<br>");
 }
 
-function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJson = null) {
+function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJson = null, onPromptBlocksChanged = null) {
   const memory = session.memory || {};
   const promptBlocks = Array.isArray(session.promptBlocks) ? session.promptBlocks : [];
   const selectedPromptBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
@@ -352,6 +359,8 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
   }
 
   if (els.promptSelectionBar) {
+    const includeMemorySummary = !!(session.memory?.user_goal_summary || session.memory?.market_context_summary || session.memory?.latest_answer_summary);
+    const includeRecentMessages = Array.isArray(session.messages) && session.messages.length > 1;
     const selectedBlocks = selectedPromptBlockIds
       .map((blockId) => promptBlocks.find((item) => item.blockId === blockId || item.id === blockId))
       .filter(Boolean);
@@ -360,9 +369,17 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
       session.selectedPromptBlockIds = selectedBlocks
         .map((block) => block.blockId || block.id)
         .filter(Boolean);
+      session.promptBlocks = (session.promptBlocks || []).filter((block) => session.selectedPromptBlockIds.includes(block.blockId || block.id));
+      session.promptBlockPreviewCache = Object.fromEntries(
+        Object.entries(blockPreviewCache).filter(([blockId]) => session.selectedPromptBlockIds.includes(blockId)),
+      );
       session.pinnedContextBlockIds = (session.pinnedContextBlockIds || []).filter((blockId) => session.selectedPromptBlockIds.includes(blockId));
+      onPromptBlocksChanged?.(session, {
+        selectedPromptBlockIds: session.selectedPromptBlockIds,
+        pinnedContextBlockIds: session.pinnedContextBlockIds,
+      });
       persistSessions(state);
-      renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson);
+      renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
     };
     const loadPromptBlockDetail = async (blockId) => {
       if (!fetchJson || !blockId || blockPreviewCache[blockId]?.loaded) {
@@ -379,7 +396,7 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
         };
         session.promptBlockPreviewCache = blockPreviewCache;
         persistSessions(state);
-        renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson);
+        renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
       } catch (error) {
         blockPreviewCache[blockId] = {
           loaded: true,
@@ -387,7 +404,7 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
         };
         session.promptBlockPreviewCache = blockPreviewCache;
         persistSessions(state);
-        renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson);
+        renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
       }
     };
     const chips = selectedBlocks.map((block) => {
@@ -420,6 +437,11 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
     if (chips.length) {
       els.promptSelectionBar.innerHTML = `
         <div class="strip-head"><span class="strip-title">本次发送上下文</span></div>
+        <div class="meta">${[
+          `Prompt blocks ${selectedBlocks.length || 0} 个`,
+          `记忆摘要 ${includeMemorySummary ? "开启" : "关闭"}`,
+          `最近消息 ${includeRecentMessages ? "开启" : "关闭"}`,
+        ].join(" | ")}</div>
         <div class="strip-chip-row">${chips.join("")}</div>
       `;
       els.promptSelectionBar.querySelectorAll("button[data-prompt-block-remove]").forEach((button) => {
@@ -441,8 +463,12 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
           session.pinnedContextBlockIds = pinnedIds.includes(blockId)
             ? pinnedIds.filter((id) => id !== blockId)
             : [...pinnedIds, blockId];
+          onPromptBlocksChanged?.(session, {
+            selectedPromptBlockIds: session.selectedPromptBlockIds,
+            pinnedContextBlockIds: session.pinnedContextBlockIds,
+          });
           persistSessions(state);
-          renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson);
+          renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
         });
       });
       els.promptSelectionBar.querySelectorAll("button[data-prompt-block-expand]").forEach((button) => {
@@ -548,7 +574,19 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
 }
 
 function persistSessions(state) {
-  writeStorage("sessions", state.aiThreads);
+  writeStorage("sessions", state.aiThreads.map((session) => {
+    const promptBlocks = Array.isArray(session.promptBlocks) ? session.promptBlocks : [];
+    const selectedIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
+    const pinnedIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+    return {
+      ...session,
+      promptBlocks: promptBlocks.filter((block) => selectedIds.includes(block.blockId || block.id)),
+      promptBlockPreviewCache: Object.fromEntries(
+        Object.entries(session.promptBlockPreviewCache || {}).filter(([blockId]) => selectedIds.includes(blockId)),
+      ),
+      pinnedContextBlockIds: pinnedIds.filter((blockId) => selectedIds.includes(blockId)),
+    };
+  }));
   writeStorage("workbench", {
     activeAiThreadId: state.activeAiThreadId,
     drawerState: state.drawerState,
@@ -557,7 +595,7 @@ function persistSessions(state) {
   });
 }
 
-export function createAiThreadController({ state, els, onPlanAction = null, onMountedRepliesChanged = null, fetchJson = null, renderStatusStrip = null, onSessionActivated = null }) {
+export function createAiThreadController({ state, els, onPlanAction = null, onMountedRepliesChanged = null, onPromptBlocksChanged = null, fetchJson = null, renderStatusStrip = null, onSessionActivated = null }) {
   const CHAT_FOLLOW_THRESHOLD = 48;
 
   function getActiveThread() {
@@ -968,7 +1006,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     const session = getActiveThread();
     const shouldAutoFollow = session.autoFollowChat !== false || isNearChatBottom();
     syncSessionMemorySummary(session);
-    renderAuxiliaryStrips(session, els, state, onPlanAction);
+    renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
     renderAttachments(session);
     if (session.loadingFromServer) {
       els.aiChatThread.innerHTML = `<div class="chat-empty-state">正在从后端加载会话内容…</div>`;
@@ -1119,10 +1157,11 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
   function addPromptBlock(block, { selected = true, pinned = false } = {}) {
     const session = getActiveThread();
     if (!block) return null;
+    const generatedId = `${block.kind || "block"}-${Date.now()}`;
     const normalizedBlock = {
       ...block,
-      id: block.id || block.blockId || block.block_id || `${block.kind || "block"}-${Date.now()}`,
-      blockId: block.blockId || block.block_id || block.id || `${block.kind || "block"}-${Date.now()}`,
+      id: block.id || block.blockId || block.block_id || generatedId,
+      blockId: block.blockId || block.block_id || block.id || generatedId,
       sessionId: block.sessionId || block.session_id || session.id,
       symbol: block.symbol || session.symbol,
       contractId: block.contractId || block.contract_id || session.contractId,
@@ -1138,6 +1177,10 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     if ((pinned || normalizedBlock.pinned) && !session.pinnedContextBlockIds.includes(normalizedBlock.blockId)) {
       session.pinnedContextBlockIds = [...session.pinnedContextBlockIds, normalizedBlock.blockId];
     }
+    onPromptBlocksChanged?.(session, {
+      selectedPromptBlockIds: session.selectedPromptBlockIds,
+      pinnedContextBlockIds: session.pinnedContextBlockIds,
+    });
     persistSessions(state);
     return normalizedBlock;
   }
