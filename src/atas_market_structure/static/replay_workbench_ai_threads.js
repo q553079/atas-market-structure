@@ -146,11 +146,28 @@ function normalizeSessionShape(session, fallback = {}) {
   session.scrollOffset = Number.isFinite(session.scrollOffset) ? session.scrollOffset : 0;
   session.autoFollowChat = session.autoFollowChat ?? true;
   session.hasUnreadChatBelow = session.hasUnreadChatBelow ?? false;
+  session.messages = Array.isArray(session.messages) ? session.messages : [];
+  session.turns = Array.isArray(session.turns) ? session.turns : [];
   session.draftText = session.draftText ?? session.draft ?? "";
   session.draft = session.draftText;
   session.draftAttachments = Array.isArray(session.draftAttachments) ? session.draftAttachments : (Array.isArray(session.attachments) ? session.attachments : []);
   session.attachments = Array.isArray(session.attachments) ? session.attachments : [...session.draftAttachments];
+  session.analysisTemplate = session.analysisTemplate && typeof session.analysisTemplate === "object"
+    ? {
+        type: session.analysisTemplate.type || "recent_20_bars",
+        range: session.analysisTemplate.range || "current_window",
+        style: session.analysisTemplate.style || "standard",
+        sendMode: session.analysisTemplate.sendMode || "current",
+      }
+    : {
+        type: "recent_20_bars",
+        range: "current_window",
+        style: "standard",
+        sendMode: "current",
+      };
   session.handoffMode = session.handoffMode || "summary_only";
+  session.backendLoaded = !!session.backendLoaded;
+  session.loadingFromServer = !!session.loadingFromServer;
   session.memory = {
     ...(session.memory || {}),
     session_id: session.memory?.session_id || session.sessionId,
@@ -1487,6 +1504,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     getActiveThread,
     setActiveThread,
     createBackendSession,
+    getOrCreateBlankSessionForSymbol,
     hydrateSessionFromServer,
     syncSessionsFromServer,
     renderAiThreadTabs,

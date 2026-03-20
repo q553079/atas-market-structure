@@ -5,6 +5,7 @@ export function createChartInteractionController({
   renderSnapshot,
   loadFootprintBarDetail,
   clampChartView,
+  createDefaultChartView,
 }) {
   function visibleSpan() {
     if (!state.chartView) {
@@ -16,30 +17,40 @@ export function createChartInteractionController({
   function zoomChart(factor) {
     const chart = window._lwChartState?.chartInstance;
     if (chart) {
-      chart.timeScale().zoom(factor * 10);
-      renderSnapshot();
-    } else {
-      const snapshot = state.snapshot;
-      if (!snapshot?.candles?.length || !state.chartView) {
+      const range = chart.timeScale().getVisibleLogicalRange?.();
+      if (!range) {
+        chart.timeScale().fitContent();
         return;
       }
-      const total = snapshot.candles.length;
-      const currentSpan = visibleSpan();
-      const targetSpan = Math.max(20, Math.min(total, Math.round(currentSpan * factor)));
-      const center = Math.round((state.chartView.startIndex + state.chartView.endIndex) / 2);
-      let startIndex = center - Math.floor(targetSpan / 2);
-      let endIndex = startIndex + targetSpan - 1;
-      if (startIndex < 0) {
-        startIndex = 0;
-        endIndex = targetSpan - 1;
-      }
-      if (endIndex >= total) {
-        endIndex = total - 1;
-        startIndex = Math.max(0, endIndex - targetSpan + 1);
-      }
-      state.chartView = clampChartView(total, startIndex, endIndex, state.chartView);
-      renderSnapshot();
+      const center = (range.from + range.to) / 2;
+      const currentSpan = Math.max(10, range.to - range.from);
+      const targetSpan = Math.max(10, currentSpan * factor);
+      chart.timeScale().setVisibleLogicalRange({
+        from: center - targetSpan / 2,
+        to: center + targetSpan / 2,
+      });
+      return;
     }
+    const snapshot = state.snapshot;
+    if (!snapshot?.candles?.length || !state.chartView) {
+      return;
+    }
+    const total = snapshot.candles.length;
+    const currentSpan = visibleSpan();
+    const targetSpan = Math.max(20, Math.min(total, Math.round(currentSpan * factor)));
+    const center = Math.round((state.chartView.startIndex + state.chartView.endIndex) / 2);
+    let startIndex = center - Math.floor(targetSpan / 2);
+    let endIndex = startIndex + targetSpan - 1;
+    if (startIndex < 0) {
+      startIndex = 0;
+      endIndex = targetSpan - 1;
+    }
+    if (endIndex >= total) {
+      endIndex = total - 1;
+      startIndex = Math.max(0, endIndex - targetSpan + 1);
+    }
+    state.chartView = clampChartView(total, startIndex, endIndex, state.chartView);
+    renderSnapshot();
   }
 
   function zoomPriceAxis(factor) {
@@ -64,22 +75,19 @@ export function createChartInteractionController({
   }
 
   function resetChartView() {
+    if (!state.snapshot?.candles?.length) {
+      return;
+    }
+    state.chartView = createDefaultChartView(state.snapshot.candles.length);
     const chart = window._lwChartState?.chartInstance;
     if (chart) {
-      chart.timeScale().fitContent();
-      renderSnapshot();
-    } else {
-      if (!state.snapshot?.candles?.length) {
-        return;
-      }
-      state.chartView = {
-        startIndex: 0,
-        endIndex: state.snapshot.candles.length - 1,
-        yMin: null,
-        yMax: null,
-      };
-      renderSnapshot();
+      const { startIndex, endIndex } = state.chartView;
+      chart.timeScale().setVisibleLogicalRange({
+        from: startIndex,
+        to: endIndex,
+      });
     }
+    renderSnapshot();
   }
 
   function chartMouseToModel(event) {

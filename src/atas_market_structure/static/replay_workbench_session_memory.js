@@ -10,6 +10,31 @@ function normalizeHandoffMode(mode) {
   return "summary_only";
 }
 
+function buildHandoffPreviewFromPacket(packet) {
+  if (!packet || typeof packet !== "object") {
+    return "";
+  }
+  const sessionMeta = packet.session_meta || {};
+  const memory = packet.memory_summary || {};
+  const recentMessages = Array.isArray(packet.recent_messages) ? packet.recent_messages : [];
+  const activeAnnotations = Array.isArray(packet.active_annotations) ? packet.active_annotations : [];
+  const activePlans = Array.isArray(packet.active_plans) ? packet.active_plans : [];
+  return [
+    `当前会话交接摘要：`,
+    `- 品种：${sessionMeta.symbol || memory.symbol || "NQ"}`,
+    `- 周期：${sessionMeta.timeframe || memory.timeframe || "1m"}`,
+    `- 会话：${sessionMeta.title || sessionMeta.session_id || "未命名会话"}`,
+    memory.user_goal_summary ? `- 用户目标：${memory.user_goal_summary}` : "",
+    memory.current_user_intent ? `- 当前意图：${memory.current_user_intent}` : "",
+    memory.market_context_summary ? `- 市场摘要：${memory.market_context_summary}` : "",
+    Array.isArray(memory.key_zones_summary) && memory.key_zones_summary.length ? `- 关键区域：${memory.key_zones_summary.join("；")}` : "",
+    activePlans.length ? `- 活动计划：${activePlans.map((item) => item.title || item.plan_id).filter(Boolean).join("；")}` : "",
+    activeAnnotations.length ? `- 关键对象：${activeAnnotations.map((item) => `${item.label || item.annotation_id}(${item.status || "active"})`).join("；")}` : "",
+    recentMessages.length ? `- 最近消息：\n${recentMessages.map((item) => `${item.role || "unknown"}: ${item.content || ""}`).join("\n")}` : "",
+    memory.latest_question ? `- 用户最新问题：${memory.latest_question}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 export function createSessionMemoryEngine({ state, els, fetchJson }) {
   function ensureSessionMemory(session) {
     session.memory = session.memory || {};
@@ -89,8 +114,8 @@ export function createSessionMemoryEngine({ state, els, fetchJson }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: session.activeModel || null,
-            handoff_mode: normalizeHandoffMode(session.handoffMode),
+            target_model: session.activeModel || null,
+            mode: normalizeHandoffMode(session.handoffMode),
           }),
         });
         const serverMemory = envelope?.memory;
@@ -186,8 +211,8 @@ export function createSessionMemoryEngine({ state, els, fetchJson }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: session.activeModel || null,
-          handoff_mode: session.handoffMode,
+          target_model: session.activeModel || null,
+          mode: session.handoffMode,
         }),
       });
       const packet = envelope?.handoff_packet || envelope?.preview || envelope?.handoff || envelope?.summary;
@@ -195,14 +220,12 @@ export function createSessionMemoryEngine({ state, els, fetchJson }) {
         ? packet
         : typeof packet?.content === "string"
           ? packet.content
-          : typeof envelope?.summary === "string"
-            ? envelope.summary
-            : localPreview;
+          : buildHandoffPreviewFromPacket(packet) || (typeof envelope?.summary === "string" ? envelope.summary : localPreview);
       session.handoffSummary = text || localPreview;
-      if (envelope?.memory && typeof envelope.memory === "object") {
+      if (packet?.memory_summary && typeof packet.memory_summary === "object") {
         session.memory = {
           ...ensureSessionMemory(session),
-          ...envelope.memory,
+          ...packet.memory_summary,
         };
         session.memoryLoadedFromServer = true;
       }

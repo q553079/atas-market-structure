@@ -122,6 +122,18 @@ export function collectFootprintBubbles(snapshot, visibleStartTime, visibleEndTi
 }
 
 export function createChartViewHelpers({ state }) {
+  function createDefaultChartView(totalCount) {
+    const visibleBars = totalCount <= 180 ? totalCount : Math.min(totalCount, 180);
+    const endIndex = Math.max(0, totalCount - 1);
+    const startIndex = Math.max(0, endIndex - visibleBars + 1);
+    return {
+      startIndex,
+      endIndex,
+      yMin: null,
+      yMax: null,
+    };
+  }
+
   function ensureChartView(snapshot, manualRegions = [], operatorEntries = []) {
     const totalCount = snapshot?.candles?.length || 0;
     if (!totalCount) {
@@ -130,7 +142,7 @@ export function createChartViewHelpers({ state }) {
       return null;
     }
     if (!state.chartView) {
-      state.chartView = { startIndex: 0, endIndex: totalCount - 1 };
+      state.chartView = createDefaultChartView(totalCount);
     }
     state.chartView = clampChartView(totalCount, state.chartView.startIndex, state.chartView.endIndex, state.chartView);
     const visibleCandles = snapshot.candles.slice(state.chartView.startIndex, state.chartView.endIndex + 1);
@@ -150,5 +162,6 @@ export function createChartViewHelpers({ state }) {
 
   return {
     ensureChartView,
+    createDefaultChartView,
   };
 }

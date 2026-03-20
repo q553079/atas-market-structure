@@ -33,6 +33,8 @@ _REGENERATE_PATTERN = re.compile(
 )
 _STOP_PATTERN = re.compile(r"^/api/v1/workbench/chat/sessions/(?P<session_id>[^/]+)/messages/(?P<message_id>[^/]+)/stop$")
 _MEMORY_PATTERN = re.compile(r"^/api/v1/workbench/chat/sessions/(?P<session_id>[^/]+)/memory$")
+_MEMORY_REFRESH_PATTERN = re.compile(r"^/api/v1/workbench/chat/sessions/(?P<session_id>[^/]+)/memory/refresh$")
+_LIFECYCLE_PATTERN = re.compile(r"^/api/v1/workbench/chat/sessions/(?P<session_id>[^/]+)/lifecycle/evaluate$")
 _HANDOFF_PATTERN = re.compile(r"^/api/v1/workbench/chat/sessions/(?P<session_id>[^/]+)/handoff$")
 _OBJECTS_PATTERN = re.compile(r"^/api/v1/workbench/chat/sessions/(?P<session_id>[^/]+)/messages/(?P<message_id>[^/]+)/objects$")
 _MOUNT_PATTERN = re.compile(r"^/api/v1/workbench/chat/messages/(?P<message_id>[^/]+)/mount$")
@@ -159,6 +161,25 @@ def handle_chat_routes(
     if memory_match and app._replay_workbench_chat_service is not None and method == "GET":
         response = app._replay_workbench_chat_service.get_memory(memory_match.group("session_id"))
         return app._json_model_response(200, response)
+
+    memory_refresh_match = _MEMORY_REFRESH_PATTERN.match(route_path)
+    if memory_refresh_match and app._replay_workbench_chat_service is not None and method == "POST":
+        payload = ChatHandoffRequest.model_validate_json(body or b"{}")
+        response = app._replay_workbench_chat_service.refresh_memory(memory_refresh_match.group("session_id"), payload)
+        return app._json_model_response(200, response)
+
+    lifecycle_match = _LIFECYCLE_PATTERN.match(route_path)
+    if lifecycle_match and app._replay_workbench_chat_service is not None and method == "POST":
+        import json
+
+        payload = json.loads(body or b"{}")
+        response = app._replay_workbench_chat_service.evaluate_lifecycle(
+            lifecycle_match.group("session_id"),
+            payload.get("bars", []),
+            payload.get("live_tail"),
+            payload.get("object_ids", []),
+        )
+        return app._json_response(200, response)
 
     handoff_match = _HANDOFF_PATTERN.match(route_path)
     if handoff_match and app._replay_workbench_chat_service is not None and method == "POST":

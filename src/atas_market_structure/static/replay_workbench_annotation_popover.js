@@ -1,11 +1,10 @@
-import { formatPrice, writeStorage } from "./replay_workbench_ui_utils.js";
+import { formatPrice } from "./replay_workbench_ui_utils.js";
 
 export function createAnnotationPopoverController({
   state,
   els,
-  setActiveThread,
   renderSnapshot,
-  jumpToMessage,
+  applyAnnotationScope,
 }) {
   function showAnnotationPopover(annotationId) {
     const target = (state.aiAnnotations || []).find((item) => item.id === annotationId);
@@ -44,22 +43,12 @@ export function createAnnotationPopoverController({
   }
 
   function openAnnotationSource(annotationId) {
-    const target = (state.aiAnnotations || []).find((item) => item.id === annotationId);
-    if (!target) {
-      return;
-    }
-    state.selectedAnnotationId = annotationId;
-    state.annotationFilters.selectedOnly = false;
-    state.annotationFilters.onlyCurrentSession = false;
-    state.annotationFilters.sessionIds = target.session_id ? [target.session_id] : [];
-    state.annotationFilters.messageIds = target.message_id ? [target.message_id] : [];
-    state.annotationFilters.annotationIds = target.plan_id
-      ? state.aiAnnotations.filter((item) => item.plan_id === target.plan_id).map((item) => item.id)
-      : [annotationId];
-    writeStorage("annotationFilters", state.annotationFilters);
-    setActiveThread(target.session_id, state.aiThreads.find((s) => s.id === target.session_id)?.title || "会话");
-    renderSnapshot();
-    window.setTimeout(() => jumpToMessage(target.message_id), 60);
+    applyAnnotationScope?.(annotationId, {
+      mode: "source",
+      activateSession: true,
+      jumpToSource: true,
+      render: true,
+    });
   }
 
   function bindAnnotationPopoverActions() {
@@ -74,15 +63,12 @@ export function createAnnotationPopoverController({
     els.annotationPopoverOnlyButton?.addEventListener("click", () => {
       const id = state.annotationPopoverTargetId;
       if (!id) return;
-      const base = state.aiAnnotations.find((row) => row.id === id);
-      state.selectedAnnotationId = id;
-      state.annotationFilters.onlyCurrentSession = false;
-      state.annotationFilters.sessionIds = base?.session_id ? [base.session_id] : [];
-      state.annotationFilters.messageIds = base?.message_id ? [base.message_id] : [];
-      state.annotationFilters.annotationIds = base?.plan_id
-        ? state.aiAnnotations.filter((item) => item.plan_id === base.plan_id).map((item) => item.id)
-        : [id];
-      writeStorage("annotationFilters", state.annotationFilters);
+      applyAnnotationScope?.(id, {
+        mode: "only",
+        activateSession: false,
+        jumpToSource: false,
+        render: false,
+      });
       hideAnnotationPopover();
       renderSnapshot();
     });

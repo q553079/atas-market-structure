@@ -1,7 +1,10 @@
 import { summarizeText, writeStorage } from "./replay_workbench_ui_utils.js";
 
 function shouldListAnnotation(item, filters, state) {
-  if (!item) {
+  if (!item || item.visible === false) {
+    return false;
+  }
+  if (Array.isArray(filters.annotationIds) && filters.annotationIds.includes("__none__")) {
     return false;
   }
   if (filters.onlyCurrentSession && item.session_id !== state.activeAiThreadId) {
@@ -16,6 +19,9 @@ function shouldListAnnotation(item, filters, state) {
   if (Array.isArray(filters.annotationIds) && filters.annotationIds.length && !filters.annotationIds.includes(item.id)) {
     return false;
   }
+  if (item.type === "path_arrow" && !filters.showPaths) {
+    return false;
+  }
   if (Array.isArray(filters.objectTypes) && filters.objectTypes.length && !filters.objectTypes.includes(item.type)) {
     return false;
   }
@@ -25,6 +31,12 @@ function shouldListAnnotation(item, filters, state) {
   if (filters.hideCompleted && ["completed", "archived", "expired"].includes(item.status)) {
     return false;
   }
+  if (filters.selectedOnly && state.selectedAnnotationId) {
+    const selected = state.aiAnnotations?.find((node) => node.id === state.selectedAnnotationId);
+    if (item.id !== state.selectedAnnotationId && item.plan_id !== selected?.plan_id) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -32,9 +44,8 @@ export function createAnnotationPanelController({
   state,
   els,
   persistWorkbenchState,
-  setActiveThread,
   renderSnapshot,
-  jumpToMessage,
+  applyAnnotationScope,
 }) {
   function renderAnnotationPanel() {
     const filters = state.annotationFilters;
@@ -129,27 +140,21 @@ export function createAnnotationPanelController({
           return;
         }
         if (action === "locate") {
-          state.selectedAnnotationId = id;
-          state.annotationFilters.selectedOnly = false;
-          state.annotationFilters.onlyCurrentSession = false;
-          state.annotationFilters.sessionIds = [target.session_id];
-          state.annotationFilters.messageIds = target.message_id ? [target.message_id] : [];
-          state.annotationFilters.annotationIds = [id];
-          writeStorage("annotationFilters", state.annotationFilters);
-          setActiveThread(target.session_id, sessions.find((s) => s.id === target.session_id)?.title || "会话");
-          renderSnapshot();
-          jumpToMessage?.(target.message_id);
+          applyAnnotationScope?.(id, {
+            mode: "only",
+            activateSession: true,
+            jumpToSource: true,
+            render: true,
+          });
           return;
         }
         if (action === "only") {
-          state.selectedAnnotationId = id;
-          state.annotationFilters.selectedOnly = false;
-          state.annotationFilters.onlyCurrentSession = false;
-          state.annotationFilters.sessionIds = [target.session_id];
-          state.annotationFilters.messageIds = target.message_id ? [target.message_id] : [];
-          state.annotationFilters.annotationIds = [id];
-          writeStorage("annotationFilters", state.annotationFilters);
-          renderSnapshot();
+          applyAnnotationScope?.(id, {
+            mode: "only",
+            activateSession: false,
+            jumpToSource: false,
+            render: true,
+          });
           return;
         }
         if (action === "pin") {
@@ -159,18 +164,12 @@ export function createAnnotationPanelController({
           return;
         }
         if (action === "source") {
-          state.selectedAnnotationId = id;
-          state.annotationFilters.selectedOnly = false;
-          state.annotationFilters.onlyCurrentSession = false;
-          state.annotationFilters.sessionIds = [target.session_id];
-          state.annotationFilters.messageIds = target.message_id ? [target.message_id] : [];
-          state.annotationFilters.annotationIds = target.plan_id
-            ? state.aiAnnotations.filter((item) => item.plan_id === target.plan_id).map((item) => item.id)
-            : [id];
-          writeStorage("annotationFilters", state.annotationFilters);
-          setActiveThread(target.session_id, sessions.find((s) => s.id === target.session_id)?.title || "会话");
-          renderSnapshot();
-          jumpToMessage?.(target.message_id);
+          applyAnnotationScope?.(id, {
+            mode: "source",
+            activateSession: true,
+            jumpToSource: true,
+            render: true,
+          });
           return;
         }
         if (action === "toggle") {

@@ -78,6 +78,8 @@ export function createWorkbenchElements(doc = document) {
     zoomPriceOutButton: doc.getElementById("zoomPriceOutButton"),
     resetViewButton: doc.getElementById("resetViewButton"),
     armRegionButton: doc.getElementById("armRegionButton"),
+    saveRegionQuickButton: doc.getElementById("saveRegionQuickButton"),
+    chartToolbarScreenshotButton: doc.getElementById("chartToolbarScreenshotButton"),
     sendViewportButton: doc.getElementById("sendViewportButton"),
 
     rightPanel: doc.getElementById("rightPanel"),
@@ -172,6 +174,7 @@ export function createWorkbenchElements(doc = document) {
     drawerEntriesButton: doc.getElementById("drawerEntriesButton"),
     drawerRecapButton: doc.getElementById("drawerRecapButton"),
     drawerGammaButton: doc.getElementById("drawerGammaButton"),
+    bottomContextDrawer: doc.getElementById("bottomContextDrawer"),
     drawerContextPanel: doc.getElementById("drawerContextPanel"),
     drawerManualPanel: doc.getElementById("drawerManualPanel"),
     drawerFocusPanel: doc.getElementById("drawerFocusPanel"),

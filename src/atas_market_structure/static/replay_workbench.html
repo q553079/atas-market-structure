@@ -129,6 +129,8 @@
           <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
           <button id="resetViewButton" class="secondary" type="button">重置视图</button>
           <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
+          <button id="saveRegionQuickButton" class="secondary" type="button">保存区域</button>
+          <button id="chartToolbarScreenshotButton" class="secondary" type="button">图表截图</button>
           <button id="sendViewportButton" class="secondary" type="button">发送当前可视区域到聊天</button>
           <span class="meta" id="chartViewportMeta">视图未初始化</span>
         </div>
@@ -197,17 +199,18 @@
           </div>
         </div>
 
-        <!-- 合约导航栏（左侧垂直） -->
-        <div class="ai-contract-nav" id="aiContractNav">
-          <!-- 合约卡片将通过 JS 动态生成 -->
-        </div>
+        <div class="ai-sidebar-body">
+          <!-- 合约导航栏（左侧垂直） -->
+          <div class="ai-contract-nav" id="aiContractNav">
+            <!-- 合约卡片将通过 JS 动态生成 -->
+          </div>
 
-        <!-- 主内容区 -->
-        <div class="ai-sidebar-content" id="aiSidebarContent">
-          <div class="chat-workspace panel-surface" id="rightPanel">
-            <div class="workspace-section-header compact">
-              <div class="panel-actions">
-                <button id="toggleAnnotationPanelButton" class="secondary tiny" type="button">标记管理</button>
+          <!-- 主内容区 -->
+          <div class="ai-sidebar-content" id="aiSidebarContent">
+            <div class="chat-workspace" id="rightPanel">
+              <div class="workspace-section-header compact">
+                <div class="panel-actions">
+                  <button id="toggleAnnotationPanelButton" class="secondary tiny" type="button">标记管理</button>
               </div>
             </div>
 
@@ -395,6 +398,7 @@
             </div>
           </div>
         </div>
+        </div>
       </aside>
     </main>
 
@@ -526,7 +530,7 @@
       </div>
     </section>
 
-    <footer class="bottom-context-drawer panel-surface">
+    <footer class="bottom-context-drawer panel-surface" id="bottomContextDrawer" hidden>
       <div class="drawer-panels">
         <div id="drawerContextPanel" class="drawer-panel"></div>
         <div id="drawerManualPanel" class="drawer-panel">
@@ -812,7 +816,9 @@
 
         if (window._lwChartState && window._lwChartState.chartInstance) {
           try {
-            updateChartData(snapshot, view, els);
+            const updateType = state.lastChartUpdateType || "full_reset";
+            updateChartData(snapshot, view, els, { updateType });
+            state.lastChartUpdateType = null;
             const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
             const firstCandle = visibleCandles.length ? visibleCandles[0] : null;
             const lastCandle = visibleCandles.length ? visibleCandles[visibleCandles.length - 1] : null;

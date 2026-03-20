@@ -27,6 +27,15 @@ class ApplicationRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         self._handle_request()
 
+    def do_PATCH(self) -> None:  # noqa: N802
+        self._handle_request()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Allow", "GET, POST, PATCH, OPTIONS")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def log_message(self, format: str, *args: object) -> None:
         logging.getLogger("atas_market_structure.http").info("%s - %s", self.address_string(), format % args)
 

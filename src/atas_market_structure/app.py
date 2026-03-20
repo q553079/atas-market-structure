@@ -67,6 +67,7 @@ from atas_market_structure.repository import AnalysisRepository
 from atas_market_structure.services import IngestionOrchestrator
 from atas_market_structure.workbench_services import (
     ReplayWorkbenchChatError,
+    ReplayWorkbenchChatUnavailableError,
     ReplayWorkbenchChatService,
     ReplayWorkbenchNotFoundError,
     ReplayWorkbenchService,
@@ -110,10 +111,9 @@ class MarketStructureApplication:
         self._replay_workbench_service = replay_workbench_service or ReplayWorkbenchService(repository=repository)
         self._replay_ai_review_service = replay_ai_review_service
         self._replay_ai_chat_service = replay_ai_chat_service
-        self._replay_workbench_chat_service = (
-            ReplayWorkbenchChatService(repository=repository, replay_ai_chat_service=self._replay_ai_chat_service)
-            if self._replay_ai_chat_service is not None
-            else None
+        self._replay_workbench_chat_service = ReplayWorkbenchChatService(
+            repository=repository,
+            replay_ai_chat_service=self._replay_ai_chat_service,
         )
         self._analysis_pattern = re.compile(r"^/api/v1/analyses/(?P<analysis_id>[^/]+)$")
         self._ingestion_pattern = re.compile(r"^/api/v1/ingestions/(?P<ingestion_id>[^/]+)$")
@@ -405,6 +405,8 @@ class MarketStructureApplication:
             return self._json_response(422, {"error": "validation_error", "detail": json.loads(exc.json())})
         except (NotFoundError, ReplayWorkbenchNotFoundError, ReplayAiReviewNotFoundError) as exc:
             return self._json_response(404, {"error": "not_found", "detail": str(exc)})
+        except ReplayWorkbenchChatUnavailableError as exc:
+            return self._json_response(503, {"error": "chat_unavailable", "detail": str(exc)})
         except ReplayWorkbenchChatError as exc:
             return self._json_response(400, {"error": "chat_error", "detail": str(exc)})
         except ReplayAiReviewUnavailableError as exc:

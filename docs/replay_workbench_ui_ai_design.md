@@ -1258,7 +1258,793 @@ ReplayWorkbenchPage
 
 ---
 
-## 16. 开发优先级建议
+## 16. 双 AI 协作架构设计（新增）
+
+你提出的需求非常重要，而且它不是“多加一个模型选择器”这么简单，而是要把右侧 AI 工作区从**单 AI 对话**升级成**双 AI 协作工作台**。
+
+目标形态需要修正为：
+
+- **AI-1：行情分析 AI（Market Analyst AI）**
+  - 可以直接和用户聊天
+  - 负责回答判断、推演、风险、剧本、计划
+  - 输出自然语言分析 + 结构化计划卡 + 可选图表对象
+
+- **AI-2：事件整理 AI（Event Scribe AI）**
+  - 也可以直接和用户聊天
+  - 更偏向关键点位整理、事件归纳、计划整理、复盘线索沉淀
+  - 输出文本回复 + 结构化结论 + 可审阅事件候选
+
+- **Shared Reply Extraction Engine（统一信息提取工具层）**
+  - 不论当前是哪一个 AI 在回复
+  - 回复完成后都必须进入统一提取层
+  - 提取价格点位、支撑阻力、开仓/离场/观望建议、风险提示、计划意图等信息
+  - 形成一条**可审阅、可筛选、可上图的候选事件流**
+
+换句话说：
+
+> 不是“一个 AI 负责聊天，另一个 AI 完全不说话”，而是“两个 AI 都能聊天，但它们的回复都必须经过统一的信息提取工具层，再进入候选事件流与上图体系”。
+
+这套系统不是双 AI 抢答，而是“双可对话 AI + 统一提取层 + 候选事件流”的协作架构。
+
+---
+
+### 16.1 为什么必须拆成两个 AI
+
+如果让一个 AI 同时负责：
+- 跟你聊行情
+- 回答复杂问题
+- 维护计划状态
+- 持续提取事件
+- 输出图表对象
+- 维护事件时间线
+
+那么很容易出现 4 个问题：
+
+#### 问题 1：主回复会被结构化任务拖慢
+行情 AI 需要流畅、自然地和你交流。
+如果它还要同时保证严谨的对象抽取和事件归档，回复会更慢，且更容易被格式约束干扰。
+
+#### 问题 2：聊天推理与事件记录的目标冲突
+行情交流强调：
+- 模糊性
+- 条件判断
+- 多剧本并行
+- 风险提示
+
+事件记录强调：
+- 明确对象
+- 明确时间
+- 明确价格
+- 明确状态
+- 可落库
+
+这两种输出风格天然冲突。
+
+#### 问题 3：图表会被“所有说过的话”污染
+不是每一句分析都值得上图。
+如果没有第二个 AI 做筛选和压缩，图表很快会被聊天内容污染成一团。
+
+#### 问题 4：你需要的是“可控的信息流”，不是自动乱画
+你说得很清楚：
+- AI 要实时给你一个信息流
+- 你可以选择性地标记到左侧 K 线图上
+
+这意味着系统必须先有一个**独立于主聊天的候选事件流**，再让你挑选，而不是每次 AI 一说话就直接画上去。
+
+所以拆成两个 AI 是合理且必要的。
+
+---
+
+### 16.2 双 AI 的职责边界
+
+#### AI-1：行情分析 AI（Market Analyst AI）
+
+职责：
+1. 和用户进行主对话
+2. 分析当前行情、结构、节奏、风险
+3. 给出剧本、计划、等待条件、失效条件
+4. 回答“为什么”“如果”“那接下来怎么办”这类问题
+5. 输出：
+   - 文本回复
+   - 结构化计划卡（可选）
+   - 高置信度标记对象（可选）
+
+不负责：
+- 连续维护完整事件时间线
+- 把每轮对话都转成图表事件
+- 实时归档所有关键点
+
+#### AI-2：事件整理 AI（Event Scribe AI）
+
+职责：
+1. 可以直接和用户对话
+2. 更偏向：
+   - 关键点位整理
+   - 事件归纳
+   - 计划整理
+   - 复盘线索沉淀
+3. 输出：
+   - 文本回复
+   - 结构化结论
+   - 更偏“记录型 / 编目型”的建议表达
+4. 与行情分析 AI 一样，回复后也必须进入统一提取层
+
+不负责：
+- 绕过用户确认直接把所有记录内容上图
+- 代替统一提取层去做最终对象落库规则
+
+#### 一句话边界
+
+- **行情分析 AI = 偏推理、偏策略、偏交易交流的对话 AI**
+- **事件整理 AI = 偏归纳、偏记录、偏结构整理的对话 AI**
+- **统一信息提取工具 = 两个 AI 回复之后都要经过的结构化抽取层**
+
+---
+
+### 16.3 统一信息提取工具层（新增关键原则）
+
+你这次补充的要求，本质上要求系统新增一层公共能力：
+
+> **两个 AI 都要能直接聊天，而且两个 AI 的回复都要经过专门的信息提取工具。**
+
+这个“信息提取工具”不是简单关键词匹配，而应是一层标准化抽取流水线，用于从任意 AI 回复中抽出：
+
+1. **价格点位**
+   - 支撑价
+   - 阻力价
+   - 触发价
+   - 止损价
+   - 止盈价
+   - 失效价
+2. **价格区域**
+   - 支撑区
+   - 阻力区
+   - 无交易区
+   - 观察区
+   - 回踩区域
+3. **交易建议事件**
+   - 建议开仓
+   - 建议离场
+   - 建议减仓
+   - 建议止损
+   - 建议止盈
+   - 建议观望
+   - 建议等待确认
+4. **市场结构事件**
+   - 阻力成立
+   - 支撑成立
+   - 突破有效
+   - 假突破
+   - 回踩确认
+   - 跌破失守
+   - 中间区震荡
+5. **分析性结论**
+   - 不追高
+   - 当前 RR 不佳
+   - 更适合等待
+   - 高位风险增大
+   - 当前偏多 / 偏空 / 中性
+
+建议引入共享组件：
+
+#### `SharedReplyExtractionEngine`
+职责：
+- 接收任意 AI 的回复文本
+- 接收当前 session / symbol / timeframe / active plans / chart context
+- 输出统一 schema 的候选事件对象
+- 对接去重、合并、状态流转、上图提升流程
+
+关键规则：
+- 两个 AI 的回复都必须走这层
+- 用户消息如包含明确价格/计划，也可选择走这层
+- 提取结果不能直接上图，必须先进入 candidate stream
+
+---
+
+### 16.4 推荐交互模型
+
+推荐把右侧 AI 工作区升级为：
+
+```text
+┌────────────────────────────────────────────────────────────┐
+│ 当前对话AI：行情分析AI / 事件整理AI                        │
+│ [切换对话AI▼] [双AI并行询问] [事件流开关] [记录强度▼]      │
+├────────────────────────────────────────────────────────────┤
+│ 会话主消息流（用户 ↔ 当前选中AI）                           │
+│                                                            │
+│ 我：这里直接突破还能追吗？                                 │
+│ 行情AI：不建议直接追，除非站稳 24866 并出现二次确认……      │
+│ 或                                                         │
+│ 事件整理AI：当前更像阻力首测，建议先记录 24866-24872 阻力区 │
+│                                                            │
+├────────────────────────────────────────────────────────────┤
+│ 统一事件提取流（来自两个AI回复后的抽取结果，可折叠）       │
+│ [候选] 阻力区 24866-24872                                   │
+│ [候选] 建议观望，等待确认                                   │
+│ [候选] 建议开仓：回踩 24852-24848 再考虑做多               │
+│ [候选] 建议离场：若跌破 24844 则放弃多头脚本               │
+│            [上图] [忽略] [加入计划]                         │
+└────────────────────────────────────────────────────────────┘
+```
+
+这里最关键的是：
+
+- 你可以选择和任意一个 AI 直接聊天
+- 也可以后续扩展为“同问双答”模式
+- 但无论谁回复，都会进入统一抽取层
+- 抽取层再把价格点位、建议开仓、建议离场、建议观望、支撑阻力等事件整理成候选流
+- 你再从候选流中挑选上图
+
+这样既保留双 AI 的聊天能力，也保证图表对象统一受控。
+
+---
+
+### 16.5 统一提取层的输出对象类型
+
+统一信息提取工具层不应输出笼统文本，而应输出一组**候选事件对象**。
+
+建议对象分为 6 大类：
+
+#### 1. Key Level（关键价位）
+例如：
+- 前高
+- 前低
+- 关键阻力
+- 关键支撑
+- 开仓触发价
+- 无效价
+
+字段建议：
+- `event_id`
+- `kind = key_level`
+- `label`
+- `price`
+- `source_message_id`
+- `source_session_id`
+- `confidence`
+- `importance`
+- `candidate_for_chart = true`
+- `status = candidate / confirmed / ignored / mounted / archived`
+
+#### 2. Price Zone（关键价格区）
+例如：
+- 支撑区
+- 阻力区
+- 无交易区
+- 回踩观察区
+
+字段建议：
+- `kind = price_zone`
+- `zone_type = support / resistance / no_trade / watch_retest`
+- `price_low`
+- `price_high`
+- `thesis`
+- `status`
+
+#### 3. Market Event（行情事件）
+例如：
+- 有效突破
+- 假突破
+- 回踩确认
+- 跌破失守
+- 流动性收割完成
+- 上破后未确认
+
+字段建议：
+- `kind = market_event`
+- `event_type`
+- `observed_at`
+- `price`
+- `related_zone_id`
+- `notes`
+- `status`
+
+#### 4. Thesis Fragment（分析结论碎片）
+这是非常重要的一类。
+
+例如：
+- 不追高
+- 等待回踩确认
+- 高位 RR 不佳
+- 当前更适合观察而非开仓
+
+这些不一定立即上图，但很适合作为信息流沉淀。
+
+字段建议：
+- `kind = thesis_fragment`
+- `summary`
+- `action_bias = buy / sell / wait / avoid`
+- `priority`
+- `promote_to_chart_allowed`
+
+#### 5. Plan Intent（计划意图）
+例如：
+- 如果回踩 24852-24848 并守住，则考虑做多
+- 若直接突破 24866 且收稳，则只允许轻仓追随
+
+字段建议：
+- `kind = plan_intent`
+- `entry_hint`
+- `stop_hint`
+- `target_hint`
+- `trigger_condition`
+- `invalidation_condition`
+- `promote_to_plan_card_allowed`
+
+#### 6. Risk Note（风险提示）
+例如：
+- 位置太高
+- 没有确认结构
+- 追多风险收益比差
+- 当前属于中间区震荡
+
+字段建议：
+- `kind = risk_note`
+- `severity = low / medium / high`
+- `summary`
+- `related_message_id`
+- `promote_to_chart_allowed`
+
+---
+
+### 16.5 事件流不是“自动上图流”
+
+这是本设计最重要的原则之一。
+
+事件记录 AI 输出的是：
+
+> **候选事件流（Candidate Event Stream）**
+
+而不是：
+
+> 自动强制绘图流
+
+#### 必须有的状态层级
+
+每个事件对象至少要有以下状态：
+
+- `candidate`：刚提取，待用户审阅
+- `confirmed`：用户认可，允许长期保留
+- `mounted`：已经投影到图表
+- `ignored`：用户明确忽略
+- `expired`：超时失效
+- `archived`：历史归档
+
+#### 这样设计的好处
+1. 图不会乱
+2. 用户有控制权
+3. 事件流可以做“先整理、后上图”
+4. 将来可做自动推荐但仍保留人工确认
+
+---
+
+### 16.6 双 AI 协作时序
+
+建议采用如下链路：
+
+```text
+用户发问
+  ↓
+发送给当前选中的对话AI（行情分析AI 或 事件整理AI）
+  ↓
+当前AI流式输出主回复
+  ↓
+主回复完成后，触发 SharedReplyExtractionEngine
+  ↓
+提取引擎读取：
+  - 用户最新消息
+  - 当前AI最新回复
+  - 当前 session memory
+  - 当前 mounted annotations / active plans
+  - 当前可见图表上下文（可选）
+  ↓
+提取引擎输出 candidate event stream patch
+  ↓
+前端在“统一事件流”区域展示新增候选项
+  ↓
+用户选择：
+  - 上图
+  - 忽略
+  - 转计划卡
+  - 合并到已有对象
+```
+
+#### 关键点
+- 任意 AI 的回复完成后都应触发一次完整提取
+- 若未来需要更实时，可增加“增量提取模式”，但 P0 不建议过早复杂化
+
+---
+
+### 16.7 触发模式建议
+
+#### 模式 A：回复后触发（P0 推荐）
+- 每次任意 AI 回复完成后
+- 触发一次统一提取引擎
+- 最稳定，最容易实现
+
+#### 模式 B：用户手动触发增强提取（P1）
+提供按钮：
+- `提取本轮关键事件`
+- `整理为时间线`
+- `提取关键点位`
+
+#### 模式 C：流式增量提取（P2）
+- 任意 AI 边输出
+- 统一提取引擎边增量整理
+- 适合后期增强，不建议首版直接上
+
+---
+
+### 16.8 前端新增区域设计
+
+建议在右侧工作区新增一个可折叠模块：
+
+#### `EventScribePanel`
+职责：显示两个 AI 回复经统一信息提取工具处理后的候选信息流。
+
+建议结构：
+
+```text
+EventScribePanel
+├── panel header
+│   ├── 开关：启用/停用事件记录AI
+│   ├── 记录强度：轻量 / 标准 / 激进
+│   ├── 过滤：点位 / 区域 / 风险 / 计划 / 全部
+│   └── 操作：全部忽略 / 全部确认 / 批量上图
+├── candidate event list
+│   ├── EventCard
+│   ├── EventCard
+│   └── EventCard
+└── stream footer
+    ├── 查看全部历史
+    ├── 仅看未处理
+    └── 导出事件摘要
+```
+
+#### 单个 `EventCard` 建议操作
+- `[上图]`
+- `[忽略]`
+- `[确认]`
+- `[合并到现有对象]`
+- `[转为计划卡]`
+- `[查看来源消息]`
+
+---
+
+### 16.9 事件记录 AI 的信息流 UI 原则
+
+#### 原则 1：轻量，不抢主聊天区
+事件流是辅助流，不应盖过主消息流。
+
+#### 原则 2：像“候选清单”，不是第二聊天窗
+不要把事件记录 AI 做成第二个聊天气泡窗口。
+更像：
+- 提取列表
+- 事件面板
+- 结构化信息流
+
+#### 原则 3：必须可批量处理
+当候选事件很多时，应支持：
+- 批量上图
+- 批量忽略
+- 仅显示高优先级
+
+#### 原则 4：必须能回到来源消息
+每个事件都应有：
+- 来源 user message
+- 来源 analyst reply
+- 来源 plan card
+
+---
+
+### 16.10 后端架构扩展建议
+
+当前后端已有：
+- session
+- message
+- annotation
+- plan card
+- session memory
+- handoff
+
+建议新增：
+
+```text
+ReplayWorkbenchDualAiOrchestrator
+├── AnalystChatService
+├── EventScribeService
+├── EventCandidateStore
+├── EventPromotionService
+└── EventStreamAssembler
+```
+
+#### `AnalystChatService`
+- 负责主对话
+- 本质上可复用现有 chat service
+
+#### `EventScribeService`
+- 负责从对话轮次提取事件候选
+- 输入：对话轮次 + 结构化上下文
+- 输出：candidate events
+
+#### `EventCandidateStore`
+- 持久化候选事件
+- 保存状态：candidate / mounted / ignored / archived
+
+#### `EventPromotionService`
+- 把 candidate event 转为 annotation / plan / timeline item
+
+#### `EventStreamAssembler`
+- 组装给前端的事件流响应
+- 支持分页、筛选、增量 patch
+
+---
+
+### 16.11 建议新增后端对象
+
+#### `EventCandidate`
+
+建议字段：
+
+```text
+event_id
+session_id
+source_message_id
+source_role
+symbol
+contract_id
+timeframe
+kind
+subtype
+label
+summary
+price
+price_low
+price_high
+observed_at
+expires_at
+confidence
+importance
+status
+promote_to_chart_allowed
+promote_to_plan_allowed
+source_kind
+payload
+created_at
+updated_at
+```
+
+#### `EventStreamEnvelope`
+
+```text
+session_id
+items[]
+unread_candidate_count
+mounted_candidate_count
+ignored_candidate_count
+last_generated_at
+```
+
+#### `PromoteEventRequest`
+
+```text
+event_id
+promote_target   // annotation / plan_card / timeline_note
+mount_to_chart
+merge_strategy   // new / merge_if_similar / replace_existing
+```
+
+---
+
+### 16.12 建议新增 API
+
+#### 1. 获取事件流
+`GET /api/v1/workbench/chat/sessions/{session_id}/event-stream`
+
+作用：
+- 拉取当前会话的事件候选流
+- 支持 `status=candidate`
+- 支持 `kind=key_level`
+
+#### 2. 手动触发事件提取
+`POST /api/v1/workbench/chat/sessions/{session_id}/event-stream/extract`
+
+作用：
+- 对最近一轮或指定消息触发事件记录 AI
+
+#### 3. 更新候选事件状态
+`PATCH /api/v1/workbench/chat/event-candidates/{event_id}`
+
+可更新：
+- `status = confirmed / ignored / archived`
+- `pinned`
+- `visible`
+
+#### 4. 提升事件到图表对象/计划卡
+`POST /api/v1/workbench/chat/event-candidates/{event_id}/promote`
+
+作用：
+- 把 candidate event 转成 annotation 或 plan card
+
+#### 5. 批量处理候选事件
+`POST /api/v1/workbench/chat/sessions/{session_id}/event-stream/bulk`
+
+作用：
+- 批量确认
+- 批量忽略
+- 批量上图
+
+---
+
+### 16.13 SSE 事件扩展建议
+
+当前聊天流已有：
+- `message_start`
+- `token`
+- `annotation_patch`
+- `plan_card`
+- `message_end`
+
+建议新增与事件记录 AI 有关的 SSE 事件：
+
+#### `event_stream_start`
+表示事件记录 AI 开始处理本轮对话。
+
+#### `event_candidate_patch`
+返回新增候选事件。
+
+示例：
+```text
+event: event_candidate_patch
+data: {"session_id":"sess_001","items":[...]}
+```
+
+#### `event_stream_end`
+表示本轮事件提取完成。
+
+这样前端可以在主消息结束后，紧接着把候选事件流刷新出来。
+
+---
+
+### 16.14 Session Memory 需要扩展为双轨
+
+当前 `Session Core Memory` 更偏主会话摘要。
+
+建议扩展成两层：
+
+#### 1. Analyst Memory
+记录：
+- 用户目标
+- 市场结论
+- 当前剧本
+- 活动计划
+- 关键区域
+
+#### 2. Event Memory
+记录：
+- 已提取关键点位
+- 已确认事件
+- 已挂载事件
+- 已忽略事件
+- 当前事件时间线摘要
+
+这样可以避免事件记录 AI 每次都重复提取同样内容。
+
+---
+
+### 16.15 主 AI 与记录 AI 的模型策略
+
+不一定必须两个供应商，但建议逻辑上拆开。
+
+#### 推荐策略
+- 行情分析 AI：用更强的推理模型
+- 事件记录 AI：用更稳定、更结构化、更便宜的模型
+
+因为事件记录 AI 更像：
+- 信息抽取
+- 结构归纳
+- schema 映射
+- 去重与归档
+
+它不一定需要最强推理，但需要：
+- 格式稳定
+- 成本可控
+- 可高频调用
+
+---
+
+### 16.16 去重与合并规则
+
+事件记录 AI 如果每轮都提取，很容易重复。
+
+因此必须设计去重规则。
+
+#### 建议去重维度
+- 同 session
+- 同 kind
+- 同 price / price range
+- 同一来源消息附近
+- 文义相似度高
+
+#### 合并策略
+- 相同阻力区：更新置信度，不重复新增
+- 相同风险提示：增加引用次数
+- 同一计划意图：升级已有 plan intent，而不是重新造一个
+
+这一步最好放在 `EventPromotionService` 或 `EventStreamAssembler` 中，而不是完全交给模型。
+
+---
+
+### 16.17 和图表标记系统的关系
+
+事件记录 AI 输出对象，并不替代原本的 annotation / plan 系统，而是成为其上游候选层。
+
+关系应该是：
+
+```text
+用户 & 行情AI对话
+  ↓
+Event Scribe AI
+  ↓
+EventCandidate（候选层）
+  ↓ 用户确认/批量处理/自动规则
+Annotation / PlanCard / TimelineNote（正式层）
+  ↓
+Chart Overlay Rendering（渲染层）
+```
+
+这比“AI 一说话就直接画图”更稳健。
+
+---
+
+### 16.18 推荐开发阶段
+
+#### P0：先把双 AI 基础架构立住
+1. 新增“行情分析 AI + 事件记录 AI”概念层
+2. 主聊天流仍由行情 AI 输出
+3. 每轮回复结束后触发事件记录 AI
+4. 右侧新增 EventScribePanel
+5. 事件流以 candidate 状态显示
+6. 支持单条 `上图 / 忽略 / 确认`
+
+#### P1：让事件流真正可用
+7. 批量处理 candidate events
+8. 提升为 annotation / plan card
+9. 支持按类型/优先级筛选
+10. 支持查看来源消息
+11. 支持事件去重和合并
+
+#### P2：增强智能协作
+12. 流式增量事件提取
+13. Analyst Memory / Event Memory 双轨维护
+14. 自动推荐上图
+15. 支持“只让记录 AI 看本轮 / 最近3轮 / 全会话摘要”模式
+16. 支持事件时间线导出
+
+---
+
+### 16.19 给实现者的最终说明（双 AI 部分）
+
+双 AI 架构的重点，不是“界面上多显示一个 AI 名字”，而是建立 3 层稳定边界：
+
+#### 第一层：对话边界
+- 主对话只由行情分析 AI 负责
+- 事件记录 AI 不抢主消息流
+
+#### 第二层：结构化边界
+- 事件记录 AI 只输出候选事件流
+- 不直接污染图表
+
+#### 第三层：投影边界
+- 只有被确认/被选择的事件，才进入 annotation / plan / chart overlay
+
+一句话总结：
+
+> 行情 AI 负责“和你一起看盘并思考”，记录 AI 负责“把值得沉淀的信息变成可操作、可上图、可追溯的结构化事件流”。
+
+---
+
+## 17. 开发优先级建议
 
 ### P0（必须先做）
 1. 会话条 + 固定输入框 + 草稿恢复

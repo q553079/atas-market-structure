@@ -1,10 +1,21 @@
 export async function fetchJson(url, options) {
   const response = await fetch(url, options);
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.detail || payload.error || "request failed");
+  const rawText = await response.text();
+  let payload = null;
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      payload = rawText;
+    }
   }
-  return payload;
+  if (!response.ok) {
+    if (payload && typeof payload === "object") {
+      throw new Error(payload.detail || payload.error || "request failed");
+    }
+    throw new Error(rawText || `request failed (${response.status})`);
+  }
+  return payload && typeof payload === "object" ? payload : {};
 }
 
 export function toUtcString(localValue) {
