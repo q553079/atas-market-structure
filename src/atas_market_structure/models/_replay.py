@@ -745,6 +745,10 @@ class ReplayWorkbenchBuildResponse(BaseModel):
     local_message_count: int = Field(..., ge=0, description="How many local continuous-state messages matched the request window.")
     replay_snapshot_id: str | None = Field(None, description="Replay packet identifier when a packet exists or was built.")
     ingestion_id: str | None = Field(None, description="Stored ingestion identifier when a packet exists or was built.")
+    core_snapshot: ReplayWorkbenchSnapshotPayload | None = Field(
+        None,
+        description="Replay snapshot payload returned inline for first-screen rendering when immediately available.",
+    )
     summary: ReplayWorkbenchAcceptedSummary | None = Field(None, description="Stored or newly created replay summary when available.")
     cache_record: ReplayWorkbenchCacheRecord | None = Field(None, description="Latest cache record after the build decision.")
     atas_fetch_request: dict[str, Any] | None = Field(

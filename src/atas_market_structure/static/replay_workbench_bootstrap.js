@@ -189,6 +189,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   const renderStatusStrip = renderStatusStripFactory(els);
   const planLifecycleEngine = createPlanLifecycleEngine({ state });
   const sessionMemoryEngine = createSessionMemoryEngine({ state, els, fetchJson });
+  const MOBILE_AI_BREAKPOINT = 1000;
+  const DESKTOP_SIDEBAR_MIN = 400;
+  const DESKTOP_SIDEBAR_MAX = 560;
 
   function persistWorkbenchState() {
     writeStorage("workbench", {
@@ -231,12 +234,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
   function jumpToMessage(messageId) {
     if (!messageId) {
-      return;
+      return false;
     }
     scrollChatToBottom({ behavior: "auto", markRead: true, persist: false });
     const node = els.aiChatThread.querySelector(`[data-message-id="${messageId}"]`);
     if (!node) {
-      return;
+      return false;
     }
     node.scrollIntoView({ behavior: "smooth", block: "center" });
     const session = getActiveThread();
@@ -245,6 +248,77 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     session.scrollOffset = els.aiChatThread?.scrollTop || 0;
     node.classList.add("source-flash");
     window.setTimeout(() => node.classList.remove("source-flash"), 2200);
+    return true;
+  }
+
+  function jumpToMessageWhenReady(messageId, { retries = 12, delay = 80 } = {}) {
+    if (!messageId) {
+      return;
+    }
+    let attempts = 0;
+    const tryJump = () => {
+      if (jumpToMessage(messageId)) {
+        return;
+      }
+      attempts += 1;
+      if (attempts >= retries) {
+        return;
+      }
+      window.setTimeout(tryJump, delay);
+    };
+    tryJump();
+  }
+
+  function resolveAnnotationScope(annotationId, mode = "only") {
+    const annotations = Array.isArray(state.aiAnnotations) ? state.aiAnnotations : [];
+    const target = annotations.find((item) => item.id === annotationId);
+    if (!target) {
+      return null;
+    }
+    const scopedAnnotationIds = mode === "source" && target.plan_id
+      ? annotations.filter((item) => item.plan_id === target.plan_id).map((item) => item.id)
+      : [annotationId];
+    return {
+      target,
+      filters: {
+        onlyCurrentSession: false,
+        sessionIds: target.session_id ? [target.session_id] : [],
+        messageIds: target.message_id ? [target.message_id] : [],
+        annotationIds: scopedAnnotationIds,
+        selectedOnly: false,
+      },
+    };
+  }
+
+  function applyAnnotationScope(annotationId, {
+    mode = "only",
+    activateSession = false,
+    jumpToSource = false,
+    render = true,
+  } = {}) {
+    const scope = resolveAnnotationScope(annotationId, mode);
+    if (!scope) {
+      return null;
+    }
+    const { target, filters } = scope;
+    state.selectedAnnotationId = annotationId;
+    state.annotationFilters.onlyCurrentSession = filters.onlyCurrentSession;
+    state.annotationFilters.sessionIds = filters.sessionIds;
+    state.annotationFilters.messageIds = filters.messageIds;
+    state.annotationFilters.annotationIds = filters.annotationIds;
+    state.annotationFilters.selectedOnly = filters.selectedOnly;
+    writeStorage("annotationFilters", state.annotationFilters);
+    if (activateSession && target.session_id) {
+      const session = state.aiThreads.find((item) => item.id === target.session_id);
+      setActiveThread(target.session_id, session?.title || "会话");
+    }
+    if (render) {
+      renderSnapshot();
+    }
+    if (jumpToSource && target.message_id) {
+      jumpToMessageWhenReady(target.message_id);
+    }
+    return scope;
   }
 
   function getReplyAnnotations({ messageId, sessionId = null, planId = null } = {}) {
@@ -291,7 +365,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     })();
   }
 
-  function syncPromptBlocksToServer(session, { selectedPromptBlockIds = null, pinnedContextBlockIds = null } = {}) {
+  function syncPromptBlocksToServer(session, { selectedPromptBlockIds = null, pinnedContextBlockIds = null, includeMemorySummary = null, includeRecentMessages = null } = {}) {
     if (!fetchJson || !session?.id) {
       return Promise.resolve();
     }
@@ -301,6 +375,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       body: JSON.stringify({
         selected_prompt_block_ids: Array.isArray(selectedPromptBlockIds) ? selectedPromptBlockIds : (Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : []),
         pinned_context_block_ids: Array.isArray(pinnedContextBlockIds) ? pinnedContextBlockIds : (Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : []),
+        include_memory_summary: includeMemorySummary ?? !!session.includeMemorySummary,
+        include_recent_messages: includeRecentMessages ?? !!session.includeRecentMessages,
       }),
     }).catch((error) => {
       console.warn("同步 prompt blocks 失败:", error);
@@ -315,27 +391,30 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (!targetSession) {
       return [];
     }
+    const related = getReplyAnnotations({ messageId, sessionId: targetSession.id, planId });
+    const mountedObjectIds = related.map((item) => item.id);
     const mountedReplyIds = Array.isArray(targetSession.mountedReplyIds) ? targetSession.mountedReplyIds : [];
     if (mode === "replace") {
       targetSession.mountedReplyIds = [messageId];
-    } else if (!mountedReplyIds.includes(messageId)) {
-      targetSession.mountedReplyIds = [...mountedReplyIds, messageId];
+    } else if (mode === "show") {
+      targetSession.mountedReplyIds = mountedReplyIds.includes(messageId)
+        ? mountedReplyIds
+        : [...mountedReplyIds, messageId];
     }
-    const related = getReplyAnnotations({ messageId, sessionId: targetSession.id, planId });
-    const mountedObjectIds = related.map((item) => item.id);
     targetSession.messages = (targetSession.messages || []).map((message) => {
-      if (message.message_id !== messageId) {
-        return mode === "replace"
-          ? { ...message, mountedToChart: false, mountedObjectIds: [] }
-          : message;
+      if (message.message_id === messageId) {
+        return {
+          ...message,
+          mountedToChart: true,
+          mountedObjectIds,
+        };
       }
-      return {
-        ...message,
-        mountedToChart: true,
-        mountedObjectIds,
-      };
+      if (mode === "replace") {
+        return { ...message, mountedToChart: false, mountedObjectIds: [] };
+      }
+      return message;
     });
-    const mountMode = mode === "replace" ? "replace" : "append";
+    const mountMode = mode === "replace" ? "replace" : mode === "focus" ? "focus_only" : "append";
     void syncMountedRepliesToServer(targetSession, {
       messageId,
       mountedToChart: true,
@@ -362,7 +441,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     void syncMountedRepliesToServer(targetSession, {
       messageId,
       mountedToChart: false,
-      mountMode: "focus_only",
+      mountMode: "append",
       mountedObjectIds: [],
     });
     queueSessionMemoryRefresh([targetSession.id], { forceServer: true, delay: 120 });
@@ -419,17 +498,22 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     }
     state.selectedAnnotationId = related[0].id;
     const session = state.aiThreads.find((item) => item.id === (targetSession?.id || state.activeAiThreadId));
-    if (session && messageId) {
-      mountReplyObjects(messageId, action === "show" ? "show" : "replace", { sessionId: session.id, planId });
-    }
     if (action === "focus") {
+      if (session && messageId) {
+        mountReplyObjects(messageId, "focus", { sessionId: session.id, planId });
+      }
       focusReplyObjects(messageId, { sessionId: session?.id, planId, mode: "focus" });
     } else if (action === "show") {
+      if (session && messageId) {
+        mountReplyObjects(messageId, "show", { sessionId: session.id, planId });
+      }
       focusReplyObjects(messageId, { sessionId: session?.id, planId, mode: "show" });
+    } else if (session && messageId) {
+      mountReplyObjects(messageId, "replace", { sessionId: session.id, planId });
     }
     writeStorage("annotationFilters", state.annotationFilters);
     if (action === "jump") {
-      window.setTimeout(() => jumpToMessage(messageId), 60);
+      jumpToMessageWhenReady(messageId);
     }
     const candles = state.snapshot?.candles || [];
     const starts = related.map((item) => new Date(item.start_time || state.snapshot?.window_start).getTime()).filter(Number.isFinite);
@@ -459,8 +543,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         renderSnapshot();
       }
     },
-    onPromptBlocksChanged: (session, { selectedPromptBlockIds, pinnedContextBlockIds } = {}) => {
-      void syncPromptBlocksToServer(session, { selectedPromptBlockIds, pinnedContextBlockIds });
+    onPromptBlocksChanged: (session, { selectedPromptBlockIds, pinnedContextBlockIds, includeMemorySummary, includeRecentMessages } = {}) => {
+      void syncPromptBlocksToServer(session, { selectedPromptBlockIds, pinnedContextBlockIds, includeMemorySummary, includeRecentMessages });
       if (session.id === state.activeAiThreadId) {
         renderAiChat();
       }
@@ -474,6 +558,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     getActiveThread,
     setActiveThread,
     syncSessionsFromServer,
+    createBackendSession,
     getOrCreateBlankSessionForSymbol,
     renderAiThreadTabs,
     appendAiChatMessage,
@@ -497,7 +582,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     els,
     fetchJson,
     ensureThread,
-    renderSnapshot: (...args) => getRenderSnapshot()(...args),
+    renderCoreSnapshot: () => renderCoreSnapshot(),
+    renderSidebarSnapshot: () => renderSidebarSnapshot(),
+    renderDeferredSurfaces: () => renderDeferredSurfaces(),
   });
 
   const actions = createWorkbenchActions({
@@ -508,6 +595,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     syncCacheKey,
     renderStatusStrip,
     renderSnapshot: (...args) => getRenderSnapshot()(...args),
+    renderCoreSnapshot: () => renderCoreSnapshot(),
     renderError: (error) => renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]),
     renderAiError: (error) => renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]),
     setBuildProgress: (active, percent, label) => {
@@ -520,6 +608,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     buildStatusChips,
     translateVerificationStatus,
     loadSnapshotByIngestionId: replayLoader.loadSnapshotByIngestionId,
+    applySnapshotToState: replayLoader.applySnapshotToState,
+    loadSidebarDataInBackground: replayLoader.loadSidebarDataInBackground,
+    loadDeferredEnhancements: replayLoader.loadDeferredEnhancements,
   });
 
   const aiChat = createAiChatController({
@@ -537,6 +628,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     sessionMemoryEngine,
     addPromptBlock,
     getOrCreateBlankSessionForSymbol,
+    renderAiChat,
     setMountedReplyIds,
   });
   aiChat.bindStreamingControls?.();
@@ -544,16 +636,14 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     state,
     els,
     persistWorkbenchState,
-    setActiveThread,
     renderSnapshot: () => renderSnapshot(),
-    jumpToMessage,
+    applyAnnotationScope,
   });
   const annotationPopoverController = createAnnotationPopoverController({
     state,
     els,
-    setActiveThread,
     renderSnapshot: () => renderSnapshot(),
-    jumpToMessage,
+    applyAnnotationScope,
   });
   const modelSwitcherController = createModelSwitcherController({
     state,
@@ -564,14 +654,323 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     sessionMemoryEngine,
     renderSnapshot: () => renderSnapshot(),
   });
+  const buttonFeedbackTimers = new WeakMap();
+  const defaultAttachmentAccept = els.attachmentInput?.getAttribute("accept") || "";
+  const voiceCaptureState = {
+    recognition: null,
+    listening: false,
+    stopRequested: false,
+    errorMessage: "",
+    transcriptCaptured: false,
+    baseText: "",
+  };
+
+  function isDockedAiLayout() {
+    return window.innerWidth > MOBILE_AI_BREAKPOINT;
+  }
+
+  function syncAiSidebarViewportState({ persist = true } = {}) {
+    if (!els.aiSidebar) {
+      return;
+    }
+    const docked = isDockedAiLayout();
+    const shouldOpen = docked ? true : !!state.aiSidebarOpen;
+    els.aiSidebar.classList.toggle("open", shouldOpen);
+    els.workbenchMain?.classList.toggle("ai-sidebar-open", shouldOpen);
+    if (els.aiSidebarTrigger) {
+      els.aiSidebarTrigger.classList.toggle("hidden", shouldOpen);
+    }
+    if (docked) {
+      state.aiSidebarOpen = true;
+    }
+    if (persist) {
+      writeStorage("aiSidebarState", {
+        open: state.aiSidebarOpen,
+        pinned: state.aiSidebarPinned,
+      });
+    }
+  }
+
+  function syncBottomDrawerVisibility() {
+    if (!els.bottomContextDrawer) {
+      return;
+    }
+    const hasOpenDrawer = Object.values(state.drawerState || {}).some(Boolean);
+    els.bottomContextDrawer.hidden = !hasOpenDrawer;
+  }
 
   function applyLayoutWidths() {
+    const nextSidebarWidth = Math.max(
+      DESKTOP_SIDEBAR_MIN,
+      Math.min(DESKTOP_SIDEBAR_MAX, Number(state.layout.chatWidth) || 440),
+    );
+    state.layout.chatWidth = nextSidebarWidth;
+    els.shellLayout?.style.setProperty("--sidebar-width", `${nextSidebarWidth}px`);
     els.chartWorkspace.style.minWidth = "0";
-    els.chartWorkspace.style.width = `${state.layout.chartWidth}px`;
-    els.rightPanel.style.width = `${state.layout.chatWidth}px`;
-    els.aiChatThread.style.height = `${state.layout.chatHeight}px`;
+    els.chartWorkspace.style.width = "";
+    els.rightPanel.style.width = "";
+    els.aiSidebar.style.width = "";
+    els.aiChatThread.style.height = "";
+    syncAiSidebarViewportState({ persist: false });
     writeStorage("layout", state.layout);
     window.requestAnimationFrame(() => updateChatFollowState({ persist: false }));
+  }
+
+  function setButtonBusy(button, busy) {
+    if (!button) {
+      return;
+    }
+    button.dataset.busy = busy ? "true" : "false";
+    button.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+
+  function pulseButton(button) {
+    if (!button) {
+      return;
+    }
+    button.dataset.pressed = "true";
+    const previousTimer = buttonFeedbackTimers.get(button);
+    if (previousTimer) {
+      window.clearTimeout(previousTimer);
+    }
+    const timer = window.setTimeout(() => {
+      delete button.dataset.pressed;
+      buttonFeedbackTimers.delete(button);
+    }, 150);
+    buttonFeedbackTimers.set(button, timer);
+  }
+
+  function installButtonFeedback() {
+    document.addEventListener("pointerdown", (event) => {
+      const button = event.target?.closest("button");
+      if (!button || button.disabled) {
+        return;
+      }
+      pulseButton(button);
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const button = document.activeElement;
+      if (!(button instanceof HTMLElement) || !button.matches("button") || button.disabled) {
+        return;
+      }
+      pulseButton(button);
+    }, true);
+  }
+
+  function focusComposerInput() {
+    if (!els.aiChatInput) {
+      return;
+    }
+    els.aiChatInput.focus();
+    const end = els.aiChatInput.value.length;
+    if (typeof els.aiChatInput.setSelectionRange === "function") {
+      els.aiChatInput.setSelectionRange(end, end);
+    }
+  }
+
+  function updateComposerDraft(value) {
+    if (!els.aiChatInput) {
+      return;
+    }
+    els.aiChatInput.value = value;
+    aiChat.handleComposerInput(value);
+  }
+
+  function syncAiSidebarPinButtonState() {
+    if (!els.aiSidebarPinButton) {
+      return;
+    }
+    els.aiSidebarPinButton.classList.toggle("is-active", !!state.aiSidebarPinned);
+    els.aiSidebarPinButton.setAttribute("aria-pressed", state.aiSidebarPinned ? "true" : "false");
+    els.aiSidebarPinButton.title = state.aiSidebarPinned ? "取消固定侧栏偏好" : "固定侧栏偏好";
+  }
+
+  function syncQuickActionButtonState() {
+    const skillPanelOpen = !!els.aiSkillPanel && !els.aiSkillPanel.hidden;
+    if (els.aiMoreButton) {
+      els.aiMoreButton.classList.toggle("is-active", skillPanelOpen);
+      els.aiMoreButton.setAttribute("aria-expanded", skillPanelOpen ? "true" : "false");
+    }
+    [els.aiVoiceButton, els.aiVoiceInputButton].forEach((button) => {
+      if (!button) {
+        return;
+      }
+      button.classList.toggle("is-active", !!voiceCaptureState.listening);
+      button.setAttribute("aria-pressed", voiceCaptureState.listening ? "true" : "false");
+      setButtonBusy(button, false);
+    });
+  }
+
+  function setSkillPanelVisible(visible, { announce = false } = {}) {
+    if (!els.aiSkillPanel) {
+      return;
+    }
+    const nextVisible = !!visible;
+    const previousVisible = !els.aiSkillPanel.hidden;
+    els.aiSkillPanel.hidden = !nextVisible;
+    syncQuickActionButtonState();
+    if (!announce || previousVisible === nextVisible) {
+      return;
+    }
+    renderStatusStrip([{ label: nextVisible ? "已打开快捷技能面板" : "已收起快捷技能面板", variant: "emphasis" }]);
+    if (nextVisible) {
+      els.aiSkillSearch?.focus();
+    } else {
+      focusComposerInput();
+    }
+  }
+
+  function openAttachmentPicker({ accept = defaultAttachmentAccept, statusLabel = "选择要附加的文件" } = {}) {
+    if (!els.attachmentInput) {
+      renderStatusStrip([{ label: "当前页面还没有可用的附件入口。", variant: "warn" }]);
+      return;
+    }
+    els.attachmentInput.setAttribute("accept", accept || defaultAttachmentAccept);
+    renderStatusStrip([{ label: statusLabel, variant: "emphasis" }]);
+    els.attachmentInput.click();
+  }
+
+  function addQuickAttachment(item, statusLabel) {
+    addAttachments([item]);
+    renderStatusStrip([{ label: statusLabel, variant: "good" }]);
+    renderSnapshot();
+    focusComposerInput();
+  }
+
+  function normalizeVoiceError(errorCode) {
+    const mapping = {
+      "aborted": "已中断",
+      "audio-capture": "没有检测到可用麦克风",
+      "network": "网络异常",
+      "not-allowed": "没有获得麦克风权限",
+      "service-not-allowed": "浏览器禁止使用语音服务",
+      "no-speech": "没有识别到语音",
+    };
+    return mapping[errorCode] || errorCode || "未知错误";
+  }
+
+  function applyVoiceDraft(transcript) {
+    const normalized = String(transcript || "").trim();
+    const nextDraft = normalized
+      ? `${voiceCaptureState.baseText}${voiceCaptureState.baseText ? "\n" : ""}${normalized}`.trim()
+      : voiceCaptureState.baseText;
+    updateComposerDraft(nextDraft);
+  }
+
+  function stopVoiceCapture({ announce = true } = {}) {
+    if (!voiceCaptureState.listening || !voiceCaptureState.recognition) {
+      return false;
+    }
+    voiceCaptureState.stopRequested = true;
+    if (announce) {
+      renderStatusStrip([{ label: "正在停止语音输入…", variant: "emphasis" }]);
+    }
+    try {
+      voiceCaptureState.recognition.stop();
+      return true;
+    } catch (error) {
+      console.warn("停止语音输入失败:", error);
+      return false;
+    }
+  }
+
+  function startVoiceCapture() {
+    if (voiceCaptureState.listening) {
+      stopVoiceCapture();
+      return;
+    }
+    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      renderStatusStrip([{ label: "当前浏览器不支持语音输入，已聚焦消息输入框。", variant: "warn" }]);
+      focusComposerInput();
+      return;
+    }
+    voiceCaptureState.baseText = (els.aiChatInput?.value || "").trimEnd();
+    voiceCaptureState.stopRequested = false;
+    voiceCaptureState.errorMessage = "";
+    voiceCaptureState.transcriptCaptured = false;
+    const recognition = new SpeechRecognitionCtor();
+    voiceCaptureState.recognition = recognition;
+    recognition.lang = "zh-CN";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => {
+      voiceCaptureState.listening = true;
+      syncQuickActionButtonState();
+      renderStatusStrip([{ label: "正在语音输入，再点一次可停止。", variant: "emphasis" }]);
+      focusComposerInput();
+    };
+    recognition.onresult = (event) => {
+      let mergedTranscript = "";
+      for (let index = 0; index < event.results.length; index += 1) {
+        const segment = event.results[index]?.[0]?.transcript || "";
+        mergedTranscript += segment;
+        if (event.results[index]?.isFinal && segment.trim()) {
+          voiceCaptureState.transcriptCaptured = true;
+        }
+      }
+      if (mergedTranscript.trim()) {
+        applyVoiceDraft(mergedTranscript);
+      }
+    };
+    recognition.onerror = (event) => {
+      voiceCaptureState.errorMessage = normalizeVoiceError(event.error);
+    };
+    recognition.onend = () => {
+      const hadTranscript = voiceCaptureState.transcriptCaptured;
+      const errorMessage = voiceCaptureState.errorMessage;
+      const stopRequested = voiceCaptureState.stopRequested;
+      voiceCaptureState.recognition = null;
+      voiceCaptureState.listening = false;
+      voiceCaptureState.stopRequested = false;
+      voiceCaptureState.errorMessage = "";
+      voiceCaptureState.transcriptCaptured = false;
+      syncQuickActionButtonState();
+      if (errorMessage) {
+        renderStatusStrip([{ label: `语音输入失败：${errorMessage}`, variant: "warn" }]);
+      } else if (hadTranscript) {
+        renderStatusStrip([{ label: "语音内容已写入输入框。", variant: "good" }]);
+        focusComposerInput();
+      } else if (stopRequested) {
+        renderStatusStrip([{ label: "语音输入已停止。", variant: "emphasis" }]);
+        focusComposerInput();
+      } else {
+        renderStatusStrip([{ label: "没有识别到语音内容。", variant: "warn" }]);
+        focusComposerInput();
+      }
+    };
+    try {
+      renderStatusStrip([{ label: "正在请求语音权限…", variant: "emphasis" }]);
+      recognition.start();
+    } catch (error) {
+      voiceCaptureState.recognition = null;
+      voiceCaptureState.listening = false;
+      syncQuickActionButtonState();
+      renderStatusStrip([{ label: `语音输入无法启动：${error.message || String(error)}`, variant: "warn" }]);
+      focusComposerInput();
+    }
+  }
+
+  async function runButtonAction(button, action, { silentError = false } = {}) {
+    if (button?.dataset.busy === "true") {
+      return null;
+    }
+    setButtonBusy(button, true);
+    try {
+      return await action();
+    } catch (error) {
+      console.error("按钮动作失败:", error);
+      if (!silentError) {
+        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
+      }
+      return null;
+    } finally {
+      setButtonBusy(button, false);
+    }
   }
 
   function updateHeaderStatus() {
@@ -580,7 +979,17 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     state.topBar.quickRange = els.quickRangeSelect.value;
     els.statusSymbolChip.textContent = state.topBar.symbol;
     els.statusTimeframeChip.textContent = timeframeLabel(state.topBar.timeframe);
-    els.statusWindowChip.textContent = els.quickRangeSelect.options[els.quickRangeSelect.selectedIndex]?.text || "自定义";
+    const perfParts = [];
+    if (Number.isFinite(state.perf.buildResponseMs)) perfParts.push(`build ${state.perf.buildResponseMs}ms`);
+    if (Number.isFinite(state.perf.coreSnapshotLoadMs)) perfParts.push(`core-load ${state.perf.coreSnapshotLoadMs}ms`);
+    if (Number.isFinite(state.perf.coreRenderMs)) perfParts.push(`core-render ${state.perf.coreRenderMs}ms`);
+    if (Number.isFinite(state.perf.sidebarLoadMs)) perfParts.push(`sidebar-load ${state.perf.sidebarLoadMs}ms`);
+    if (Number.isFinite(state.perf.sidebarRenderMs)) perfParts.push(`sidebar-render ${state.perf.sidebarRenderMs}ms`);
+    if (state.historyBackfillLoading) perfParts.push("history loading");
+    else if (state.fullHistoryLoaded) perfParts.push("history ready");
+    els.statusWindowChip.textContent = perfParts.length
+      ? `${els.quickRangeSelect.options[els.quickRangeSelect.selectedIndex]?.text || "自定义"} · ${perfParts.join(" / ")}`
+      : (els.quickRangeSelect.options[els.quickRangeSelect.selectedIndex]?.text || "自定义");
     els.statusDataChip.textContent = `数据状态：${state.snapshot?.live_tail ? "实时" : state.snapshot ? "历史" : "未加载"}`;
     els.statusSyncChip.textContent = formatSyncLabel(state.topBar.lastSyncedAt);
     persistWorkbenchState();
@@ -592,9 +1001,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   let pendingMemoryRefreshTimer = null;
+  let pendingAnnotationLifecycleTimer = null;
   const memoryRefreshQueue = new Set();
 
   function queueSessionMemoryRefresh(sessionIds = [], { forceServer = true, delay = 220 } = {}) {
+    if (state.snapshotLoading) {
+      return;
+    }
     if (!sessionMemoryEngine?.refreshSessionMemory) {
       return;
     }
@@ -625,6 +1038,25 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         renderAiThreadTabs();
         renderAiChat();
       }
+    }, delay);
+  }
+
+  function queueAnnotationLifecycleRefresh({ delay = 1200, refreshMemory = true, forceServer = true } = {}) {
+    if (state.snapshotLoading) {
+      return;
+    }
+    if (pendingAnnotationLifecycleTimer) {
+      clearTimeout(pendingAnnotationLifecycleTimer);
+    }
+    pendingAnnotationLifecycleTimer = window.setTimeout(() => {
+      const startedAt = performance.now();
+      pendingAnnotationLifecycleTimer = null;
+      const changedSessionIds = updateAnnotationLifecycle();
+      if (refreshMemory && changedSessionIds?.length) {
+        queueSessionMemoryRefresh(changedSessionIds, { forceServer, delay: 260 });
+      }
+      annotationPanelController.renderAnnotationPanel();
+      state.perf.deferredAnnotationMs = Math.round(performance.now() - startedAt);
     }, delay);
   }
 
@@ -663,29 +1095,86 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     return Math.max(1, Math.ceil((7 * 24 * 60) / timeframeMinutes));
   }
 
-  function mergeLiveTailIntoSnapshot(response, timeframe) {
-    if (!state.snapshot?.candles?.length || !response?.candles?.length) {
+  function buildCandleSignature(candle) {
+    if (!candle) {
+      return "";
+    }
+    return [
+      candle.started_at || "",
+      candle.open ?? "",
+      candle.high ?? "",
+      candle.low ?? "",
+      candle.close ?? "",
+      candle.volume ?? "",
+    ].join(":");
+  }
+
+  function applyLiveResponseMeta(response) {
+    const integrityHash = response?.integrity ? JSON.stringify(response.integrity) : null;
+    const integrityChanged = integrityHash !== state.lastLiveTailIntegrityHash;
+    state.integrity = response?.integrity || state.integrity;
+    state.pendingBackfill = response?.latest_backfill_request || state.pendingBackfill;
+    state.lastLiveTailIntegrityHash = integrityHash;
+    return { integrityChanged };
+  }
+
+  function shouldReloadSnapshotForLiveResponse(response, merged) {
+    if (!response) {
       return false;
     }
-    const existingCandles = Array.isArray(state.snapshot.candles) ? [...state.snapshot.candles] : [];
-    const latestFromServer = response.candles[response.candles.length - 1];
-    const lastExisting = existingCandles[existingCandles.length - 1];
-    if (!lastExisting) {
-      state.snapshot.candles = response.candles.slice();
+    if (response.snapshot_refresh_required || response.reload_snapshot) {
       return true;
     }
-    if (latestFromServer.started_at === lastExisting.started_at) {
-      existingCandles[existingCandles.length - 1] = latestFromServer;
-      state.snapshot.candles = existingCandles;
-      return true;
-    }
-    if (new Date(latestFromServer.started_at) > new Date(lastExisting.started_at)) {
-      existingCandles.push(latestFromServer);
-      const maxBars = getMaxBarsForTimeframe(timeframe);
-      state.snapshot.candles = existingCandles.slice(-maxBars);
+    if (response.integrity_changed && !merged) {
       return true;
     }
     return false;
+  }
+
+  function mergeLiveTailIntoSnapshot(response, timeframe) {
+    if (!state.snapshot?.candles?.length || !response?.candles?.length) {
+      return { merged: false, requiresReload: false, updateType: "full_reset" };
+    }
+    const existingCandles = Array.isArray(state.snapshot.candles) ? [...state.snapshot.candles] : [];
+    const incomingCandles = response.candles.filter((item) => item?.started_at);
+    if (!existingCandles.length || !incomingCandles.length) {
+      return { merged: false, requiresReload: false, updateType: "full_reset" };
+    }
+    const alignedIndex = existingCandles.findIndex((bar) => bar.started_at === incomingCandles[0].started_at);
+    if (alignedIndex < 0) {
+      const lastExisting = existingCandles[existingCandles.length - 1];
+      if (!lastExisting || new Date(incomingCandles[0].started_at) <= new Date(lastExisting.started_at)) {
+        return { merged: false, requiresReload: true, updateType: "full_reset" };
+      }
+      existingCandles.push(...incomingCandles);
+    } else {
+      existingCandles.splice(alignedIndex, existingCandles.length - alignedIndex, ...incomingCandles);
+    }
+    const deduped = [];
+    const seen = new Set();
+    existingCandles.forEach((bar) => {
+      if (!bar?.started_at || seen.has(bar.started_at)) {
+        return;
+      }
+      seen.add(bar.started_at);
+      deduped.push(bar);
+    });
+    deduped.sort((left, right) => new Date(left.started_at) - new Date(right.started_at));
+    const previousCandles = state.snapshot.candles;
+    const previousLength = previousCandles.length;
+    const previousLastSignature = buildCandleSignature(previousCandles[previousCandles.length - 1]);
+    const nextCandles = deduped.slice(-getMaxBarsForTimeframe(timeframe));
+    state.snapshot = {
+      ...state.snapshot,
+      live_tail: response.live_tail ?? state.snapshot.live_tail,
+      candles: nextCandles,
+    };
+    const nextLastSignature = buildCandleSignature(nextCandles[nextCandles.length - 1]);
+    const updateType = (nextCandles.length === previousLength || nextCandles.length === previousLength + 1)
+      && previousLastSignature !== nextLastSignature
+      ? "tail_update"
+      : "full_reset";
+    return { merged: true, requiresReload: false, updateType };
   }
 
   function startLiveRefresh() {
@@ -702,21 +1191,28 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         if (!symbol || !timeframe) return;
 
         const response = await fetchJson(`/api/v1/workbench/live-tail?instrument_symbol=${encodeURIComponent(symbol)}&display_timeframe=${encodeURIComponent(timeframe)}&lookback_bars=4`);
-        const integrityHash = response?.integrity ? JSON.stringify(response.integrity) : null;
-        const integrityChanged = integrityHash !== state.lastLiveTailIntegrityHash;
-        state.integrity = response?.integrity || state.integrity;
-        state.pendingBackfill = response?.latest_backfill_request || state.pendingBackfill;
-        state.lastLiveTailIntegrityHash = integrityHash;
+        const { integrityChanged } = applyLiveResponseMeta(response);
+        const mergeResult = mergeLiveTailIntoSnapshot(response, timeframe);
+        const needsReload = shouldReloadSnapshotForLiveResponse(response, mergeResult.merged) || mergeResult.requiresReload;
 
-        if (response?.snapshot_refresh_required && state.currentReplayIngestionId) {
-          await replayLoader.loadSnapshotByIngestionId(state.currentReplayIngestionId);
+        if (needsReload && state.currentReplayIngestionId) {
+          await replayLoader.loadCoreSnapshot(state.currentReplayIngestionId, {
+            preserveChartView: true,
+            preserveSelection: true,
+            reason: response?.snapshot_refresh_required ? "live-tail-refresh-required" : "live-tail-reload",
+          });
           return;
         }
-        if (integrityChanged && state.currentReplayIngestionId) {
-          await replayLoader.loadSnapshotByIngestionId(state.currentReplayIngestionId);
+        if (integrityChanged && !mergeResult.merged && state.currentReplayIngestionId) {
+          await replayLoader.loadCoreSnapshot(state.currentReplayIngestionId, {
+            preserveChartView: true,
+            preserveSelection: true,
+            reason: "live-tail-integrity-fallback",
+          });
           return;
         }
-        if (mergeLiveTailIntoSnapshot(response, timeframe)) {
+        if (mergeResult.merged) {
+          state.lastChartUpdateType = mergeResult.updateType;
           renderChart();
           const latestFromServer = response.candles?.[response.candles.length - 1];
           if (els.chartInfoTime && latestFromServer?.ended_at) {
@@ -733,23 +1229,48 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     }, 5000);
   }
 
-  function renderSnapshot() {
-    const changedSessionIds = updateAnnotationLifecycle();
-    if (changedSessionIds?.length) {
-      queueSessionMemoryRefresh(changedSessionIds, { forceServer: true, delay: 260 });
-    }
+  function renderCoreSnapshot() {
+    const startedAt = performance.now();
     renderChart();
-    renderAiThreadTabs();
-    renderAiChat();
-    renderContractNav();
-    renderDrawers({ state, els });
-    annotationPanelController.renderAnnotationPanel();
     updateDynamicAnalysisVisibility();
     updateHeaderStatus();
-    // 启动实时刷新
+    state.perf.coreRenderMs = Math.round(performance.now() - startedAt);
     if (state.snapshot?.candles?.length) {
       startLiveRefresh();
     }
+  }
+
+  function renderSidebarSnapshot() {
+    const startedAt = performance.now();
+    renderDrawers({ state, els });
+    updateDynamicAnalysisVisibility();
+    updateHeaderStatus();
+    state.perf.sidebarRenderMs = Math.round(performance.now() - startedAt);
+  }
+
+  function renderAiSurface() {
+    renderAiThreadTabs();
+    renderAiChat();
+    renderContractNav();
+  }
+
+  function renderAnnotationSurface({ skipLifecycle = false } = {}) {
+    if (!skipLifecycle) {
+      queueAnnotationLifecycleRefresh({ delay: 1200, refreshMemory: true, forceServer: true });
+      return;
+    }
+    annotationPanelController.renderAnnotationPanel();
+  }
+
+  function renderDeferredSurfaces() {
+    renderAiSurface();
+    renderAnnotationSurface({ skipLifecycle: false });
+  }
+
+  function renderSnapshot() {
+    renderCoreSnapshot();
+    renderSidebarSnapshot();
+    renderDeferredSurfaces();
   }
 
   async function handleBuildWithForceRefresh() {
@@ -761,7 +1282,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       await actions.handleBuild();
       state.topBar.lastSyncedAt = new Date().toISOString();
       persistWorkbenchState();
-      renderSnapshot();
+      renderAiSurface();
     } finally {
       if (els.forceRebuild) {
         els.forceRebuild.checked = previous;
@@ -860,6 +1381,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
 
   function toggleAiSidebar() {
+    if (isDockedAiLayout()) {
+      openAiSidebar();
+      return;
+    }
     const isOpen = els.aiSidebar?.classList.contains("open");
     if (isOpen) {
       closeAiSidebar();
@@ -870,20 +1395,18 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
   function openAiSidebar() {
     if (!els.aiSidebar) return;
-    els.aiSidebar.classList.add("open");
-    els.workbenchMain?.classList.add("ai-sidebar-open");
-    els.aiSidebarTrigger?.classList.add("hidden");
     state.aiSidebarOpen = true;
-    writeStorage("aiSidebarState", { open: true });
+    syncAiSidebarViewportState();
   }
 
   function closeAiSidebar() {
     if (!els.aiSidebar) return;
-    els.aiSidebar.classList.remove("open");
-    els.workbenchMain?.classList.remove("ai-sidebar-open");
-    els.aiSidebarTrigger?.classList.remove("hidden");
+    if (isDockedAiLayout()) {
+      openAiSidebar();
+      return;
+    }
     state.aiSidebarOpen = false;
-    writeStorage("aiSidebarState", { open: false });
+    syncAiSidebarViewportState();
   }
 
   function renderContractNav() {
@@ -950,13 +1473,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       </div>
     `).join("");
     els.aiSkillGrid.querySelectorAll(".ai-skill-card").forEach((card) => {
-      card.addEventListener("click", () => {
+      card.addEventListener("click", async () => {
         const skillId = card.dataset.skillId;
         const skill = skills.find((s) => s.id === skillId);
         if (skill) {
-          els.aiChatInput.value = skill.prompt;
-          els.aiSkillPanel.hidden = true;
-          aiChat.handleAiChatSend();
+          updateComposerDraft(skill.prompt);
+          setSkillPanelVisible(false);
+          await aiChat.handleAiChatSend();
           renderSnapshot();
         }
       });
@@ -975,39 +1498,73 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   function attachBindings() {
     applyLayoutWidths();
     bindChatScrollBehavior();
+    installButtonFeedback();
+    syncQuickActionButtonState();
 
     // AI 侧边栏控制
     els.aiSidebarTrigger?.addEventListener("click", toggleAiSidebar);
     els.aiSidebarCloseButton?.addEventListener("click", closeAiSidebar);
     els.aiSidebarPinButton?.addEventListener("click", () => {
       state.aiSidebarPinned = !state.aiSidebarPinned;
-      writeStorage("aiSidebarState", { pinned: state.aiSidebarPinned });
+      writeStorage("aiSidebarState", { open: state.aiSidebarOpen, pinned: state.aiSidebarPinned });
+      syncAiSidebarPinButtonState();
+      renderStatusStrip([{ label: state.aiSidebarPinned ? "AI 侧栏固定偏好已开启" : "AI 侧栏固定偏好已关闭", variant: "emphasis" }]);
     });
-    
+
     // 技能面板控制
     els.aiChatInput?.addEventListener("input", (e) => {
       const value = e.target.value;
       if (value.startsWith("@") || value.startsWith("/")) {
-        els.aiSkillPanel.hidden = false;
+        setSkillPanelVisible(true);
       } else if (els.aiSkillPanel && !els.aiSkillPanel.hidden) {
-        els.aiSkillPanel.hidden = true;
+        setSkillPanelVisible(false);
       }
     });
-    
+
     // 快速操作按钮
-    els.aiKlineAnalysisButton?.addEventListener("click", () => {
-      aiChat.handlePresetAnalysis("recent_20_bars", "请分析当前K线图表并给出交易建议。", false);
-      renderSnapshot();
+    els.aiKlineAnalysisButton?.addEventListener("click", async () => {
+      setButtonBusy(els.aiKlineAnalysisButton, true);
+      try {
+        await aiChat.handlePresetAnalysis("recent_20_bars", "请分析当前K线图表并给出交易建议。", false);
+        renderSnapshot();
+      } catch (error) {
+        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
+      } finally {
+        setButtonBusy(els.aiKlineAnalysisButton, false);
+      }
     });
-    
+    els.aiMoreButton?.addEventListener("click", () => {
+      setSkillPanelVisible(els.aiSkillPanel?.hidden ?? true, { announce: true });
+    });
+    els.aiAttachmentButton?.addEventListener("click", () => {
+      openAttachmentPicker({ statusLabel: "选择文件后会附加到当前会话。", accept: defaultAttachmentAccept });
+    });
+    els.aiScreenshotButton?.addEventListener("click", () => {
+      addQuickAttachment({ name: `chart-${Date.now()}.png`, kind: "chart-screenshot" }, "已把图表截图加入当前会话附件。");
+    });
+    els.aiVoiceButton?.addEventListener("click", startVoiceCapture);
+    els.aiVoiceInputButton?.addEventListener("click", startVoiceCapture);
+
     // 初始化技能面板
     initializeSkillPanel();
-    
+
     // 恢复侧边栏状态
-    const sidebarState = readStorage("aiSidebarState", { open: false });
-    if (sidebarState.open) {
-      openAiSidebar();
-    }
+    const sidebarState = readStorage("aiSidebarState", { open: false, pinned: false });
+    state.aiSidebarOpen = !!sidebarState.open;
+    state.aiSidebarPinned = !!sidebarState.pinned;
+    syncAiSidebarViewportState({ persist: false });
+    syncAiSidebarPinButtonState();
+    syncQuickActionButtonState();
+    let resizeTimer = null;
+    window.addEventListener("resize", () => {
+      if (resizeTimer) {
+        window.clearTimeout(resizeTimer);
+      }
+      resizeTimer = window.setTimeout(() => {
+        applyLayoutWidths();
+        renderSnapshot();
+      }, 120);
+    });
     els.timeframeTabs.forEach((button) => {
       button.addEventListener("click", () => {
         els.displayTimeframe.value = button.dataset.timeframe;
@@ -1034,13 +1591,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       syncCacheKey();
       updateHeaderStatus();
       try {
-        await syncSessionsFromServer({ symbol: nextSymbol, activateFirst: true });
-        const matching = state.aiThreads.find((thread) => (thread.symbol || thread.memory?.symbol || "").toUpperCase() === nextSymbol);
-        if (matching) {
-          setActiveThread(matching.id, matching.title, matching);
-        } else {
-          await getOrCreateBlankSessionForSymbol(nextSymbol, nextSymbol);
-        }
+        await syncSessionsFromServer({ symbol: nextSymbol, activateFirst: false });
+        await getOrCreateBlankSessionForSymbol(nextSymbol, nextSymbol);
       } catch (error) {
         console.warn("切换品种同步会话失败:", error);
         await getOrCreateBlankSessionForSymbol(nextSymbol, nextSymbol);
@@ -1103,6 +1655,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     });
     els.exportSettingsButton?.addEventListener("click", () => {
       exportCurrentSettings();
+      renderStatusStrip([{ label: "当前工作台设置已导出。", variant: "good" }]);
       els.headerMoreMenu.hidden = true;
     });
 
@@ -1153,21 +1706,28 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     }
 
     els.buildButton.addEventListener("click", async () => {
-      await actions.handleBuild();
-      state.topBar.lastSyncedAt = new Date().toISOString();
-      persistWorkbenchState();
-      renderSnapshot();
+      await runButtonAction(els.buildButton, async () => {
+        await actions.handleBuild();
+        state.topBar.lastSyncedAt = new Date().toISOString();
+        persistWorkbenchState();
+        renderAiSurface();
+      }, { silentError: true });
     });
     els.refreshAllButton.addEventListener("click", async () => {
-      await actions.handleBuild();
-      state.topBar.lastSyncedAt = new Date().toISOString();
-      persistWorkbenchState();
-      renderSnapshot();
+      await runButtonAction(els.refreshAllButton, async () => {
+        await actions.handleBuild();
+        state.topBar.lastSyncedAt = new Date().toISOString();
+        persistWorkbenchState();
+        renderAiSurface();
+      }, { silentError: true });
     });
     els.restoreLayoutButton.addEventListener("click", () => {
       const persistedLayout = readStorage("layout", null);
       if (persistedLayout) {
         state.layout = { ...state.layout, ...persistedLayout };
+        renderStatusStrip([{ label: "已恢复上次布局。", variant: "good" }]);
+      } else {
+        renderStatusStrip([{ label: "还没有可恢复的历史布局。", variant: "warn" }]);
       }
       applyLayoutWidths();
       renderSnapshot();
@@ -1190,12 +1750,22 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }
     });
     els.saveRegionButton?.addEventListener("click", async () => {
-      await actions.handleSaveRegion();
-      renderSnapshot();
+      await runButtonAction(els.saveRegionButton, async () => {
+        await actions.handleSaveRegion();
+        renderSnapshot();
+      }, { silentError: true });
+    });
+    els.saveRegionQuickButton?.addEventListener("click", async () => {
+      await runButtonAction(els.saveRegionQuickButton, async () => {
+        await actions.handleSaveRegion();
+        renderSnapshot();
+      }, { silentError: true });
     });
     els.recordEntryButton?.addEventListener("click", async () => {
-      await actions.handleRecordEntry();
-      renderSnapshot();
+      await runButtonAction(els.recordEntryButton, async () => {
+        await actions.handleRecordEntry();
+        renderSnapshot();
+      }, { silentError: true });
     });
 
     els.aiChatThread?.addEventListener("click", async (event) => {
@@ -1212,42 +1782,76 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     });
 
     els.analysisSendCurrentButton.addEventListener("click", async () => {
-      const session = getActiveThread();
-      session.analysisTemplate = {
-        type: els.analysisTypeSelect.value,
-        range: els.analysisRangeSelect.value,
-        style: els.analysisStyleSelect.value,
-        sendMode: "current",
-      };
-      persistSessions();
-      await aiChat.handlePresetAnalysis(els.analysisTypeSelect.value, `请基于当前${els.analysisRangeSelect.value}做${els.analysisStyleSelect.value}风格分析。`, false);
-      renderSnapshot();
+      await runButtonAction(els.analysisSendCurrentButton, async () => {
+        const session = getActiveThread();
+        session.analysisTemplate = {
+          type: els.analysisTypeSelect.value,
+          range: els.analysisRangeSelect.value,
+          style: els.analysisStyleSelect.value,
+          sendMode: "current",
+        };
+        persistSessions();
+        await aiChat.handlePresetAnalysis(els.analysisTypeSelect.value, `请基于当前${els.analysisRangeSelect.value}做${els.analysisStyleSelect.value}风格分析。`, false);
+        renderSnapshot();
+      });
     });
     els.analysisSendNewButton.addEventListener("click", async () => {
-      await aiChat.handlePresetAnalysis(els.analysisTypeSelect.value, `请基于当前${els.analysisRangeSelect.value}做${els.analysisStyleSelect.value}风格分析。`, true);
-      renderSnapshot();
+      await runButtonAction(els.analysisSendNewButton, async () => {
+        await aiChat.handlePresetAnalysis(els.analysisTypeSelect.value, `请基于当前${els.analysisRangeSelect.value}做${els.analysisStyleSelect.value}风格分析。`, true);
+        renderSnapshot();
+      });
     });
     els.gammaAutoDiscoverButton?.addEventListener("click", async () => {
-      await loadGammaAnalysis({ autoDiscoverLatest: true });
+      await runButtonAction(els.gammaAutoDiscoverButton, async () => {
+        await loadGammaAnalysis({ autoDiscoverLatest: true });
+      }, { silentError: true });
     });
     els.gammaLoadButton?.addEventListener("click", async () => {
-      await loadGammaAnalysis({ autoDiscoverLatest: false });
+      await runButtonAction(els.gammaLoadButton, async () => {
+        await loadGammaAnalysis({ autoDiscoverLatest: false });
+      }, { silentError: true });
     });
     els.gammaSendCurrentButton?.addEventListener("click", async () => {
-      await sendGammaToChat(false);
-      renderSnapshot();
+      await runButtonAction(els.gammaSendCurrentButton, async () => {
+        await sendGammaToChat(false);
+        renderSnapshot();
+      });
     });
     els.gammaSendNewButton?.addEventListener("click", async () => {
-      await sendGammaToChat(true);
-      renderSnapshot();
+      await runButtonAction(els.gammaSendNewButton, async () => {
+        await sendGammaToChat(true);
+        renderSnapshot();
+      });
     });
 
-    els.recent20BarsButton.addEventListener("click", async () => aiChat.handlePresetAnalysis("recent_20_bars", "请分析最近20根K线并给出交易计划。", false));
-    els.recent20MinutesButton.addEventListener("click", async () => aiChat.handlePresetAnalysis("recent_20_minutes", "请分析最近20分钟并给出交易计划。", false));
-    els.focusRegionsButton.addEventListener("click", async () => aiChat.handlePresetAnalysis("focus_regions", "请围绕当前重点区域给出计划。", false));
-    els.liveDepthButton.addEventListener("click", async () => aiChat.handlePresetAnalysis("live_depth", "请结合当前盘口结构给出建议。", false));
-    els.manualRegionButton.addEventListener("click", async () => aiChat.handlePresetAnalysis("manual_region", aiChat.buildManualRegionAnalysisPrompt(), false));
-    els.selectedBarButton.addEventListener("click", async () => aiChat.handlePresetAnalysis("selected_bar", aiChat.buildSelectedBarAnalysisPrompt(), false));
+    els.recent20BarsButton.addEventListener("click", async () => {
+      await aiChat.handlePresetAnalysis("recent_20_bars", "请分析最近20根K线并给出交易计划。", false);
+      renderSnapshot();
+    });
+    els.recent20MinutesButton.addEventListener("click", async () => {
+      await aiChat.handlePresetAnalysis("recent_20_minutes", "请分析最近20分钟并给出交易计划。", false);
+      renderSnapshot();
+    });
+    els.focusRegionsButton.addEventListener("click", async () => {
+      await aiChat.handlePresetAnalysis("focus_regions", "请围绕当前重点区域给出计划。", false);
+      renderSnapshot();
+    });
+    els.liveDepthButton.addEventListener("click", async () => {
+      await aiChat.handlePresetAnalysis("live_depth", "请结合当前盘口结构给出建议。", false);
+      renderSnapshot();
+    });
+    els.manualRegionButton.addEventListener("click", async () => {
+      await runButtonAction(els.manualRegionButton, async () => {
+        await aiChat.handlePresetAnalysis("manual_region", aiChat.buildManualRegionAnalysisPrompt(), false);
+        renderSnapshot();
+      });
+    });
+    els.selectedBarButton.addEventListener("click", async () => {
+      await runButtonAction(els.selectedBarButton, async () => {
+        await aiChat.handlePresetAnalysis("selected_bar", aiChat.buildSelectedBarAnalysisPrompt(), false);
+        renderSnapshot();
+      });
+    });
 
     els.annotationManagerButton.addEventListener("click", () => {
       state.annotationPanelOpen = true;
@@ -1333,7 +1937,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderSnapshot();
     });
 
-    els.addAttachmentButton?.addEventListener("click", () => els.attachmentInput?.click());
+    els.addAttachmentButton?.addEventListener("click", () => {
+      openAttachmentPicker({ statusLabel: "选择要附加到当前会话的文件。", accept: defaultAttachmentAccept });
+    });
     els.attachmentInput?.addEventListener("change", async () => {
       const files = Array.from(els.attachmentInput.files || []);
       const mapped = await Promise.all(files.map(async (file) => ({
@@ -1343,18 +1949,23 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       })));
       addAttachments(mapped);
       els.attachmentInput.value = "";
+      els.attachmentInput.setAttribute("accept", defaultAttachmentAccept);
+      renderStatusStrip([{ label: mapped.length ? `已添加 ${mapped.length} 个附件。` : "未选择附件。", variant: mapped.length ? "good" : "warn" }]);
       renderSnapshot();
+      focusComposerInput();
     });
     els.chartScreenshotButton?.addEventListener("click", () => {
-      addAttachments([{ name: `chart-${Date.now()}.png`, kind: "chart-screenshot" }]);
-      renderSnapshot();
+      addQuickAttachment({ name: `chart-${Date.now()}.png`, kind: "chart-screenshot" }, "已把图表截图加入当前会话附件。");
+    });
+    els.chartToolbarScreenshotButton?.addEventListener("click", () => {
+      addQuickAttachment({ name: `chart-${Date.now()}.png`, kind: "chart-screenshot" }, "已把图表截图加入当前会话附件。");
     });
     els.externalScreenshotButton?.addEventListener("click", () => {
-      addAttachments([{ name: `external-${Date.now()}.png`, kind: "external-screenshot" }]);
-      renderSnapshot();
+      openAttachmentPicker({ statusLabel: "选择一张外部截图图片。", accept: "image/*" });
     });
     els.clearAttachmentsButton?.addEventListener("click", () => {
       clearAttachments();
+      renderStatusStrip([{ label: "当前会话附件已清空。", variant: "emphasis" }]);
       renderSnapshot();
     });
 
@@ -1362,10 +1973,16 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     annotationPopoverController.bindAnnotationPopoverActions();
 
     els.rightResizeHandle.addEventListener("mousedown", (event) => {
+      if (!isDockedAiLayout()) {
+        return;
+      }
       const startX = event.clientX;
       const startWidth = state.layout.chatWidth;
       const onMove = (moveEvent) => {
-        state.layout.chatWidth = Math.max(360, startWidth - (moveEvent.clientX - startX));
+        state.layout.chatWidth = Math.max(
+          DESKTOP_SIDEBAR_MIN,
+          Math.min(DESKTOP_SIDEBAR_MAX, startWidth - (moveEvent.clientX - startX)),
+        );
         applyLayoutWidths();
       };
       const onUp = () => {
@@ -1375,21 +1992,6 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     });
-    els.aiChatResizeHandle.addEventListener("mousedown", (event) => {
-      const startY = event.clientY;
-      const startHeight = state.layout.chatHeight;
-      const onMove = (moveEvent) => {
-        state.layout.chatHeight = Math.max(220, startHeight + (moveEvent.clientY - startY));
-        applyLayoutWidths();
-      };
-      const onUp = () => {
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    });
-
     const drawerButtons = [
       [els.drawerContextButton, els.drawerContextPanel, "context"],
       [els.drawerManualButton, els.drawerManualPanel, "manual"],
@@ -1403,6 +2005,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       button?.addEventListener("click", () => {
         state.drawerState[key] = !state.drawerState[key];
         panel.style.display = state.drawerState[key] ? "block" : "none";
+        syncBottomDrawerVisibility();
         writeStorage("workbench", {
           activeAiThreadId: state.activeAiThreadId,
           drawerState: state.drawerState,
@@ -1413,6 +2016,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         panel.style.display = state.drawerState[key] ? "block" : "none";
       }
     });
+    syncBottomDrawerVisibility();
 
     [els.layerEvents, els.layerFocusRegions, els.layerManualRegions, els.layerOperatorEntries, els.layerAiAnnotations].forEach((input) => {
       input?.addEventListener("change", renderSnapshot);
@@ -1462,8 +2066,16 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     } catch (error) {
       console.warn("从后端同步会话失败:", error);
     }
+    let initialThread = state.aiThreads.find((item) => item.id === state.activeAiThreadId) || state.aiThreads[0];
+    if ((!initialThread || /^session-\d+$/i.test(String(initialThread.id || ""))) && getOrCreateBlankSessionForSymbol) {
+      try {
+        initialThread = await getOrCreateBlankSessionForSymbol(state.topBar.symbol, state.topBar.symbol);
+      } catch (error) {
+        console.warn("初始化后端会话失败:", error);
+      }
+    }
     renderAiThreadTabs();
-    setActiveThread(state.activeAiThreadId || state.aiThreads[0].id, state.aiThreads[0].title, {
+    setActiveThread((initialThread?.id) || (state.activeAiThreadId || state.aiThreads[0].id), initialThread?.title || state.aiThreads[0].title, {
       symbol: state.topBar.symbol,
       contractId: state.topBar.symbol,
       timeframe: state.topBar.timeframe,

@@ -6,6 +6,7 @@ export function createWorkbenchActions({
   syncCacheKey,
   renderStatusStrip,
   renderSnapshot,
+  renderCoreSnapshot,
   renderError,
   renderAiError,
   setBuildProgress,
@@ -13,6 +14,9 @@ export function createWorkbenchActions({
   buildStatusChips,
   translateVerificationStatus,
   loadSnapshotByIngestionId,
+  applySnapshotToState,
+  loadSidebarDataInBackground,
+  loadDeferredEnhancements,
 }) {
   async function saveDraftRegion() {
     const draft = state.chartInteraction.draftRegion;
@@ -52,11 +56,16 @@ export function createWorkbenchActions({
       setBuildProgress(true, 8, "准备窗口与参数");
       const payload = buildRequestPayload();
       setBuildProgress(true, 28, "请求后端构建历史回放");
+      const buildStartedAt = performance.now();
+      state.perf.loadStartedAt = buildStartedAt;
+      state.perf.lastReason = "build";
       const result = await fetchJson("/api/v1/workbench/replay-builder/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      state.lastBuildResponseMs = Math.round(performance.now() - buildStartedAt);
+      state.perf.buildResponseMs = state.lastBuildResponseMs;
       state.buildResponse = result;
       state.integrity = result.integrity || null;
       state.pendingBackfill = result.atas_backfill_request || null;
@@ -65,12 +74,19 @@ export function createWorkbenchActions({
       state.aiReview = null;
       state.currentReplayIngestionId = result.ingestion_id || null;
       renderStatusStrip(buildStatusChips(result));
-      if (result.ingestion_id) {
-        setBuildProgress(true, 72, "载入回放快照与足迹摘要");
-        await loadSnapshotByIngestionId(result.ingestion_id);
-        setBuildProgress(true, 94, "渲染图表与事件层");
+      if (result.core_snapshot && result.ingestion_id) {
+        setBuildProgress(true, 72, "渲染首图");
+        applySnapshotToState(result.ingestion_id, result.core_snapshot, { reason: "build-inline-core" });
+        renderCoreSnapshot();
+        void loadSidebarDataInBackground(result.ingestion_id);
+        loadDeferredEnhancements();
+        setBuildProgress(true, 94, "后台补齐侧栏与增强信息");
+      } else if (result.ingestion_id) {
+        setBuildProgress(true, 72, "载入回放快照");
+        await loadSnapshotByIngestionId(result.ingestion_id, { reason: "build-fetch-core" });
+        setBuildProgress(true, 94, "后台补齐侧栏与增强信息");
       } else {
-        renderSnapshot();
+        renderCoreSnapshot();
       }
       setBuildProgress(true, 100, "加载完成");
       window.setTimeout(() => setBuildProgress(false, 0, "正在加载历史数据"), 420);

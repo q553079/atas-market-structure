@@ -8,6 +8,8 @@ let priceLineCounter = 0;
 let resizeObserver = null;
 let syncingVisibleRange = false;
 let lastDataSignature = "";
+let lastChartDataset = null;
+let lastUpdateType = "initial";
 
 function toChartTime(value) {
   if (typeof value === "string") {
@@ -66,15 +68,84 @@ function buildChartData(snapshot) {
   return { candleData, volumeData, emaData };
 }
 
-function syncStateChartViewFromLogicalRange(range, snapshot, chartView) {
-  if (!range || !snapshot?.candles?.length || !chartView) {
+function buildSnapshotSignature(snapshot) {
+  const candles = snapshot?.candles || [];
+  if (!candles.length) {
+    return "empty";
+  }
+  const lastBar = candles[candles.length - 1] || {};
+  return `${candles.length}:${lastBar.started_at || ""}:${lastBar.ended_at || ""}:${lastBar.close || ""}`;
+}
+
+function canApplyTailUpdate(snapshot, updateType) {
+  if (!lastChartDataset || updateType === "initial") {
+    return false;
+  }
+  const candles = snapshot?.candles || [];
+  const previousCandles = lastChartDataset.candles || [];
+  if (!candles.length || !previousCandles.length) {
+    return false;
+  }
+  if (candles.length < previousCandles.length) {
+    return false;
+  }
+  if (candles.length - previousCandles.length > 1) {
+    return false;
+  }
+  const previousLast = previousCandles[previousCandles.length - 1];
+  const nextLast = candles[candles.length - 1];
+  const previousLastStartedAt = previousLast?.started_at;
+  const nextLastStartedAt = nextLast?.started_at;
+  if (!previousLastStartedAt || !nextLastStartedAt) {
+    return false;
+  }
+  return candles.length === previousCandles.length
+    ? previousLastStartedAt === nextLastStartedAt
+    : candles[candles.length - 2]?.started_at === previousLastStartedAt;
+}
+
+function canApplyPrependHistory(snapshot, updateType) {
+  if (!lastChartDataset || updateType !== "prepend_history") {
+    return false;
+  }
+  const candles = snapshot?.candles || [];
+  const previousCandles = lastChartDataset.candles || [];
+  if (!candles.length || !previousCandles.length || candles.length <= previousCandles.length) {
+    return false;
+  }
+  const suffix = candles.slice(candles.length - previousCandles.length);
+  return suffix.every((bar, index) => bar?.started_at === previousCandles[index]?.started_at);
+}
+
+function applyTailUpdate(snapshot) {
+  const candles = snapshot?.candles || [];
+  if (!candles.length) {
     return;
   }
-  const total = snapshot.candles.length;
-  const from = Math.max(0, Math.floor(range.from ?? 0));
-  const to = Math.min(total - 1, Math.ceil(range.to ?? total - 1));
-  chartView.startIndex = from;
-  chartView.endIndex = Math.max(from, to);
+  const latestBar = candles[candles.length - 1];
+  const latestCandle = {
+    time: toChartTime(latestBar.started_at),
+    open: Number(latestBar.open) || 0,
+    high: Number(latestBar.high) || 0,
+    low: Number(latestBar.low) || 0,
+    close: Number(latestBar.close) || 0,
+  };
+  const latestVolume = {
+    time: toChartTime(latestBar.started_at),
+    value: Number(latestBar.volume) || 0,
+    color: Number(latestBar.close) >= Number(latestBar.open)
+      ? "rgba(34, 171, 148, 0.58)"
+      : "rgba(242, 54, 69, 0.58)",
+  };
+  candleSeries.update(latestCandle);
+  volumeSeries.update(latestVolume);
+}
+
+function applyPrependHistory(snapshot) {
+  const { candleData, volumeData, emaData } = buildChartData(snapshot);
+  candleSeries.setData(candleData);
+  volumeSeries.setData(volumeData);
+  emaSeries.setData(emaData);
 }
 
 export function initLightweightCharts(els) {
@@ -264,21 +335,36 @@ export function initLightweightCharts(els) {
   return { chartInstance, volumeChartInstance, candleSeries, volumeSeries, emaSeries };
 }
 
-export function updateChartData(snapshot, chartView, els) {
+export function updateChartData(snapshot, chartView, els, options = {}) {
+  const startedAt = performance.now();
   if (!candleSeries || !volumeSeries || !emaSeries || !snapshot?.candles?.length) {
     return;
   }
 
-  const { candleData, volumeData, emaData } = buildChartData(snapshot);
-  const signature = `${snapshot.candles.length}:${snapshot.candles[snapshot.candles.length - 1]?.ended_at || snapshot.candles[snapshot.candles.length - 1]?.started_at || ""}`;
+  const updateType = options.updateType || "initial";
+  const signature = buildSnapshotSignature(snapshot);
+  const shouldFitInitially = !lastDataSignature;
+  const dataChanged = signature !== lastDataSignature;
 
-  candleSeries.setData(candleData);
-  volumeSeries.setData(volumeData);
-  emaSeries.setData(emaData);
+  if (dataChanged && canApplyTailUpdate(snapshot, updateType)) {
+    applyTailUpdate(snapshot);
+    const { emaData } = buildChartData(snapshot);
+    emaSeries.setData(emaData);
+    lastUpdateType = updateType;
+  } else if (dataChanged && canApplyPrependHistory(snapshot, updateType)) {
+    applyPrependHistory(snapshot);
+    lastUpdateType = updateType;
+  } else {
+    const { candleData, volumeData, emaData } = buildChartData(snapshot);
+    candleSeries.setData(candleData);
+    volumeSeries.setData(volumeData);
+    emaSeries.setData(emaData);
+    lastUpdateType = dataChanged ? updateType : lastUpdateType;
+  }
 
-  if (lastDataSignature !== signature && chartInstance) {
-    const shouldFitInitially = !lastDataSignature;
+  if (dataChanged && chartInstance) {
     lastDataSignature = signature;
+    lastChartDataset = { candles: snapshot.candles.map((bar) => ({ started_at: bar.started_at })) };
     if (shouldFitInitially) {
       try {
         chartInstance.timeScale().fitContent();
@@ -298,6 +384,8 @@ export function updateChartData(snapshot, chartView, els) {
 
   if (els?.chartContainer) {
     els.chartContainer.style.cursor = chartView?.regionMode ? "crosshair" : "grab";
+    els.chartContainer.dataset.lastUpdateType = lastUpdateType;
+    els.chartContainer.dataset.lastChartUpdateMs = String(Math.round(performance.now() - startedAt));
   }
 }
 
@@ -380,7 +468,7 @@ export function zoomChart(factor) {
       return;
     }
     const center = (range.from + range.to) / 2;
-    const span = Math.max(10, (range.to - range.from + 1) * factor);
+    const span = Math.max(10, (range.to - range.from) * factor);
     chartInstance.timeScale().setVisibleLogicalRange({
       from: center - span / 2,
       to: center + span / 2,
@@ -419,5 +507,6 @@ export function destroyCharts() {
   emaSeries = null;
   priceLineMap = {};
   lastDataSignature = "";
+  lastChartDataset = null;
   syncingVisibleRange = false;
 }

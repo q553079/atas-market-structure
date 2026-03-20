@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import copy
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Thread
 from uuid import uuid4
 
 from atas_market_structure.ai_review_services import ReplayAiChatService, ReplayAiReviewService
@@ -20,6 +23,7 @@ from atas_market_structure.models import (
     ReplayAiZoneReview,
 )
 from atas_market_structure.repository import SQLiteAnalysisRepository
+from atas_market_structure.server import ApplicationRequestHandler
 from atas_market_structure.strategy_library_services import StrategyLibraryService
 
 
@@ -424,6 +428,8 @@ def test_adapter_history_bars_ingestion_and_replay_builder_prefers_atas_history(
     assert build_body["action"] == "built_from_atas_history"
     assert build_body["summary"]["display_timeframe"] == "5m"
     assert build_body["summary"]["candle_count"] == 2
+    assert build_body["core_snapshot"]["display_timeframe"] == "5m"
+    assert len(build_body["core_snapshot"]["candles"]) == 2
 
     replay_ingestion_response = application.dispatch("GET", f"/api/v1/ingestions/{build_body['ingestion_id']}")
     assert replay_ingestion_response.status_code == 200
@@ -496,7 +502,57 @@ def test_replay_workbench_builder_overlays_latest_continuous_candles_on_history(
     assert observed_payload["raw_features"]["continuous_overlay_candle_count"] >= 2
 
 
-def test_adapter_history_footprint_ingestion_enriches_replay_raw_features() -> None:
+def test_replay_builder_trims_initial_core_snapshot_window_for_large_local_history() -> None:
+    application = build_application()
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    base_time = datetime.fromisoformat("2026-03-17T00:00:00+00:00")
+
+    for index in range(650):
+        payload = copy.deepcopy(continuous_payload)
+        emitted_at = base_time + timedelta(minutes=index)
+        price = 21000 + index * 0.25
+        payload["message_id"] = f"adapter-msg-trim-{index:04d}"
+        payload["emitted_at"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_start"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_end"] = (emitted_at + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        payload["source"]["chart_instance_id"] = "NQ-trim-main"
+        payload["instrument"]["symbol"] = "NQ"
+        payload["price_state"]["last_price"] = price
+        payload["price_state"]["local_range_low"] = price - 2
+        payload["price_state"]["local_range_high"] = price + 2
+        response = application.dispatch(
+            "POST",
+            "/api/v1/adapter/continuous-state",
+            json.dumps(payload).encode("utf-8"),
+        )
+        assert response.status_code == 201
+
+    build_request = {
+        "cache_key": "NQ|1m|2026-03-17T00:00:00Z|2026-03-17T10:49:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-17T00:00:00Z",
+        "window_end": "2026-03-17T10:49:59Z",
+        "force_rebuild": True,
+        "min_continuous_messages": 1,
+    }
+    build_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+
+    assert build_response.status_code == 200
+    payload = json.loads(build_response.body)
+    assert payload["action"] == "built_from_local_history"
+    assert payload["core_snapshot"] is not None
+    assert len(payload["core_snapshot"]["candles"]) == 480
+    assert payload["core_snapshot"]["raw_features"]["initial_window_applied"] is True
+    assert payload["core_snapshot"]["raw_features"]["initial_window_bar_limit"] == 480
+    assert payload["core_snapshot"]["raw_features"]["total_candle_count"] >= 650
+    assert payload["core_snapshot"]["raw_features"]["deferred_history_available"] is True
+
+
     application = build_application()
     history_bars_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
     history_footprint_payload = load_json_fixture("atas_adapter.history_footprint.sample.json")
@@ -1085,6 +1141,109 @@ def test_replay_ai_chat_endpoint_uses_strategy_library_cards() -> None:
     assert len(payload["follow_up_suggestions"]) == 2
 
 
+def test_chat_session_routes_remain_available_without_ai_backend() -> None:
+    application = build_application()
+
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "无模型会话",
+                "symbol": "NQ",
+                "contract_id": "NQ",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    assert create_response.status_code == 201
+    session_id = json.loads(create_response.body)["session"]["session_id"]
+
+    list_response = application.dispatch("GET", "/api/v1/workbench/chat/sessions")
+    assert list_response.status_code == 200
+    assert len(json.loads(list_response.body)["sessions"]) == 1
+
+    reply_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/reply",
+        json.dumps(
+            {
+                "preset": ReplayAiChatPreset.GENERAL.value,
+                "user_input": "这里还能不能继续做多？",
+                "selected_block_ids": [],
+                "pinned_block_ids": [],
+                "include_memory_summary": False,
+                "include_recent_messages": False,
+                "attachments": [],
+            }
+        ).encode("utf-8"),
+    )
+    assert reply_response.status_code == 503
+    reply_payload = json.loads(reply_response.body)
+    assert reply_payload["error"] == "chat_unavailable"
+
+    messages_response = application.dispatch(
+        "GET",
+        f"/api/v1/workbench/chat/sessions/{session_id}/messages",
+    )
+    assert messages_response.status_code == 200
+    assert json.loads(messages_response.body)["messages"] == []
+
+
+def test_http_bridge_supports_patch_requests_for_chat_sessions() -> None:
+    application = build_application()
+    ApplicationRequestHandler.application = application
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ApplicationRequestHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        create_response = application.dispatch(
+            "POST",
+            "/api/v1/workbench/chat/sessions",
+            json.dumps(
+                {
+                    "workspace_id": "replay_main",
+                    "title": "PATCH 会话",
+                    "symbol": "NQ",
+                    "contract_id": "NQ",
+                    "timeframe": "1m",
+                    "window_range": {
+                        "start": "2026-03-17T13:30:00Z",
+                        "end": "2026-03-17T20:00:00Z",
+                    },
+                    "start_blank": True,
+                }
+            ).encode("utf-8"),
+        )
+        session_id = json.loads(create_response.body)["session"]["session_id"]
+
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        connection.request(
+            "PATCH",
+            f"/api/v1/workbench/chat/sessions/{session_id}",
+            body=json.dumps({"title": "PATCH 已更新", "pinned": True}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        connection.close()
+
+        assert response.status == 200
+        assert payload["session"]["title"] == "PATCH 已更新"
+        assert payload["session"]["pinned"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_replay_workbench_builder_requests_atas_fetch_when_local_history_is_insufficient() -> None:
     application = build_application()
 
@@ -1145,6 +1304,9 @@ def test_replay_workbench_builder_rebuilds_from_local_history() -> None:
     assert payload["summary"]["instrument_symbol"] == "NQ"
     assert payload["summary"]["verification_status"] == "unverified"
     assert payload["summary"]["candle_count"] >= 2
+    assert payload["core_snapshot"]["raw_features"]["total_candle_count"] >= payload["summary"]["candle_count"]
+    assert payload["core_snapshot"]["raw_features"]["initial_window_bar_limit"] == 576
+    assert payload["core_snapshot"]["raw_features"]["deferred_history_available"] is False
     assert payload["cache_record"]["cache_key"] == "NQ|5m|2026-03-16T14:30:00Z|2026-03-16T14:41:00Z"
 
 
@@ -1316,6 +1478,7 @@ def test_replay_builder_auto_creates_backfill_request_and_integrity_when_local_h
     assert response.status_code == 200
     payload = json.loads(response.body)
     assert payload["action"] == "atas_fetch_required"
+    assert payload["core_snapshot"] is None
     assert payload["integrity"]["status"] == "missing_local_history"
     assert payload["atas_backfill_request"]["status"] == "pending"
     assert payload["atas_backfill_request"]["request_id"]

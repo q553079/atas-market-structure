@@ -54,6 +54,8 @@ class StoredChatSession:
     draft_attachments: list[dict[str, Any]]
     selected_prompt_block_ids: list[str]
     pinned_context_block_ids: list[str]
+    include_memory_summary: bool
+    include_recent_messages: bool
     mounted_reply_ids: list[str]
     active_plan_id: str | None
     memory_summary_id: str | None
@@ -240,6 +242,7 @@ class AnalysisRepository(Protocol):
         *,
         ingestion_kind: str | None = None,
         instrument_symbol: str | None = None,
+        source_snapshot_id: str | None = None,
         limit: int = 100,
     ) -> list[StoredIngestion]:
         ...
@@ -284,6 +287,8 @@ class AnalysisRepository(Protocol):
         draft_attachments: list[dict[str, Any]],
         selected_prompt_block_ids: list[str],
         pinned_context_block_ids: list[str],
+        include_memory_summary: bool,
+        include_recent_messages: bool,
         mounted_reply_ids: list[str],
         active_plan_id: str | None,
         memory_summary_id: str | None,
@@ -540,6 +545,8 @@ class SQLiteAnalysisRepository:
                     draft_attachments_json TEXT NOT NULL,
                     selected_prompt_block_ids_json TEXT NOT NULL,
                     pinned_context_block_ids_json TEXT NOT NULL,
+                    include_memory_summary INTEGER NOT NULL DEFAULT 0,
+                    include_recent_messages INTEGER NOT NULL DEFAULT 0,
                     mounted_reply_ids_json TEXT NOT NULL,
                     active_plan_id TEXT,
                     memory_summary_id TEXT,
@@ -688,6 +695,14 @@ class SQLiteAnalysisRepository:
             connection.execute("CREATE INDEX IF NOT EXISTS idx_analyses_ingestion ON analyses (ingestion_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_liquidity_memories_symbol_expiry ON liquidity_memories (instrument_symbol, expires_at, updated_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_workspace_symbol ON chat_sessions (workspace_id, symbol, updated_at)")
+            try:
+                connection.execute("ALTER TABLE chat_sessions ADD COLUMN include_memory_summary INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute("ALTER TABLE chat_sessions ADD COLUMN include_recent_messages INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_time ON chat_messages (session_id, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_prompt_blocks_session_kind ON chat_prompt_blocks (session_id, kind, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_annotations_session_message ON chat_annotations (session_id, message_id, created_at)")
@@ -766,7 +781,7 @@ class SQLiteAnalysisRepository:
             connection.commit()
         return self.get_ingestion(ingestion_id)
 
-    def list_ingestions(self, *, ingestion_kind: str | None = None, instrument_symbol: str | None = None, limit: int = 100) -> list[StoredIngestion]:
+    def list_ingestions(self, *, ingestion_kind: str | None = None, instrument_symbol: str | None = None, source_snapshot_id: str | None = None, limit: int = 100) -> list[StoredIngestion]:
         clauses = []
         parameters: list[Any] = []
         if ingestion_kind is not None:
@@ -775,6 +790,9 @@ class SQLiteAnalysisRepository:
         if instrument_symbol is not None:
             clauses.append("instrument_symbol = ?")
             parameters.append(instrument_symbol)
+        if source_snapshot_id is not None:
+            clauses.append("source_snapshot_id = ?")
+            parameters.append(source_snapshot_id)
         where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         query = f"SELECT ingestion_id, ingestion_kind, source_snapshot_id, instrument_symbol, observed_payload_json, stored_at FROM ingestions {where_clause} ORDER BY stored_at DESC LIMIT ?"
         parameters.append(limit)
@@ -827,20 +845,20 @@ class SQLiteAnalysisRepository:
             connection.commit()
         return cursor.rowcount
 
-    def save_chat_session(self, *, session_id: str, workspace_id: str, title: str, symbol: str, contract_id: str | None, timeframe: str, window_range: dict[str, Any], active_model: str | None, status: str, draft_text: str, draft_attachments: list[dict[str, Any]], selected_prompt_block_ids: list[str], pinned_context_block_ids: list[str], mounted_reply_ids: list[str], active_plan_id: str | None, memory_summary_id: str | None, unread_count: int, scroll_offset: int, pinned: bool, created_at: datetime, updated_at: datetime) -> StoredChatSession:
+    def save_chat_session(self, *, session_id: str, workspace_id: str, title: str, symbol: str, contract_id: str | None, timeframe: str, window_range: dict[str, Any], active_model: str | None, status: str, draft_text: str, draft_attachments: list[dict[str, Any]], selected_prompt_block_ids: list[str], pinned_context_block_ids: list[str], include_memory_summary: bool, include_recent_messages: bool, mounted_reply_ids: list[str], active_plan_id: str | None, memory_summary_id: str | None, unread_count: int, scroll_offset: int, pinned: bool, created_at: datetime, updated_at: datetime) -> StoredChatSession:
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO chat_sessions (
                     session_id, workspace_id, title, symbol, contract_id, timeframe, window_range_json, active_model, status,
                     draft_text, draft_attachments_json, selected_prompt_block_ids_json, pinned_context_block_ids_json,
-                    mounted_reply_ids_json, active_plan_id, memory_summary_id, unread_count, scroll_offset, pinned, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    include_memory_summary, include_recent_messages, mounted_reply_ids_json, active_plan_id, memory_summary_id, unread_count, scroll_offset, pinned, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id, workspace_id, title, symbol, contract_id, timeframe, self._serialize_json(window_range), active_model, status,
                     draft_text, self._serialize_any_json(draft_attachments), self._serialize_any_json(selected_prompt_block_ids), self._serialize_any_json(pinned_context_block_ids),
-                    self._serialize_any_json(mounted_reply_ids), active_plan_id, memory_summary_id, unread_count, scroll_offset, int(pinned), self._serialize_datetime(created_at), self._serialize_datetime(updated_at),
+                    int(include_memory_summary), int(include_recent_messages), self._serialize_any_json(mounted_reply_ids), active_plan_id, memory_summary_id, unread_count, scroll_offset, int(pinned), self._serialize_datetime(created_at), self._serialize_datetime(updated_at),
                 ),
             )
             connection.commit()
@@ -883,6 +901,8 @@ class SQLiteAnalysisRepository:
             "draft_attachments": ("draft_attachments_json", self._serialize_any_json),
             "selected_prompt_block_ids": ("selected_prompt_block_ids_json", self._serialize_any_json),
             "pinned_context_block_ids": ("pinned_context_block_ids_json", self._serialize_any_json),
+            "include_memory_summary": ("include_memory_summary", lambda value: int(bool(value))),
+            "include_recent_messages": ("include_recent_messages", lambda value: int(bool(value))),
             "mounted_reply_ids": ("mounted_reply_ids_json", self._serialize_any_json),
             "active_plan_id": "active_plan_id",
             "memory_summary_id": "memory_summary_id",
@@ -1166,6 +1186,8 @@ class SQLiteAnalysisRepository:
             draft_attachments=self._parse_any_json(row["draft_attachments_json"]),
             selected_prompt_block_ids=self._parse_any_json(row["selected_prompt_block_ids_json"]),
             pinned_context_block_ids=self._parse_any_json(row["pinned_context_block_ids_json"]),
+            include_memory_summary=bool(row["include_memory_summary"]),
+            include_recent_messages=bool(row["include_recent_messages"]),
             mounted_reply_ids=self._parse_any_json(row["mounted_reply_ids_json"]),
             active_plan_id=row["active_plan_id"],
             memory_summary_id=row["memory_summary_id"],

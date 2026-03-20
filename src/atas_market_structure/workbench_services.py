@@ -105,6 +105,10 @@ class ReplayWorkbenchChatError(RuntimeError):
     """Raised when replay workbench chat operations fail due to invalid state or scope mismatch."""
 
 
+class ReplayWorkbenchChatUnavailableError(ReplayWorkbenchChatError):
+    """Raised when a chat turn requires an AI backend that is not currently configured."""
+
+
 class ReplayWorkbenchNotFoundError(RuntimeError):
     """Raised when a requested replay cache record does not exist."""
 
@@ -121,7 +125,7 @@ def _slugify_title(value: str) -> str:
 
 
 class _PreparedReplyTurn:
-    def __init__(self, *, session: StoredChatSession, replay_ingestion_id: str, user_record: StoredChatMessage, assistant_pending: StoredChatMessage, history, request: ChatReplyRequest, parent_message_id: str | None = None) -> None:
+    def __init__(self, *, session: StoredChatSession, replay_ingestion_id: str | None, user_record: StoredChatMessage, assistant_pending: StoredChatMessage, history, request: ChatReplyRequest, parent_message_id: str | None = None) -> None:
         self.session = session
         self.replay_ingestion_id = replay_ingestion_id
         self.user_record = user_record
@@ -129,6 +133,10 @@ class _PreparedReplyTurn:
         self.history = history
         self.request = request
         self.parent_message_id = parent_message_id
+
+    @property
+    def has_replay_context(self) -> bool:
+        return bool(self.replay_ingestion_id)
 
 
 class _FinalizedReplyTurn:
@@ -169,6 +177,8 @@ class ReplayWorkbenchChatService:
             draft_attachments=[],
             selected_prompt_block_ids=[],
             pinned_context_block_ids=[],
+            include_memory_summary=False,
+            include_recent_messages=False,
             mounted_reply_ids=[],
             active_plan_id=None,
             memory_summary_id=None,
@@ -270,12 +280,14 @@ class ReplayWorkbenchChatService:
         return PromptBlocksEnvelope(blocks=[self._prompt_block_model(block)])
 
     def reply(self, session_id: str, request: ChatReplyRequest) -> ChatReplyResponse:
+        self._require_reply_backend()
         prepared = self._prepare_reply_turn(session_id, request)
         replay_response = self._run_reply_model(prepared)
         finalized = self._finalize_reply_turn(prepared, replay_response)
         return self._build_reply_response(finalized)
 
     def build_reply_event_preview(self, session_id: str, request: ChatReplyRequest) -> list[dict[str, Any]]:
+        self._require_reply_backend()
         prepared = self._prepare_reply_turn(session_id, request)
         self._register_stream(prepared.assistant_pending.message_id, session_id)
         try:
@@ -303,6 +315,7 @@ class ReplayWorkbenchChatService:
         return self._message_model(updated)
 
     def regenerate_message(self, session_id: str, message_id: str) -> ChatReplyResponse:
+        self._require_reply_backend()
         message = self._repository.get_chat_message(message_id)
         if message is None or message.session_id != session_id:
             raise ReplayWorkbenchNotFoundError(f"Chat message '{message_id}' not found in session '{session_id}'.")
@@ -326,6 +339,65 @@ class ReplayWorkbenchChatService:
         finalized = self._finalize_reply_turn(prepared, replay_response)
         return self._build_reply_response(finalized)
 
+    def evaluate_lifecycle(self, session_id: str, bars: list[dict[str, Any]], live_tail: dict[str, Any] | None, object_ids: list[str]) -> dict[str, Any]:
+        self._require_stored_session(session_id)
+        annotations = self._repository.list_chat_annotations(session_id=session_id, limit=1000)
+        plans = self._repository.list_chat_plan_cards(session_id=session_id, limit=1000)
+        transitions: list[dict[str, Any]] = []
+
+        latest_close = None
+        if bars:
+            latest_bar = bars[-1] if isinstance(bars[-1], dict) else None
+            latest_close = latest_bar.get("close") if latest_bar else None
+        if latest_close is None and isinstance(live_tail, dict):
+            latest_close = live_tail.get("latest_price") or live_tail.get("last_price")
+
+        for annotation in annotations:
+            if object_ids and annotation.annotation_id not in object_ids and (annotation.plan_id or "") not in object_ids:
+                continue
+            if latest_close is None:
+                continue
+            if annotation.annotation_type == "entry_line":
+                entry_price = annotation.payload.get("entry_price")
+                if entry_price is not None and annotation.status == "active" and latest_close == entry_price:
+                    transitions.append({
+                        "object_id": annotation.annotation_id,
+                        "from_status": annotation.status,
+                        "to_status": "triggered",
+                        "event": "touch_entry",
+                    })
+            if annotation.annotation_type == "stop_loss":
+                stop_price = annotation.payload.get("stop_price")
+                if stop_price is not None and annotation.status == "active":
+                    transitions.append({
+                        "object_id": annotation.annotation_id,
+                        "from_status": annotation.status,
+                        "to_status": "completed" if latest_close == stop_price else annotation.status,
+                        "event": "touch_stop" if latest_close == stop_price else "no_change",
+                    })
+
+        for plan in plans:
+            if object_ids and plan.plan_id not in object_ids:
+                continue
+            if latest_close is None or plan.entry_price is None:
+                continue
+            if plan.status == "active" and latest_close == plan.entry_price:
+                transitions.append({
+                    "object_id": plan.plan_id,
+                    "from_status": plan.status,
+                    "to_status": "triggered",
+                    "event": "touch_entry",
+                })
+            elif plan.status == "active" and plan.stop_price is not None and latest_close == plan.stop_price:
+                transitions.append({
+                    "object_id": plan.plan_id,
+                    "from_status": plan.status,
+                    "to_status": "invalidated",
+                    "event": "touch_stop",
+                })
+
+        return {"ok": True, "transitions": transitions}
+
     def _find_regenerate_user_message(self, session_id: str, assistant_message: StoredChatMessage) -> StoredChatMessage | None:
         messages = self._repository.list_chat_messages(session_id=session_id, limit=500)
         assistant_index = next((index for index, item in enumerate(messages) if item.message_id == assistant_message.message_id), None)
@@ -339,8 +411,6 @@ class ReplayWorkbenchChatService:
     def _prepare_reply_turn(self, session_id: str, request: ChatReplyRequest, parent_message_id: str | None = None) -> _PreparedReplyTurn:
         session = self._require_stored_session(session_id)
         replay_ingestion_id = request.replay_ingestion_id or self._find_latest_replay_ingestion_id_for_symbol(session.symbol)
-        if replay_ingestion_id is None:
-            raise ReplayWorkbenchChatError(f"No replay ingestion found for symbol '{session.symbol}'.")
         self._validate_block_scope(session, request.selected_block_ids + request.pinned_block_ids)
 
         now = datetime.now(tz=UTC)
@@ -402,17 +472,60 @@ class ReplayWorkbenchChatService:
         )
 
     def _run_reply_model(self, prepared: _PreparedReplyTurn):
-        return self._replay_ai_chat_service.chat(
-            __import__("atas_market_structure.models", fromlist=["ReplayAiChatRequest"]).ReplayAiChatRequest(
-                replay_ingestion_id=prepared.replay_ingestion_id,
-                preset=prepared.request.preset,
-                user_message=prepared.request.user_input,
-                history=prepared.history,
-                model_override=prepared.request.model or prepared.session.active_model,
-                include_live_context=True,
-                attachments=prepared.request.attachments,
+        if self._replay_ai_chat_service is None:
+            raise ReplayWorkbenchChatUnavailableError(
+                "Replay workbench chat service is not configured. Configure AI provider credentials before sending a reply."
             )
+        if prepared.has_replay_context:
+            return self._replay_ai_chat_service.chat(
+                __import__("atas_market_structure.models", fromlist=["ReplayAiChatRequest"]).ReplayAiChatRequest(
+                    replay_ingestion_id=prepared.replay_ingestion_id,
+                    preset=prepared.request.preset,
+                    user_message=prepared.request.user_input,
+                    history=prepared.history,
+                    model_override=prepared.request.model or prepared.session.active_model,
+                    include_live_context=True,
+                    attachments=prepared.request.attachments,
+                )
+            )
+        provider, model, content = self._replay_ai_chat_service._assistant.generate_session_reply(
+            user_message=prepared.request.user_input,
+            history=prepared.history,
+            attachments=prepared.request.attachments,
+            model_override=prepared.request.model or prepared.session.active_model,
         )
+        return __import__("types").SimpleNamespace(
+            reply_text=content.reply_text,
+            provider=provider,
+            model=model,
+            preset=prepared.request.preset,
+            referenced_strategy_ids=[],
+            live_context_summary=[],
+            follow_up_suggestions=content.follow_up_suggestions,
+            attachment_summaries=content.attachment_summaries,
+            plan_cards=[],
+            annotations=[],
+            session_only=True,
+            model_dump=lambda mode="json": {
+                "reply_text": content.reply_text,
+                "provider": provider,
+                "model": model,
+                "preset": str(prepared.request.preset),
+                "referenced_strategy_ids": [],
+                "live_context_summary": [],
+                "follow_up_suggestions": content.follow_up_suggestions,
+                "attachment_summaries": content.attachment_summaries,
+                "plan_cards": [],
+                "annotations": [],
+                "session_only": True,
+            },
+        )
+
+    def _require_reply_backend(self) -> None:
+        if self._replay_ai_chat_service is None:
+            raise ReplayWorkbenchChatUnavailableError(
+                "Replay workbench chat service is not configured. Configure AI provider credentials before sending a reply."
+            )
 
     def _finalize_reply_turn(self, prepared: _PreparedReplyTurn, replay_response) -> _FinalizedReplyTurn:
         plan_cards = self._extract_plan_cards(prepared.session, prepared.assistant_pending.message_id, replay_response)
@@ -470,6 +583,7 @@ class ReplayWorkbenchChatService:
             live_context_summary=replay_response.live_context_summary,
             follow_up_suggestions=replay_response.follow_up_suggestions,
             attachment_summaries=replay_response.attachment_summaries,
+            session_only=bool(getattr(replay_response, "session_only", False)),
         )
 
     def _build_reply_events(self, finalized: _FinalizedReplyTurn) -> list[dict[str, Any]]:
@@ -482,6 +596,7 @@ class ReplayWorkbenchChatService:
                     "message_id": finalized.assistant_record.message_id,
                     "model": replay_response.model,
                     "provider": replay_response.provider,
+                    "session_only": bool(getattr(replay_response, "session_only", False)),
                 },
             },
             {
@@ -540,79 +655,7 @@ class ReplayWorkbenchChatService:
                     "annotations": [self._annotation_model(item).model_dump(mode="json") for item in finalized.annotations],
                     "live_context_summary": replay_response.live_context_summary,
                     "follow_up_suggestions": replay_response.follow_up_suggestions,
-                },
-            }
-        )
-        return events
-
-    def _build_reply_events(self, finalized: _FinalizedReplyTurn) -> list[dict[str, Any]]:
-        replay_response = finalized.replay_response
-        events: list[dict[str, Any]] = [
-            {
-                "event": "message_start",
-                "data": {
-                    "session_id": finalized.session_id,
-                    "message_id": finalized.assistant_record.message_id,
-                    "model": replay_response.model,
-                    "provider": replay_response.provider,
-                },
-            },
-            {
-                "event": "message_status",
-                "data": {
-                    "message_id": finalized.assistant_record.message_id,
-                    "status": "streaming",
-                },
-            },
-            {
-                "event": "token",
-                "data": {
-                    "message_id": finalized.assistant_record.message_id,
-                    "delta": replay_response.reply_text,
-                },
-            },
-        ]
-        if finalized.annotations:
-            events.append(
-                {
-                    "event": "annotation_patch",
-                    "data": {
-                        "message_id": finalized.assistant_record.message_id,
-                        "annotations": [self._annotation_model(item).model_dump(mode="json") for item in finalized.annotations],
-                    },
-                }
-            )
-        if finalized.plan_cards:
-            events.append(
-                {
-                    "event": "plan_card",
-                    "data": {
-                        "message_id": finalized.assistant_record.message_id,
-                        "plan_cards": [self._plan_card_model(item).model_dump(mode="json") for item in finalized.plan_cards],
-                    },
-                }
-            )
-        if finalized.memory is not None:
-            events.append(
-                {
-                    "event": "memory_updated",
-                    "data": finalized.memory.model_dump(mode="json"),
-                }
-            )
-        events.append(
-            {
-                "event": "message_end",
-                "data": {
-                    "message_id": finalized.assistant_record.message_id,
-                    "status": finalized.assistant_record.status,
-                    "content": replay_response.reply_text,
-                    "reply_title": finalized.assistant_record.reply_title,
-                    "provider": replay_response.provider,
-                    "model": replay_response.model,
-                    "plan_cards": [self._plan_card_model(item).model_dump(mode="json") for item in finalized.plan_cards],
-                    "annotations": [self._annotation_model(item).model_dump(mode="json") for item in finalized.annotations],
-                    "live_context_summary": replay_response.live_context_summary,
-                    "follow_up_suggestions": replay_response.follow_up_suggestions,
+                    "session_only": bool(getattr(replay_response, "session_only", False)),
                 },
             }
         )
@@ -678,6 +721,23 @@ class ReplayWorkbenchChatService:
         memory = self._repository.get_session_memory(session_id)
         return SessionMemoryEnvelope(memory=self._memory_model(memory) if memory is not None else None)
 
+    def refresh_memory(self, session_id: str, request: ChatHandoffRequest) -> SessionMemoryEnvelope:
+        self._require_stored_session(session_id)
+        messages = self._repository.list_chat_messages(session_id=session_id, limit=6)
+        latest_user_message = next((item for item in reversed(messages) if item.role == "user"), None)
+        latest_assistant_message = next((item for item in reversed(messages) if item.role == "assistant"), None)
+        annotations = self._repository.list_chat_annotations(session_id=session_id, limit=500)
+        plans = self._repository.list_chat_plan_cards(session_id=session_id, limit=200)
+        memory = self._refresh_session_memory(
+            session_id,
+            request.target_model,
+            latest_user_message.content if latest_user_message is not None else "",
+            latest_assistant_message.content if latest_assistant_message is not None else "",
+            annotations,
+            plans,
+        )
+        return SessionMemoryEnvelope(memory=memory)
+
     def build_handoff(self, session_id: str, request: ChatHandoffRequest) -> ChatHandoffResponse:
         session = self._require_stored_session(session_id)
         memory = self._repository.get_session_memory(session_id)
@@ -718,17 +778,35 @@ class ReplayWorkbenchChatService:
         message = self._repository.get_chat_message(message_id)
         if message is None:
             raise ReplayWorkbenchNotFoundError(f"Chat message '{message_id}' not found.")
+        now = datetime.now(tz=UTC)
         updated = self._repository.update_chat_message(
             message_id,
             mounted_to_chart=request.mounted_to_chart,
             mounted_object_ids=request.mounted_object_ids,
-            updated_at=datetime.now(tz=UTC),
+            updated_at=now,
         )
         if updated is None:
             raise ReplayWorkbenchChatError(f"Chat message '{message_id}' disappeared during mount update.")
         session = self._require_stored_session(updated.session_id)
-        mounted_reply_ids = list(dict.fromkeys([*(session.mounted_reply_ids if request.mount_mode != "replace" else []), message_id] if request.mounted_to_chart else [item for item in session.mounted_reply_ids if item != message_id]))
-        self._repository.update_chat_session(updated.session_id, mounted_reply_ids=mounted_reply_ids, updated_at=datetime.now(tz=UTC))
+        existing_ids = list(session.mounted_reply_ids)
+
+        if request.mount_mode == "replace":
+            for mounted_id in existing_ids:
+                if mounted_id == message_id:
+                    continue
+                self._repository.update_chat_message(
+                    mounted_id,
+                    mounted_to_chart=False,
+                    mounted_object_ids=[],
+                    updated_at=now,
+                )
+            mounted_reply_ids = [message_id] if request.mounted_to_chart else []
+        elif request.mount_mode == "focus_only":
+            mounted_reply_ids = existing_ids if request.mounted_to_chart else [item for item in existing_ids if item != message_id]
+        else:
+            mounted_reply_ids = list(dict.fromkeys([*existing_ids, message_id])) if request.mounted_to_chart else [item for item in existing_ids if item != message_id]
+
+        self._repository.update_chat_session(updated.session_id, mounted_reply_ids=mounted_reply_ids, updated_at=now)
         return self.list_objects(updated.session_id, message_id)
 
     def _build_prompt_block(self, session: StoredChatSession, replay_payload: ReplayWorkbenchSnapshotPayload | None, latest_message: StoredChatMessage | None, latest_memory: StoredSessionMemory | None, kind: str, now: datetime) -> PromptBlock:
@@ -748,8 +826,15 @@ class ReplayWorkbenchChatService:
             preview = f"选中K线 O={candle.open} H={candle.high} L={candle.low} C={candle.close}"
             full_payload = {"bar": candle.model_dump(mode="json")}
             title = "当前选中K线"
-        elif kind == "manual_region":
-            regions = _list_manual_regions(self._repository, self._find_latest_replay_ingestion_id_for_symbol(session.symbol) or "")
+        elif kind == "manual_region" and replay_payload is not None:
+            replay_ingestion_id = self._find_latest_replay_ingestion_id_for_symbol(session.symbol) or ""
+            regions = []
+            if replay_ingestion_id:
+                for stored in self._repository.list_ingestions(ingestion_kind="replay_manual_region", limit=1000):
+                    if stored.observed_payload.get("replay_ingestion_id") != replay_ingestion_id:
+                        continue
+                    regions.append(ReplayManualRegionAnnotationRecord.model_validate(stored.observed_payload))
+                regions.sort(key=lambda item: (item.started_at, item.price_low))
             preview = f"手工区域 {len(regions)} 条"
             full_payload = {"regions": [item.model_dump(mode="json") for item in regions[-10:]]}
             title = "手工区域"
@@ -838,7 +923,7 @@ class ReplayWorkbenchChatService:
                     confidence=candidate.confidence,
                     priority=candidate.priority,
                     status="active",
-                    source_kind="replay_analysis",
+                    source_kind="session_chat" if getattr(replay_response, "session_only", False) else "replay_analysis",
                     notes=candidate.notes or candidate.summary or replay_response.reply_text,
                     payload=candidate.model_dump(mode="json"),
                     created_at=now,
@@ -877,7 +962,7 @@ class ReplayWorkbenchChatService:
             confidence=None,
             priority=None,
             status="active",
-            source_kind="replay_analysis",
+            source_kind="session_chat" if getattr(replay_response, "session_only", False) else "replay_analysis",
             notes=text,
             payload={"reply_text": text},
             created_at=now,
@@ -912,7 +997,7 @@ class ReplayWorkbenchChatService:
                         confidence=candidate.confidence,
                         visible=candidate.visible,
                         pinned=candidate.pinned,
-                        source_kind=candidate.source_kind or "replay_analysis",
+                        source_kind=candidate.source_kind or ("replay_analysis" if getattr(replay_response, "live_context_summary", None) else "session_chat"),
                         payload=candidate.model_dump(mode="json"),
                         created_at=now,
                         updated_at=now,
@@ -945,7 +1030,7 @@ class ReplayWorkbenchChatService:
                         confidence=plan.confidence,
                         visible=True,
                         pinned=False,
-                        source_kind="replay_analysis",
+                        source_kind="session_chat" if getattr(replay_response, "session_only", False) else "replay_analysis",
                         payload={"entry_price": plan.entry_price, "side": plan.side},
                         created_at=now,
                         updated_at=now,
@@ -973,7 +1058,7 @@ class ReplayWorkbenchChatService:
                         confidence=plan.confidence,
                         visible=True,
                         pinned=False,
-                        source_kind="replay_analysis",
+                        source_kind="session_chat" if getattr(replay_response, "session_only", False) else "replay_analysis",
                         payload={"stop_price": plan.stop_price, "side": plan.side},
                         created_at=now,
                         updated_at=now,
@@ -1045,6 +1130,8 @@ class ReplayWorkbenchChatService:
             draft_attachments=stored.draft_attachments,
             selected_prompt_block_ids=stored.selected_prompt_block_ids,
             pinned_context_block_ids=stored.pinned_context_block_ids,
+            include_memory_summary=stored.include_memory_summary,
+            include_recent_messages=stored.include_recent_messages,
             mounted_reply_ids=stored.mounted_reply_ids,
             active_plan_id=stored.active_plan_id,
             memory_summary_id=stored.memory_summary_id,
@@ -1184,12 +1271,12 @@ class ReplayWorkbenchService:
         Timeframe.DAY_1: 1440,
     }
     _INITIAL_WINDOW_BARS: dict[Timeframe, int] = {
-        Timeframe.MIN_1: 180,   # 3h
-        Timeframe.MIN_5: 144,   # 12h
-        Timeframe.MIN_15: 96,   # 1d
-        Timeframe.MIN_30: 96,   # 2d
-        Timeframe.HOUR_1: 72,   # 3d
-        Timeframe.DAY_1: 30,    # 30d
+        Timeframe.MIN_1: 480,   # 8h
+        Timeframe.MIN_5: 576,   # 2d
+        Timeframe.MIN_15: 480,  # 5d
+        Timeframe.MIN_30: 360,  # 7.5d
+        Timeframe.HOUR_1: 336,  # 14d
+        Timeframe.DAY_1: 365,   # 1y
     }
 
     # Defensive limit: never insert an unbounded amount of synthetic filler bars.
@@ -1884,12 +1971,14 @@ class ReplayWorkbenchService:
                     local_message_count=0,
                     replay_snapshot_id=payload.replay_snapshot_id,
                     ingestion_id=cache.record.ingestion_id,
+                    core_snapshot=payload,
                     summary=self._build_summary(payload),
                     cache_record=cache.record,
                     atas_fetch_request=None,
                     atas_backfill_request=backfill_request,
                     integrity=integrity,
                 )
+
 
         continuous_messages = self._collect_matching_continuous_messages(request)
         if history_payload is not None:
@@ -1908,12 +1997,14 @@ class ReplayWorkbenchService:
                 local_message_count=len(continuous_messages),
                 replay_snapshot_id=accepted.replay_snapshot_id,
                 ingestion_id=accepted.ingestion_id,
+                core_snapshot=payload,
                 summary=accepted.summary,
                 cache_record=cache_after.record,
                 atas_fetch_request=None,
                 atas_backfill_request=None,
                 integrity=payload.integrity,
             )
+
 
         if len(continuous_messages) < request.min_continuous_messages:
             integrity = self._build_integrity(
@@ -1941,6 +2032,7 @@ class ReplayWorkbenchService:
                 local_message_count=len(continuous_messages),
                 replay_snapshot_id=None,
                 ingestion_id=None,
+                core_snapshot=None,
                 summary=None,
                 cache_record=cache.record,
                 atas_fetch_request={
@@ -1954,6 +2046,7 @@ class ReplayWorkbenchService:
                 atas_backfill_request=backfill_request,
                 integrity=integrity,
             )
+
 
         payload = self._build_snapshot_from_local_history(request, continuous_messages)
         accepted = self.ingest_replay_snapshot(payload)
@@ -1979,12 +2072,14 @@ class ReplayWorkbenchService:
             local_message_count=len(continuous_messages),
             replay_snapshot_id=accepted.replay_snapshot_id,
             ingestion_id=accepted.ingestion_id,
+            core_snapshot=payload,
             summary=accepted.summary,
             cache_record=cache_after.record,
             atas_fetch_request=None,
             atas_backfill_request=backfill_request,
             integrity=integrity,
         )
+
 
     def _build_snapshot_from_history_bars(
         self,
@@ -2008,7 +2103,7 @@ class ReplayWorkbenchService:
 
         # Detect + fill any remaining candle gaps so the UI does not silently compress missing time.
         candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(candles, request.display_timeframe)
-        candles, initial_window_applied, initial_window_bar_limit = self._apply_initial_snapshot_window(
+        candles, initial_window_applied, initial_window_bar_limit, total_candle_count = self._apply_initial_snapshot_window(
             candles,
             request.display_timeframe,
         )
@@ -2084,6 +2179,8 @@ class ReplayWorkbenchService:
                 "build_reason": "atas_chart_loaded_history_rebuild",
                 "initial_window_applied": initial_window_applied,
                 "initial_window_bar_limit": initial_window_bar_limit,
+                "total_candle_count": total_candle_count,
+                "deferred_history_available": total_candle_count > len(candles),
             },
         )
 
@@ -2155,11 +2252,15 @@ class ReplayWorkbenchService:
         if replay_ingestion is None or replay_ingestion.ingestion_kind != "replay_workbench_snapshot":
             raise ReplayWorkbenchNotFoundError(f"Replay ingestion '{replay_ingestion_id}' not found.")
 
-        entries: list[ReplayOperatorEntryRecord] = []
-        for stored in self._repository.list_ingestions(ingestion_kind="replay_operator_entry", limit=1000):
-            if stored.observed_payload.get("replay_ingestion_id") != replay_ingestion_id:
-                continue
-            entries.append(ReplayOperatorEntryRecord.model_validate(stored.observed_payload))
+        entries = [
+            ReplayOperatorEntryRecord.model_validate(stored.observed_payload)
+            for stored in self._repository.list_ingestions(
+                ingestion_kind="replay_operator_entry",
+                source_snapshot_id=replay_ingestion.source_snapshot_id,
+                limit=1000,
+            )
+            if stored.observed_payload.get("replay_ingestion_id") == replay_ingestion_id
+        ]
         entries.sort(key=lambda item: item.executed_at)
         return ReplayOperatorEntryEnvelope(
             replay_ingestion_id=replay_ingestion_id,
@@ -2207,11 +2308,15 @@ class ReplayWorkbenchService:
         if replay_ingestion is None or replay_ingestion.ingestion_kind != "replay_workbench_snapshot":
             raise ReplayWorkbenchNotFoundError(f"Replay ingestion '{replay_ingestion_id}' not found.")
 
-        regions: list[ReplayManualRegionAnnotationRecord] = []
-        for stored in self._repository.list_ingestions(ingestion_kind="replay_manual_region", limit=1000):
-            if stored.observed_payload.get("replay_ingestion_id") != replay_ingestion_id:
-                continue
-            regions.append(ReplayManualRegionAnnotationRecord.model_validate(stored.observed_payload))
+        regions = [
+            ReplayManualRegionAnnotationRecord.model_validate(stored.observed_payload)
+            for stored in self._repository.list_ingestions(
+                ingestion_kind="replay_manual_region",
+                source_snapshot_id=replay_ingestion.source_snapshot_id,
+                limit=1000,
+            )
+            if stored.observed_payload.get("replay_ingestion_id") == replay_ingestion_id
+        ]
         regions.sort(key=lambda item: (item.started_at, item.price_low))
         return ReplayManualRegionAnnotationEnvelope(
             replay_ingestion_id=replay_ingestion_id,
@@ -2281,7 +2386,7 @@ class ReplayWorkbenchService:
 
         candles = self._build_candles(request.display_timeframe, ingestions)
         candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(candles, request.display_timeframe)
-        candles, initial_window_applied, initial_window_bar_limit = self._apply_initial_snapshot_window(
+        candles, initial_window_applied, initial_window_bar_limit, total_candle_count = self._apply_initial_snapshot_window(
             candles,
             request.display_timeframe,
         )
@@ -2347,6 +2452,8 @@ class ReplayWorkbenchService:
                 "candle_gaps": candle_gaps,
                 "initial_window_applied": initial_window_applied,
                 "initial_window_bar_limit": initial_window_bar_limit,
+                "total_candle_count": total_candle_count,
+                "deferred_history_available": total_candle_count > len(candles),
             },
         )
 
@@ -2373,13 +2480,14 @@ class ReplayWorkbenchService:
         self,
         candles: list[ReplayChartBar],
         timeframe: Timeframe,
-    ) -> tuple[list[ReplayChartBar], bool, int | None]:
+    ) -> tuple[list[ReplayChartBar], bool, int | None, int]:
         if not candles:
-            return candles, False, None
+            return candles, False, None, 0
+        total_candles = len(candles)
         bar_limit = self._INITIAL_WINDOW_BARS.get(timeframe)
-        if bar_limit is None or len(candles) <= bar_limit:
-            return candles, False, bar_limit
-        return candles[-bar_limit:], True, bar_limit
+        if bar_limit is None or total_candles <= bar_limit:
+            return candles, False, bar_limit, total_candles
+        return candles[-bar_limit:], True, bar_limit, total_candles
 
     def _find_matching_history_payload(self, request: ReplayWorkbenchBuildRequest) -> AdapterHistoryBarsPayload | None:
         candidates = self._repository.list_ingestions(
