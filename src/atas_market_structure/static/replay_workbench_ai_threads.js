@@ -379,7 +379,7 @@ function renderAttachmentPreview(attachment) {
 
 function renderMessage(message) {
   const metaChips = [];
-  if (message.status) {
+  if (message.status && message.role === "assistant") {
     metaChips.push(`<span class="chip ${escapeHtml(message.status)}">${escapeHtml(message.status)}</span>`);
   }
   if (message.parent_message_id || message.meta?.parent_message_id) {
@@ -474,8 +474,8 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
     ].filter(Boolean);
     els.sessionContextStrip.hidden = parts.length === 0;
     els.sessionContextStrip.innerHTML = `
-      <div class="strip-head"><span class="strip-title">会话主信息</span></div>
-      <div class="meta">${parts.join(" | ") || "当前会话还没有形成主信息摘要。"}</div>
+      <div class="strip-head"><span class="strip-title">会话摘要</span></div>
+      <div class="meta">${parts.join(" | ") || "无摘要。"}</div>
     `;
   }
 
@@ -885,7 +885,7 @@ function persistSessions(state) {
   });
 }
 
-export function createAiThreadController({ state, els, onPlanAction = null, onMountedRepliesChanged = null, onPromptBlocksChanged = null, fetchJson = null, renderStatusStrip = null, onSessionActivated = null }) {
+export function createAiThreadController({ state, els, onPlanAction = null, onMountedRepliesChanged = null, onPromptBlocksChanged = null, fetchJson = null, renderStatusStrip = null, onSessionActivated = null, onPlanMetaAction = null }) {
   const CHAT_FOLLOW_THRESHOLD = 48;
   const DRAFT_SYNC_DELAY_MS = 420;
   const draftSyncTimers = new Map();
@@ -949,7 +949,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         || latestUser?.content
         || draftText
         || session?.memory?.current_user_intent
-        || "当前会话还没有摘要",
+        || "无摘要",
       80,
     );
   }
@@ -1981,10 +1981,10 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
   }
 
   function syncSessionMemorySummary(session) {
-    els.currentSessionTitle.textContent = `行情分析会话：${session.title}`;
+    els.currentSessionTitle.textContent = `会话：${session.title}`;
     const latestAssistant = [...(session.messages || [])].reverse().find((item) => item.role === "assistant") || null;
     const latestModeLabel = latestAssistant?.meta?.session_only ? "session-only" : "replay-aware";
-    els.currentSessionModelLabel.textContent = `模型：${session.activeModel || session.memory?.active_model || "服务端默认"} · 模式：${latestModeLabel}`;
+    els.currentSessionModelLabel.textContent = `模型：${session.activeModel || session.memory?.active_model || "服务端默认"} / ${latestModeLabel}`;
     const memory = session.memory || {};
     const summaryParts = [
       memory.current_user_intent,
@@ -1993,7 +1993,9 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         ? `活动计划：${memory.active_plans_summary.join("；")}`
         : "",
     ].filter(Boolean);
-    els.sessionMemorySummary.textContent = summaryParts.join(" | ") || "当前会话还没有摘要。";
+    const summaryText = summaryParts.join(" | ");
+    els.sessionMemorySummary.hidden = !summaryText;
+    els.sessionMemorySummary.textContent = summaryText || "";
   }
 
   function renderAiChat() {
@@ -2012,7 +2014,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       return;
     }
     if (!session.messages.length) {
-      els.aiChatThread.innerHTML = `<div class="chat-empty-state">当前会话还没有消息。可直接发送普通问题进入 session-only 聊天；如需图表分析，请先加载图表后再使用分析模板。</div>`;
+      els.aiChatThread.innerHTML = `<div class="chat-empty-state">还没有消息。可直接发送；需要图表分析时先加载图表。</div>`;
       if (els.aiChatScrollToBottomButton) {
         els.aiChatScrollToBottomButton.hidden = true;
         els.aiChatScrollToBottomButton.textContent = getScrollToBottomLabel(session);
@@ -2050,7 +2052,38 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
             .find((item) => (item.id || item.plan_id) === planId);
           const summary = [plan?.title, plan?.summary].filter(Boolean).join(" | ");
           if (summary && navigator.clipboard?.writeText) {
-            navigator.clipboard.writeText(summary).catch(() => {});
+            navigator.clipboard.writeText(summary)
+              .then(() => {
+                onPlanMetaAction?.({
+                  type: "copy",
+                  ok: true,
+                  plan,
+                  planId,
+                  summary,
+                  session,
+                });
+              })
+              .catch((error) => {
+                onPlanMetaAction?.({
+                  type: "copy",
+                  ok: false,
+                  error,
+                  plan,
+                  planId,
+                  summary,
+                  session,
+                });
+              });
+          } else {
+            onPlanMetaAction?.({
+              type: "copy",
+              ok: false,
+              error: new Error("当前环境不支持剪贴板写入"),
+              plan,
+              planId,
+              summary,
+              session,
+            });
           }
           return;
         }
@@ -2063,6 +2096,22 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
               model: session.activeModel || session.memory?.active_model || "AI计划卡",
               review: `${plan.title}\n${plan.summary || ""}`.trim(),
             };
+            onPlanMetaAction?.({
+              type: "recap",
+              ok: true,
+              plan,
+              planId,
+              session,
+            });
+          } else {
+            onPlanMetaAction?.({
+              type: "recap",
+              ok: false,
+              error: new Error("未找到对应计划卡"),
+              plan: null,
+              planId,
+              session,
+            });
           }
           return;
         }

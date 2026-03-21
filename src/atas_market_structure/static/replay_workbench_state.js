@@ -153,7 +153,7 @@ export function createWorkbenchState() {
     },
     layout: {
       chartWidth: persistedLayout.chartWidth || 980,
-      chatWidth: persistedLayout.chatWidth || 430,
+      chatWidth: persistedLayout.chatWidth || 620,
       chatHeight: persistedLayout.chatHeight || 360,
       dragKind: null,
       dragStartX: null,
@@ -204,6 +204,9 @@ export function createWorkbenchState() {
     replyExtractionState: {
       filter: persistedWorkbench.replyExtractionState?.filter || "all",
       showIgnored: !!persistedWorkbench.replyExtractionState?.showIgnored,
+      intensity: persistedWorkbench.replyExtractionState?.intensity || "balanced",
+      autoExtractEnabled: persistedWorkbench.replyExtractionState?.autoExtractEnabled !== false,
+      collapsed: !!persistedWorkbench.replyExtractionState?.collapsed,
       bySymbol: persistedWorkbench.replyExtractionState?.bySymbol || {},
     },
     sessionComparisonEnabled: false,

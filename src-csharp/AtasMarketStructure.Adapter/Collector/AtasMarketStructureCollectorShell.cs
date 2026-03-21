@@ -688,20 +688,24 @@ public sealed class AtasMarketStructureCollector : Indicator
         }
     }
 
-    private bool TrySyncHistoryBars(DateTime nowUtc, string chartInstanceId, bool forceSync = false)
+    private bool TrySyncHistoryBars(
+        DateTime nowUtc,
+        string chartInstanceId,
+        bool forceSync = false,
+        AdapterBackfillCommandPayload? backfillCommand = null)
     {
         if (_transport is null || _latestObservedBarIndex < 0)
         {
             return false;
         }
 
-        var queueLimit = forceSync ? Math.Max(12, QueueLimit - 4) : Math.Max(8, QueueLimit / 2);
+        var queueLimit = forceSync ? Math.Max(1, QueueLimit) : Math.Max(8, QueueLimit / 2);
         if (_transport.QueueLength >= queueLimit)
         {
             return false;
         }
 
-        var bars = BuildLoadedHistoryBars();
+        var bars = BuildLoadedHistoryBars(backfillCommand);
         if (bars.Count == 0)
         {
             return false;
@@ -756,14 +760,18 @@ public sealed class AtasMarketStructureCollector : Indicator
         return false;
     }
 
-    private bool TrySyncHistoryFootprint(DateTime nowUtc, string chartInstanceId, bool forceSync = false)
+    private bool TrySyncHistoryFootprint(
+        DateTime nowUtc,
+        string chartInstanceId,
+        bool forceSync = false,
+        AdapterBackfillCommandPayload? backfillCommand = null)
     {
         if (_transport is null || _latestObservedBarIndex < 0)
         {
             return false;
         }
 
-        var queueLimit = forceSync ? Math.Max(12, QueueLimit - 4) : Math.Max(8, QueueLimit / 2);
+        var queueLimit = forceSync ? Math.Max(1, QueueLimit) : Math.Max(8, QueueLimit / 2);
         if (_transport.QueueLength >= queueLimit)
         {
             return false;
@@ -776,7 +784,7 @@ public sealed class AtasMarketStructureCollector : Indicator
             return false;
         }
 
-        var bars = BuildLoadedHistoryFootprintBars();
+        var bars = BuildLoadedHistoryFootprintBars(backfillCommand);
         if (bars.Count == 0)
         {
             return false;
@@ -852,17 +860,25 @@ public sealed class AtasMarketStructureCollector : Indicator
         {
             if (command.RequestHistoryBars)
             {
-                historyBarsSynced = TrySyncHistoryBars(nowUtc, chartInstanceId, forceSync: true);
+                historyBarsSynced = TrySyncHistoryBars(
+                    nowUtc,
+                    chartInstanceId,
+                    forceSync: true,
+                    backfillCommand: command);
             }
 
             if (command.RequestHistoryFootprint)
             {
-                historyFootprintSynced = TrySyncHistoryFootprint(nowUtc, chartInstanceId, forceSync: true);
+                historyFootprintSynced = TrySyncHistoryFootprint(
+                    nowUtc,
+                    chartInstanceId,
+                    forceSync: true,
+                    backfillCommand: command);
             }
 
             if (!historyBarsSynced && !historyFootprintSynced)
             {
-                note = "history resend skipped because queue or loaded bars were unavailable";
+                note = "history resend skipped because queue, loaded bars, or requested coverage were unavailable";
             }
         }
         catch (Exception ex)
@@ -1709,18 +1725,244 @@ public sealed class AtasMarketStructureCollector : Indicator
 
     private static string DetermineTradingDate(DateTime nowUtc) => nowUtc.ToString("yyyy-MM-dd");
 
-    private List<HistoryBarPayload> BuildLoadedHistoryBars()
+    private static DateTime EnsureUtc(DateTime value) => value.Kind switch
     {
-        var maxBars = Math.Max(100, HistoryMaxBars);
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
+
+    private TimeSpan EstimateLoadedBarSpan()
+    {
+        if (_latestObservedBarIndex < 1)
+        {
+            return TimeSpan.FromMinutes(1);
+        }
+
+        for (var index = _latestObservedBarIndex; index >= 1; index--)
+        {
+            var currentStart = ToUtc(GetCandle(index).Time);
+            var previousStart = ToUtc(GetCandle(index - 1).Time);
+            var span = currentStart - previousStart;
+            if (span > TimeSpan.Zero)
+            {
+                return span;
+            }
+        }
+
+        return TimeSpan.FromMinutes(1);
+    }
+
+    private static List<(DateTime StartUtc, DateTime EndUtc)> ResolveBackfillRanges(AdapterBackfillCommandPayload command)
+    {
+        var windowStartUtc = EnsureUtc(command.WindowStart);
+        var windowEndUtc = EnsureUtc(command.WindowEnd);
+        if (windowEndUtc < windowStartUtc)
+        {
+            (windowStartUtc, windowEndUtc) = (windowEndUtc, windowStartUtc);
+        }
+
+        var rawRanges = new List<(DateTime StartUtc, DateTime EndUtc)>();
+        if (command.RequestedRanges.Count > 0)
+        {
+            rawRanges.AddRange(command.RequestedRanges.Select(item => (EnsureUtc(item.RangeStart), EnsureUtc(item.RangeEnd))));
+        }
+        else if (command.MissingSegments.Count > 0)
+        {
+            rawRanges.AddRange(command.MissingSegments.Select(segment =>
+            {
+                var rangeStart = EnsureUtc(segment.PrevEndedAt?.AddSeconds(1) ?? command.WindowStart);
+                var rangeEnd = EnsureUtc(segment.NextStartedAt).AddSeconds(-1);
+                return (rangeStart, rangeEnd);
+            }));
+        }
+
+        if (rawRanges.Count == 0)
+        {
+            rawRanges.Add((windowStartUtc, windowEndUtc));
+        }
+
+        var clamped = new List<(DateTime StartUtc, DateTime EndUtc)>();
+        foreach (var (rangeStart, rangeEnd) in rawRanges)
+        {
+            var startUtc = rangeStart < windowStartUtc ? windowStartUtc : rangeStart;
+            var endUtc = rangeEnd > windowEndUtc ? windowEndUtc : rangeEnd;
+            if (endUtc < startUtc)
+            {
+                continue;
+            }
+
+            clamped.Add((startUtc, endUtc));
+        }
+
+        if (clamped.Count == 0)
+        {
+            clamped.Add((windowStartUtc, windowEndUtc));
+        }
+
+        clamped.Sort((left, right) =>
+        {
+            var startCompare = left.StartUtc.CompareTo(right.StartUtc);
+            if (startCompare != 0)
+            {
+                return startCompare;
+            }
+
+            return left.EndUtc.CompareTo(right.EndUtc);
+        });
+
+        var merged = new List<(DateTime StartUtc, DateTime EndUtc)>();
+        var currentStart = clamped[0].StartUtc;
+        var currentEnd = clamped[0].EndUtc;
+        for (var index = 1; index < clamped.Count; index++)
+        {
+            var nextStart = clamped[index].StartUtc;
+            var nextEnd = clamped[index].EndUtc;
+            if (nextStart <= currentEnd + TimeSpan.FromSeconds(1))
+            {
+                if (nextEnd > currentEnd)
+                {
+                    currentEnd = nextEnd;
+                }
+                continue;
+            }
+
+            merged.Add((currentStart, currentEnd));
+            currentStart = nextStart;
+            currentEnd = nextEnd;
+        }
+
+        merged.Add((currentStart, currentEnd));
+        return merged;
+    }
+
+    private static List<(DateTime StartUtc, DateTime EndUtc)> ExpandRanges(
+        IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> ranges,
+        TimeSpan padding)
+    {
+        if (ranges.Count == 0)
+        {
+            return new List<(DateTime StartUtc, DateTime EndUtc)>();
+        }
+
+        var expanded = new List<(DateTime StartUtc, DateTime EndUtc)>(ranges.Count);
+        foreach (var (startUtc, endUtc) in ranges)
+        {
+            expanded.Add((startUtc - padding, endUtc + padding));
+        }
+
+        expanded.Sort((left, right) =>
+        {
+            var startCompare = left.StartUtc.CompareTo(right.StartUtc);
+            if (startCompare != 0)
+            {
+                return startCompare;
+            }
+
+            return left.EndUtc.CompareTo(right.EndUtc);
+        });
+
+        var merged = new List<(DateTime StartUtc, DateTime EndUtc)>();
+        var currentStart = expanded[0].StartUtc;
+        var currentEnd = expanded[0].EndUtc;
+        for (var index = 1; index < expanded.Count; index++)
+        {
+            var nextStart = expanded[index].StartUtc;
+            var nextEnd = expanded[index].EndUtc;
+            if (nextStart <= currentEnd + TimeSpan.FromSeconds(1))
+            {
+                if (nextEnd > currentEnd)
+                {
+                    currentEnd = nextEnd;
+                }
+                continue;
+            }
+
+            merged.Add((currentStart, currentEnd));
+            currentStart = nextStart;
+            currentEnd = nextEnd;
+        }
+
+        merged.Add((currentStart, currentEnd));
+        return merged;
+    }
+
+    private static bool IsInAnyRange(DateTime valueUtc, IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> ranges)
+    {
+        foreach (var (startUtc, endUtc) in ranges)
+        {
+            if (valueUtc < startUtc)
+            {
+                return false;
+            }
+            if (valueUtc <= endUtc)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private List<HistoryBarPayload> BuildLoadedHistoryBars(AdapterBackfillCommandPayload? backfillCommand = null)
+    {
         var lastIndex = _latestObservedBarIndex;
+        if (lastIndex < 0)
+        {
+            return new List<HistoryBarPayload>();
+        }
+
+        var maxBars = Math.Max(100, HistoryMaxBars);
         var firstIndex = Math.Max(0, lastIndex - maxBars + 1);
-        var bars = new List<HistoryBarPayload>(lastIndex - firstIndex + 1);
-        var barStarts = new List<DateTime>(lastIndex - firstIndex + 1);
+        List<(DateTime StartUtc, DateTime EndUtc)>? targetRangesUtc = null;
+
+        if (backfillCommand is not null)
+        {
+            var baseRanges = ResolveBackfillRanges(backfillCommand);
+            var spanHint = EstimateLoadedBarSpan();
+            var padding = TimeSpan.FromTicks(spanHint.Ticks * 2);
+            targetRangesUtc = ExpandRanges(baseRanges, padding);
+            var earliestStartUtc = targetRangesUtc[0].StartUtc;
+            firstIndex = 0;
+            for (var index = lastIndex; index >= 0; index--)
+            {
+                var startedAt = ToUtc(GetCandle(index).Time);
+                if (startedAt <= earliestStartUtc)
+                {
+                    firstIndex = Math.Max(0, index - 2);
+                    break;
+                }
+            }
+        }
+
+        var candidateCount = Math.Max(0, lastIndex - firstIndex + 1);
+        var bars = new List<HistoryBarPayload>(candidateCount);
+        var barStarts = new List<DateTime>(candidateCount);
+        var selectedIndices = new List<int>(candidateCount);
+        var maxTargetEndUtc = targetRangesUtc is { Count: > 0 } ? targetRangesUtc[^1].EndUtc : (DateTime?)null;
 
         for (var index = firstIndex; index <= lastIndex; index++)
         {
-            var candle = GetCandle(index);
-            barStarts.Add(ToUtc(candle.Time));
+            var startedAt = ToUtc(GetCandle(index).Time);
+            if (targetRangesUtc is not null)
+            {
+                if (maxTargetEndUtc is not null && startedAt > maxTargetEndUtc.Value)
+                {
+                    if (barStarts.Count > 0)
+                    {
+                        break;
+                    }
+                    continue;
+                }
+
+                if (!IsInAnyRange(startedAt, targetRangesUtc))
+                {
+                    continue;
+                }
+            }
+
+            selectedIndices.Add(index);
+            barStarts.Add(startedAt);
         }
 
         if (barStarts.Count == 0)
@@ -1728,10 +1970,10 @@ public sealed class AtasMarketStructureCollector : Indicator
             return bars;
         }
 
-        var barSpan = InferBarSpan(barStarts);
+        var barSpan = EstimateLoadedBarSpan();
         for (var offset = 0; offset < barStarts.Count; offset++)
         {
-            var index = firstIndex + offset;
+            var index = selectedIndices[offset];
             var candle = GetCandle(index);
             var startedAt = barStarts[offset];
             var endedAt = startedAt + barSpan - TimeSpan.FromSeconds(1);
@@ -1753,18 +1995,65 @@ public sealed class AtasMarketStructureCollector : Indicator
         return bars;
     }
 
-    private List<HistoryFootprintBarPayload> BuildLoadedHistoryFootprintBars()
+    private List<HistoryFootprintBarPayload> BuildLoadedHistoryFootprintBars(AdapterBackfillCommandPayload? backfillCommand = null)
     {
-        var maxBars = Math.Max(100, HistoryMaxBars);
         var lastIndex = _latestObservedBarIndex;
+        if (lastIndex < 0)
+        {
+            return new List<HistoryFootprintBarPayload>();
+        }
+
+        var maxBars = Math.Max(100, HistoryMaxBars);
         var firstIndex = Math.Max(0, lastIndex - maxBars + 1);
-        var bars = new List<HistoryFootprintBarPayload>(Math.Max(0, lastIndex - firstIndex + 1));
-        var barStarts = new List<DateTime>(Math.Max(0, lastIndex - firstIndex + 1));
+        List<(DateTime StartUtc, DateTime EndUtc)>? targetRangesUtc = null;
+
+        if (backfillCommand is not null)
+        {
+            var baseRanges = ResolveBackfillRanges(backfillCommand);
+            var spanHint = EstimateLoadedBarSpan();
+            var padding = TimeSpan.FromTicks(spanHint.Ticks * 2);
+            targetRangesUtc = ExpandRanges(baseRanges, padding);
+            var earliestStartUtc = targetRangesUtc[0].StartUtc;
+            firstIndex = 0;
+            for (var index = lastIndex; index >= 0; index--)
+            {
+                var startedAt = ToUtc(GetCandle(index).Time);
+                if (startedAt <= earliestStartUtc)
+                {
+                    firstIndex = Math.Max(0, index - 2);
+                    break;
+                }
+            }
+        }
+
+        var candidateCount = Math.Max(0, lastIndex - firstIndex + 1);
+        var bars = new List<HistoryFootprintBarPayload>(candidateCount);
+        var barStarts = new List<DateTime>(candidateCount);
+        var selectedIndices = new List<int>(candidateCount);
+        var maxTargetEndUtc = targetRangesUtc is { Count: > 0 } ? targetRangesUtc[^1].EndUtc : (DateTime?)null;
 
         for (var index = firstIndex; index <= lastIndex; index++)
         {
-            var candle = GetCandle(index);
-            barStarts.Add(ToUtc(candle.Time));
+            var startedAt = ToUtc(GetCandle(index).Time);
+            if (targetRangesUtc is not null)
+            {
+                if (maxTargetEndUtc is not null && startedAt > maxTargetEndUtc.Value)
+                {
+                    if (barStarts.Count > 0)
+                    {
+                        break;
+                    }
+                    continue;
+                }
+
+                if (!IsInAnyRange(startedAt, targetRangesUtc))
+                {
+                    continue;
+                }
+            }
+
+            selectedIndices.Add(index);
+            barStarts.Add(startedAt);
         }
 
         if (barStarts.Count == 0)
@@ -1772,10 +2061,10 @@ public sealed class AtasMarketStructureCollector : Indicator
             return bars;
         }
 
-        var barSpan = InferBarSpan(barStarts);
+        var barSpan = EstimateLoadedBarSpan();
         for (var offset = 0; offset < barStarts.Count; offset++)
         {
-            var index = firstIndex + offset;
+            var index = selectedIndices[offset];
             var candle = GetCandle(index);
             var startedAt = barStarts[offset];
             var endedAt = startedAt + barSpan - TimeSpan.FromSeconds(1);
@@ -1805,16 +2094,20 @@ public sealed class AtasMarketStructureCollector : Indicator
             return TimeSpan.FromMinutes(1);
         }
 
-        for (var index = barStarts.Count - 1; index >= 1; index--)
+        TimeSpan? bestSpan = null;
+        for (var index = 1; index < barStarts.Count; index++)
         {
             var span = barStarts[index] - barStarts[index - 1];
             if (span > TimeSpan.Zero)
             {
-                return span;
+                if (bestSpan is null || span < bestSpan.Value)
+                {
+                    bestSpan = span;
+                }
             }
         }
 
-        return TimeSpan.FromMinutes(1);
+        return bestSpan ?? TimeSpan.FromMinutes(1);
     }
 
     private static string DetermineHistoryBarTimeframe(IReadOnlyList<HistoryBarPayload> bars)
@@ -1999,7 +2292,7 @@ public sealed class AtasMarketStructureCollector : Indicator
     private static string BuildLiquidityTrackId(CollectorSide side, decimal price)
         => $"{side.ToPayloadString()}:{price:F8}";
 
-    private static DateTime ToUtc(DateTime value) => value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+    private static DateTime ToUtc(DateTime value) => EnsureUtc(value);
 
     private static int DecimalToInt(decimal value) => Math.Max(0, decimal.ToInt32(decimal.Round(value, MidpointRounding.AwayFromZero)));
 

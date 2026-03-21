@@ -182,10 +182,34 @@ class StoredChatPlanCard:
     updated_at: datetime
 
 
-class AnalysisRepository(Protocol):
+class ChartCandleRepository(Protocol):
     def initialize(self) -> None:
         ...
 
+    def upsert_chart_candle(self, candle: "ChartCandle") -> "ChartCandle":
+        ...
+
+    def upsert_chart_candles(self, candles: list["ChartCandle"]) -> int:
+        ...
+
+    def list_chart_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 20000,
+    ) -> list["ChartCandle"]:
+        ...
+
+    def count_chart_candles(self, symbol: str, timeframe: str) -> int:
+        ...
+
+    def purge_chart_candles(self, *, symbol: str | None, older_than: datetime) -> int:
+        ...
+
+
+class IngestionRepository(Protocol):
     def save_ingestion(
         self,
         *,
@@ -198,35 +222,7 @@ class AnalysisRepository(Protocol):
     ) -> StoredIngestion:
         ...
 
-    def save_analysis(
-        self,
-        *,
-        analysis_id: str,
-        ingestion_id: str,
-        route_key: str,
-        analysis_payload: dict[str, Any],
-        stored_at: datetime,
-    ) -> StoredAnalysis:
-        ...
-
-    def save_or_update_liquidity_memory(
-        self,
-        *,
-        memory_id: str,
-        track_key: str,
-        instrument_symbol: str,
-        coverage_state: str,
-        observed_track: dict[str, Any],
-        derived_summary: dict[str, Any],
-        expires_at: datetime,
-        updated_at: datetime,
-    ) -> StoredLiquidityMemory:
-        ...
-
     def get_ingestion(self, ingestion_id: str) -> StoredIngestion | None:
-        ...
-
-    def get_analysis(self, analysis_id: str) -> StoredAnalysis | None:
         ...
 
     def update_ingestion_observed_payload(
@@ -254,6 +250,43 @@ class AnalysisRepository(Protocol):
         instrument_symbol: str | None,
         cutoff: datetime,
     ) -> int:
+        ...
+
+
+class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
+    @property
+    def workspace_root(self) -> Path:
+        ...
+
+    def initialize(self) -> None:
+        ...
+
+    def save_analysis(
+        self,
+        *,
+        analysis_id: str,
+        ingestion_id: str,
+        route_key: str,
+        analysis_payload: dict[str, Any],
+        stored_at: datetime,
+    ) -> StoredAnalysis:
+        ...
+
+    def save_or_update_liquidity_memory(
+        self,
+        *,
+        memory_id: str,
+        track_key: str,
+        instrument_symbol: str,
+        coverage_state: str,
+        observed_track: dict[str, Any],
+        derived_summary: dict[str, Any],
+        expires_at: datetime,
+        updated_at: datetime,
+    ) -> StoredLiquidityMemory:
+        ...
+
+    def get_analysis(self, analysis_id: str) -> StoredAnalysis | None:
         ...
 
     def get_liquidity_memory_by_track_key(self, track_key: str) -> StoredLiquidityMemory | None:
@@ -488,6 +521,10 @@ class SQLiteAnalysisRepository:
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
 
+    @property
+    def workspace_root(self) -> Path:
+        return self._database_path.parent.parent
+
     def initialize(self) -> None:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
@@ -698,6 +735,7 @@ class SQLiteAnalysisRepository:
                     timeframe       TEXT    NOT NULL,
                     started_at      TEXT    NOT NULL,
                     ended_at        TEXT    NOT NULL,
+                    source_started_at TEXT  NOT NULL,
                     open            REAL    NOT NULL,
                     high            REAL    NOT NULL,
                     low             REAL    NOT NULL,
@@ -724,6 +762,11 @@ class SQLiteAnalysisRepository:
                 pass
             try:
                 connection.execute("ALTER TABLE chat_sessions ADD COLUMN include_recent_messages INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute("ALTER TABLE chart_candles ADD COLUMN source_started_at TEXT NOT NULL DEFAULT ''")
+                connection.execute("UPDATE chart_candles SET source_started_at = started_at WHERE source_started_at = ''")
             except sqlite3.OperationalError:
                 pass
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_time ON chat_messages (session_id, created_at)")
@@ -1389,9 +1432,10 @@ class SQLiteAnalysisRepository:
                 """
                 INSERT INTO chart_candles
                     (symbol, timeframe, started_at, ended_at,
-                     open, high, low, close, volume, tick_volume, delta, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
+                    source_started_at = MIN(chart_candles.source_started_at, excluded.source_started_at),
                     high        = MAX(excluded.high,  chart_candles.high),
                     low         = MIN(excluded.low,   chart_candles.low),
                     close       = excluded.close,
@@ -1405,6 +1449,7 @@ class SQLiteAnalysisRepository:
                     candle.timeframe.value,
                     self._serialize_datetime(candle.started_at),
                     self._serialize_datetime(candle.ended_at),
+                    self._serialize_datetime(candle.source_started_at or candle.started_at),
                     candle.open,
                     candle.high,
                     candle.low,
@@ -1428,6 +1473,7 @@ class SQLiteAnalysisRepository:
                 c.timeframe.value,
                 self._serialize_datetime(c.started_at),
                 self._serialize_datetime(c.ended_at),
+                self._serialize_datetime(c.source_started_at or c.started_at),
                 c.open,
                 c.high,
                 c.low,
@@ -1444,9 +1490,10 @@ class SQLiteAnalysisRepository:
                 """
                 INSERT INTO chart_candles
                     (symbol, timeframe, started_at, ended_at,
-                     open, high, low, close, volume, tick_volume, delta, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
+                    source_started_at = MIN(chart_candles.source_started_at, excluded.source_started_at),
                     high        = MAX(excluded.high,  chart_candles.high),
                     low         = MIN(excluded.low,   chart_candles.low),
                     close       = excluded.close,
@@ -1480,7 +1527,7 @@ class SQLiteAnalysisRepository:
             rows = conn.execute(
                 """
                 SELECT symbol, timeframe, started_at, ended_at,
-                       open, high, low, close, volume, tick_volume, delta, updated_at
+                       source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at
                   FROM chart_candles
                  WHERE symbol    = ?
                    AND timeframe = ?
@@ -1504,6 +1551,7 @@ class SQLiteAnalysisRepository:
                 timeframe=Timeframe(row["timeframe"]),
                 started_at=self._parse_datetime(row["started_at"]),
                 ended_at=self._parse_datetime(row["ended_at"]),
+                source_started_at=self._parse_datetime_optional(row["source_started_at"]) or self._parse_datetime(row["started_at"]),
                 open=row["open"],
                 high=row["high"],
                 low=row["low"],

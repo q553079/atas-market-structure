@@ -9,7 +9,13 @@ description = "Phase 1 infrastructure for ATAS market structure ingestion and an
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "clickhouse-connect>=0.8,<1.0",
+    "fastapi>=0.115,<1.0",
+    "openai>=1.0,<2.0",
     "pydantic>=2.12,<3.0",
+    "redis>=5.2,<6.0",
+    "uvicorn>=0.35,<1.0",
+    "websockets>=15.0,<16.0",
 ]
 
 [project.optional-dependencies]

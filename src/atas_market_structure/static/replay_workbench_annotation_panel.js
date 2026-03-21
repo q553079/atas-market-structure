@@ -174,6 +174,7 @@ export function createAnnotationPanelController({
         }
         if (action === "toggle") {
           target.visible = target.visible === false;
+          persistWorkbenchState();
           renderSnapshot();
           return;
         }
@@ -182,6 +183,7 @@ export function createAnnotationPanelController({
           if (state.selectedAnnotationId === id) {
             state.selectedAnnotationId = null;
           }
+          persistWorkbenchState();
           renderSnapshot();
         }
       };

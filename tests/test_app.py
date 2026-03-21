@@ -1462,7 +1462,7 @@ def test_http_bridge_supports_patch_requests_for_chat_sessions() -> None:
         thread.join(timeout=2)
 
 
-def test_replay_workbench_builder_requests_atas_fetch_when_local_history_is_insufficient() -> None:
+def test_replay_workbench_builder_returns_placeholder_snapshot_when_local_history_is_missing() -> None:
     application = build_application()
 
     build_request = load_json_fixture("replay_workbench.build_request.sample.json")
@@ -1474,9 +1474,20 @@ def test_replay_workbench_builder_requests_atas_fetch_when_local_history_is_insu
 
     assert response.status_code == 200
     payload = json.loads(response.body)
-    assert payload["action"] == "atas_fetch_required"
+    assert payload["action"] == "built_from_local_history"
     assert payload["local_message_count"] == 0
-    assert payload["atas_fetch_request"]["instrument_symbol"] == "NQ"
+    assert payload["core_snapshot"] is not None
+    assert payload["summary"] is not None
+    assert payload["summary"]["candle_count"] == 0
+    assert payload["integrity"]["status"] == "missing_local_history"
+    assert payload["atas_fetch_request"] is None
+    assert payload["atas_backfill_request"]["status"] == "pending"
+    assert payload["atas_backfill_request"]["requested_ranges"] == [
+        {
+            "range_start": "2026-03-12T07:00:00Z",
+            "range_end": "2026-03-17T02:15:00Z",
+        }
+    ]
 
 
 def test_replay_workbench_builder_rebuilds_from_local_history() -> None:
@@ -1526,6 +1537,63 @@ def test_replay_workbench_builder_rebuilds_from_local_history() -> None:
     assert payload["core_snapshot"]["raw_features"]["initial_window_bar_limit"] == 576
     assert payload["core_snapshot"]["raw_features"]["deferred_history_available"] is False
     assert payload["cache_record"]["cache_key"] == "NQ|5m|2026-03-16T14:30:00Z|2026-03-16T14:41:00Z"
+
+
+def test_replay_workbench_builder_rebuilds_from_partial_local_history_and_requests_backfill() -> None:
+    application = build_application()
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    base_time = datetime.fromisoformat("2026-03-16T14:33:00+00:00")
+
+    for index in range(2):
+        payload = json.loads(json.dumps(continuous_payload))
+        emitted_at = base_time + timedelta(minutes=index)
+        payload["message_id"] = f"adapter-msg-partial-{index:02d}"
+        payload["emitted_at"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_start"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_end"] = (emitted_at + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        payload["source"]["chart_instance_id"] = "NQ-partial-backfill"
+        payload["instrument"]["symbol"] = "NQ"
+        payload["price_state"]["last_price"] = 21540.0 + index
+        payload["trade_summary"]["volume"] = 80 + index
+        payload["trade_summary"]["net_delta"] = 10 + index
+        application.dispatch(
+            "POST",
+            "/api/v1/adapter/continuous-state",
+            json.dumps(payload).encode("utf-8"),
+        )
+
+    build_request = {
+        "cache_key": "NQ|1m|2026-03-16T14:30:00Z|2026-03-16T14:35:00Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:30:00Z",
+        "window_end": "2026-03-16T14:35:00Z",
+        "chart_instance_id": "NQ-partial-backfill",
+        "force_rebuild": True,
+        "min_continuous_messages": 5,
+    }
+    response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+
+    assert payload["action"] == "built_from_local_history"
+    assert payload["local_message_count"] == 2
+    assert payload["core_snapshot"] is not None
+    assert payload["integrity"]["status"] == "missing_local_history"
+    assert payload["atas_backfill_request"]["status"] == "pending"
+    assert payload["atas_backfill_request"]["reason"] == "local_history_insufficient"
+
+    poll_response = application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-partial-backfill",
+    )
+    assert poll_response.status_code == 200
+    poll_payload = json.loads(poll_response.body)
+    assert poll_payload["request"]["request_id"] == payload["atas_backfill_request"]["request_id"]
 
 
 def test_replay_workbench_builder_fills_missing_candles_with_synthetic_bars() -> None:
@@ -1673,6 +1741,12 @@ def test_workbench_atas_backfill_request_poll_and_acknowledge_flow() -> None:
     create_body = json.loads(create_response.body)
     assert create_body["reused_existing_request"] is False
     assert create_body["request"]["status"] == "pending"
+    assert create_body["request"]["requested_ranges"] == [
+        {
+            "range_start": "2026-03-16T14:40:00Z",
+            "range_end": "2026-03-16T14:41:59Z",
+        }
+    ]
 
     mismatch_poll = application.dispatch(
         "GET",
@@ -1691,6 +1765,7 @@ def test_workbench_atas_backfill_request_poll_and_acknowledge_flow() -> None:
     assert poll_body["request"]["dispatch_count"] == 1
     assert poll_body["request"]["request_history_bars"] is True
     assert poll_body["request"]["request_history_footprint"] is True
+    assert poll_body["request"]["requested_ranges"] == create_body["request"]["requested_ranges"]
 
     immediate_poll = application.dispatch(
         "GET",
@@ -1750,11 +1825,19 @@ def test_replay_builder_auto_creates_backfill_request_and_integrity_when_local_h
     )
     assert response.status_code == 200
     payload = json.loads(response.body)
-    assert payload["action"] == "atas_fetch_required"
-    assert payload["core_snapshot"] is None
+    assert payload["action"] == "built_from_local_history"
+    assert payload["core_snapshot"] is not None
+    assert payload["summary"] is not None
     assert payload["integrity"]["status"] == "missing_local_history"
+    assert payload["atas_fetch_request"] is None
     assert payload["atas_backfill_request"]["status"] == "pending"
     assert payload["atas_backfill_request"]["request_id"]
+    assert payload["atas_backfill_request"]["requested_ranges"] == [
+        {
+            "range_start": "2026-03-16T14:30:00Z",
+            "range_end": "2026-03-16T15:00:00Z",
+        }
+    ]
 
     poll_response = application.dispatch(
         "GET",

@@ -19,7 +19,7 @@ This phase does **not** include auto-trading logic.
 ## Project Layout
 
 - `src/atas_market_structure/models.py`: stable payload and analysis contracts
-- `src/atas_market_structure/repository.py`: SQLite persistence
+- `src/atas_market_structure/repository.py`: SQLite metadata persistence
 - `src/atas_market_structure/services.py`: recognition and routing skeleton
 - `src/atas_market_structure/adapter_services.py`: adapter payload storage plus automatic bridge into durable market-structure and event-snapshot ingestions
 - `src/atas_market_structure/adapter_bridge.py`: synthetic adapter-to-domain bridge for durable snapshots
@@ -307,14 +307,62 @@ Deploy the freshly built collector into `%APPDATA%\ATAS\Indicators`:
 Build and run with Docker Compose:
 
 ```powershell
-docker compose up --build -d
+docker compose -f .\docker-compose.yml up --build -d
 ```
 
-The container stores SQLite data in `.\data` on the host.
+Realtime fan-out stack endpoints:
+- HTTP ingest: `http://127.0.0.1:8090/api/tick`
+- WebSocket stream: `ws://127.0.0.1:8090/ws/stream`
+- Health check: `http://127.0.0.1:8090/health`
+- ClickHouse HTTP: `http://127.0.0.1:8123`
+
+Compose now starts:
+- `redis`
+- `clickhouse`
+- `clickhouse-init` to create `market_data.ticks_raw`
+- `realtime-api` for low-latency tick ingest, WebSocket fan-out, and ClickHouse micro-batching
+
+Verify the end-to-end realtime pipeline:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python .\scripts\verify_realtime_pipeline.py
+```
+
+Backfill existing SQLite `chart_candles` rows into ClickHouse before cleaning the
+legacy market-data rows from SQLite:
+
+```powershell
+python .\scripts\backfill_chart_candles_to_clickhouse.py --batch-size 5000
+```
+
+Useful backfill filters:
+- `--symbols NQ ES YM`
+- `--timeframes 1m 5m 15m`
+- `--start 2026-03-01T00:00:00Z --end 2026-03-22T00:00:00Z`
+- `--dry-run`
+
+Backfill existing SQLite `ingestions` rows into ClickHouse before cleaning the
+legacy market-data rows from SQLite:
+
+```powershell
+python .\scripts\backfill_ingestions_to_clickhouse.py --batch-size 5000
+```
+
+Useful ingestion backfill filters:
+- `--ingestion-kinds adapter_continuous_state adapter_history_bars replay_workbench_snapshot`
+- `--instrument-symbol NQ`
+- `--start 2026-03-01T00:00:00Z --end 2026-03-22T00:00:00Z`
+- `--dry-run`
+
+Market-data reads and writes now use ClickHouse by default:
+- `chart_candles` and `ingestions` are stored in ClickHouse
+- SQLite remains the metadata store for `analyses`, replay-workbench chat state, and other transactional records
+- optional: set `ATAS_MS_CLICKHOUSE_INGESTIONS_TABLE=ingestions`
 
 ## Notes
 
-- The service stores data in `.\data\market_structure.db` by default.
+- The service keeps metadata in `.\data\market_structure.db` by default.
 - Observed facts are stored as the validated payload JSON.
 - Derived interpretation is stored as a separate analysis record for future replay or backtest pipelines.
 - `process_context` is optional, but it is the intended bridge from second-level heatmaps and cross-session build/release behavior into the same analysis contract.

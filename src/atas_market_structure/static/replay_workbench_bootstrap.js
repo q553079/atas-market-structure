@@ -12,6 +12,7 @@ import {
   readStorage,
   summarizeText,
   escapeHtml,
+  createPlanId,
 } from "./replay_workbench_ui_utils.js";
 import { createAiThreadController } from "./replay_workbench_ai_threads.js";
 import { createAiChatController } from "./replay_workbench_ai_chat.js";
@@ -160,7 +161,7 @@ function formatCompactLocalDateTime(value) {
 function renderClusterItemsMarkup(cluster) {
   const items = Array.isArray(cluster?.items) ? cluster.items.slice(0, 5) : [];
   if (!items.length) {
-    return `<p class="empty-note">当前没有事件明细。</p>`;
+    return `<p class="empty-note">无事件明细。</p>`;
   }
   return `
     <div class="context-event-list">
@@ -177,7 +178,7 @@ function renderClusterItemsMarkup(cluster) {
 
 function renderEventPreviewMarkup(clusters = []) {
   if (!clusters.length) {
-    return `<p class="empty-note">当前可视区域没有关键事件。</p>`;
+    return `<p class="empty-note">当前视图无关键事件。</p>`;
   }
   return `
     <div class="context-event-list">
@@ -197,13 +198,18 @@ function renderDrawers({ state, els }) {
   const eventModel = state.chartEventModel || null;
   const selectedCluster = eventModel?.selectedCluster || null;
   const topVisibleClusters = Array.isArray(eventModel?.topVisibleClusters) ? eventModel.topVisibleClusters : [];
+  const symbol = snapshot?.instrument_symbol || state.topBar.symbol;
+  const timeframe = timeframeLabel(snapshot?.display_timeframe || state.topBar.timeframe);
+  const syncLabel = formatCompactLocalDateTime(state.topBar.lastSyncedAt);
+  const marketMeta = syncLabel && syncLabel !== "--"
+    ? `${symbol} / ${timeframe} · ${syncLabel}`
+    : `${symbol} / ${timeframe}`;
   els.drawerContextPanel.innerHTML = snapshot
     ? `
-      <div class="drawer-card-grid">
-        <div class="info-card"><h4>回放上下文</h4><p>品种：${snapshot.instrument_symbol || state.topBar.symbol} / 周期：${timeframeLabel(snapshot.display_timeframe || state.topBar.timeframe)}</p></div>
-        <div class="info-card"><h4>窗口</h4><p>${snapshot.window_start || "-"}<br>${snapshot.window_end || "-"}</p></div>
-        <div class="info-card"><h4>事件视图</h4><p>当前可见 ${eventModel?.visibleClusterCount || 0} 个事件簇 / 主图显示 ${eventModel?.shownClusterCount || 0} 个 / 折叠 ${eventModel?.hiddenVisibleClusterCount || 0} 个</p></div>
-        <div class="info-card"><h4>最近同步</h4><p>${formatCompactLocalDateTime(state.topBar.lastSyncedAt)}</p></div>
+      <div class="info-card">
+        <h4>盘面</h4>
+        <p>${escapeHtml(marketMeta)}</p>
+        <p>${escapeHtml(eventModel?.viewportSummary || "视图未初始化")}</p>
       </div>
       <div class="drawer-card-grid">
         <div class="info-card">
@@ -214,31 +220,31 @@ function renderDrawers({ state, els }) {
         </div>
       </div>
     `
-    : `<div class="empty-note">尚未加载图表，暂无上下文。</div>`;
+    : `<div class="empty-note">未加载图表。</div>`;
 
   if (els.manualRegionList) {
     els.manualRegionList.innerHTML = state.manualRegions.length
       ? state.manualRegions.map((item) => `<div class="info-card compact-card"><h4>${item.label}</h4><p>${item.started_at} → ${item.ended_at}</p><p>${item.price_low} - ${item.price_high}</p></div>`).join("")
-      : `<div class="empty-note">暂无手工区域。</div>`;
+      : `<div class="empty-note">无手工区域。</div>`;
   }
 
   els.drawerFocusPanel.innerHTML = snapshot?.focus_regions?.length
     ? snapshot.focus_regions.map((item) => `<div class="info-card"><h4>${item.label}</h4><p>${item.price_low} - ${item.price_high}</p></div>`).join("")
-    : `<div class="empty-note">暂无焦点区域。</div>`;
+    : `<div class="empty-note">无焦点区域。</div>`;
 
   els.drawerStrategyPanel.innerHTML = snapshot?.strategy_candidates?.length
     ? snapshot.strategy_candidates.map((item) => `<div class="info-card"><h4>${item.title || item.strategy_id}</h4><p>${summarizeText(item.thesis || item.summary || "", 180)}</p></div>`).join("")
-    : `<div class="empty-note">暂无策略匹配结果。</div>`;
+    : `<div class="empty-note">无策略匹配。</div>`;
 
   if (els.operatorEntryList) {
     els.operatorEntryList.innerHTML = state.operatorEntries.length
       ? state.operatorEntries.map((item) => `<div class="info-card compact-card"><h4>${item.side === "buy" ? "多头开仓" : "空头开仓"}</h4><p>${item.executed_at}</p><p>${item.entry_price}</p></div>`).join("")
-      : `<div class="empty-note">暂无开仓记录。</div>`;
+      : `<div class="empty-note">无开仓记录。</div>`;
   }
 
   els.drawerRecapPanel.innerHTML = state.aiReview
     ? `<div class="info-card"><h4>${state.aiReview.model || "AI复盘"}</h4><p>${summarizeText(state.aiReview.review || state.aiReview.reply_text || "", 600)}</p></div>`
-    : `<div class="empty-note">暂无复盘简报。</div>`;
+    : `<div class="empty-note">无复盘简报。</div>`;
 
   renderGammaDrawer({ state, els });
 }
@@ -253,8 +259,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   const planLifecycleEngine = createPlanLifecycleEngine({ state });
   const sessionMemoryEngine = createSessionMemoryEngine({ state, els, fetchJson });
   const MOBILE_AI_BREAKPOINT = 1000;
-  const DESKTOP_SIDEBAR_MIN = 400;
-  const DESKTOP_SIDEBAR_MAX = 560;
+  const DESKTOP_SIDEBAR_MIN = 520;
+  const DESKTOP_SIDEBAR_MAX = 820;
 
   function collectLayerStateFromInputs() {
     return {
@@ -298,7 +304,14 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       layerState: state.layerState || collectLayerStateFromInputs(),
       symbolWorkspaceState: state.symbolWorkspaceState || {},
       eventStreamFilter: state.eventStreamFilter || "all",
-      replyExtractionState: state.replyExtractionState || { filter: "all", showIgnored: false, bySymbol: {} },
+      replyExtractionState: state.replyExtractionState || {
+        filter: "all",
+        showIgnored: false,
+        intensity: "balanced",
+        autoExtractEnabled: true,
+        collapsed: false,
+        bySymbol: {},
+      },
     });
   }
 
@@ -746,6 +759,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       state.replyExtractionState = {
         filter: "all",
         showIgnored: false,
+        intensity: "balanced",
+        autoExtractEnabled: true,
+        collapsed: false,
         bySymbol: {},
       };
     }
@@ -755,7 +771,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (!state.replyExtractionState.filter) {
       state.replyExtractionState.filter = "all";
     }
+    if (!["strict", "balanced", "aggressive"].includes(state.replyExtractionState.intensity)) {
+      state.replyExtractionState.intensity = "balanced";
+    }
     state.replyExtractionState.showIgnored = !!state.replyExtractionState.showIgnored;
+    state.replyExtractionState.autoExtractEnabled = state.replyExtractionState.autoExtractEnabled !== false;
+    state.replyExtractionState.collapsed = !!state.replyExtractionState.collapsed;
     return state.replyExtractionState;
   }
 
@@ -844,6 +865,26 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     state,
     els,
     onPlanAction: focusPlanOnChart,
+    onPlanMetaAction: ({ type, ok, plan, summary, error }) => {
+      if (type === "copy") {
+        renderStatusStrip([{
+          label: ok
+            ? `已复制计划摘要：${plan?.title || "AI计划卡"}`
+            : `复制失败：${error?.message || "无法写入剪贴板"}`,
+          variant: ok ? "good" : "warn",
+        }]);
+        return;
+      }
+      if (type === "recap") {
+        if (!ok) {
+          renderStatusStrip([{ label: error?.message || "加入复盘失败", variant: "warn" }]);
+          return;
+        }
+        setDrawerOpen("recap", true);
+        renderSidebarSnapshot();
+        renderStatusStrip([{ label: `已加入复盘：${plan?.title || summary || "AI计划卡"}`, variant: "good" }]);
+      }
+    },
     onMountedRepliesChanged: (session, nextIds) => {
       void syncMountedRepliesToServer(session);
       queueSessionMemoryRefresh([session.id], { forceServer: true, delay: 120 });
@@ -2101,6 +2142,365 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     `;
   }
 
+  function isCandidateTemporalOrMetricNumber(content, startIndex, rawValue) {
+    const before = content.slice(Math.max(0, startIndex - 8), startIndex);
+    const after = content.slice(startIndex + rawValue.length, Math.min(content.length, startIndex + rawValue.length + 10));
+    const around = `${before}${rawValue}${after}`;
+    const numeric = Number(rawValue);
+    if (/[:：]\d{1,2}\s*$/.test(before) || /^\s*[:：/]\d/.test(after)) {
+      return true;
+    }
+    if (/[年月日号周点时分秒]\s*$/.test(before) || /^\s*[年月日号周点时分秒]/.test(after)) {
+      return true;
+    }
+    if (/^\s*(?:条|根|笔|分钟|小时|天|周|月|年|倍|手|次|tick|ticks|%|％)/i.test(after)) {
+      return true;
+    }
+    if (numeric >= 1900 && numeric <= 2100 && /[年月日]|UTC|GMT/.test(around)) {
+      return true;
+    }
+    return false;
+  }
+
+  function formatReplyCandidateNumber(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toFixed(2) : "";
+  }
+
+  function getReplyCandidateTone(item = {}) {
+    const text = `${item.label || ""} ${item.excerpt || ""}`;
+    if (/支撑|需求|回踩|接多|做多|多头/.test(text)) {
+      return "bull";
+    }
+    if (/阻力|压力|供给|反抽|做空|空头/.test(text)) {
+      return "bear";
+    }
+    if (/风险|失效|止损|不能追|不要追|谨慎|放弃/.test(text)) {
+      return "risk";
+    }
+    return "neutral";
+  }
+
+  function getReplyCandidateDedupKey(item = {}) {
+    const tone = getReplyCandidateTone(item);
+    if (item.type === "zone" && Number.isFinite(item.priceLow) && Number.isFinite(item.priceHigh)) {
+      return `zone:${formatReplyCandidateNumber(item.priceLow)}:${formatReplyCandidateNumber(item.priceHigh)}:${tone}`;
+    }
+    if (Number.isFinite(item.price)) {
+      return `${item.type}:${formatReplyCandidateNumber(item.price)}:${tone}`;
+    }
+    const labelKey = String(item.label || "").trim().toLowerCase();
+    return `${item.type}:${tone}:${labelKey}`;
+  }
+
+  function getReplyCandidateSourcePriority(item = {}) {
+    const stableKey = String(item.stableKey || "");
+    if (stableKey.startsWith("annotation:")) {
+      return 0;
+    }
+    if (item.sourceRole === "scribe") {
+      return 1;
+    }
+    if (item.sourceRole === "analyst") {
+      return 2;
+    }
+    return 3;
+  }
+
+  function shouldReplaceReplyCandidate(existing, incoming) {
+    if (!existing) {
+      return true;
+    }
+    const existingPriority = getReplyCandidateSourcePriority(existing);
+    const incomingPriority = getReplyCandidateSourcePriority(incoming);
+    if (incomingPriority !== existingPriority) {
+      return incomingPriority < existingPriority;
+    }
+    const existingTime = Date.parse(existing.observedAt || "") || 0;
+    const incomingTime = Date.parse(incoming.observedAt || "") || 0;
+    if (incomingTime !== existingTime) {
+      return incomingTime > existingTime;
+    }
+    return String(incoming.excerpt || "").length > String(existing.excerpt || "").length;
+  }
+
+  function sortReplyCandidates(items = []) {
+    const typeOrder = { plan: 0, zone: 1, risk: 2, price: 3 };
+    return [...items].sort((left, right) => {
+      if (left.ignored !== right.ignored) {
+        return left.ignored ? 1 : -1;
+      }
+      if ((left.pinned || false) !== (right.pinned || false)) {
+        return left.pinned ? -1 : 1;
+      }
+      const leftTypeOrder = typeOrder[left.type] ?? 9;
+      const rightTypeOrder = typeOrder[right.type] ?? 9;
+      if (leftTypeOrder !== rightTypeOrder) {
+        return leftTypeOrder - rightTypeOrder;
+      }
+      const leftSourcePriority = getReplyCandidateSourcePriority(left);
+      const rightSourcePriority = getReplyCandidateSourcePriority(right);
+      if (leftSourcePriority !== rightSourcePriority) {
+        return leftSourcePriority - rightSourcePriority;
+      }
+      const rightTime = Date.parse(right.observedAt || "") || 0;
+      const leftTime = Date.parse(left.observedAt || "") || 0;
+      if (rightTime !== leftTime) {
+        return rightTime - leftTime;
+      }
+      const rightPrice = Number.isFinite(right.price) ? right.price : (Number.isFinite(right.priceHigh) ? right.priceHigh : -Infinity);
+      const leftPrice = Number.isFinite(left.price) ? left.price : (Number.isFinite(left.priceHigh) ? left.priceHigh : -Infinity);
+      return rightPrice - leftPrice;
+    });
+  }
+
+  function applyReplyExtractionRuntimeFilters(items = [], extractionState = getReplyExtractionState()) {
+    const intensity = extractionState?.intensity || "balanced";
+    const autoExtractEnabled = extractionState?.autoExtractEnabled !== false;
+    let filtered = Array.isArray(items) ? [...items] : [];
+    if (!autoExtractEnabled) {
+      filtered = filtered.filter((item) => String(item?.stableKey || "").startsWith("annotation:"));
+    }
+    if (intensity === "strict") {
+      filtered = filtered.filter((item) => item?.type !== "price");
+    }
+    if (intensity === "aggressive") {
+      filtered = sortReplyCandidates(filtered);
+      return filtered.slice(0, 60);
+    }
+    return filtered;
+  }
+
+  function getVisibleReplyExtractionItems() {
+    const extractionState = getReplyExtractionState();
+    const filter = extractionState.filter || "all";
+    const showIgnored = !!extractionState.showIgnored;
+    const allItems = applyReplyExtractionRuntimeFilters(buildReplyExtractionItems(), extractionState);
+    return allItems.filter((item) => {
+      if (!showIgnored && item.ignored) {
+        return false;
+      }
+      return filter === "all" ? true : item.type === filter;
+    });
+  }
+
+  function inferCandidateSide(item = {}) {
+    const text = `${item.label || ""} ${item.excerpt || ""}`;
+    if (/阻力|压力|供给|做空|空头|反抽/.test(text)) {
+      return "sell";
+    }
+    if (/支撑|需求|做多|多头|回踩/.test(text)) {
+      return "buy";
+    }
+    return "buy";
+  }
+
+  function resolveCandidateSession(item = {}) {
+    const symbol = String(state.topBar?.symbol || item.symbol || "NQ").trim().toUpperCase() || "NQ";
+    const analystSession = getSessionByRole(symbol, "analyst");
+    if (analystSession) {
+      return analystSession;
+    }
+    if (item.sessionId) {
+      const sourceSession = state.aiThreads.find((entry) => entry.id === item.sessionId);
+      if (sourceSession) {
+        return sourceSession;
+      }
+    }
+    return getActiveThread();
+  }
+
+  function findPromotedAnnotationByCandidate(candidate = {}, sessionId = null) {
+    const candidateKey = getReplyCandidateKey(candidate);
+    if (!candidateKey) {
+      return null;
+    }
+    const annotations = Array.isArray(state.aiAnnotations) ? state.aiAnnotations : [];
+    const byKey = annotations.find((annotation) => annotation.source_event_key === candidateKey && (!sessionId || annotation.session_id === sessionId));
+    if (byKey) {
+      return byKey;
+    }
+    const stableKey = String(candidate.stableKey || "");
+    if (stableKey.startsWith("annotation:")) {
+      const annotationId = stableKey.slice("annotation:".length);
+      return annotations.find((annotation) => annotation.id === annotationId) || null;
+    }
+    return null;
+  }
+
+  function buildAnnotationFromCandidate(candidate = {}, session = null) {
+    const targetSession = session || resolveCandidateSession(candidate);
+    const symbol = String(targetSession?.symbol || targetSession?.contractId || state.topBar?.symbol || "NQ").trim().toUpperCase() || "NQ";
+    const timeframe = targetSession?.timeframe || state.topBar?.timeframe || "1m";
+    const startTime = state.snapshot?.window_start || new Date().toISOString();
+    const endTime = state.snapshot?.window_end || new Date().toISOString();
+    const latestClose = state.snapshot?.candles?.[state.snapshot.candles.length - 1]?.close ?? null;
+    const basePrice = Number.isFinite(candidate.price) ? candidate.price : (Number.isFinite(latestClose) ? latestClose : null);
+    const side = inferCandidateSide(candidate);
+    const reason = String(candidate.excerpt || candidate.label || "来自事件整理候选").trim();
+    const candidateKey = getReplyCandidateKey(candidate);
+    let type = "entry_line";
+    let entryPrice = null;
+    let stopPrice = null;
+    let targetPrice = null;
+    let priceLow = null;
+    let priceHigh = null;
+    let tpLevel = null;
+    if (candidate.type === "zone") {
+      const hasRange = Number.isFinite(candidate.priceLow) && Number.isFinite(candidate.priceHigh);
+      const halfRange = 6;
+      priceLow = hasRange ? Math.min(candidate.priceLow, candidate.priceHigh) : (Number.isFinite(basePrice) ? basePrice - halfRange : null);
+      priceHigh = hasRange ? Math.max(candidate.priceLow, candidate.priceHigh) : (Number.isFinite(basePrice) ? basePrice + halfRange : null);
+      if (/no[-_ ]?trade|风险|失效|谨慎/i.test(`${candidate.label || ""} ${candidate.excerpt || ""}`)) {
+        type = "no_trade_zone";
+      } else if (/阻力|压力|供给|空头/.test(`${candidate.label || ""} ${candidate.excerpt || ""}`)) {
+        type = "resistance_zone";
+      } else {
+        type = "support_zone";
+      }
+    } else if (candidate.type === "risk") {
+      type = "no_trade_zone";
+      if (Number.isFinite(basePrice)) {
+        priceLow = basePrice - 6;
+        priceHigh = basePrice + 6;
+      }
+    } else if (/止损|风险|失效/.test(candidate.label || "")) {
+      type = "stop_loss";
+      stopPrice = basePrice;
+    } else if (/止盈|目标|TP/i.test(candidate.label || "")) {
+      type = "take_profit";
+      targetPrice = basePrice;
+      tpLevel = 1;
+    } else {
+      type = "entry_line";
+      entryPrice = basePrice;
+    }
+    if (["entry_line", "stop_loss", "take_profit"].includes(type) && !Number.isFinite(entryPrice) && !Number.isFinite(stopPrice) && !Number.isFinite(targetPrice)) {
+      return null;
+    }
+    if (["support_zone", "resistance_zone", "no_trade_zone"].includes(type) && (!Number.isFinite(priceLow) || !Number.isFinite(priceHigh))) {
+      return null;
+    }
+    const now = new Date().toISOString();
+    return {
+      id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      annotation_id: null,
+      object_id: null,
+      session_id: targetSession.id,
+      message_id: candidate.messageId || targetSession.messages?.[targetSession.messages.length - 1]?.message_id || null,
+      source_message_id: candidate.messageId || null,
+      plan_id: null,
+      symbol,
+      timeframe,
+      type,
+      subtype: null,
+      label: candidate.label || (type === "entry_line" ? "候选入场" : "候选标记"),
+      reason,
+      start_time: startTime,
+      end_time: endTime,
+      expires_at: null,
+      status: "active",
+      lifecycle_stage: "active",
+      lifecycle_bucket: "active",
+      lifecycle_terminal: false,
+      lifecycle_outcome: null,
+      visual_state: "blue_dot",
+      priority: null,
+      confidence: null,
+      visible: true,
+      pinned: false,
+      source_kind: "event_candidate",
+      source_event_key: candidateKey,
+      side,
+      entry_price: Number.isFinite(entryPrice) ? entryPrice : null,
+      stop_price: Number.isFinite(stopPrice) ? stopPrice : null,
+      target_price: Number.isFinite(targetPrice) ? targetPrice : null,
+      tp_level: Number.isFinite(tpLevel) ? tpLevel : null,
+      price_low: Number.isFinite(priceLow) ? priceLow : null,
+      price_high: Number.isFinite(priceHigh) ? priceHigh : null,
+      path_points: [],
+      created_at: now,
+      updated_at: now,
+    };
+  }
+
+  function promoteCandidateToAnnotation(candidate = {}) {
+    const targetSession = resolveCandidateSession(candidate);
+    const existing = findPromotedAnnotationByCandidate(candidate, targetSession?.id);
+    if (existing) {
+      existing.visible = true;
+      existing.updated_at = new Date().toISOString();
+      return { annotation: existing, created: false, session: targetSession };
+    }
+    const annotation = buildAnnotationFromCandidate(candidate, targetSession);
+    if (!annotation) {
+      return { annotation: null, created: false, session: targetSession };
+    }
+    state.aiAnnotations = [...(state.aiAnnotations || []), annotation];
+    return { annotation, created: true, session: targetSession };
+  }
+
+  function buildPlanCardFromCandidate(candidate = {}) {
+    const targetSession = resolveCandidateSession(candidate);
+    const side = inferCandidateSide(candidate);
+    const latestClose = state.snapshot?.candles?.[state.snapshot.candles.length - 1]?.close ?? null;
+    const midpoint = Number.isFinite(candidate.priceLow) && Number.isFinite(candidate.priceHigh)
+      ? (candidate.priceLow + candidate.priceHigh) / 2
+      : null;
+    const entryPrice = Number.isFinite(candidate.price) ? candidate.price : (Number.isFinite(midpoint) ? midpoint : latestClose);
+    if (!Number.isFinite(entryPrice)) {
+      return { planCard: null, message: null, session: targetSession };
+    }
+    const stopOffset = 8;
+    const tpOffset = 14;
+    const stopPrice = side === "sell" ? entryPrice + stopOffset : entryPrice - stopOffset;
+    const tp1 = side === "sell" ? entryPrice - tpOffset : entryPrice + tpOffset;
+    const tp2 = side === "sell" ? entryPrice - tpOffset * 2 : entryPrice + tpOffset * 2;
+    const planRaw = {
+      id: createPlanId(),
+      title: candidate.type === "plan"
+        ? (candidate.label || `候选计划 ${entryPrice.toFixed(2)}`)
+        : `${side === "sell" ? "空头" : "多头"}候选计划 ${entryPrice.toFixed(2)}`,
+      status: "active",
+      side,
+      entryPrice,
+      stopPrice,
+      targetPrice: tp1,
+      targetPrice2: tp2,
+      take_profits: [
+        { id: "1", tp_level: 1, target_price: tp1 },
+        { id: "2", tp_level: 2, target_price: tp2 },
+      ],
+      summary: summarizeText(candidate.excerpt || candidate.label || "来自事件整理候选", 120),
+      notes: candidate.excerpt || candidate.label || "来自事件整理候选",
+    };
+    const planCard = upsertPlanCardToSession(planRaw, targetSession.id, null);
+    const message = appendAiChatMessage(
+      "assistant",
+      `已将候选事件转为计划卡：${planCard.title}`,
+      {
+        status: "completed",
+        replyTitle: "候选事件处理",
+        session_only: true,
+        planCards: [planCard],
+        source_message_id: candidate.messageId || null,
+        event_candidate_key: getReplyCandidateKey(candidate),
+      },
+      targetSession.id,
+      targetSession.title,
+    );
+    const planInMessage = message?.meta?.planCards?.[0] || null;
+    if (planInMessage) {
+      planInMessage.message_id = message.message_id;
+      planInMessage.session_id = targetSession.id;
+      message.planCards = [planInMessage];
+      message.meta.planCards = [planInMessage];
+    }
+    targetSession.activePlanId = planCard.id || planCard.plan_id || null;
+    persistSessions();
+    return { planCard: planInMessage || planCard, message, session: targetSession };
+  }
+
   function extractReplyCandidatesFromText(text, meta = {}) {
     const content = String(text || "").trim();
     if (!content) {
@@ -2127,6 +2527,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const observedAt = meta.observedAt || null;
     const summary = summarizeText(content, 120);
     const rangeRegex = /(\d{3,6}(?:\.\d+)?)[\s]*(?:-|~|到|至)[\s]*(\d{3,6}(?:\.\d+)?)/g;
+    const rangeSpans = [];
     let rangeMatch;
     while ((rangeMatch = rangeRegex.exec(content)) !== null) {
       const low = Number(rangeMatch[1]);
@@ -2134,6 +2535,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       if (!Number.isFinite(low) || !Number.isFinite(high)) {
         continue;
       }
+      rangeSpans.push([rangeMatch.index, rangeRegex.lastIndex]);
       const priceLow = Math.min(low, high);
       const priceHigh = Math.max(low, high);
       pushItem({
@@ -2156,6 +2558,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const priceRegex = /\d{3,6}(?:\.\d+)?/g;
     let priceMatch;
     while ((priceMatch = priceRegex.exec(content)) !== null) {
+      const inRangeSpan = rangeSpans.some(([start, end]) => priceMatch.index >= start && priceMatch.index < end);
+      if (inRangeSpan || isCandidateTemporalOrMetricNumber(content, priceMatch.index, priceMatch[0])) {
+        continue;
+      }
       const price = Number(priceMatch[0]);
       if (!Number.isFinite(price)) {
         continue;
@@ -2226,17 +2632,21 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
   function buildReplyExtractionItems() {
     const symbol = String(state.topBar?.symbol || "NQ").trim().toUpperCase() || "NQ";
-    const sessions = [
-      getSessionByRole(symbol, "analyst"),
-      getSessionByRole(symbol, "scribe"),
-    ].filter(Boolean);
+    const extractionState = getReplyExtractionState();
+    const aggressiveMode = extractionState.intensity === "aggressive";
+    const analystSession = getSessionByRole(symbol, "analyst");
+    const scribeSession = getSessionByRole(symbol, "scribe");
+    const sessions = [scribeSession, analystSession].filter(Boolean);
+    const scribeHasStructuredReply = !!getLatestAssistantMessage(scribeSession);
     const candidateMap = new Map();
     const pushCandidate = (item) => {
-      if (!item?.id) {
+      const dedupKey = getReplyCandidateDedupKey(item);
+      if (!dedupKey) {
         return;
       }
-      if (!candidateMap.has(item.id)) {
-        candidateMap.set(item.id, item);
+      const existing = candidateMap.get(dedupKey);
+      if (!existing || shouldReplaceReplyCandidate(existing, item)) {
+        candidateMap.set(dedupKey, item);
       }
     };
 
@@ -2267,38 +2677,29 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
             observedAt: annotation.started_at || annotation.created_at || annotation.updated_at || null,
           });
         });
+      const allowMessageExtraction = sessionRole === "scribe"
+        || (sessionRole === "analyst" && (aggressiveMode || !scribeHasStructuredReply));
+      if (!allowMessageExtraction) {
+        return;
+      }
       [...(session.messages || [])]
-        .filter((message) => message.role === "assistant" || message.role === "user")
-        .slice(-6)
+        .filter((message) => message.role === "assistant")
+        .slice(sessionRole === "scribe" ? -8 : -4)
         .forEach((message) => {
           extractReplyCandidatesFromText(message.content, {
             sessionId: session.id,
             messageId: message.message_id,
             sourceRole: sessionRole,
-            sourceActor: message.role === "user"
-              ? "交易员"
-              : (sessionRole === "scribe" ? "事件判断 AI" : "行情分析 AI"),
-            sourceTitle: message.role === "user"
-              ? `${session.title || "会话"} / 用户消息`
-              : (message.replyTitle || session.title || (sessionRole === "scribe" ? "事件整理 AI" : "行情分析 AI")),
+            sourceActor: sessionRole === "scribe" ? "事件判断 AI" : "行情分析 AI",
+            sourceTitle: message.replyTitle || session.title || (sessionRole === "scribe" ? "事件整理 AI" : "行情分析 AI"),
             observedAt: message.created_at || message.updated_at || null,
           }).forEach(pushCandidate);
         });
     });
-    return Array.from(candidateMap.values())
-      .map((item) => hydrateReplyCandidateState(symbol, item))
-      .sort((left, right) => {
-        if (left.ignored !== right.ignored) {
-          return left.ignored ? 1 : -1;
-        }
-        if ((left.pinned || false) !== (right.pinned || false)) {
-          return left.pinned ? -1 : 1;
-        }
-        const rightTime = Date.parse(right.observedAt || "") || 0;
-        const leftTime = Date.parse(left.observedAt || "") || 0;
-        return rightTime - leftTime;
-      })
-      .slice(0, 36);
+    return sortReplyCandidates(
+      Array.from(candidateMap.values())
+        .map((item) => hydrateReplyCandidateState(symbol, item)),
+    ).slice(0, 36);
   }
 
   function setHoverOverlayItem(item = null) {
@@ -2401,33 +2802,33 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const session = getSessionByRole(state.topBar?.symbol, "scribe");
     const latestAnalystReply = getLatestAssistantMessage(getSessionByRole(state.topBar?.symbol, "analyst"));
     if (els.eventScribeSessionLabel) {
-      els.eventScribeSessionLabel.textContent = session?.title || "尚未建立事件整理会话";
+      els.eventScribeSessionLabel.textContent = session?.title || "未建立会话";
     }
     if (els.eventScribeInput && document.activeElement !== els.eventScribeInput) {
       els.eventScribeInput.value = session?.draftText || session?.draft || "";
     }
     if (els.eventScribeSendButton) {
       els.eventScribeSendButton.disabled = !session || !!session.loadingFromServer;
-      els.eventScribeSendButton.textContent = session?.loadingFromServer ? "整理中…" : "发送到事件判断 AI";
+      els.eventScribeSendButton.textContent = session?.loadingFromServer ? "整理中…" : "发送";
     }
     if (els.eventScribeMirrorButton) {
       els.eventScribeMirrorButton.disabled = !latestAnalystReply;
     }
     if (!session) {
-      els.eventScribeThread.innerHTML = `<div class="secondary-chat-empty">当前品种还没有事件整理会话。</div>`;
+      els.eventScribeThread.innerHTML = `<div class="secondary-chat-empty">当前品种无事件会话。</div>`;
       return;
     }
     if (session.loadingFromServer) {
       els.eventScribeThread.innerHTML = `
         ${(session.messages || []).slice(-4).map((message) => buildSecondaryMessageMarkup(message)).join("")}
-        <div class="secondary-chat-empty">事件判断 AI 正在整理关键事件…</div>
+        <div class="secondary-chat-empty">事件判断 AI 正在整理…</div>
       `;
       return;
     }
     const messages = (session.messages || []).slice(-8);
     els.eventScribeThread.innerHTML = messages.length
       ? messages.map((message) => buildSecondaryMessageMarkup(message)).join("")
-      : `<div class="secondary-chat-empty">可向事件判断 AI 发送“整理关键价位 / 区域 / 风险 / 事件时间线”等问题。</div>`;
+      : `<div class="secondary-chat-empty">可发送价位、区域、风险、时间线。</div>`;
   }
 
   function renderReplyExtractionPanel() {
@@ -2438,13 +2839,17 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const extractionState = getReplyExtractionState();
     const filter = extractionState.filter || "all";
     const showIgnored = !!extractionState.showIgnored;
-    const allItems = buildReplyExtractionItems();
+    const collapsed = !!extractionState.collapsed;
+    const allItems = applyReplyExtractionRuntimeFilters(buildReplyExtractionItems(), extractionState);
     const counts = {
       price: allItems.filter((item) => item.type === "price").length,
       zone: allItems.filter((item) => item.type === "zone").length,
       risk: allItems.filter((item) => item.type === "risk").length,
       plan: allItems.filter((item) => item.type === "plan").length,
       ignored: allItems.filter((item) => item.ignored).length,
+      confirmed: allItems.filter((item) => item.status === "confirmed").length,
+      mounted: allItems.filter((item) => item.status === "mounted" || item.status === "promoted_annotation").length,
+      promoted: allItems.filter((item) => item.status === "promoted_plan").length,
     };
     const items = allItems.filter((item) => {
       if (!showIgnored && item.ignored) {
@@ -2459,44 +2864,134 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       els.replyExtractionShowIgnoredButton.classList.toggle("is-active", showIgnored);
       els.replyExtractionShowIgnoredButton.textContent = showIgnored ? "隐藏已忽略" : "显示已忽略";
     }
+    if (els.replyExtractionCollapseButton) {
+      els.replyExtractionCollapseButton.classList.toggle("is-active", collapsed);
+      els.replyExtractionCollapseButton.textContent = collapsed ? "展开" : "收起";
+    }
+    if (els.replyExtractionPanel) {
+      els.replyExtractionPanel.classList.toggle("is-collapsed", collapsed);
+    }
+    if (els.replyExtractionControls) {
+      els.replyExtractionControls.hidden = collapsed;
+    }
+    if (els.replyExtractionFilterBar) {
+      els.replyExtractionFilterBar.hidden = collapsed;
+    }
+    if (els.replyExtractionList) {
+      els.replyExtractionList.hidden = collapsed;
+    }
     els.replyExtractionSummary.textContent = allItems.length
-      ? `${symbol} 已提取 ${allItems.length} 条候选，当前显示 ${items.length} 条。价位 ${counts.price} / 区域 ${counts.zone} / 风险 ${counts.risk} / 计划 ${counts.plan}${counts.ignored ? ` / 已忽略 ${counts.ignored}` : ""}。`
-      : "等待 AI 回复后提取关键价位、区域与风险位置。";
-    if (!items.length) {
-      els.replyExtractionList.innerHTML = `<div class="reply-extraction-empty">${allItems.length ? "当前筛选条件下没有候选项。" : "暂无候选提取结果。"}</div>`;
+      ? `${symbol} 事件整理 ${allItems.length} 条。行动 ${counts.plan} / 区域 ${counts.zone} / 风险 ${counts.risk}${counts.price ? ` / 补充价位 ${counts.price}` : ""}${counts.confirmed ? ` / 已确认 ${counts.confirmed}` : ""}${counts.mounted ? ` / 已上图 ${counts.mounted}` : ""}${counts.promoted ? ` / 转计划 ${counts.promoted}` : ""}${counts.ignored ? ` / 已忽略 ${counts.ignored}` : ""}。`
+      : "等待事件整理。";
+    if (collapsed) {
       return;
     }
+    if (!items.length) {
+      els.replyExtractionList.innerHTML = `<div class="reply-extraction-empty">${allItems.length ? "当前筛选下无结果。" : "暂无事件整理结果。"}</div>`;
+      return;
+    }
+    const groupConfig = [
+      { key: "plan", title: "行动计划", hint: "优先看可执行结论", limit: 4, countVariant: "good" },
+      { key: "zone", title: "关键区域", hint: "先盯支撑与阻力带", limit: 6, countVariant: "emphasis" },
+      { key: "risk", title: "风险提醒", hint: "先排除不能做的地方", limit: 6, countVariant: "warn" },
+      { key: "price", title: "补充价位", hint: "辅助参考，不单独构成事件", limit: 4, countVariant: "" },
+    ];
     const typeLabelMap = {
       price: "价位",
       zone: "区域",
       risk: "风险",
-      plan: "计划",
+      plan: "行动",
     };
-    els.replyExtractionList.innerHTML = items.map((item) => {
+    const statusLabelMap = {
+      candidate: "候选",
+      confirmed: "已确认",
+      mounted: "已上图",
+      promoted_annotation: "已上图",
+      promoted_plan: "已转计划",
+      ignored: "已忽略",
+    };
+    const getCandidateSourceBadge = (item) => {
+      const stableKey = String(item.stableKey || "");
+      if (stableKey.startsWith("annotation:")) {
+        return "图上标记";
+      }
+      if (item.sourceRole === "scribe") {
+        return "事件整理";
+      }
+      if (item.sourceRole === "analyst") {
+        return "主分析";
+      }
+      return item.sourceActor || "来源";
+    };
+    const buildItemMarkup = (item) => {
       const priceLabel = item.type === "zone"
         ? `${item.priceLow?.toFixed?.(2) ?? item.priceLow} - ${item.priceHigh?.toFixed?.(2) ?? item.priceHigh}`
         : (item.price != null ? `${item.price?.toFixed?.(2) ?? item.price}` : "未定位价格");
-      const sourceRoleLabel = item.sourceActor || (item.sourceRole === "scribe" ? "事件判断 AI" : "行情分析 AI");
+      const sourceRoleLabel = getCandidateSourceBadge(item);
       const ignoredClass = item.ignored ? " is-ignored" : "";
+      const observedAtLabel = formatCompactLocalDateTime(item.observedAt);
+      const statusLabel = statusLabelMap[item.status] || statusLabelMap.candidate;
+      const statusClass = item.status === "ignored"
+        ? "warn"
+        : item.status === "mounted" || item.status === "promoted_annotation" || item.status === "promoted_plan"
+          ? "good"
+          : item.status === "confirmed"
+            ? "emphasis"
+            : "";
       return `
-        <article class="reply-extraction-item${ignoredClass}" data-extraction-id="${escapeHtml(item.id)}" data-candidate-key="${escapeHtml(item.candidateKey || item.id)}">
+        <article class="reply-extraction-item type-${escapeHtml(item.type || "price")}${ignoredClass}" data-extraction-id="${escapeHtml(item.id)}" data-candidate-key="${escapeHtml(item.candidateKey || item.id)}">
           <div class="reply-extraction-head">
-            <strong>${escapeHtml(item.label || (item.type === "zone" ? "候选区域" : "关键价位"))}</strong>
+            <div class="reply-extraction-title-wrap">
+              <strong>${escapeHtml(item.label || (item.type === "zone" ? "候选区域" : "关键价位"))}</strong>
+              <div class="reply-extraction-meta">${escapeHtml(item.sourceTitle || "AI 提取")}</div>
+            </div>
             <div class="reply-extraction-chip-row">
               <span class="chip">${escapeHtml(typeLabelMap[item.type] || "候选")}</span>
               <span class="chip">${escapeHtml(sourceRoleLabel)}</span>
+              <span class="chip ${escapeHtml(statusClass)}">${escapeHtml(statusLabel)}</span>
             </div>
           </div>
           <div class="reply-extraction-price">${escapeHtml(priceLabel)}</div>
-          <div class="reply-extraction-meta">${escapeHtml(item.sourceTitle || "AI 提取")}</div>
           <p>${escapeHtml(item.excerpt || "等待确认")}</p>
+          <div class="reply-extraction-source-line">
+            <span>${escapeHtml(item.sourceActor || "AI")}</span>
+            <span>${escapeHtml(observedAtLabel)}</span>
+          </div>
           <div class="reply-extraction-actions">
+            <button type="button" class="secondary tiny" data-extraction-action="mount" data-extraction-id="${escapeHtml(item.id)}">${item.status === "mounted" || item.status === "promoted_annotation" ? "再上图" : "上图"}</button>
+            <button type="button" class="secondary tiny" data-extraction-action="confirm" data-extraction-id="${escapeHtml(item.id)}">${item.status === "confirmed" ? "已确认" : "确认"}</button>
+            <button type="button" class="secondary tiny" data-extraction-action="promote-plan" data-extraction-id="${escapeHtml(item.id)}">${item.status === "promoted_plan" ? "再转计划" : "转计划卡"}</button>
             <button type="button" class="secondary tiny" data-extraction-action="source" data-extraction-id="${escapeHtml(item.id)}">来源</button>
             <button type="button" class="secondary tiny" data-extraction-action="ignore" data-extraction-id="${escapeHtml(item.id)}">${item.ignored ? "恢复" : "忽略"}</button>
           </div>
         </article>
       `;
-    }).join("");
+    };
+    const activeGroups = filter === "all"
+      ? groupConfig
+      : groupConfig.filter((group) => group.key === filter);
+    els.replyExtractionList.innerHTML = activeGroups
+      .filter((group) => items.some((item) => item.type === group.key))
+      .map((group) => {
+        const groupItems = items.filter((item) => item.type === group.key);
+        const visibleItems = filter === "all" ? groupItems.slice(0, group.limit) : groupItems;
+        const hiddenCount = Math.max(0, groupItems.length - visibleItems.length);
+        return `
+          <section class="reply-extraction-group">
+            <div class="reply-extraction-group-head">
+              <div>
+                <strong>${escapeHtml(group.title)}</strong>
+                <div class="meta">${escapeHtml(group.hint)}</div>
+              </div>
+              <span class="chip reply-extraction-group-count ${escapeHtml(group.countVariant)}">${groupItems.length}</span>
+            </div>
+            <div class="reply-extraction-group-list">
+              ${visibleItems.map((item) => buildItemMarkup(item)).join("")}
+            </div>
+            ${hiddenCount ? `<div class="reply-extraction-more-note">当前还有 ${hiddenCount} 条${escapeHtml(group.title)}未展开，可切换顶部筛选单独查看。</div>` : ""}
+          </section>
+        `;
+      }).join("");
     const openExtractionSource = (item) => {
       if (!item?.messageId) {
         return;
@@ -2526,21 +3021,204 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
           if (!item) {
             return;
           }
-          if (actionButton.dataset.extractionAction === "source") {
+          const action = actionButton.dataset.extractionAction;
+          if (action === "source") {
             openExtractionSource(item);
             return;
           }
-          if (actionButton.dataset.extractionAction === "ignore") {
+          if (action === "ignore") {
             updateReplyCandidateMeta(symbol, item.candidateKey || item.id, {
               status: item.ignored ? "candidate" : "ignored",
             });
             renderReplyExtractionPanel();
+            renderStatusStrip([{
+              label: item.ignored ? "候选事件已恢复。" : "候选事件已忽略。",
+              variant: item.ignored ? "good" : "warn",
+            }]);
+            return;
+          }
+          if (action === "confirm") {
+            const nextStatus = item.status === "confirmed" ? "candidate" : "confirmed";
+            updateReplyCandidateMeta(symbol, item.candidateKey || item.id, { status: nextStatus });
+            renderReplyExtractionPanel();
+            renderStatusStrip([{
+              label: nextStatus === "confirmed" ? "候选事件已确认，可继续上图或转计划。" : "已取消确认，回到候选状态。",
+              variant: nextStatus === "confirmed" ? "good" : "emphasis",
+            }]);
+            return;
+          }
+          if (action === "mount") {
+            const promoted = promoteCandidateToAnnotation(item);
+            if (!promoted.annotation) {
+              renderStatusStrip([{ label: "该候选缺少可用价格，暂时无法上图。", variant: "warn" }]);
+              return;
+            }
+            updateReplyCandidateMeta(symbol, item.candidateKey || item.id, {
+              status: promoted.created ? "promoted_annotation" : "mounted",
+            });
+            applyAnnotationScope?.(promoted.annotation.id, {
+              mode: "only",
+              activateSession: true,
+              jumpToSource: false,
+              render: true,
+            });
+            queueSessionMemoryRefresh([promoted.annotation.session_id], { forceServer: true, delay: 140 });
+            renderReplyExtractionPanel();
+            renderStatusStrip([{
+              label: promoted.created ? "候选事件已上图。可在标记管理器继续精修。" : "候选事件对应标记已定位到图表。",
+              variant: "good",
+            }]);
+            return;
+          }
+          if (action === "promote-plan") {
+            const promoted = buildPlanCardFromCandidate(item);
+            if (!promoted.planCard || !promoted.message || !promoted.session) {
+              renderStatusStrip([{ label: "该候选缺少可执行价格，暂时无法转为计划卡。", variant: "warn" }]);
+              return;
+            }
+            updateReplyCandidateMeta(symbol, item.candidateKey || item.id, { status: "promoted_plan" });
+            setActiveThread(promoted.session.id, promoted.session.title, promoted.session);
+            jumpToMessageWhenReady(promoted.message.message_id);
+            queueSessionMemoryRefresh([promoted.session.id], { forceServer: true, delay: 140 });
+            renderReplyExtractionPanel();
+            renderStatusStrip([{ label: `已生成计划卡：${promoted.planCard.title || "候选计划"}`, variant: "good" }]);
           }
           return;
         }
         openExtractionSource(item);
       });
     });
+    const canBatch = items.length > 0;
+    if (els.replyExtractionBatchConfirmButton) {
+      els.replyExtractionBatchConfirmButton.disabled = !canBatch;
+    }
+    if (els.replyExtractionBatchMountButton) {
+      els.replyExtractionBatchMountButton.disabled = !canBatch;
+    }
+    if (els.replyExtractionBatchPromoteButton) {
+      els.replyExtractionBatchPromoteButton.disabled = !canBatch;
+    }
+    if (els.replyExtractionBatchIgnoreButton) {
+      els.replyExtractionBatchIgnoreButton.disabled = !canBatch;
+    }
+    if (els.replyExtractionAutoButton) {
+      const autoEnabled = extractionState.autoExtractEnabled !== false;
+      els.replyExtractionAutoButton.classList.toggle("is-active", autoEnabled);
+      els.replyExtractionAutoButton.textContent = autoEnabled ? "自动记录：开" : "自动记录：关";
+    }
+    if (els.replyExtractionIntensitySelect && document.activeElement !== els.replyExtractionIntensitySelect) {
+      els.replyExtractionIntensitySelect.value = extractionState.intensity || "balanced";
+    }
+  }
+
+  function applyReplyExtractionBatchAction(action = "confirm") {
+    const symbol = String(state.topBar?.symbol || "NQ").trim().toUpperCase() || "NQ";
+    const items = getVisibleReplyExtractionItems();
+    if (!items.length) {
+      renderStatusStrip([{ label: "当前筛选下没有可批量处理的候选。", variant: "warn" }]);
+      return;
+    }
+    let updated = 0;
+    let skipped = 0;
+    const touchedSessionIds = new Set();
+    if (action === "confirm") {
+      items.forEach((item) => {
+        if (item.ignored) {
+          skipped += 1;
+          return;
+        }
+        updateReplyCandidateMeta(symbol, item.candidateKey || item.id, { status: "confirmed" });
+        updated += 1;
+      });
+      renderReplyExtractionPanel();
+      renderStatusStrip([{ label: `已批量确认 ${updated} 条候选${skipped ? `，跳过 ${skipped} 条` : ""}。`, variant: "good" }]);
+      return;
+    }
+    if (action === "ignore") {
+      items.forEach((item) => {
+        updateReplyCandidateMeta(symbol, item.candidateKey || item.id, { status: "ignored" });
+        updated += 1;
+      });
+      renderReplyExtractionPanel();
+      renderStatusStrip([{ label: `已批量忽略 ${updated} 条候选。`, variant: "warn" }]);
+      return;
+    }
+    if (action === "mount") {
+      let firstAnnotationId = null;
+      items.forEach((item) => {
+        const promoted = promoteCandidateToAnnotation(item);
+        if (!promoted.annotation) {
+          skipped += 1;
+          return;
+        }
+        if (!firstAnnotationId) {
+          firstAnnotationId = promoted.annotation.id;
+        }
+        touchedSessionIds.add(promoted.annotation.session_id);
+        updateReplyCandidateMeta(symbol, item.candidateKey || item.id, {
+          status: promoted.created ? "promoted_annotation" : "mounted",
+        });
+        updated += 1;
+      });
+      if (firstAnnotationId) {
+        applyAnnotationScope?.(firstAnnotationId, {
+          mode: "reply",
+          activateSession: true,
+          jumpToSource: false,
+          render: false,
+        });
+      }
+      if (touchedSessionIds.size) {
+        queueSessionMemoryRefresh(Array.from(touchedSessionIds), { forceServer: true, delay: 140 });
+      }
+      renderReplyExtractionPanel();
+      renderSnapshot();
+      renderStatusStrip([{
+        label: updated
+          ? `已批量上图 ${updated} 条候选${skipped ? `，跳过 ${skipped} 条` : ""}。`
+          : "当前候选缺少可用价格，未执行上图。",
+        variant: updated ? "good" : "warn",
+      }]);
+      return;
+    }
+    if (action === "promote-plan") {
+      let firstPromoted = null;
+      items.forEach((item) => {
+        if (item.ignored) {
+          skipped += 1;
+          return;
+        }
+        const promoted = buildPlanCardFromCandidate(item);
+        if (!promoted.planCard || !promoted.message || !promoted.session) {
+          skipped += 1;
+          return;
+        }
+        if (!firstPromoted) {
+          firstPromoted = promoted;
+        }
+        touchedSessionIds.add(promoted.session.id);
+        updateReplyCandidateMeta(symbol, item.candidateKey || item.id, { status: "promoted_plan" });
+        updated += 1;
+      });
+      if (firstPromoted?.session?.id) {
+        setActiveThread(firstPromoted.session.id, firstPromoted.session.title, firstPromoted.session);
+      }
+      if (firstPromoted?.message?.message_id) {
+        jumpToMessageWhenReady(firstPromoted.message.message_id);
+      }
+      if (touchedSessionIds.size) {
+        queueSessionMemoryRefresh(Array.from(touchedSessionIds), { forceServer: true, delay: 140 });
+      }
+      renderReplyExtractionPanel();
+      renderSnapshot();
+      renderStatusStrip([{
+        label: updated
+          ? `已批量转计划卡 ${updated} 条候选${skipped ? `，跳过 ${skipped} 条` : ""}。`
+          : "当前候选缺少可执行价格，未生成计划卡。",
+        variant: updated ? "good" : "warn",
+      }]);
+      return;
+    }
   }
 
   function renderContractNav() {
@@ -3106,6 +3784,32 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       extractionState.showIgnored = !extractionState.showIgnored;
       persistWorkbenchState();
       renderReplyExtractionPanel();
+    });
+    els.replyExtractionAutoButton?.addEventListener("click", () => {
+      const extractionState = getReplyExtractionState();
+      extractionState.autoExtractEnabled = extractionState.autoExtractEnabled === false;
+      persistWorkbenchState();
+      renderReplyExtractionPanel();
+      renderStatusStrip([{
+        label: extractionState.autoExtractEnabled ? "事件整理自动记录已开启。" : "事件整理自动记录已关闭（仅保留图上对象）。",
+        variant: "emphasis",
+      }]);
+    });
+    els.replyExtractionIntensitySelect?.addEventListener("change", () => {
+      const extractionState = getReplyExtractionState();
+      extractionState.intensity = els.replyExtractionIntensitySelect.value || "balanced";
+      persistWorkbenchState();
+      renderReplyExtractionPanel();
+      renderStatusStrip([{ label: `事件整理强度已切换为：${extractionState.intensity}`, variant: "emphasis" }]);
+    });
+    els.replyExtractionBatchConfirmButton?.addEventListener("click", () => {
+      applyReplyExtractionBatchAction("confirm");
+    });
+    els.replyExtractionBatchMountButton?.addEventListener("click", () => {
+      applyReplyExtractionBatchAction("mount");
+    });
+    els.replyExtractionBatchIgnoreButton?.addEventListener("click", () => {
+      applyReplyExtractionBatchAction("ignore");
     });
     els.saveRegionButton?.addEventListener("click", async () => {
       await runButtonAction(els.saveRegionButton, async () => {

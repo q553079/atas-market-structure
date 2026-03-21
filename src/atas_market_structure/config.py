@@ -24,6 +24,15 @@ class AppConfig:
     openai_base_url: str | None = None
     ai_model: str = "gpt-5-mini"
     ai_timeout_seconds: float = 90.0
+    clickhouse_host: str = "127.0.0.1"
+    clickhouse_port: int = 8123
+    clickhouse_user: str = "default"
+    clickhouse_password: str = ""
+    clickhouse_database: str = "market_data"
+    clickhouse_chart_candles_table: str = "chart_candles"
+    clickhouse_ingestions_table: str = "ingestions"
+    clickhouse_connect_retries: int = 5
+    clickhouse_retry_delay_seconds: float = 1.5
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -44,4 +53,20 @@ class AppConfig:
             openai_base_url=os.getenv("OPENAI_BASE_URL"),
             ai_model=os.getenv("ATAS_MS_AI_MODEL", "gpt-5-mini"),
             ai_timeout_seconds=float(os.getenv("ATAS_MS_AI_TIMEOUT_SECONDS", "90")),
+            clickhouse_host=os.getenv("ATAS_MS_CLICKHOUSE_HOST", os.getenv("CLICKHOUSE_HOST", "127.0.0.1")),
+            clickhouse_port=int(os.getenv("ATAS_MS_CLICKHOUSE_PORT", os.getenv("CLICKHOUSE_PORT", "8123"))),
+            clickhouse_user=os.getenv("ATAS_MS_CLICKHOUSE_USER", os.getenv("CLICKHOUSE_USER", "default")),
+            clickhouse_password=os.getenv("ATAS_MS_CLICKHOUSE_PASSWORD", os.getenv("CLICKHOUSE_PASSWORD", "")),
+            clickhouse_database=os.getenv("ATAS_MS_CLICKHOUSE_DATABASE", os.getenv("CLICKHOUSE_DB", "market_data")),
+            clickhouse_chart_candles_table=os.getenv("ATAS_MS_CLICKHOUSE_CHART_CANDLES_TABLE", "chart_candles"),
+            clickhouse_ingestions_table=os.getenv("ATAS_MS_CLICKHOUSE_INGESTIONS_TABLE", "ingestions"),
+            clickhouse_connect_retries=int(
+                os.getenv("ATAS_MS_CLICKHOUSE_CONNECT_RETRIES", os.getenv("CLICKHOUSE_CONNECT_RETRIES", "5"))
+            ),
+            clickhouse_retry_delay_seconds=float(
+                os.getenv(
+                    "ATAS_MS_CLICKHOUSE_RETRY_DELAY_SECONDS",
+                    os.getenv("CLICKHOUSE_RETRY_DELAY_SECONDS", "1.5"),
+                )
+            ),
         )

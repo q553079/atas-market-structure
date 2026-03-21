@@ -193,7 +193,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         lock (_sync)
         {
             _collectorHeartbeat[bar] = candle.Close;
-            var timeUtc = candle.Time.Kind == DateTimeKind.Utc ? candle.Time : candle.Time.ToUniversalTime();
+            var timeUtc = ToUtc(candle.Time);
             _sessionStartUtc ??= timeUtc;
             _sessionOpenPrice ??= candle.Open;
             if (timeUtc <= _sessionStartUtc.Value.AddMinutes(Math.Max(1, OpeningRangeMinutes)))
@@ -897,7 +897,12 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
 
     private decimal EffectiveTickSize => TickSizeOverride > 0m ? TickSizeOverride : 0.25m;
 
-    private static DateTime ToUtc(DateTime value) => value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+    private static DateTime ToUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
 
     private static int DecimalToInt(decimal value) => Math.Max(0, decimal.ToInt32(decimal.Round(value, MidpointRounding.AwayFromZero)));
 
