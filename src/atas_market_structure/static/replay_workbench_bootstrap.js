@@ -2079,7 +2079,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       sessionIds: [],
       messageIds: [],
       annotationIds: [],
-      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone"],
+      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone", "zone"],
       showPaths: false,
       showInvalidated: false,
       selectedOnly: false,
@@ -2656,9 +2656,11 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         .filter((annotation) => annotation.session_id === session.id)
         .forEach((annotation) => {
           const annotationType = String(annotation.type || "").toLowerCase();
-          const normalizedType = annotation.price_low != null || annotation.price_high != null
-            ? (/no_trade|risk|invalid/.test(annotationType) ? "risk" : "zone")
-            : (/stop|risk|invalid/.test(annotationType) ? "risk" : /plan|entry|profit|target/.test(annotationType) ? "plan" : "price");
+          const normalizedType = ["plan", "zone", "risk", "price"].includes(annotation.event_kind)
+            ? annotation.event_kind
+            : annotation.price_low != null || annotation.price_high != null
+              ? (/no_trade|risk|invalid/.test(annotationType) ? "risk" : "zone")
+              : (/stop|risk|invalid/.test(annotationType) ? "risk" : /plan|entry|profit|target/.test(annotationType) ? "plan" : "price");
           pushCandidate({
             id: `annotation-${annotation.id}`,
             stableKey: `annotation:${annotation.id}`,
@@ -3808,8 +3810,21 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     els.replyExtractionBatchMountButton?.addEventListener("click", () => {
       applyReplyExtractionBatchAction("mount");
     });
+    els.replyExtractionBatchPromoteButton?.addEventListener("click", () => {
+      applyReplyExtractionBatchAction("promote-plan");
+    });
     els.replyExtractionBatchIgnoreButton?.addEventListener("click", () => {
       applyReplyExtractionBatchAction("ignore");
+    });
+    els.replyExtractionCollapseButton?.addEventListener("click", () => {
+      const extractionState = getReplyExtractionState();
+      extractionState.collapsed = !extractionState.collapsed;
+      persistWorkbenchState();
+      renderReplyExtractionPanel();
+      renderStatusStrip([{
+        label: extractionState.collapsed ? "事件整理面板已收起。" : "事件整理面板已展开。",
+        variant: "emphasis",
+      }]);
     });
     els.saveRegionButton?.addEventListener("click", async () => {
       await runButtonAction(els.saveRegionButton, async () => {

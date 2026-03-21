@@ -188,7 +188,7 @@ export function createWorkbenchState() {
       sessionIds: [],
       messageIds: [],
       annotationIds: [],
-      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone"],
+      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone", "zone"],
       showPaths: false,
       showInvalidated: false,
       selectedOnly: false,

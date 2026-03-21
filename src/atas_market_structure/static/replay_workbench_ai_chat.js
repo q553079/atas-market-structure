@@ -99,6 +99,14 @@ function normalizeAnnotation(raw = {}, { session, messageId, state, planId = nul
   const startTime = raw.start_time || latestCandle?.started_at || state.snapshot?.window_start || new Date().toISOString();
   const endTime = raw.end_time || latestCandle?.ended_at || state.snapshot?.window_end || new Date().toISOString();
   const type = raw.type || raw.annotation_type || raw.subtype || "entry_line";
+  const eventKind = raw.event_kind
+    || (planId || raw.plan_id
+      ? "plan"
+      : ["support_zone", "resistance_zone", "zone"].includes(type)
+        ? "zone"
+        : ["no_trade_zone", "stop_loss"].includes(type)
+          ? "risk"
+          : "price");
   const isPendingPlanChild = ["stop_loss", "take_profit"].includes(type) && raw.status == null;
   const createdAt = raw.created_at || raw.createdAt || startTime;
   const updatedAt = raw.updated_at || raw.updatedAt || endTime || createdAt;
@@ -131,6 +139,7 @@ function normalizeAnnotation(raw = {}, { session, messageId, state, planId = nul
     visible: raw.visible !== false,
     pinned: !!raw.pinned,
     source_kind: raw.source_kind || "replay_analysis",
+    event_kind: eventKind,
     source_reply_title: raw.source_reply_title || raw.reply_title || raw.replyTitle || null,
     side: raw.side || null,
     entry_price: raw.entry_price ?? raw.entryPrice ?? null,
@@ -1087,7 +1096,7 @@ export function createAiChatController({
         session.memory.timeframe = session.timeframe || state.topBar?.timeframe || session.memory.timeframe || "1m";
         session.memory.key_zones_summary = Array.from(new Set([
           ...(session.memory.key_zones_summary || []),
-          ...state.aiAnnotations.filter((item) => item.session_id === session.id && ["support_zone", "resistance_zone", "no_trade_zone"].includes(item.type)).map((item) => item.label),
+          ...state.aiAnnotations.filter((item) => item.session_id === session.id && ["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type)).map((item) => item.label),
         ])).slice(-8);
         session.memory.selected_annotations = (state.aiAnnotations || []).filter((item) => item.session_id === session.id && item.status !== "archived").map((item) => item.id).slice(-12);
         session.memory.last_updated_at = new Date().toISOString();
