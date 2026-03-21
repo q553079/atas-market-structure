@@ -380,8 +380,11 @@
               <strong>事件整理</strong>
               <div class="meta" id="replyExtractionSummary">等待事件整理。</div>
             </div>
+            <div class="button-row tight">
+              <button type="button" class="secondary tiny" id="replyExtractionCollapseButton">收起</button>
+            </div>
           </div>
-          <div class="reply-extraction-controls">
+          <div class="reply-extraction-controls" id="replyExtractionControls">
             <button type="button" class="secondary tiny is-active" id="replyExtractionAutoButton">自动记录：开</button>
             <label class="field compact reply-extraction-intensity-field">
               <span class="meta">记录强度</span>
@@ -394,6 +397,7 @@
             <div class="button-row tight reply-extraction-batch-actions">
               <button type="button" class="secondary tiny" id="replyExtractionBatchConfirmButton">批量确认</button>
               <button type="button" class="secondary tiny" id="replyExtractionBatchMountButton">批量上图</button>
+              <button type="button" class="secondary tiny" id="replyExtractionBatchPromoteButton">批量转计划卡</button>
               <button type="button" class="secondary tiny" id="replyExtractionBatchIgnoreButton">批量忽略</button>
             </div>
           </div>

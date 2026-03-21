@@ -309,6 +309,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         showIgnored: false,
         intensity: "balanced",
         autoExtractEnabled: true,
+        collapsed: false,
         bySymbol: {},
       },
     });
@@ -760,6 +761,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         showIgnored: false,
         intensity: "balanced",
         autoExtractEnabled: true,
+        collapsed: false,
         bySymbol: {},
       };
     }
@@ -774,6 +776,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     }
     state.replyExtractionState.showIgnored = !!state.replyExtractionState.showIgnored;
     state.replyExtractionState.autoExtractEnabled = state.replyExtractionState.autoExtractEnabled !== false;
+    state.replyExtractionState.collapsed = !!state.replyExtractionState.collapsed;
     return state.replyExtractionState;
   }
 
@@ -2836,6 +2839,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const extractionState = getReplyExtractionState();
     const filter = extractionState.filter || "all";
     const showIgnored = !!extractionState.showIgnored;
+    const collapsed = !!extractionState.collapsed;
     const allItems = applyReplyExtractionRuntimeFilters(buildReplyExtractionItems(), extractionState);
     const counts = {
       price: allItems.filter((item) => item.type === "price").length,
@@ -2860,9 +2864,28 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       els.replyExtractionShowIgnoredButton.classList.toggle("is-active", showIgnored);
       els.replyExtractionShowIgnoredButton.textContent = showIgnored ? "隐藏已忽略" : "显示已忽略";
     }
+    if (els.replyExtractionCollapseButton) {
+      els.replyExtractionCollapseButton.classList.toggle("is-active", collapsed);
+      els.replyExtractionCollapseButton.textContent = collapsed ? "展开" : "收起";
+    }
+    if (els.replyExtractionPanel) {
+      els.replyExtractionPanel.classList.toggle("is-collapsed", collapsed);
+    }
+    if (els.replyExtractionControls) {
+      els.replyExtractionControls.hidden = collapsed;
+    }
+    if (els.replyExtractionFilterBar) {
+      els.replyExtractionFilterBar.hidden = collapsed;
+    }
+    if (els.replyExtractionList) {
+      els.replyExtractionList.hidden = collapsed;
+    }
     els.replyExtractionSummary.textContent = allItems.length
       ? `${symbol} 事件整理 ${allItems.length} 条。行动 ${counts.plan} / 区域 ${counts.zone} / 风险 ${counts.risk}${counts.price ? ` / 补充价位 ${counts.price}` : ""}${counts.confirmed ? ` / 已确认 ${counts.confirmed}` : ""}${counts.mounted ? ` / 已上图 ${counts.mounted}` : ""}${counts.promoted ? ` / 转计划 ${counts.promoted}` : ""}${counts.ignored ? ` / 已忽略 ${counts.ignored}` : ""}。`
       : "等待事件整理。";
+    if (collapsed) {
+      return;
+    }
     if (!items.length) {
       els.replyExtractionList.innerHTML = `<div class="reply-extraction-empty">${allItems.length ? "当前筛选下无结果。" : "暂无事件整理结果。"}</div>`;
       return;
@@ -3072,6 +3095,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (els.replyExtractionBatchMountButton) {
       els.replyExtractionBatchMountButton.disabled = !canBatch;
     }
+    if (els.replyExtractionBatchPromoteButton) {
+      els.replyExtractionBatchPromoteButton.disabled = !canBatch;
+    }
     if (els.replyExtractionBatchIgnoreButton) {
       els.replyExtractionBatchIgnoreButton.disabled = !canBatch;
     }
@@ -3153,6 +3179,45 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
           : "当前候选缺少可用价格，未执行上图。",
         variant: updated ? "good" : "warn",
       }]);
+      return;
+    }
+    if (action === "promote-plan") {
+      let firstPromoted = null;
+      items.forEach((item) => {
+        if (item.ignored) {
+          skipped += 1;
+          return;
+        }
+        const promoted = buildPlanCardFromCandidate(item);
+        if (!promoted.planCard || !promoted.message || !promoted.session) {
+          skipped += 1;
+          return;
+        }
+        if (!firstPromoted) {
+          firstPromoted = promoted;
+        }
+        touchedSessionIds.add(promoted.session.id);
+        updateReplyCandidateMeta(symbol, item.candidateKey || item.id, { status: "promoted_plan" });
+        updated += 1;
+      });
+      if (firstPromoted?.session?.id) {
+        setActiveThread(firstPromoted.session.id, firstPromoted.session.title, firstPromoted.session);
+      }
+      if (firstPromoted?.message?.message_id) {
+        jumpToMessageWhenReady(firstPromoted.message.message_id);
+      }
+      if (touchedSessionIds.size) {
+        queueSessionMemoryRefresh(Array.from(touchedSessionIds), { forceServer: true, delay: 140 });
+      }
+      renderReplyExtractionPanel();
+      renderSnapshot();
+      renderStatusStrip([{
+        label: updated
+          ? `已批量转计划卡 ${updated} 条候选${skipped ? `，跳过 ${skipped} 条` : ""}。`
+          : "当前候选缺少可执行价格，未生成计划卡。",
+        variant: updated ? "good" : "warn",
+      }]);
+      return;
     }
   }
 

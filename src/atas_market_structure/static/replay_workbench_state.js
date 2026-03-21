@@ -206,6 +206,7 @@ export function createWorkbenchState() {
       showIgnored: !!persistedWorkbench.replyExtractionState?.showIgnored,
       intensity: persistedWorkbench.replyExtractionState?.intensity || "balanced",
       autoExtractEnabled: persistedWorkbench.replyExtractionState?.autoExtractEnabled !== false,
+      collapsed: !!persistedWorkbench.replyExtractionState?.collapsed,
       bySymbol: persistedWorkbench.replyExtractionState?.bySymbol || {},
     },
     sessionComparisonEnabled: false,
