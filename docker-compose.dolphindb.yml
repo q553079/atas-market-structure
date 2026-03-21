@@ -1,0 +1,56 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: quant-clickhouse
+    environment:
+      CLICKHOUSE_DB: market_data
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      # On Windows + Docker Desktop (WSL2), named volumes are usually much
+      # more stable for high-write analytical workloads than bind-mounting
+      # database directories directly to NTFS paths.
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  dolphindb:
+    image: dolphindb/dolphindb:v2.00.5
+    container_name: quant-dolphindb
+    hostname: dolphindb
+    command: ["sh"]
+    ports:
+      - "8848:8848"
+    ulimits:
+      nofile:
+        soft: 1000000
+        hard: 1000000
+    volumes:
+      - dolphindb_data:/data/ddb/server/data
+      - dolphindb_plugins:/data/ddb/server/plugins
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+volumes:
+  clickhouse_data:
+    driver: local
+  clickhouse_logs:
+    driver: local
+  dolphindb_data:
+    driver: local
+  dolphindb_plugins:
+    driver: local

@@ -307,10 +307,27 @@ Deploy the freshly built collector into `%APPDATA%\ATAS\Indicators`:
 Build and run with Docker Compose:
 
 ```powershell
-docker compose up --build -d
+docker compose -f .\docker-compose.yml up --build -d
 ```
 
-The container stores SQLite data in `.\data` on the host.
+Realtime fan-out stack endpoints:
+- HTTP ingest: `http://127.0.0.1:8090/api/tick`
+- WebSocket stream: `ws://127.0.0.1:8090/ws/stream`
+- Health check: `http://127.0.0.1:8090/health`
+- ClickHouse HTTP: `http://127.0.0.1:8123`
+
+Compose now starts:
+- `redis`
+- `clickhouse`
+- `clickhouse-init` to create `market_data.ticks_raw`
+- `realtime-api` for low-latency tick ingest, WebSocket fan-out, and ClickHouse micro-batching
+
+Verify the end-to-end realtime pipeline:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python .\scripts\verify_realtime_pipeline.py
+```
 
 ## Notes
 
