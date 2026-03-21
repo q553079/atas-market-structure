@@ -44,7 +44,7 @@ export function createAnnotationPopoverController({
 
   function openAnnotationSource(annotationId) {
     applyAnnotationScope?.(annotationId, {
-      mode: "source",
+      mode: "reply",
       activateSession: true,
       jumpToSource: true,
       render: true,

@@ -7,26 +7,60 @@ Also maintains a lightweight rolling per-instrument bar cache so low-latency
 adapter ingestion can query adaptive thresholds in O(1) for repeated requests
 within the same minute.
 
+On every bar ingestion (continuous or history-loaded), this module immediately
+writes pre-aggregated OHLCV into the `chart_candles` table.  All chart reads
+subsequently bypass per-request aggregation and read pre-computed rows directly.
+
 Consumers:
 - strategy_selection_engine (session_scope filter + regime-aware ranking)
 - ai_review_services (prompt context)
 - adapter_bridge (dynamic adaptive event filtering)
-
-Does NOT modify: models.py, app.py routes
 """
 from __future__ import annotations
 
-from collections import deque
+import logging
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from atas_market_structure.models import (
     AdapterContinuousStatePayload,
     AdapterHistoryBarsPayload,
+    ChartCandle,
     ReplayChartBar,
     ReplayWorkbenchSnapshotPayload,
 )
+from atas_market_structure.models._enums import Timeframe
+
+if TYPE_CHECKING:
+    from atas_market_structure.repository import AnalysisRepository
+
+LOGGER = logging.getLogger(__name__)
+
+# All timeframes written by this monitor on ingest.
+ALL_TFS: list[Timeframe] = [
+    Timeframe.MIN_1,
+    Timeframe.MIN_5,
+    Timeframe.MIN_15,
+    Timeframe.MIN_30,
+    Timeframe.HOUR_1,
+    Timeframe.HOUR_4,
+]
+
+_TF_SECONDS: dict[Timeframe, int] = {
+    Timeframe.MIN_1:  60,
+    Timeframe.MIN_5:  300,
+    Timeframe.MIN_15: 900,
+    Timeframe.MIN_30: 1800,
+    Timeframe.HOUR_1: 3600,
+    Timeframe.HOUR_4: 14400,
+}
+
+
+def _floor(dt: datetime, tf: Timeframe) -> datetime:
+    ts = int(dt.timestamp())
+    return datetime.fromtimestamp((ts // _TF_SECONDS[tf]) * _TF_SECONDS[tf], tz=UTC)
 
 
 @dataclass
@@ -93,12 +127,19 @@ class _InstrumentRollingBar:
 
 
 class RegimeMonitor:
-    """Infers market regime and serves cached adaptive thresholds from rolling bars."""
+    """Infers market regime and serves cached adaptive thresholds from rolling bars.
 
-    def __init__(self) -> None:
+    On every bar ingestion, pre-aggregated OHLCV rows are immediately written to
+    the `chart_candles` table for all registered timeframes.
+    """
+
+    def __init__(self, repository: "AnalysisRepository | None" = None) -> None:
+        self._repository = repository
         self._rolling_bars: dict[str, deque[_InstrumentRollingBar]] = {}
         self._dynamic_threshold_cache: dict[tuple[str, datetime], DynamicThresholds] = {}
         self._max_cached_bars = 512
+        self._persist_buf: dict[str, list[ChartCandle]] = defaultdict(list)
+        self._persist_buf_size = 50  # flush every N candles
 
     def assess(
         self,
@@ -243,6 +284,20 @@ class RegimeMonitor:
                 )
             )
         self._evict_cache_for_symbol(symbol)
+        # Persist the (possibly updated) last bar into chart_candles
+        if bars:
+            bar = bars[-1]
+            self._persist_bar(
+                symbol=symbol,
+                started_at=bar.started_at,
+                ended_at=bar.ended_at,
+                open=bar.open,
+                high=bar.high,
+                low=bar.low,
+                close=bar.close,
+                volume=bar.volume,
+                delta=bar.delta,
+            )
 
     def get_dynamic_thresholds(
         self,
@@ -341,3 +396,104 @@ class RegimeMonitor:
         stale_keys = [key for key in self._dynamic_threshold_cache if key[0] == symbol and key[1] < cutoff]
         for key in stale_keys:
             self._dynamic_threshold_cache.pop(key, None)
+
+    # ─── Real-time chart-candle persistence ────────────────────────────────────
+
+    def _persist_bar(
+        self,
+        symbol: str,
+        started_at: datetime,
+        ended_at: datetime,
+        open: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: int,
+        delta: int,
+    ) -> None:
+        """Aggregate one raw bar into all timeframes and flush when buffer is full."""
+        if self._repository is None:
+            return
+
+        now = datetime.now(tz=UTC)
+        for tf in ALL_TFS:
+            bucket = _floor(started_at, tf)
+            bucket_end = bucket + timedelta(seconds=_TF_SECONDS[tf])
+            self._persist_buf[symbol].append(
+                ChartCandle(
+                    symbol=symbol,
+                    timeframe=tf,
+                    started_at=bucket,
+                    ended_at=bucket_end,
+                    open=open,
+                    high=high,
+                    low=low,
+                    close=close,
+                    volume=volume,
+                    tick_volume=1,
+                    delta=delta,
+                    updated_at=now,
+                )
+            )
+
+        # Flush each symbol independently when its buffer reaches the threshold
+        for sym, candles in list(self._persist_buf.items()):
+            if len(candles) >= self._persist_buf_size:
+                self._repository.upsert_chart_candles(candles)
+                LOGGER.debug("[ChartCandle] flushed %d candles for %s", len(candles), sym)
+                self._persist_buf[sym] = []
+
+    def flush_persist_buf(self) -> None:
+        """Force-flush all pending chart candles. Call on shutdown or idle."""
+        if self._repository is None:
+            return
+        for sym, candles in self._persist_buf.items():
+            if candles:
+                self._repository.upsert_chart_candles(candles)
+                LOGGER.info("[ChartCandle] flushed %d remaining candles for %s", len(candles), sym)
+        self._persist_buf.clear()
+
+    def persist_history_bars(self, symbol: str, bars: list[dict]) -> int:
+        """Bulk-persist a list of raw bars. Used for batch history ingestion."""
+        if self._repository is None or not bars:
+            return 0
+        now = datetime.now(tz=UTC)
+        candles: list[ChartCandle] = []
+        for bar in bars:
+            raw_started = bar.get("started_at")
+            if isinstance(raw_started, str):
+                raw_started = datetime.fromisoformat(raw_started.replace("Z", "+00:00"))
+            elif not isinstance(raw_started, datetime):
+                continue
+            # Normalize to UTC — guard against naive datetimes that would be
+            # interpreted as local time by fromtimestamp() inside _floor.
+            started = raw_started.astimezone(UTC)
+            ended = bar.get("ended_at")
+            if isinstance(ended, str):
+                ended = datetime.fromisoformat(ended.replace("Z", "+00:00")).astimezone(UTC)
+            elif isinstance(ended, datetime):
+                ended = ended.astimezone(UTC)
+            else:
+                ended = started + timedelta(seconds=60)
+            for tf in ALL_TFS:
+                bucket = _floor(started, tf)
+                candles.append(
+                    ChartCandle(
+                        symbol=symbol,
+                        timeframe=tf,
+                        started_at=bucket,
+                        ended_at=bucket + timedelta(seconds=_TF_SECONDS[tf]),
+                        open=bar.get("open") or 0.0,
+                        high=bar.get("high") or 0.0,
+                        low=bar.get("low") or 0.0,
+                        close=bar.get("close") or 0.0,
+                        volume=int(bar.get("volume") or 0),
+                        tick_volume=1,
+                        delta=int(bar.get("delta") or 0),
+                        updated_at=now,
+                    )
+                )
+        self._repository.upsert_chart_candles(candles)
+        LOGGER.info("[ChartCandle] batch-persisted %d candles (%d bars × %d tfs) for %s",
+                    len(candles), len(bars), len(ALL_TFS), symbol)
+        return len(candles)

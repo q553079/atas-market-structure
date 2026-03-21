@@ -2069,6 +2069,7 @@ class Timeframe(str, Enum):
     DAY_1 = "1d"
     DAY_3 = "3d"
     HOUR_1 = "1h"
+    HOUR_4 = "4h"
     MIN_30 = "30m"
     MIN_15 = "15m"
     MIN_5 = "5m"
@@ -2081,6 +2082,5 @@ MACRO_TIMEFRAMES = {Timeframe.MONTH_1, Timeframe.WEEK_1, Timeframe.DAY_1}
 INTRADAY_TIMEFRAMES = {Timeframe.DAY_3, Timeframe.HOUR_1, Timeframe.MIN_30}
 SETUP_TIMEFRAMES = {Timeframe.MIN_15, Timeframe.MIN_5}
 EXECUTION_TIMEFRAMES = {Timeframe.MIN_1, Timeframe.FOOTPRINT, Timeframe.DOM}
-
 
 

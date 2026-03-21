@@ -115,8 +115,8 @@ export function createWorkbenchBindings({
         renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
       }
     });
-    els.aiNewThreadButton.addEventListener("click", () => {
-      createNewThread();
+    els.aiNewThreadButton.addEventListener("click", async () => {
+      await createNewThread();
     });
     els.aiChatSendButton.addEventListener("click", handleAiChatSend);
     if (els.zoomInButton) {

@@ -5,6 +5,15 @@ import json
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+
+def _parse_utc(value: str) -> datetime:
+    """Parse an ISO datetime string and normalize it to UTC."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 from atas_market_structure.analysis_orchestration_services import (
     DeepRegionAnalysisService,
     FullMarketAnalysisService,
@@ -127,8 +136,8 @@ def handle_analysis_routes(
             instrument_symbol=req.get("instrument_symbol"),
             timeframe=req.get("timeframe"),
             session=req.get("session"),
-            time_range_start=datetime.fromisoformat(req["time_range_start"]) if req.get("time_range_start") else None,
-            time_range_end=datetime.fromisoformat(req["time_range_end"]) if req.get("time_range_end") else None,
+            time_range_start=_parse_utc(req["time_range_start"]) if req.get("time_range_start") else None,
+            time_range_end=_parse_utc(req["time_range_end"]) if req.get("time_range_end") else None,
             price_range_low=req.get("price_range_low"),
             price_range_high=req.get("price_range_high"),
             image_url=req.get("image_url"),
@@ -136,7 +145,7 @@ def handle_analysis_routes(
             chart_id=req.get("chart_id"),
             snapshot_id=req.get("snapshot_id"),
             pane_type=req.get("pane_type"),
-            selected_at=datetime.fromisoformat(req["selected_at"]) if req.get("selected_at") else datetime.now(tz=UTC),
+            selected_at=_parse_utc(req["selected_at"]) if req.get("selected_at") else datetime.now(tz=UTC),
             selected_by=req.get("selected_by", "operator"),
             linked_replay_ingestion_id=req.get("linked_replay_ingestion_id"),
             notes=req.get("notes", ""),

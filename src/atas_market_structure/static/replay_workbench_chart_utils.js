@@ -10,13 +10,14 @@ export function clampChartView(totalCount, startIndex, endIndex, baseView = null
   };
 }
 
+/** 与 K 线数据一致：按 UTC 显示，便于与交易所/回放 UTC 时刻对齐 */
 export function formatAxisTime(value) {
   const date = new Date(value);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${month}/${day} ${hour}:${minute}`;
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${month}/${day} ${hour}:${minute} UTC`;
 }
 
 export function clampNumber(value, minimum, maximum) {

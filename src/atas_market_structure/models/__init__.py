@@ -101,6 +101,11 @@ from atas_market_structure.models._adapter_payloads import (
     AdapterTriggerInfo,
 )
 from atas_market_structure.models._replay import (
+    ChartCandle,
+    ChartCandleBackfillEnvelope,
+    ChartCandleBackfillRequest,
+    ChartCandleEnvelope,
+    ChartCandleUpsertRequest,
     ReplayAiBriefing,
     ReplayAiChatAttachment,
     ReplayAiChatContent,

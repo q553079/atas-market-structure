@@ -18,6 +18,41 @@ function buildAttachmentPreviewMarkup(attachment) {
   return `<div class="attachment-thumb attachment-thumb-fallback">${escapeHtml((attachment.kind || "file").slice(0, 10))}</div>`;
 }
 
+function sanitizeAttachmentForStorage(attachment) {
+  if (!attachment || typeof attachment !== "object") {
+    return attachment;
+  }
+  const next = { ...attachment };
+  if (typeof next.data_url === "string" && next.data_url.startsWith("data:")) {
+    delete next.data_url;
+  }
+  if (typeof next.preview_url === "string" && next.preview_url.startsWith("data:")) {
+    delete next.preview_url;
+  }
+  return next;
+}
+
+function buildServerAttachmentPayloads(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      name: item?.name || null,
+      media_type: item?.media_type || item?.kind || "application/octet-stream",
+      data_url: item?.data_url || item?.preview_url || "",
+    }))
+    .filter((item) => typeof item.data_url === "string" && item.data_url.startsWith("data:"));
+}
+
+function clonePlainData(value, fallback = null) {
+  if (value == null) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return fallback;
+  }
+}
+
 function buildLongTextMarkup(text, limit = 220) {
   const safe = escapeHtml(text || "");
   if (!safe || safe.length <= limit) {
@@ -83,16 +118,19 @@ function mapServerSessionToThread(serverSession, fallback = {}) {
   const symbol = serverSession.symbol || fallback.symbol || "NQ";
   const timeframe = serverSession.timeframe || fallback.timeframe || "1m";
   const windowRange = serverSession.window_range?.label || fallback.windowRange || fallback.memory?.window_range || "最近7天";
+  const workspaceRole = fallback.workspaceRole || serverSession.workspace_role || serverSession.workspaceRole || "analyst";
   return normalizeSessionShape({
     ...fallback,
     id: sessionId,
     sessionId,
+    workspaceRole,
     title: serverSession.title || fallback.title || sessionId,
     pinned: !!serverSession.pinned,
     symbol,
     contractId: serverSession.contract_id || fallback.contractId || symbol,
     timeframe,
     windowRange,
+    status: serverSession.status || fallback.status || "active",
     unreadCount: Number.isFinite(serverSession.unread_count) ? serverSession.unread_count : 0,
     selectedPromptBlockIds: Array.isArray(serverSession.selected_prompt_block_ids) ? serverSession.selected_prompt_block_ids : (fallback.selectedPromptBlockIds || []),
     pinnedContextBlockIds: Array.isArray(serverSession.pinned_context_block_ids) ? serverSession.pinned_context_block_ids : (fallback.pinnedContextBlockIds || []),
@@ -110,6 +148,8 @@ function mapServerSessionToThread(serverSession, fallback = {}) {
     draftAttachments: Array.isArray(serverSession.draft_attachments) ? serverSession.draft_attachments : (fallback.draftAttachments || []),
     attachments: Array.isArray(fallback.attachments) ? fallback.attachments : [],
     activeModel: serverSession.active_model || fallback.activeModel || "",
+    createdAt: serverSession.created_at || fallback.createdAt || fallback.memory?.last_updated_at || new Date().toISOString(),
+    updatedAt: serverSession.updated_at || fallback.updatedAt || fallback.memory?.last_updated_at || serverSession.created_at || new Date().toISOString(),
     memory: {
       ...(fallback.memory || {}),
       session_id: sessionId,
@@ -127,11 +167,14 @@ function normalizeSessionShape(session, fallback = {}) {
   const symbol = session.symbol || session.memory?.symbol || fallback.symbol || "NQ";
   const timeframe = session.timeframe || session.memory?.timeframe || fallback.timeframe || "1m";
   const windowRange = session.windowRange || session.memory?.window_range || fallback.windowRange || "最近7天";
+  const workspaceRole = session.workspaceRole || fallback.workspaceRole || "analyst";
   session.sessionId = session.sessionId || session.id;
+  session.workspaceRole = workspaceRole;
   session.symbol = symbol;
   session.contractId = session.contractId || symbol;
   session.timeframe = timeframe;
   session.windowRange = windowRange;
+  session.status = session.status || fallback.status || "active";
   session.unreadCount = Number.isFinite(session.unreadCount) ? session.unreadCount : 0;
   session.selectedPromptBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
   session.pinnedContextBlockIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
@@ -168,6 +211,8 @@ function normalizeSessionShape(session, fallback = {}) {
   session.handoffMode = session.handoffMode || "summary_only";
   session.backendLoaded = !!session.backendLoaded;
   session.loadingFromServer = !!session.loadingFromServer;
+  session.createdAt = session.createdAt || fallback.createdAt || session.memory?.last_updated_at || new Date().toISOString();
+  session.updatedAt = session.updatedAt || fallback.updatedAt || session.memory?.last_updated_at || session.createdAt;
   session.memory = {
     ...(session.memory || {}),
     session_id: session.memory?.session_id || session.sessionId,
@@ -222,9 +267,11 @@ function ensureSession(state, sessionId, title = "01", overrides = {}) {
     const scopedSymbol = overrides.symbol || topBar.symbol || activeSession?.symbol || activeSession?.memory?.symbol || "NQ";
     const scopedTimeframe = overrides.timeframe || topBar.timeframe || activeSession?.timeframe || activeSession?.memory?.timeframe || "1m";
     const scopedWindowRange = overrides.windowRange || topBar.quickRange || activeSession?.windowRange || activeSession?.memory?.window_range || "最近7天";
+    const workspaceRole = overrides.workspaceRole || activeSession?.workspaceRole || "analyst";
     session = {
       id: sessionId,
       sessionId: sessionId,
+      workspaceRole,
       title,
       pinned: state.aiThreads.length < 3,
       preset: activeSession?.preset || "general",
@@ -351,6 +398,39 @@ function renderMessage(message) {
   }
   const planCards = Array.isArray(message.meta?.planCards) ? message.meta.planCards : [];
   const attachments = Array.isArray(message.meta?.attachments) ? message.meta.attachments : [];
+  const replyObjectCount = Number(message.meta?.annotationCount ?? message.meta?.objectCount ?? message.annotations?.length ?? 0);
+  const canProjectReply = message.role === "assistant" && replyObjectCount > 0;
+  const messageActionMarkup = message.role === "assistant"
+    ? `
+      <div class="chat-message-actions">
+        <button
+          type="button"
+          class="secondary tiny"
+          data-message-action="${message.mountedToChart ? "unmount" : "show"}"
+          data-message-id="${escapeHtml(message.message_id || "")}"
+          ${canProjectReply ? "" : "disabled"}
+        >${message.mountedToChart ? "取消上图" : "上图"}</button>
+        <button
+          type="button"
+          class="secondary tiny"
+          data-message-action="focus"
+          data-message-id="${escapeHtml(message.message_id || "")}"
+          ${canProjectReply ? "" : "disabled"}
+        >仅本条</button>
+        <button
+          type="button"
+          class="secondary tiny"
+          data-message-action="jump"
+          data-message-id="${escapeHtml(message.message_id || "")}"
+          ${canProjectReply ? "" : "disabled"}
+        >查看图表</button>
+        <button type="button" class="secondary tiny" data-message-action="regenerate" data-message-id="${escapeHtml(message.message_id || "")}">重新生成</button>
+      </div>
+    `
+    : "";
+  if (canProjectReply) {
+    metaChips.push(`<span class="chip">${escapeHtml(`对象 ${replyObjectCount}`)}</span>`);
+  }
   return `
     <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}" data-message-id="${escapeHtml(message.message_id || "")}">
       <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}">
@@ -359,7 +439,7 @@ function renderMessage(message) {
           ${(message.parent_message_id || message.meta?.parent_message_id) ? `<div class="chat-regenerate-note">由上一条回复重新生成</div>` : ""}
           ${attachments.length ? `<div class="chat-attachment-list">${attachments.map((item) => renderAttachmentPreview(item)).join("")}</div>` : ""}
           ${metaChips.length ? `<div class="chat-meta">${metaChips.join("")}</div>` : ""}
-          ${message.role === "assistant" ? `<div class="chat-message-actions"><button type="button" class="secondary tiny" data-message-action="regenerate" data-message-id="${escapeHtml(message.message_id || "")}">重新生成</button></div>` : ""}
+          ${messageActionMarkup}
           ${planCards.length ? `<div class="chat-plan-card-list">${planCards.map((item) => buildPlanCardMarkup(item)).join("")}</div>` : ""}
         </div>
       </div>
@@ -773,8 +853,20 @@ function persistSessions(state) {
     const promptBlocks = Array.isArray(session.promptBlocks) ? session.promptBlocks : [];
     const selectedIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
     const pinnedIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+    const draftAttachments = getDraftAttachments(session).map((item) => sanitizeAttachmentForStorage(item));
     return {
       ...session,
+      attachments: draftAttachments,
+      draftAttachments,
+      messages: (session.messages || []).map((message) => ({
+        ...message,
+        meta: {
+          ...(message.meta || {}),
+          attachments: Array.isArray(message.meta?.attachments)
+            ? message.meta.attachments.map((item) => sanitizeAttachmentForStorage(item))
+            : [],
+        },
+      })),
       promptBlocks: promptBlocks.filter((block) => selectedIds.includes(block.blockId || block.id)),
       promptBlockPreviewCache: Object.fromEntries(
         Object.entries(session.promptBlockPreviewCache || {}).filter(([blockId]) => selectedIds.includes(blockId)),
@@ -789,11 +881,266 @@ function persistSessions(state) {
     drawerState: state.drawerState,
     topBar: state.topBar,
     pinnedPlanId: state.pinnedPlanId || null,
+    layerState: state.layerState || null,
   });
 }
 
 export function createAiThreadController({ state, els, onPlanAction = null, onMountedRepliesChanged = null, onPromptBlocksChanged = null, fetchJson = null, renderStatusStrip = null, onSessionActivated = null }) {
   const CHAT_FOLLOW_THRESHOLD = 48;
+  const DRAFT_SYNC_DELAY_MS = 420;
+  const draftSyncTimers = new Map();
+  let sessionWorkspaceQuery = "";
+
+  function getWorkspaceRole(session, fallback = "analyst") {
+    return String(session?.workspaceRole || fallback || "analyst").trim().toLowerCase() || "analyst";
+  }
+
+  function listSessionsByRole(role = "analyst") {
+    const normalizedRole = getWorkspaceRole({ workspaceRole: role });
+    return (state.aiThreads || []).filter((thread) => getWorkspaceRole(thread) === normalizedRole);
+  }
+
+  function getSessionTimestamp(session) {
+    const candidates = [
+      session?.updatedAt,
+      session?.memory?.last_updated_at,
+      session?.messages?.[session.messages.length - 1]?.updated_at,
+      session?.messages?.[session.messages.length - 1]?.created_at,
+      session?.createdAt,
+    ];
+    for (const candidate of candidates) {
+      if (!candidate) {
+        continue;
+      }
+      const timestamp = Date.parse(candidate);
+      if (Number.isFinite(timestamp)) {
+        return timestamp;
+      }
+    }
+    return 0;
+  }
+
+  function hasSessionDraft(session) {
+    return !!String(session?.draftText || session?.draft || "").trim() || getDraftAttachments(session).length > 0;
+  }
+
+  function shouldSurfaceSession(session, { includeActiveBlank = true } = {}) {
+    if (!session) {
+      return false;
+    }
+    if (!isTrulyBlankSession(session)) {
+      return true;
+    }
+    if (!includeActiveBlank) {
+      return false;
+    }
+    return (session.id || session.sessionId) === state.activeAiThreadId;
+  }
+
+  function getSessionPreviewText(session) {
+    const latestAssistant = [...(session?.messages || [])].reverse().find((item) => item.role === "assistant" && String(item.content || "").trim());
+    const latestUser = [...(session?.messages || [])].reverse().find((item) => item.role === "user" && String(item.content || "").trim());
+    const draftText = String(session?.draftText || session?.draft || "").trim();
+    return summarizeText(
+      latestAssistant?.replyTitle
+        || latestAssistant?.meta?.replyTitle
+        || session?.memory?.latest_answer_summary
+        || latestAssistant?.content
+        || latestUser?.content
+        || draftText
+        || session?.memory?.current_user_intent
+        || "当前会话还没有摘要",
+      80,
+    );
+  }
+
+  function formatSessionUpdatedLabel(session) {
+    const timestamp = getSessionTimestamp(session);
+    if (!timestamp) {
+      return "";
+    }
+    const value = new Date(timestamp);
+    if (Number.isNaN(value.getTime())) {
+      return "";
+    }
+    const now = new Date();
+    const sameDay = value.getFullYear() === now.getFullYear()
+      && value.getMonth() === now.getMonth()
+      && value.getDate() === now.getDate();
+    const hours = String(value.getHours()).padStart(2, "0");
+    const minutes = String(value.getMinutes()).padStart(2, "0");
+    return sameDay ? `${hours}:${minutes}` : `${value.getMonth() + 1}/${value.getDate()} ${hours}:${minutes}`;
+  }
+
+  function compareSessionsByPriority(a, b, { preferredSymbol = null } = {}) {
+    const aScope = getSessionScope(a, state);
+    const bScope = getSessionScope(b, state);
+    const aDraft = hasSessionDraft(a);
+    const bDraft = hasSessionDraft(b);
+    const aActive = a.id === state.activeAiThreadId;
+    const bActive = b.id === state.activeAiThreadId;
+    if (aActive !== bActive) {
+      return aActive ? -1 : 1;
+    }
+    if (preferredSymbol) {
+      const aMatches = aScope.symbol === preferredSymbol;
+      const bMatches = bScope.symbol === preferredSymbol;
+      if (aMatches !== bMatches) {
+        return aMatches ? -1 : 1;
+      }
+    }
+    if (shouldSurfaceSession(a) !== shouldSurfaceSession(b)) {
+      return shouldSurfaceSession(a) ? -1 : 1;
+    }
+    if (a.pinned !== b.pinned) {
+      return a.pinned ? -1 : 1;
+    }
+    if (!!a.activePlanId !== !!b.activePlanId) {
+      return a.activePlanId ? -1 : 1;
+    }
+    if (aDraft !== bDraft) {
+      return aDraft ? -1 : 1;
+    }
+    if ((a.unreadCount || 0) !== (b.unreadCount || 0)) {
+      return (b.unreadCount || 0) - (a.unreadCount || 0);
+    }
+    const timestampDiff = getSessionTimestamp(b) - getSessionTimestamp(a);
+    if (timestampDiff !== 0) {
+      return timestampDiff;
+    }
+    return String(a.title || "").localeCompare(String(b.title || ""), "zh-Hans-CN");
+  }
+
+  function getPreferredSessionForSymbol(symbol, { workspaceRole = "analyst" } = {}) {
+    const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+    const normalizedRole = getWorkspaceRole({ workspaceRole });
+    return listSessionsByRole(normalizedRole)
+      .filter((thread) => getSessionScope(thread, state).symbol === normalizedSymbol)
+      .sort((a, b) => compareSessionsByPriority(a, b, { preferredSymbol: normalizedSymbol }))[0] || null;
+  }
+
+  function buildSessionSearchText(session) {
+    const scope = getSessionScope(session, state);
+    return [
+      session?.title,
+      getWorkspaceRole(session) === "scribe" ? "事件整理 记录 scribe" : "行情分析 analyst",
+      scope.symbol,
+      scope.timeframe,
+      scope.windowRange,
+      getSessionPreviewText(session),
+      session?.memory?.current_user_intent,
+      session?.memory?.latest_answer_summary,
+      session?.activeModel,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+  }
+
+  async function patchSessionOnServer(session, updates = {}) {
+    if (!fetchJson || !session || isSyntheticSessionId(session.id)) {
+      return null;
+    }
+    try {
+      return await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(session.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+    } catch (error) {
+      console.warn("同步会话变更失败:", error);
+      return null;
+    }
+  }
+
+  async function archiveSessionOnServer(session) {
+    if (!fetchJson || !session || isSyntheticSessionId(session.id)) {
+      return null;
+    }
+    try {
+      return await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(session.id)}/archive`, {
+        method: "POST",
+      });
+    } catch (error) {
+      console.warn("归档会话失败:", error);
+      return null;
+    }
+  }
+
+  async function syncDraftStateToServer(session) {
+    if (!session) {
+      return null;
+    }
+    draftSyncTimers.delete(session.id);
+    return patchSessionOnServer(session, {
+      draft_text: session.draftText ?? session.draft ?? "",
+      draft_attachments: buildServerAttachmentPayloads(getDraftAttachments(session)),
+      scroll_offset: Number.isFinite(session.scrollOffset) ? session.scrollOffset : 0,
+    });
+  }
+
+  function scheduleDraftStateSync(session, { immediate = false } = {}) {
+    if (!fetchJson || !session || isSyntheticSessionId(session.id)) {
+      return;
+    }
+    const existingTimer = draftSyncTimers.get(session.id);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+      draftSyncTimers.delete(session.id);
+    }
+    if (immediate) {
+      void syncDraftStateToServer(session);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void syncDraftStateToServer(session);
+    }, DRAFT_SYNC_DELAY_MS);
+    draftSyncTimers.set(session.id, timer);
+  }
+
+  function buildBranchTitle(baseTitle) {
+    const normalizedBase = String(baseTitle || "会话").trim() || "会话";
+    const existingTitles = new Set((state.aiThreads || []).map((item) => item.title));
+    let index = 1;
+    let candidate = `${normalizedBase} 分支`;
+    while (existingTitles.has(candidate)) {
+      index += 1;
+      candidate = `${normalizedBase} 分支${index}`;
+    }
+    return candidate;
+  }
+
+  async function cloneMessagesToBackend(targetSessionId, sourceMessages = []) {
+    const messageIdMap = new Map();
+    if (!fetchJson || !targetSessionId) {
+      return messageIdMap;
+    }
+    for (const message of sourceMessages) {
+      if (!message?.role || !message?.content) {
+        continue;
+      }
+      try {
+        const response = await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(targetSessionId)}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: message.role,
+            content: message.content,
+            attachments: buildServerAttachmentPayloads(message.meta?.attachments || []),
+            selected_block_ids: Array.isArray(message.meta?.selected_block_ids) ? message.meta.selected_block_ids : [],
+          }),
+        });
+        const storedMessages = Array.isArray(response?.messages) ? response.messages : [];
+        const latest = storedMessages[storedMessages.length - 1];
+        if (latest?.message_id && message?.message_id) {
+          messageIdMap.set(message.message_id, latest.message_id);
+        }
+      } catch (error) {
+        console.warn("复制会话消息到后端失败:", error);
+      }
+    }
+    return messageIdMap;
+  }
 
   function getActiveThread() {
     const fallback = state.aiThreads[0];
@@ -881,17 +1228,229 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     });
   }
 
+  function bindThreadTabsOverflowBehavior() {
+    const node = els.aiThreadTabs;
+    if (!node || node.dataset.scrollBound === "true") {
+      return;
+    }
+    node.dataset.scrollBound = "true";
+    node.addEventListener("wheel", (event) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+        return;
+      }
+      if (node.scrollWidth <= node.clientWidth + 4) {
+        return;
+      }
+      node.scrollLeft += event.deltaY;
+      event.preventDefault();
+    }, { passive: false });
+  }
+
+  function buildSessionWorkspaceCardMarkup(session) {
+    const scope = getSessionScope(session, state);
+    const active = session.id === state.activeAiThreadId;
+    const attachments = getDraftAttachments(session);
+    const preview = getSessionPreviewText(session);
+    const updatedLabel = formatSessionUpdatedLabel(session);
+    const chips = [];
+    if (active) {
+      chips.push(`<span class="session-workspace-chip active">当前</span>`);
+    }
+    if (session.pinned) {
+      chips.push(`<span class="session-workspace-chip">固定</span>`);
+    }
+    if (session.activePlanId) {
+      chips.push(`<span class="session-workspace-chip emphasis">主计划</span>`);
+    }
+    if (session.mountedReplyIds?.length) {
+      chips.push(`<span class="session-workspace-chip">上图 ${escapeHtml(String(session.mountedReplyIds.length))}</span>`);
+    }
+    if ((session.unreadCount || 0) > 0) {
+      chips.push(`<span class="session-workspace-chip warn">未读 ${escapeHtml(String(session.unreadCount))}</span>`);
+    }
+    if (String(session.draftText || session.draft || "").trim()) {
+      chips.push(`<span class="session-workspace-chip good">草稿中</span>`);
+    }
+    if (attachments.length) {
+      chips.push(`<span class="session-workspace-chip">附件 ${escapeHtml(String(attachments.length))}</span>`);
+    }
+    return `
+      <article class="session-workspace-card ${active ? "active" : ""}" data-session-card="${escapeHtml(session.id)}">
+        <button type="button" class="session-workspace-card-main" data-session-open="${escapeHtml(session.id)}">
+          <div class="session-workspace-card-head">
+            <strong class="session-workspace-card-title">${escapeHtml(session.title || scope.symbol || "会话")}</strong>
+            <span class="session-workspace-card-time">${escapeHtml(updatedLabel ? `更新 ${updatedLabel}` : "")}</span>
+          </div>
+          <div class="session-workspace-card-meta">${escapeHtml(`${scope.symbol} · ${scope.timeframe} · ${scope.windowRange}`)}</div>
+          <div class="session-workspace-card-preview">${escapeHtml(preview)}</div>
+          ${chips.length ? `<div class="session-workspace-card-chips">${chips.join("")}</div>` : ""}
+        </button>
+        <div class="session-workspace-card-actions">
+          <button type="button" class="secondary tiny" data-session-pin="${escapeHtml(session.id)}">${session.pinned ? "取消固定" : "固定"}</button>
+          <button type="button" class="secondary tiny" data-session-clone="${escapeHtml(session.id)}">复制分支</button>
+          <button type="button" class="secondary tiny" data-session-archive="${escapeHtml(session.id)}">归档</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function buildSessionWorkspaceSectionMarkup(title, sessions, emptyNote = "") {
+    if (!sessions.length) {
+      return emptyNote
+        ? `
+          <section class="session-workspace-section">
+            <div class="session-workspace-section-head">
+              <strong>${escapeHtml(title)}</strong>
+            </div>
+            <div class="session-workspace-empty">${escapeHtml(emptyNote)}</div>
+          </section>
+        `
+        : "";
+    }
+    return `
+      <section class="session-workspace-section">
+        <div class="session-workspace-section-head">
+          <strong>${escapeHtml(title)}</strong>
+          <span class="meta">${escapeHtml(`${sessions.length} 条`)}</span>
+        </div>
+        <div class="session-workspace-list">
+          ${sessions.map((session) => buildSessionWorkspaceCardMarkup(session)).join("")}
+        </div>
+      </section>
+    `;
+  }
+
   function renderSessionMoreMenu() {
     if (!els.sessionMoreMenu) {
       return;
     }
-    const nonPinned = state.aiThreads.filter((item) => !item.pinned);
-    els.sessionMoreMenu.innerHTML = nonPinned.length
-      ? nonPinned.map((item) => `<button type="button" class="secondary tiny session-more-item" data-thread-id="${escapeHtml(item.id)}">${escapeHtml(item.title)}</button>`).join("")
-      : `<div class="empty-note">暂无更多会话</div>`;
-    els.sessionMoreMenu.querySelectorAll("button[data-thread-id]").forEach((button) => {
+    const activeSession = getActiveThread();
+    const activeScope = getSessionScope(activeSession, state);
+    const normalizedQuery = String(sessionWorkspaceQuery || "").trim().toLowerCase();
+    const visibleSessions = [...listSessionsByRole("analyst")]
+      .filter((session) => session.status !== "archived")
+      .filter((session) => shouldSurfaceSession(session))
+      .filter((session) => !normalizedQuery || buildSessionSearchText(session).includes(normalizedQuery))
+      .sort((a, b) => compareSessionsByPriority(a, b, { preferredSymbol: activeScope.symbol }));
+    const currentSymbolSessions = visibleSessions.filter((session) => getSessionScope(session, state).symbol === activeScope.symbol);
+    const otherSymbolGroups = new Map();
+    visibleSessions
+      .filter((session) => getSessionScope(session, state).symbol !== activeScope.symbol)
+      .forEach((session) => {
+        const symbol = getSessionScope(session, state).symbol;
+        if (!otherSymbolGroups.has(symbol)) {
+          otherSymbolGroups.set(symbol, []);
+        }
+        otherSymbolGroups.get(symbol).push(session);
+      });
+    const otherSymbolMarkup = Array.from(otherSymbolGroups.entries())
+      .sort((a, b) => a[0].localeCompare(b[0], "zh-Hans-CN"))
+      .map(([symbol, sessions]) => buildSessionWorkspaceSectionMarkup(`其他品种 · ${symbol}`, sessions))
+      .join("");
+
+    els.sessionMoreMenu.innerHTML = `
+      <div class="session-workspace-shell">
+        <div class="session-workspace-toolbar">
+          <div class="session-workspace-search">
+            <input
+              type="search"
+              class="session-workspace-search-input"
+              data-session-search-input="true"
+              placeholder="搜索会话 / 品种 / 摘要"
+              value="${escapeHtml(sessionWorkspaceQuery)}"
+            >
+            <button type="button" class="secondary tiny" data-session-command="clear-search">清空</button>
+          </div>
+          <div class="button-row tight">
+            <button type="button" class="secondary tiny" data-session-command="clone">复制当前分支</button>
+            <button type="button" class="secondary tiny" data-session-command="archive">归档当前会话</button>
+            <button type="button" class="secondary tiny" data-session-command="close">收起</button>
+          </div>
+        </div>
+        <div class="session-workspace-summary">
+          <span>${escapeHtml(`当前品种 ${activeScope.symbol}`)}</span>
+          <span class="meta">${escapeHtml(`共 ${visibleSessions.length} 条结果`)}</span>
+        </div>
+        ${visibleSessions.length
+          ? `
+            ${buildSessionWorkspaceSectionMarkup(`当前品种 · ${activeScope.symbol}`, currentSymbolSessions, "当前品种下还没有命中的会话。")}
+            ${otherSymbolMarkup || ""}
+          `
+          : `<div class="session-workspace-empty">没有匹配的会话。可尝试按品种、标题或摘要搜索。</div>`}
+      </div>
+    `;
+
+    const searchInput = els.sessionMoreMenu.querySelector("[data-session-search-input]");
+    searchInput?.addEventListener("input", () => {
+      sessionWorkspaceQuery = searchInput.value || "";
+      renderSessionMoreMenu();
+      const nextInput = els.sessionMoreMenu.querySelector("[data-session-search-input]");
+      nextInput?.focus();
+      nextInput?.setSelectionRange(sessionWorkspaceQuery.length, sessionWorkspaceQuery.length);
+    });
+
+    els.sessionMoreMenu.querySelectorAll("button[data-session-open]").forEach((button) => {
       button.addEventListener("click", () => {
-        setActiveThread(button.dataset.threadId);
+        const threadId = button.dataset.sessionOpen;
+        if (!threadId) {
+          return;
+        }
+        setActiveThread(threadId);
+        els.sessionMoreMenu.hidden = true;
+      });
+    });
+    els.sessionMoreMenu.querySelectorAll("button[data-session-pin]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const threadId = button.dataset.sessionPin;
+        if (!threadId) {
+          return;
+        }
+        toggleThreadPin(threadId);
+      });
+    });
+    els.sessionMoreMenu.querySelectorAll("button[data-session-clone]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const threadId = button.dataset.sessionClone;
+        if (!threadId) {
+          return;
+        }
+        await cloneActiveThreadBranch(threadId);
+        els.sessionMoreMenu.hidden = true;
+      });
+    });
+    els.sessionMoreMenu.querySelectorAll("button[data-session-archive]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const threadId = button.dataset.sessionArchive;
+        if (!threadId || !window.confirm("确认归档这个会话？")) {
+          return;
+        }
+        archiveThread(threadId);
+      });
+    });
+    els.sessionMoreMenu.querySelectorAll("button[data-session-command='clear-search']").forEach((button) => {
+      button.addEventListener("click", () => {
+        sessionWorkspaceQuery = "";
+        renderSessionMoreMenu();
+        els.sessionMoreMenu.querySelector("[data-session-search-input]")?.focus();
+      });
+    });
+    els.sessionMoreMenu.querySelectorAll("button[data-session-command='close']").forEach((button) => {
+      button.addEventListener("click", () => {
+        els.sessionMoreMenu.hidden = true;
+      });
+    });
+    els.sessionMoreMenu.querySelectorAll("button[data-session-command='clone']").forEach((button) => {
+      button.addEventListener("click", async () => {
+        await cloneActiveThreadBranch();
+        els.sessionMoreMenu.hidden = true;
+      });
+    });
+    els.sessionMoreMenu.querySelectorAll("button[data-session-command='archive']").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!window.confirm("确认归档当前会话？")) {
+          return;
+        }
+        archiveActiveThread();
         els.sessionMoreMenu.hidden = true;
       });
     });
@@ -921,6 +1480,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         setDraftAttachments(session, attachments);
         renderAttachments(session);
         persistSessions(state);
+        scheduleDraftStateSync(session);
       });
     });
   }
@@ -1001,29 +1561,76 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     return thread;
   }
 
-  async function syncSessionsFromServer({ activateFirst = false, symbol = null } = {}) {
+  async function syncSessionsFromServer({ activateFirst = false, symbol = null, includeArchived = false, workspaceRole = null } = {}) {
     if (!fetchJson) {
       return state.aiThreads;
     }
-    const query = symbol ? `?symbol=${encodeURIComponent(symbol)}` : "";
+    const queryParts = [];
+    if (symbol) {
+      queryParts.push(`symbol=${encodeURIComponent(symbol)}`);
+    }
+    if (includeArchived) {
+      queryParts.push("include_archived=true");
+    }
+    const query = queryParts.length ? `?${queryParts.join("&")}` : "";
     const envelope = await fetchJson(`/api/v1/workbench/chat/sessions${query}`);
     const sessions = Array.isArray(envelope?.sessions) ? envelope.sessions : [];
-    if (!sessions.length) {
-      return state.aiThreads;
-    }
-    const mapped = sessions.map((item, index) => mapServerSessionToThread(item, state.aiThreads[index] || {}));
-    state.aiThreads = mapped;
-    if (activateFirst && mapped.length) {
+    const normalizedSymbol = symbol ? String(symbol).trim().toUpperCase() : null;
+    /** 同一 session_id 只保留一条，避免接口重复行导致前端会话爆炸 */
+    const mappedById = new Map();
+    sessions.forEach((item) => {
+      const sessionId = item.session_id || item.id;
+      if (!sessionId) {
+        return;
+      }
+      const fallback = state.aiThreads.find((existing) => existing.id === sessionId || existing.sessionId === sessionId) || {};
+      mappedById.set(sessionId, mapServerSessionToThread(item, fallback));
+    });
+    const mapped = Array.from(mappedById.values());
+    const mappedIds = new Set(mapped.map((item) => item.id || item.sessionId));
+    const syntheticThreads = state.aiThreads.filter((item) => isSyntheticSessionId(item.id));
+    const preservedThreads = state.aiThreads.filter((item) => {
+      if (isSyntheticSessionId(item.id)) {
+        return false;
+      }
+      if (!normalizedSymbol) {
+        return false;
+      }
+      const scope = getSessionScope(item, state);
+      return scope.symbol !== normalizedSymbol && !mappedIds.has(item.id || item.sessionId);
+    });
+    state.aiThreads = [
+      ...preservedThreads,
+      ...mapped,
+      ...syntheticThreads.filter((item) => !mapped.some((mappedItem) => mappedItem.id === item.id || mappedItem.sessionId === item.sessionId)),
+    ];
+    if (activateFirst && state.aiThreads.length) {
       const currentId = state.activeAiThreadId;
-      const next = mapped.find((item) => item.id === currentId) || mapped[0];
+      const currentSession = currentId ? getSessionById(state, currentId) : null;
+      const preferredRole = workspaceRole || getWorkspaceRole(currentSession);
+      const next = state.aiThreads.find((item) => item.id === currentId)
+        || (normalizedSymbol ? getPreferredSessionForSymbol(normalizedSymbol, { workspaceRole: preferredRole }) : null)
+        || [...state.aiThreads].sort((a, b) => compareSessionsByPriority(a, b))[0];
+      if (!next) {
+        persistSessions(state);
+        return state.aiThreads;
+      }
       state.activeAiThreadId = next.id;
-      await hydrateSessionFromServer(next.id, { activate: true });
+      if (!next.backendLoaded) {
+        await hydrateSessionFromServer(next.id, { activate: true });
+      } else {
+        onSessionActivated?.(next);
+      }
     }
     persistSessions(state);
     return state.aiThreads;
   }
 
   function setActiveThread(threadId, title = "01", overrides = {}) {
+    const previousSession = state.activeAiThreadId ? getSessionById(state, state.activeAiThreadId) : null;
+    if (previousSession && previousSession.id !== threadId) {
+      scheduleDraftStateSync(previousSession, { immediate: true });
+    }
     const session = ensureSession(state, threadId, title, overrides);
     state.activeAiThreadId = session.id;
     els.aiChatInput.value = session.draftText || session.draft || "";
@@ -1077,9 +1684,9 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     return setActiveThread(`session-${ordinal}`, title || ordinal, overrides);
   }
 
-  async function createBackendSession({ title = "新会话", symbol = null, contractId = null, timeframe = null, windowRange = null, activate = true } = {}) {
+  async function createBackendSession({ title = "新会话", symbol = null, contractId = null, timeframe = null, windowRange = null, activate = true, workspaceRole = "analyst" } = {}) {
     if (!fetchJson) {
-      return createThread(title, { symbol, contractId, timeframe, windowRange });
+      return createThread(title, { symbol, contractId, timeframe, windowRange, workspaceRole });
     }
     const sessionSymbol = symbol || state.topBar?.symbol || "NQ";
     const sessionTimeframe = timeframe || state.topBar?.timeframe || "1m";
@@ -1106,7 +1713,13 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     if (!serverSession) {
       throw new Error("创建会话失败");
     }
-    const thread = mapServerSessionToThread(serverSession, { symbol: sessionSymbol, contractId: contractId || sessionSymbol, timeframe: sessionTimeframe, windowRange });
+    const thread = mapServerSessionToThread(serverSession, {
+      symbol: sessionSymbol,
+      contractId: contractId || sessionSymbol,
+      timeframe: sessionTimeframe,
+      windowRange,
+      workspaceRole,
+    });
     thread.backendLoaded = false;
     const existingIndex = state.aiThreads.findIndex((item) => item.id === thread.id || item.sessionId === thread.sessionId);
     if (existingIndex >= 0) {
@@ -1131,6 +1744,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     const localPinned = !!session.pinned;
     const localTitle = session.title || "新会话";
     const localScope = getSessionScope(session, state);
+    const localRole = getWorkspaceRole(session);
 
     state.aiThreads = state.aiThreads.filter((item) => item.id !== session.id);
     if (state.activeAiThreadId === session.id) {
@@ -1144,6 +1758,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       timeframe: localScope.timeframe,
       windowRange: localScope.windowRange,
       activate,
+      workspaceRole: localRole,
     });
 
     if (created) {
@@ -1161,24 +1776,35 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       if (localDraftAttachments.length) {
         setDraftAttachments(created, localDraftAttachments);
       }
+      scheduleDraftStateSync(created, { immediate: true });
       persistSessions(state);
     }
     return created;
   }
 
-  const getOrCreateBlankSessionForSymbol = (symbol, contractId = symbol) => {
+  const getOrCreateBlankSessionForSymbol = (symbol, contractId = symbol, options = {}) => {
     const normalizedSymbol = String(symbol || "").trim().toUpperCase() || "NQ";
+    const normalizedRole = getWorkspaceRole({ workspaceRole: options.workspaceRole || "analyst" });
+    const activate = options.activate !== false;
     const existing = state.aiThreads.find((thread) => {
       const scope = getSessionScope(thread, state);
-      return scope.symbol === normalizedSymbol && isTrulyBlankSession(thread);
+      return scope.symbol === normalizedSymbol
+        && getWorkspaceRole(thread) === normalizedRole
+        && isTrulyBlankSession(thread);
     });
     if (existing) {
       if (fetchJson && isSyntheticSessionId(existing.id)) {
-        return materializeSyntheticSession(existing, { activate: true });
+        return materializeSyntheticSession(existing, { activate });
       }
-      return setActiveThread(existing.id, existing.title, { symbol: normalizedSymbol, contractId });
+      return activate
+        ? setActiveThread(existing.id, existing.title, { symbol: normalizedSymbol, contractId, workspaceRole: normalizedRole })
+        : normalizeSessionShape(existing, { symbol: normalizedSymbol, contractId, workspaceRole: normalizedRole });
     }
-    const title = `${normalizedSymbol}-${String(state.aiThreads.filter((thread) => getSessionScope(thread, state).symbol === normalizedSymbol).length + 1).padStart(2, "0")}`;
+    const titlePrefix = normalizedRole === "scribe" ? `${normalizedSymbol}-事件` : normalizedSymbol;
+    const title = `${titlePrefix}-${String(state.aiThreads.filter((thread) => {
+      const scope = getSessionScope(thread, state);
+      return scope.symbol === normalizedSymbol && getWorkspaceRole(thread) === normalizedRole;
+    }).length + 1).padStart(2, "0")}`;
     if (fetchJson) {
       return createBackendSession({
         title,
@@ -1186,7 +1812,8 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         contractId,
         timeframe: state.topBar?.timeframe || "1m",
         windowRange: state.topBar?.quickRange || "最近7天",
-        activate: true,
+        activate,
+        workspaceRole: normalizedRole,
       });
     }
     return createThread(title, {
@@ -1194,29 +1821,117 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       contractId,
       timeframe: state.topBar?.timeframe || "1m",
       windowRange: state.topBar?.quickRange || "最近7天",
+      workspaceRole: normalizedRole,
     });
   };
 
+  /** 下一个行情分析会话标题（NQ-03），按当前品种下同角色会话数量递增 */
+  function buildNextAnalystSessionTitle(normalizedSymbol) {
+    const sym = String(normalizedSymbol || "NQ").trim().toUpperCase() || "NQ";
+    const count = state.aiThreads.filter((thread) => {
+      const scope = getSessionScope(thread, state);
+      return scope.symbol === sym
+        && getWorkspaceRole(thread) === "analyst"
+        && shouldSurfaceSession(thread);
+    }).length;
+    return `${sym}-${String(count + 1).padStart(2, "0")}`;
+  }
+
+  /** 始终新建一条行情分析会话（用于「+」与底部「新会话」，不复用空白会话） */
+  async function createNewAnalystSession({ activate = true } = {}) {
+    const normalizedSymbol = String(
+      state.topBar?.symbol || getSessionScope(getActiveThread(), state).symbol || "NQ",
+    ).trim().toUpperCase() || "NQ";
+    const title = buildNextAnalystSessionTitle(normalizedSymbol);
+    if (fetchJson) {
+      return createBackendSession({
+        title,
+        symbol: normalizedSymbol,
+        contractId: normalizedSymbol,
+        timeframe: state.topBar?.timeframe || "1m",
+        windowRange: state.topBar?.quickRange || "最近7天",
+        activate,
+        workspaceRole: "analyst",
+      });
+    }
+    return createThread(title, {
+      symbol: normalizedSymbol,
+      contractId: normalizedSymbol,
+      timeframe: state.topBar?.timeframe || "1m",
+      windowRange: state.topBar?.quickRange || "最近7天",
+      workspaceRole: "analyst",
+    });
+  }
+
   function renderAiThreadTabs() {
     if (!els.aiThreadTabs) return;
+    bindThreadTabsOverflowBehavior();
     els.aiThreadTabs.innerHTML = "";
     const currentScope = getSessionScope(getActiveThread(), state);
     const currentSymbol = currentScope.symbol;
-    const relevantThreads = state.aiThreads.filter((thread) => {
+    const relevantThreads = listSessionsByRole("analyst").filter((thread) => {
       const threadScope = getSessionScope(thread, state);
-      return threadScope.symbol === currentSymbol;
-    }).sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return (b.memory?.last_updated_at || "").localeCompare(a.memory?.last_updated_at || "");
-    });
-    relevantThreads.slice(0, 8).forEach((thread) => {
+      return threadScope.symbol === currentSymbol && shouldSurfaceSession(thread);
+    }).sort((a, b) => compareSessionsByPriority(a, b, { preferredSymbol: currentSymbol }));
+    const canArchiveFromTabs = relevantThreads.length > 1;
+    relevantThreads.forEach((thread, index) => {
+      const wrap = document.createElement("div");
+      wrap.className = `thread-tab-wrap ${canArchiveFromTabs ? "" : "single-visible"}`.trim();
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `thread-tab ${thread.id === state.activeAiThreadId ? "active" : ""}`.trim();
-      button.textContent = thread.title;
+      const hasDraft = hasSessionDraft(thread);
+      button.className = `thread-tab ${thread.id === state.activeAiThreadId ? "active" : ""} ${thread.pinned ? "pinned" : ""} ${hasDraft ? "drafting" : ""}`.trim();
+      const displayLabel = `${currentSymbol} · ${String(index + 1).padStart(2, "0")}`;
+      button.textContent = displayLabel;
+      button.title = [
+        thread.title || displayLabel,
+        thread.pinned ? "固定会话" : "",
+        hasDraft ? "草稿中" : "",
+        getSessionScope(thread, state).timeframe,
+        getSessionPreviewText(thread),
+        String(thread.id || "").slice(0, 12),
+      ].filter(Boolean).join(" · ");
       button.addEventListener("click", () => setActiveThread(thread.id, thread.title));
-      els.aiThreadTabs.appendChild(button);
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "thread-tab-close";
+      closeBtn.setAttribute("aria-label", "删除会话");
+      closeBtn.textContent = "×";
+      closeBtn.title = "删除此会话";
+      closeBtn.hidden = !canArchiveFromTabs;
+      closeBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        if (!window.confirm("确认归档并删除此聊天会话？")) {
+          return;
+        }
+        archiveThread(thread.id);
+      });
+      wrap.appendChild(button);
+      wrap.appendChild(closeBtn);
+      els.aiThreadTabs.appendChild(wrap);
+    });
+    const addWrap = document.createElement("div");
+    addWrap.className = "thread-tab-add-wrap";
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "thread-tab thread-tab-add";
+    addBtn.textContent = "+";
+    addBtn.title = "新建行情分析会话";
+    addBtn.setAttribute("aria-label", "新建行情分析会话");
+    addBtn.addEventListener("click", async () => {
+      try {
+        await createNewAnalystSession({ activate: true });
+      } catch (error) {
+        console.warn("新建会话失败:", error);
+        renderStatusStrip?.([{ label: error?.message || String(error), variant: "warn" }]);
+      }
+    });
+    addWrap.appendChild(addBtn);
+    els.aiThreadTabs.appendChild(addWrap);
+    window.requestAnimationFrame(() => {
+      const activeTab = els.aiThreadTabs?.querySelector(".thread-tab.active");
+      activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
     renderSessionMoreMenu();
   }
@@ -1251,11 +1966,13 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       setDraftAttachments(session, []);
       session.memory.latest_question = content;
       session.memory.current_user_intent = summarizeText(content, 80);
+      scheduleDraftStateSync(session, { immediate: true });
     } else {
       session.memory.latest_answer_summary = summarizeText(content, 160);
       session.memory.important_messages = session.messages.slice(-4).map((item) => summarizeText(item.content, 80));
     }
     session.memory.last_updated_at = new Date().toISOString();
+    session.updatedAt = session.memory.last_updated_at;
     renderAiChat();
     renderAiThreadTabs();
     renderAttachments(session);
@@ -1264,7 +1981,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
   }
 
   function syncSessionMemorySummary(session) {
-    els.currentSessionTitle.textContent = `当前会话：${session.title}`;
+    els.currentSessionTitle.textContent = `行情分析会话：${session.title}`;
     const latestAssistant = [...(session.messages || [])].reverse().find((item) => item.role === "assistant") || null;
     const latestModeLabel = latestAssistant?.meta?.session_only ? "session-only" : "replay-aware";
     els.currentSessionModelLabel.textContent = `模型：${session.activeModel || session.memory?.active_model || "服务端默认"} · 模式：${latestModeLabel}`;
@@ -1307,6 +2024,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       ...message,
       meta: {
         ...(message.meta || {}),
+        annotationCount: (state.aiAnnotations || []).filter((annotation) => annotation.session_id === session.id && annotation.message_id === message.message_id).length,
         planCards: Array.isArray(message.planCards) && message.planCards.length ? message.planCards : message.meta?.planCards,
       },
     })).join("");
@@ -1397,31 +2115,226 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     return normalized;
   }
 
+  async function cloneActiveThreadBranch(sourceThreadId = null) {
+    const sourceSession = sourceThreadId ? getSessionById(state, sourceThreadId) : getActiveThread();
+    if (!sourceSession) {
+      return null;
+    }
+    const branchTitle = buildBranchTitle(sourceSession.title);
+    const sourceScope = getSessionScope(sourceSession, state);
+    const sourceMessages = clonePlainData(sourceSession.messages, []) || [];
+    const sourceDraftAttachments = clonePlainData(getDraftAttachments(sourceSession), []) || [];
+    const sourceMemory = clonePlainData(sourceSession.memory, {}) || {};
+    const sourceAnalysisTemplate = clonePlainData(sourceSession.analysisTemplate, null);
+    const sourceAnnotations = clonePlainData(
+      (state.aiAnnotations || []).filter((item) => item.session_id === sourceSession.id),
+      [],
+    ) || [];
+
+    let branchSession = fetchJson
+      ? await createBackendSession({
+          title: branchTitle,
+          symbol: sourceScope.symbol,
+          contractId: sourceScope.contractId,
+          timeframe: sourceScope.timeframe,
+          windowRange: sourceScope.windowRange,
+          activate: false,
+        })
+      : createThread(branchTitle, sourceScope);
+
+    if (!branchSession) {
+      return null;
+    }
+
+    const messageIdMap = fetchJson
+      ? await cloneMessagesToBackend(branchSession.id, sourceMessages)
+      : new Map(sourceMessages.map((message, index) => [message.message_id, `${branchSession.id}-msg-${index + 1}`]));
+    const planIdMap = new Map();
+    sourceMessages.forEach((message, messageIndex) => {
+      const plans = Array.isArray(message.meta?.planCards) ? message.meta.planCards : (Array.isArray(message.planCards) ? message.planCards : []);
+      plans.forEach((plan, planIndex) => {
+        const currentPlanId = plan?.id || plan?.plan_id;
+        if (!currentPlanId || planIdMap.has(currentPlanId)) {
+          return;
+        }
+        planIdMap.set(currentPlanId, `${branchSession.id}-plan-${messageIndex + 1}-${planIndex + 1}`);
+      });
+    });
+
+    const clonedMessages = sourceMessages.map((message, messageIndex) => {
+      const nextMessageId = messageIdMap.get(message.message_id) || `${branchSession.id}-msg-${messageIndex + 1}`;
+      const clonedPlanCards = (Array.isArray(message.meta?.planCards) ? message.meta.planCards : (Array.isArray(message.planCards) ? message.planCards : []))
+        .map((plan, planIndex) => {
+          const mappedPlanId = planIdMap.get(plan?.id || plan?.plan_id) || `${branchSession.id}-plan-${messageIndex + 1}-${planIndex + 1}`;
+          return {
+            ...clonePlainData(plan, {}),
+            id: mappedPlanId,
+            plan_id: mappedPlanId,
+            message_id: nextMessageId,
+            session_id: branchSession.id,
+          };
+        });
+      return {
+        ...message,
+        message_id: nextMessageId,
+        parent_message_id: message.parent_message_id ? (messageIdMap.get(message.parent_message_id) || message.parent_message_id) : null,
+        sessionId: branchSession.id,
+        mountedToChart: false,
+        mountedObjectIds: [],
+        planCards: clonedPlanCards,
+        meta: {
+          ...(clonePlainData(message.meta, {}) || {}),
+          attachments: clonePlainData(message.meta?.attachments, []) || [],
+          planCards: clonedPlanCards,
+          localPendingMessageId: undefined,
+        },
+      };
+    });
+
+    const remappedAnnotations = sourceAnnotations.map((annotation, index) => ({
+      ...annotation,
+      id: `${branchSession.id}-ann-${index + 1}`,
+      session_id: branchSession.id,
+      message_id: annotation.message_id ? (messageIdMap.get(annotation.message_id) || annotation.message_id) : annotation.message_id,
+      plan_id: annotation.plan_id ? (planIdMap.get(annotation.plan_id) || annotation.plan_id) : null,
+      visible: annotation.visible !== false,
+      pinned: false,
+    }));
+
+    branchSession = normalizeSessionShape({
+      ...branchSession,
+      title: branchTitle,
+      pinned: false,
+      symbol: sourceScope.symbol,
+      contractId: sourceScope.contractId,
+      timeframe: sourceScope.timeframe,
+      windowRange: sourceScope.windowRange,
+      unreadCount: 0,
+      selectedPromptBlockIds: [],
+      pinnedContextBlockIds: [],
+      includeMemorySummary: !!sourceSession.includeMemorySummary,
+      includeRecentMessages: !!sourceSession.includeRecentMessages,
+      promptBlocks: [],
+      mountedReplyIds: [],
+      activePlanId: sourceSession.activePlanId ? (planIdMap.get(sourceSession.activePlanId) || null) : null,
+      scrollOffset: 0,
+      messages: clonedMessages,
+      turns: clonedMessages.map((item) => ({ role: item.role, content: item.content, meta: item.meta || {} })),
+      draftText: sourceSession.draftText || sourceSession.draft || "",
+      draft: sourceSession.draftText || sourceSession.draft || "",
+      draftAttachments: sourceDraftAttachments,
+      attachments: sourceDraftAttachments,
+      analysisTemplate: sourceAnalysisTemplate || branchSession.analysisTemplate,
+      activeModel: sourceSession.activeModel || branchSession.activeModel || "",
+      handoffMode: sourceSession.handoffMode || branchSession.handoffMode || "summary_only",
+      backendLoaded: true,
+      loadingFromServer: false,
+      memory: {
+        ...sourceMemory,
+        session_id: branchSession.id,
+      },
+    });
+
+    const branchIndex = state.aiThreads.findIndex((item) => item.id === branchSession.id || item.sessionId === branchSession.sessionId);
+    if (branchIndex >= 0) {
+      state.aiThreads.splice(branchIndex, 1, branchSession);
+    } else {
+      state.aiThreads.push(branchSession);
+    }
+    state.aiAnnotations = [
+      ...(state.aiAnnotations || []).filter((item) => item.session_id !== branchSession.id),
+      ...remappedAnnotations,
+    ];
+    state.activeAiThreadId = branchSession.id;
+    branchSession.updatedAt = new Date().toISOString();
+
+    if (fetchJson) {
+      void patchSessionOnServer(branchSession, {
+        active_model: branchSession.activeModel || null,
+        pinned: false,
+        include_memory_summary: !!branchSession.includeMemorySummary,
+        include_recent_messages: !!branchSession.includeRecentMessages,
+        draft_text: branchSession.draftText || "",
+        draft_attachments: buildServerAttachmentPayloads(branchSession.draftAttachments),
+        mounted_reply_ids: [],
+        scroll_offset: 0,
+      });
+    }
+
+    renderAiThreadTabs();
+    renderAiChat();
+    renderAttachments(branchSession);
+    persistSessions(state);
+    onSessionActivated?.(branchSession);
+    return branchSession;
+  }
+
   function renameActiveThread(nextTitle) {
     const session = getActiveThread();
     session.title = nextTitle || session.title;
+    session.updatedAt = new Date().toISOString();
     renderAiThreadTabs();
     renderAiChat();
     persistSessions(state);
+    void patchSessionOnServer(session, { title: session.title });
+  }
+
+  function toggleThreadPin(threadId = null) {
+    const session = threadId ? getSessionById(state, threadId) : getActiveThread();
+    if (!session) {
+      return false;
+    }
+    session.pinned = !session.pinned;
+    session.updatedAt = new Date().toISOString();
+    renderAiThreadTabs();
+    if (session.id === state.activeAiThreadId) {
+      renderAiChat();
+    }
+    persistSessions(state);
+    void patchSessionOnServer(session, { pinned: session.pinned });
+    return session.pinned;
   }
 
   function togglePinActiveThread() {
-    const session = getActiveThread();
-    session.pinned = !session.pinned;
-    renderAiThreadTabs();
+    return toggleThreadPin();
+  }
+
+  function archiveThread(threadId = null) {
+    const targetId = threadId || state.activeAiThreadId;
+    const targetSession = getSessionById(state, targetId);
+    if (!targetSession) {
+      return false;
+    }
+    const wasActive = state.activeAiThreadId === targetId;
+    const targetScope = getSessionScope(targetSession, state);
+    void archiveSessionOnServer(targetSession);
+    state.aiThreads = state.aiThreads.filter((item) => item.id !== targetId);
+    if (!state.aiThreads.length) {
+      createThread(`${targetScope.symbol}-${String(1).padStart(2, "0")}`, targetScope);
+      return true;
+    }
+    if (wasActive) {
+      const nextSession = getPreferredSessionForSymbol(targetScope.symbol, { workspaceRole: getWorkspaceRole(targetSession) })
+        || [...listSessionsByRole(getWorkspaceRole(targetSession))].sort((a, b) => compareSessionsByPriority(a, b))[0]
+        || [...state.aiThreads].sort((a, b) => compareSessionsByPriority(a, b))[0];
+      if (nextSession) {
+        state.activeAiThreadId = nextSession.id;
+        setActiveThread(nextSession.id, nextSession.title, targetScope);
+      }
+    } else {
+      renderAiThreadTabs();
+      renderAttachments(getActiveThread());
+    }
     persistSessions(state);
+    return true;
+  }
+
+  function archiveActiveThread() {
+    return archiveThread();
   }
 
   function deleteActiveThread() {
-    if (state.aiThreads.length <= 1) {
-      return false;
-    }
-    const currentId = state.activeAiThreadId;
-    state.aiThreads = state.aiThreads.filter((item) => item.id !== currentId);
-    state.activeAiThreadId = state.aiThreads[0].id;
-    setActiveThread(state.activeAiThreadId, state.aiThreads[0].title);
-    persistSessions(state);
-    return true;
+    return archiveActiveThread();
   }
 
   function addAttachments(items = []) {
@@ -1429,6 +2342,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     setDraftAttachments(session, [...getDraftAttachments(session), ...items]);
     renderAttachments(session);
     persistSessions(state);
+    scheduleDraftStateSync(session);
   }
 
   function addPromptBlock(block, { selected = true, pinned = false } = {}) {
@@ -1497,6 +2411,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     setDraftAttachments(session, []);
     renderAttachments(session);
     persistSessions(state);
+    scheduleDraftStateSync(session, { immediate: true });
   }
 
   return {
@@ -1507,12 +2422,16 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     getOrCreateBlankSessionForSymbol,
     hydrateSessionFromServer,
     syncSessionsFromServer,
+    getPreferredSessionForSymbol,
+    createNewAnalystSession,
     renderAiThreadTabs,
     appendAiChatMessage,
     renderAiChat,
     upsertPlanCardToSession,
+    cloneActiveThreadBranch,
     renameActiveThread,
     togglePinActiveThread,
+    archiveActiveThread,
     deleteActiveThread,
     addAttachments,
     clearAttachments,
@@ -1521,6 +2440,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     bindChatScrollBehavior,
     scrollChatToBottom,
     updateChatFollowState,
+    scheduleDraftStateSync,
     persistSessions: () => persistSessions(state),
   };
 }

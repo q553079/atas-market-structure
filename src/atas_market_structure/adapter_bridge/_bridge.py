@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from atas_market_structure.adapter_bridge._burst import BurstAggregate, _AdapterBridgeBurstMixin
 from atas_market_structure.adapter_bridge._continuous import _AdapterBridgeContinuousMixin
 from atas_market_structure.adapter_bridge._shared import _AdapterBridgeSharedMixin
@@ -12,6 +14,9 @@ from atas_market_structure.models import (
 )
 from atas_market_structure.regime_monitor_services import RegimeMonitor
 
+if TYPE_CHECKING:
+    from atas_market_structure.repository import AnalysisRepository
+
 
 class AdapterPayloadBridge(
     _AdapterBridgeContinuousMixin,
@@ -20,8 +25,8 @@ class AdapterPayloadBridge(
 ):
     """Maps ATAS adapter payloads into durable market-structure payloads."""
 
-    def __init__(self, regime_monitor: RegimeMonitor | None = None) -> None:
-        self.regime_monitor = regime_monitor or RegimeMonitor()
+    def __init__(self, regime_monitor: RegimeMonitor | None = None, repository: "AnalysisRepository | None" = None) -> None:
+        self.regime_monitor = regime_monitor or RegimeMonitor(repository=repository)
 
     def build_market_structure(self, payload: AdapterContinuousStatePayload) -> MarketStructurePayload:
         dominant_side = self._dominant_side_from_trade_summary(

@@ -279,6 +279,77 @@ class ReplayChartBar(BaseModel):
 
 
 
+class ChartCandle(BaseModel):
+    """Pre-aggregated OHLCV candle stored in a dedicated chart-candles table.
+
+    This table is the single source of truth for rendering charts.
+    Aggregation happens incrementally in the background — the UI only reads
+    pre-computed OHLCV rows and never aggregates on load.
+    """
+
+    symbol: str = Field(..., description="Instrument symbol, e.g. 'NQ'.", examples=["NQ"])
+    timeframe: Timeframe = Field(..., description="Bar timeframe.")
+    started_at: datetime = Field(..., description="Inclusive bar start in UTC.")
+    ended_at: datetime = Field(..., description="Inclusive bar end in UTC.")
+    open: float = Field(..., description="Bar open price.", examples=[21540.25])
+    high: float = Field(..., description="Bar high price.", examples=[21548.0])
+    low: float = Field(..., description="Bar low price.", examples=[21535.5])
+    close: float = Field(..., description="Bar close price.", examples=[21544.75])
+    volume: int = Field(default=0, ge=0, description="Total traded volume for the bar.")
+    tick_volume: int = Field(default=0, ge=0, description="Total tick count for the bar.")
+    delta: int = Field(default=0, description="Net buy-sell volume (bid_fill - ask_fill).")
+    updated_at: datetime = Field(..., description="When this row was last updated.")
+
+    model_config = {"frozen": False}
+
+
+class ChartCandleUpsertRequest(BaseModel):
+    """Request to upsert one or more chart candles."""
+
+    candles: list[ChartCandle] = Field(..., description="Candles to upsert.")
+
+
+class ChartCandleEnvelope(BaseModel):
+    """REST response envelope for chart candle queries."""
+
+    symbol: str = Field(..., description="Instrument symbol.")
+    timeframe: Timeframe = Field(..., description="Timeframe of returned candles.")
+    window_start: datetime = Field(..., description="Query window start (inclusive).")
+    window_end: datetime = Field(..., description="Query window end (inclusive).")
+    count: int = Field(..., description="Number of candles returned.")
+    candles: list[ChartCandle] = Field(default_factory=list, description="Matching chart candles.")
+
+
+class ChartCandleBackfillRequest(BaseModel):
+    """Request to trigger a full historical backfill of chart candles for a symbol."""
+
+    symbol: str = Field(..., description="Instrument symbol to backfill.")
+    from_timeframe: Timeframe = Field(
+        default=Timeframe.MIN_1,
+        description="Source timeframe to aggregate from.",
+    )
+    to_timeframes: list[Timeframe] = Field(
+        default_factory=lambda: [
+            Timeframe.MIN_1,
+            Timeframe.MIN_5,
+            Timeframe.MIN_15,
+            Timeframe.MIN_30,
+            Timeframe.HOUR_1,
+            Timeframe.HOUR_4,
+        ],
+        description="Target timeframes to write into chart_candles.",
+    )
+
+
+class ChartCandleBackfillEnvelope(BaseModel):
+    """REST response after triggering a chart candle backfill."""
+
+    symbol: str = Field(..., description="Instrument symbol that was backfilled.")
+    backfill_started: datetime = Field(..., description="When the backfill job started.")
+    bars_aggregated: int = Field(default=0, description="Number of source bars processed.")
+    candles_written: int = Field(default=0, description="Number of chart candle rows written.")
+
+
 class ReplayEventAnnotation(BaseModel):
     """Structured event marker rendered as an overlay on the replay UI."""
 
@@ -912,6 +983,14 @@ class ReplayWorkbenchLiveTailResponse(BaseModel):
         default_factory=list,
         description="Latest reconstructed bars that should patch the right edge of the replay chart.",
     )
+    event_annotations: list[ReplayEventAnnotation] = Field(
+        default_factory=list,
+        description="Latest collector-derived event overlays that should refresh alongside the live tail.",
+    )
+    focus_regions: list[ReplayFocusRegion] = Field(
+        default_factory=list,
+        description="Latest collector-derived focus regions that should refresh alongside the live tail.",
+    )
     trade_summary: AdapterTradeSummary | None = Field(
         None,
         description="Latest rolling trade summary from the continuous-state stream.",
@@ -1048,6 +1127,5 @@ class ReplayWorkbenchSnapshotPayload(BaseModel):
         if self.verification_state.status == ReplayVerificationStatus.INVALIDATED and self.verification_state.invalidated_at is None:
             raise ValueError("invalidated replay packets must include invalidated_at")
         return self
-
 
 

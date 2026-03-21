@@ -201,7 +201,18 @@ function normalizePromptBlock(raw = {}, session, fallback = {}) {
     sourceLabel: raw.source_label || raw.sourceLabel || fallback.sourceLabel || fallback.kind || "上下文块",
     ephemeral: raw.ephemeral ?? fallback.ephemeral ?? true,
     pinned: !!(raw.pinned ?? fallback.pinned),
+    serverBacked: raw.serverBacked ?? fallback.serverBacked ?? true,
   };
+}
+
+function getServerBackedPromptBlockIds(session, blockIds = []) {
+  const validIds = new Set(
+    (session?.promptBlocks || [])
+      .filter((block) => block?.serverBacked !== false)
+      .map((block) => block.blockId || block.id)
+      .filter(Boolean),
+  );
+  return (Array.isArray(blockIds) ? blockIds : []).filter((blockId) => validIds.has(blockId));
 }
 
 function resetPromptBlockSelection(session) {
@@ -345,7 +356,7 @@ function buildOutgoingAttachments(session) {
   return attachments
     .map((item) => ({
       name: item.name || null,
-      media_type: item.kind || item.media_type || "image/png",
+      media_type: item.media_type || item.kind || "application/octet-stream",
       data_url: item.data_url || item.preview_url || "",
     }))
     .filter((item) => item.data_url);
@@ -366,7 +377,9 @@ export function createAiChatController({
   sessionMemoryEngine = null,
   addPromptBlock = null,
   getOrCreateBlankSessionForSymbol = null,
+  createNewAnalystSession = null,
   renderAiChat = null,
+  scheduleDraftStateSync = null,
 }) {
   let activeStreamController = null;
   let activeStreamMeta = null;
@@ -465,6 +478,7 @@ export function createAiChatController({
             kind: request.preset,
             title: request.fallbackTitle,
             previewText: summarizeText(request.userInput || "", 60),
+            serverBacked: true,
           }));
         }
       } catch (error) {
@@ -477,6 +491,7 @@ export function createAiChatController({
       title: request.fallbackTitle,
       previewText: summarizeText(request.userInput || "", 60),
       ephemeral: true,
+      serverBacked: false,
     })];
   }
 
@@ -810,8 +825,8 @@ export function createAiChatController({
     builtBlocks.forEach((block) => {
       addPromptBlock?.(block, { selected: true, pinned: !!block.pinned });
     });
-    const effectiveSelectedBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
-    const effectivePinnedBlockIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+    const effectiveSelectedBlockIds = getServerBackedPromptBlockIds(session, session.selectedPromptBlockIds);
+    const effectivePinnedBlockIds = getServerBackedPromptBlockIds(session, session.pinnedContextBlockIds);
     const outgoingAttachments = buildOutgoingAttachments(session);
     appendAiChatMessage("user", trimmedMessage, {
       preset,
@@ -837,8 +852,8 @@ export function createAiChatController({
     }
     renderStatusStrip([{ label: "AI 对话生成中", variant: "emphasis" }]);
     try {
-      const selectedBlockIds = Array.isArray(session.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [];
-      const pinnedBlockIds = Array.isArray(session.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [];
+      const selectedBlockIds = getServerBackedPromptBlockIds(session, session.selectedPromptBlockIds);
+      const pinnedBlockIds = getServerBackedPromptBlockIds(session, session.pinnedContextBlockIds);
       const includeMemorySummary = !!session.includeMemorySummary;
       const includeRecentMessages = !!session.includeRecentMessages;
       const requestPayload = {
@@ -1069,6 +1084,7 @@ export function createAiChatController({
     session.draft = value;
     session.draftText = value;
     persistSessions();
+    scheduleDraftStateSync?.(session);
   }
 
   function bindStreamingControls() {
@@ -1090,14 +1106,16 @@ export function createAiChatController({
       return { blocked: true };
     }
     const session = createNew
-      ? (getOrCreateBlankSessionForSymbol
-          ? getOrCreateBlankSessionForSymbol(state.topBar?.symbol || "NQ", state.topBar?.symbol || "NQ")
-          : setActiveThread(createThreadId(), "新会话", {
-              symbol: state.topBar?.symbol || "NQ",
-              contractId: state.topBar?.symbol || "NQ",
-              timeframe: state.topBar?.timeframe || "1m",
-              windowRange: state.topBar?.quickRange || "最近7天",
-            }))
+      ? (createNewAnalystSession
+          ? await createNewAnalystSession({ activate: true })
+          : (getOrCreateBlankSessionForSymbol
+            ? getOrCreateBlankSessionForSymbol(state.topBar?.symbol || "NQ", state.topBar?.symbol || "NQ")
+            : setActiveThread(createThreadId(), "新会话", {
+                symbol: state.topBar?.symbol || "NQ",
+                contractId: state.topBar?.symbol || "NQ",
+                timeframe: state.topBar?.timeframe || "1m",
+                windowRange: state.topBar?.quickRange || "最近7天",
+              })))
       : getActiveThread();
     if (session?.analysisTemplate) {
       session.analysisTemplate = {
@@ -1131,7 +1149,16 @@ export function createAiChatController({
     return `请分析当前选中K线，时间=${new Date(candle.started_at).toLocaleString()} O=${candle.open} H=${candle.high} L=${candle.low} C=${candle.close}。请给出结构判断与交易建议。`;
   }
 
-  function createNewThread() {
+  async function createNewThread() {
+    if (createNewAnalystSession) {
+      try {
+        return await createNewAnalystSession({ activate: true });
+      } catch (error) {
+        console.warn("新建会话失败:", error);
+        renderStatusStrip?.([{ label: error?.message || String(error), variant: "warn" }]);
+        return null;
+      }
+    }
     if (getOrCreateBlankSessionForSymbol) {
       return getOrCreateBlankSessionForSymbol(state.topBar?.symbol || "NQ", state.topBar?.symbol || "NQ");
     }

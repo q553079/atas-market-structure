@@ -11,85 +11,6 @@
 </head>
 <body>
   <div class="replay-workbench" id="shellLayout">
-    <header class="workbench-header-bar">
-      <div class="header-group header-group-main">
-        <div class="field compact searchable-field">
-          <label for="instrumentSymbol">品种</label>
-          <input id="instrumentSymbol" type="text" list="symbolOptions" value="NQ">
-          <datalist id="symbolOptions">
-            <option value="NQ">NQ · 纳指</option>
-            <option value="ES">ES · 标普</option>
-            <option value="CL">CL · 原油</option>
-            <option value="YM">YM · 道指</option>
-            <option value="RTY">RTY · 罗素</option>
-          </datalist>
-        </div>
-        <div class="field compact timeframe-tabs-field">
-          <label>周期</label>
-          <div class="timeframe-tabs" id="timeframeTabs">
-            <button type="button" class="timeframe-tab active" data-timeframe="1m">1m</button>
-            <button type="button" class="timeframe-tab" data-timeframe="5m">5m</button>
-            <button type="button" class="timeframe-tab" data-timeframe="15m">15m</button>
-            <button type="button" class="timeframe-tab" data-timeframe="30m">30m</button>
-            <select id="displayTimeframe" class="timeframe-more-select">
-              <option value="1m">1m</option>
-              <option value="5m">5m</option>
-              <option value="15m">15m</option>
-              <option value="30m">30m</option>
-              <option value="1h">1h</option>
-              <option value="4h">4h</option>
-              <option value="1d">1d</option>
-            </select>
-          </div>
-        </div>
-        <div class="field compact range-field">
-          <label for="quickRangeSelect">时间</label>
-          <select id="quickRangeSelect">
-            <option value="1d">最近1天</option>
-            <option value="3d">最近3天</option>
-            <option value="7d" selected>最近7天</option>
-            <option value="15d">最近15天</option>
-            <option value="custom">自定义</option>
-          </select>
-        </div>
-        <div class="field compact">
-          <label for="windowStart">开始</label>
-          <input id="windowStart" type="datetime-local">
-        </div>
-        <div class="field compact">
-          <label for="windowEnd">结束</label>
-          <input id="windowEnd" type="datetime-local">
-        </div>
-      </div>
-      <div class="header-group header-group-actions">
-        <div class="button-row tight header-actions-row">
-          <button id="buildButton" type="button">加载图表</button>
-          <button id="refreshAllButton" type="button" class="secondary">刷新当前数据</button>
-          <button id="headerMoreButton" type="button" class="secondary">更多▼</button>
-          <button id="restoreLayoutButton" type="button" class="secondary">恢复上次布局</button>
-        </div>
-        <div id="headerMoreMenu" class="header-more-menu card-surface" hidden>
-          <button id="lookupCacheButton" type="button" class="secondary tiny">查看缓存</button>
-          <button id="invalidateCacheButton" type="button" class="secondary tiny">重置缓存</button>
-          <button id="exportSettingsButton" type="button" class="secondary tiny">导出当前设置</button>
-        </div>
-        <div class="status-cluster">
-          <div class="status-chip" id="statusSymbolChip">NQ</div>
-          <div class="status-chip" id="statusTimeframeChip">1m</div>
-          <div class="status-chip" id="statusWindowChip">最近7天</div>
-          <div class="status-chip emphasis" id="statusDataChip">数据状态：历史</div>
-          <div class="status-chip" id="statusSyncChip">最近同步：--</div>
-        </div>
-      </div>
-      <input id="cacheKey" type="hidden" value="">
-      <input id="chartInstanceId" type="hidden" value="">
-      <input id="minContinuousMessages" type="hidden" value="10">
-      <input id="forceRebuild" type="checkbox" checked hidden>
-      <input id="forceAiRefresh" type="checkbox" hidden>
-      <input id="aiModelOverride" type="hidden" value="">
-      <textarea id="invalidateReason" hidden>操作员要求重新刷新回放</textarea>
-    </header>
-
     <!-- AI 侧边栏触发器 -->
     <div class="ai-sidebar-trigger" id="aiSidebarTrigger" title="打开 AI 助手">
       <div class="ai-trigger-avatar">
@@ -102,6 +23,88 @@
 
     <main class="workbench-main" id="workbenchMain">
       <section class="chart-workspace panel-surface" id="chartWorkspace">
+        <header class="workbench-header-bar">
+          <div class="header-group header-group-main">
+            <div class="field compact searchable-field">
+              <label for="instrumentSymbol">品种</label>
+              <input id="instrumentSymbol" type="text" list="symbolOptions" value="NQ">
+              <datalist id="symbolOptions">
+                <option value="NQ">NQ · 纳指</option>
+                <option value="ES">ES · 标普</option>
+                <option value="CL">CL · 原油</option>
+                <option value="YM">YM · 道指</option>
+                <option value="RTY">RTY · 罗素</option>
+              </datalist>
+            </div>
+            <div class="field compact timeframe-tabs-field">
+              <label>周期</label>
+              <div class="timeframe-tabs" id="timeframeTabs">
+                <button type="button" class="timeframe-tab active" data-timeframe="1m">1m</button>
+                <button type="button" class="timeframe-tab" data-timeframe="5m">5m</button>
+                <button type="button" class="timeframe-tab" data-timeframe="15m">15m</button>
+                <button type="button" class="timeframe-tab" data-timeframe="30m">30m</button>
+                <select id="displayTimeframe" class="timeframe-more-select">
+                  <option value="1m">1m</option>
+                  <option value="5m">5m</option>
+                  <option value="15m">15m</option>
+                  <option value="30m">30m</option>
+                  <option value="1h">1h</option>
+                  <option value="4h">4h</option>
+                  <option value="1d">1d</option>
+                </select>
+              </div>
+            </div>
+            <div class="field compact range-field">
+              <label for="quickRangeSelect">时间</label>
+              <select id="quickRangeSelect">
+                <option value="1d">最近1天</option>
+                <option value="3d">最近3天</option>
+                <option value="7d" selected>最近7天</option>
+                <option value="15d">最近15天</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div class="field compact">
+              <label for="windowStart">开始</label>
+              <input id="windowStart" type="datetime-local">
+            </div>
+            <div class="field compact">
+              <label for="windowEnd">结束</label>
+              <input id="windowEnd" type="datetime-local">
+            </div>
+          </div>
+          <div class="header-group header-group-actions">
+            <div class="button-row tight header-actions-row">
+              <button id="buildButton" type="button">加载图表</button>
+              <button id="refreshAllButton" type="button" class="secondary">刷新</button>
+              <button id="headerMoreButton" type="button" class="secondary">更多▼</button>
+              <button id="restoreLayoutButton" type="button" class="secondary">恢复布局</button>
+            </div>
+            <div id="headerMoreMenu" class="header-more-menu card-surface" hidden>
+              <button id="lookupCacheButton" type="button" class="secondary tiny">查看缓存</button>
+              <button id="invalidateCacheButton" type="button" class="secondary tiny">重置缓存</button>
+              <button id="exportSettingsButton" type="button" class="secondary tiny">导出当前设置</button>
+            </div>
+            <div class="status-cluster">
+              <div class="status-chip" id="statusSymbolChip">NQ</div>
+              <div class="status-chip" id="statusTimeframeChip">1m</div>
+              <div class="status-chip" id="statusWindowChip">最近7天</div>
+              <div class="status-chip emphasis" id="statusDataChip">数据状态：历史</div>
+              <div class="status-chip" id="statusIntegrityChip">完整性：待评估</div>
+              <div class="status-chip" id="statusCacheChip">缓存：待构建</div>
+              <div class="status-chip" id="statusBackfillChip">补数：无需</div>
+              <div class="status-chip" id="statusViewportChip">视图：未初始化</div>
+              <div class="status-chip" id="statusSyncChip">最近同步：--</div>
+            </div>
+          </div>
+          <input id="cacheKey" type="hidden" value="">
+          <input id="chartInstanceId" type="hidden" value="">
+          <input id="minContinuousMessages" type="hidden" value="10">
+          <input id="forceRebuild" type="checkbox" hidden>
+          <input id="forceAiRefresh" type="checkbox" hidden>
+          <input id="aiModelOverride" type="hidden" value="">
+          <textarea id="invalidateReason" hidden>操作员要求重新刷新回放</textarea>
+        </header>
         <div class="workspace-section-header">
           <div>
             <h2>图表工作区</h2>
@@ -136,6 +139,10 @@
         </div>
 
         <div class="layer-strip" id="chartLayerStrip">
+          <label><input id="layerLargeOrders" type="checkbox">大单</label>
+          <label><input id="layerAbsorption" type="checkbox">吸收</label>
+          <label><input id="layerIceberg" type="checkbox">冰山</label>
+          <label><input id="layerReplenishment" type="checkbox">补单</label>
           <label><input id="layerEvents" type="checkbox" checked>事件</label>
           <label><input id="layerFocusRegions" type="checkbox" checked>重点区域</label>
           <label><input id="layerManualRegions" type="checkbox" checked>手工区域</label>
@@ -160,11 +167,35 @@
             <span class="chart-info-timeframe" id="chartInfoTimeframe">-</span>
             <span class="chart-info-time" id="chartInfoTime">UTC</span>
           </div>
+          <div class="chart-event-tooltip card-surface" id="chartEventTooltip" hidden>
+            <div class="chart-event-tooltip-kicker">图上事件</div>
+            <div class="chart-event-tooltip-title" id="chartEventTooltipTitle">事件</div>
+            <div class="chart-event-tooltip-meta" id="chartEventTooltipMeta"></div>
+            <div class="chart-event-tooltip-body" id="chartEventTooltipBody"></div>
+          </div>
           <div class="placeholder" id="chartPlaceholder">先点击“加载图表”，然后在右侧工作区与 AI 协作。</div>
           <div id="chartContainer" class="chart-container" style="display:none"></div>
           <div id="volumeChartContainer" class="volume-chart-container" style="display:none"></div>
           <svg id="chartSvg" viewBox="0 0 1200 760" preserveAspectRatio="none" style="display:none"></svg>
         </div>
+        <div class="chart-event-rail card-surface" id="chartEventRail" hidden></div>
+      </section>
+
+      <section class="event-stream-column card-surface" id="eventStreamPanel">
+        <div class="workspace-section-header compact">
+          <div>
+            <h2>事件流</h2>
+            <p id="eventStreamSummary">等待盘口事件与关键点位进入时间线。</p>
+          </div>
+        </div>
+        <div class="mini-filter-bar" id="eventStreamFilterBar" aria-label="事件流筛选">
+          <button type="button" class="secondary tiny is-active" data-event-stream-filter="all">全部</button>
+          <button type="button" class="secondary tiny" data-event-stream-filter="absorption">吸收</button>
+          <button type="button" class="secondary tiny" data-event-stream-filter="largeOrders">大单</button>
+          <button type="button" class="secondary tiny" data-event-stream-filter="trapped">被套</button>
+          <button type="button" class="secondary tiny" data-event-stream-filter="iceberg">冰山</button>
+        </div>
+        <div class="event-stream-list" id="eventStreamList"></div>
       </section>
 
       <div class="resize-handle vertical" id="rightResizeHandle" title="拖动调整右侧聊天宽度"></div>
@@ -209,10 +240,14 @@
           <div class="ai-sidebar-content" id="aiSidebarContent">
             <div class="chat-workspace" id="rightPanel">
               <div class="workspace-section-header compact">
+                <div>
+                  <strong>行情分析 AI</strong>
+                  <p class="meta">主聊天负责看盘、分析、计划与回放交流。</p>
+                </div>
                 <div class="panel-actions">
                   <button id="toggleAnnotationPanelButton" class="secondary tiny" type="button">标记管理</button>
+                </div>
               </div>
-            </div>
 
         <div class="chat-session-strip" id="aiThreadTabs"></div>
 
@@ -279,7 +314,7 @@
           <div class="button-row tight session-manage-row">
             <button id="sessionRenameButton" type="button" class="secondary tiny">重命名</button>
             <button id="sessionPinButton" type="button" class="secondary tiny">固定/取消固定</button>
-            <button id="sessionDeleteButton" type="button" class="secondary tiny">删除会话</button>
+            <button id="sessionDeleteButton" type="button" class="secondary tiny">归档会话</button>
             <button id="sessionMoreButton" type="button" class="secondary tiny">更多▼</button>
           </div>
           <div id="sessionMoreMenu" class="session-more-menu" hidden></div>
@@ -320,6 +355,45 @@
           <div id="aiChatThread" class="chat-thread embedded-chat-thread"></div>
           <button id="aiChatScrollToBottomButton" class="secondary tiny chat-scroll-to-bottom" type="button" hidden>回到底部</button>
         </div>
+
+        <section class="secondary-ai-panel card-surface" id="eventScribePanel">
+          <div class="secondary-ai-panel-head">
+            <div>
+              <strong>事件判断 AI</strong>
+              <div class="meta" id="eventScribeSessionLabel">尚未建立事件整理会话</div>
+            </div>
+            <div class="button-row tight">
+              <button id="eventScribeMirrorButton" type="button" class="secondary tiny">引用主回复</button>
+              <button id="eventScribeNewSessionButton" type="button" class="secondary tiny">新事件会话</button>
+            </div>
+          </div>
+          <div class="secondary-ai-thread" id="eventScribeThread"></div>
+          <div class="secondary-ai-composer">
+            <textarea id="eventScribeInput" placeholder="整理关键价位、区域、吸收/冰山/大单事件、风险提示与计划线索"></textarea>
+            <div class="button-row tight">
+              <button id="eventScribeSendButton" type="button">发送到事件判断 AI</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="reply-extraction-panel card-surface" id="replyExtractionPanel">
+          <div class="secondary-ai-panel-head">
+            <div>
+              <strong>提取引擎 / 候选流</strong>
+              <div class="meta" id="replyExtractionSummary">等待 AI 回复后提取关键价位、区域与风险位置。</div>
+            </div>
+          </div>
+          <div class="mini-filter-bar" id="replyExtractionFilterBar" aria-label="提取候选筛选">
+            <button type="button" class="secondary tiny is-active" data-reply-extraction-filter="all">全部</button>
+            <button type="button" class="secondary tiny" data-reply-extraction-filter="price">价位</button>
+            <button type="button" class="secondary tiny" data-reply-extraction-filter="zone">区域</button>
+            <button type="button" class="secondary tiny" data-reply-extraction-filter="risk">风险</button>
+            <button type="button" class="secondary tiny" data-reply-extraction-filter="plan">计划</button>
+            <button type="button" class="secondary tiny" id="replyExtractionShowIgnoredButton">显示已忽略</button>
+          </div>
+          <div class="reply-extraction-list" id="replyExtractionList"></div>
+        </section>
+
         <div id="aiChatResizeHandle" class="chat-resize-handle" title="拖动调整聊天窗口高度"></div>
 
         <div class="attachment-preview card-surface" id="attachmentPreviewBar" hidden>
@@ -455,7 +529,7 @@
         </div>
         <div id="annotationPopoverBody" class="summary-preview"></div>
         <div class="button-row tight">
-          <button id="annotationPopoverSourceButton" type="button">查看原消息</button>
+          <button id="annotationPopoverSourceButton" type="button">查看原回复</button>
           <button id="annotationPopoverOnlyButton" type="button" class="secondary">只显示此计划</button>
           <button id="annotationPopoverHideButton" type="button" class="secondary">隐藏</button>
         </div>
@@ -649,6 +723,7 @@
       getChartInstance,
       subscribeCrosshairMove,
       subscribeClick,
+      subscribeVisibleRangeChange,
     } from "/static/init_lightweight_chart.js";
 
     const app = {};
@@ -656,25 +731,682 @@
     function buildRequestPayload() {
       const { els, syncCacheKey } = app;
       syncCacheKey();
+      const minContinuousMessages = Number.parseInt(els.minContinuousMessages?.value || "10", 10);
       return {
         cache_key: els.cacheKey.value.trim(),
-        instrument_symbol: els.instrumentSymbol.value.trim(),
+        instrument_symbol: els.instrumentSymbol.value.trim().toUpperCase(),
         display_timeframe: els.displayTimeframe.value,
         window_start: els.windowStart.value ? new Date(els.windowStart.value).toISOString() : null,
         window_end: els.windowEnd.value ? new Date(els.windowEnd.value).toISOString() : null,
-        chart_instance_id: null,
-        force_rebuild: true,
-        min_continuous_messages: 10,
+        chart_instance_id: els.chartInstanceId?.value?.trim() || null,
+        force_rebuild: !!els.forceRebuild?.checked,
+        min_continuous_messages: Number.isFinite(minContinuousMessages) && minContinuousMessages > 0
+          ? minContinuousMessages
+          : 10,
       };
+    }
+
+    const markerLayerStyles = {
+      largeOrders: { position: "aboveBar", color: "#f59e0b", shape: "circle", label: "大单" },
+      absorption: { position: "belowBar", color: "#22c55e", shape: "circle", label: "吸收" },
+      iceberg: { position: "aboveBar", color: "#a855f7", shape: "square", label: "冰山" },
+      replenishment: { position: "belowBar", color: "#3b82f6", shape: "circle", label: "补单" },
+      trapped: { position: "aboveBar", color: "#ef4444", shape: "square", label: "被套" },
+      events: { position: "aboveBar", color: "#fbbf24", shape: "circle", label: "事件" },
+    };
+    const chartEventClusterStyle = { position: "aboveBar", color: "#fde68a", shape: "circle", label: "事件簇" };
+    const chartEventCategoryWeights = {
+      absorption: 74,
+      iceberg: 70,
+      trapped: 66,
+      replenishment: 62,
+      largeOrders: 58,
+      events: 48,
+    };
+    const chartEventSourceWeights = {
+      strategy_library: 10,
+      ai_review: 8,
+      manual_review: 6,
+      collector: 4,
+      live_tail: 6,
+    };
+    const chartEventTopVisibleLimit = 8;
+
+    function toMarkerSeconds(value) {
+      if (typeof value === "number") {
+        return value > 1e12 ? Math.round(value / 1000) : Math.round(value);
+      }
+      if (value && typeof value === "object") {
+        const year = Number(value.year);
+        const month = Number(value.month);
+        const day = Number(value.day);
+        if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+          return Math.round(Date.UTC(year, month - 1, day) / 1000);
+        }
+      }
+      if (typeof value === "string") {
+        const timestamp = new Date(value).getTime();
+        return Number.isFinite(timestamp) ? Math.round(timestamp / 1000) : null;
+      }
+      return null;
+    }
+
+    function getEventMarkerCategory(eventKind) {
+      const value = String(eventKind || "").toLowerCase();
+      if (value.includes("iceberg")) return "iceberg";
+      if (value.includes("absorp")) return "absorption";
+      if (value.includes("replen")) return "replenishment";
+      if (value.includes("trap") || value.includes("stuck")) return "trapped";
+      if (value.includes("large") || value.includes("block") || value.includes("sweep") || value.includes("liquidity")) return "largeOrders";
+      return "events";
+    }
+
+    function getEventCategoryLabel(category) {
+      return markerLayerStyles[category]?.label || markerLayerStyles.events.label;
+    }
+
+    function isMarkerLayerVisible(category, els) {
+      const layerMap = {
+        largeOrders: els.layerLargeOrders,
+        absorption: els.layerAbsorption,
+        iceberg: els.layerIceberg,
+        replenishment: els.layerReplenishment,
+        trapped: els.layerEvents,
+        events: els.layerEvents,
+      };
+      return !!layerMap[category]?.checked;
+    }
+
+    function snapMarkerToCandle(time, candles) {
+      if (!Number.isFinite(time) || !Array.isArray(candles) || !candles.length) {
+        return null;
+      }
+      let candidate = null;
+      let nearest = null;
+      candles.forEach((bar) => {
+        const barTime = toMarkerSeconds(bar?.started_at);
+        if (!Number.isFinite(barTime)) {
+          return;
+        }
+        if (barTime <= time) {
+          candidate = barTime;
+          return;
+        }
+        if (nearest == null || Math.abs(barTime - time) < Math.abs(nearest - time)) {
+          nearest = barTime;
+        }
+      });
+      return candidate ?? nearest;
+    }
+
+    function formatEventMarkerText(category, source, fallback = "") {
+      if (category === "largeOrders") {
+        const size = Number(source?.current_size || source?.size || 0);
+        return size > 0 ? `大单 ${Math.round(size)}` : "大单";
+      }
+      if (category === "replenishment") {
+        const replenishmentCount = Number(source?.replenishment_count || 0);
+        return replenishmentCount > 0 ? `补单 ${replenishmentCount}` : "补单";
+      }
+      if (category === "absorption") {
+        return "吸收";
+      }
+      if (category === "iceberg") {
+        return "冰山";
+      }
+      if (category === "trapped") {
+        return "被套";
+      }
+      const compact = String(
+        source?.label
+        || source?.title
+        || source?.event_kind
+        || source?.eventKind
+        || fallback
+        || markerLayerStyles[category]?.label
+        || "事件",
+      ).replaceAll("_", " ");
+      return compact.slice(0, 12);
+    }
+
+    function filterEventAnnotationsForLayers(events, els) {
+      return (Array.isArray(events) ? events : []).filter((event) => isMarkerLayerVisible(getEventMarkerCategory(event?.event_kind), els));
+    }
+
+    function buildChartEventScore(category, source, meta = {}) {
+      const kind = String(meta.eventKind || source?.event_kind || "").toLowerCase();
+      const notes = Array.isArray(meta.notes) ? meta.notes : [];
+      const linkedIds = Array.isArray(meta.linkedIds) ? meta.linkedIds : [];
+      let score = chartEventCategoryWeights[category] || chartEventCategoryWeights.events;
+      score += chartEventSourceWeights[meta.sourceKind] || 0;
+      if (Number.isFinite(Number(meta.confidence))) {
+        score += Number(meta.confidence) * 24;
+      }
+      score += Math.min(14, notes.length * 3);
+      score += Math.min(12, linkedIds.length * 3);
+      if (category === "largeOrders") {
+        const size = Number(source?.current_size || source?.size || 0);
+        if (size > 0) {
+          score += Math.min(22, Math.log10(size + 1) * 14);
+        }
+      }
+      if (category === "replenishment") {
+        const replenishmentCount = Number(source?.replenishment_count || 0);
+        if (replenishmentCount > 0) {
+          score += Math.min(18, replenishmentCount * 5);
+        }
+      }
+      if (kind.includes("gap")) score += 5;
+      if (kind.includes("drive")) score += 6;
+      if (kind.includes("trap")) score += 4;
+      return score;
+    }
+
+    function formatClusterPriceText(items) {
+      const explicitPrices = items
+        .map((item) => Number(item.price))
+        .filter((value) => Number.isFinite(value));
+      const rangedPrices = items.flatMap((item) => [Number(item.priceLow), Number(item.priceHigh)].filter((value) => Number.isFinite(value)));
+      const allPrices = [...explicitPrices, ...rangedPrices];
+      if (!allPrices.length) {
+        return "价格未知";
+      }
+      const minPrice = Math.min(...allPrices);
+      const maxPrice = Math.max(...allPrices);
+      if (Math.abs(maxPrice - minPrice) < 0.001) {
+        return minPrice.toFixed(2);
+      }
+      return `${minPrice.toFixed(2)} - ${maxPrice.toFixed(2)}`;
+    }
+
+    function formatClusterCategorySummary(categoryCounts = {}) {
+      const parts = Object.entries(categoryCounts)
+        .sort((left, right) => {
+          if (right[1] !== left[1]) {
+            return right[1] - left[1];
+          }
+          return (chartEventCategoryWeights[right[0]] || 0) - (chartEventCategoryWeights[left[0]] || 0);
+        })
+        .map(([category, count]) => `${getEventCategoryLabel(category)}×${count}`);
+      return parts.join(" + ") || "事件";
+    }
+
+    function renderChartEventRail(model, els) {
+      if (!els.chartEventRail) {
+        return;
+      }
+      const railClusters = Array.isArray(model?.railClusters) ? model.railClusters : [];
+      if (!railClusters.length) {
+        els.chartEventRail.hidden = true;
+        els.chartEventRail.innerHTML = "";
+        return;
+      }
+      const selectedKey = app.state?.selectedChartEventClusterKey || "";
+      const selectedCluster = model?.selectedCluster || null;
+      const summaryText = selectedCluster
+        ? `已选 ${selectedCluster.timeLabel || "--"} · ${selectedCluster.summaryText || "事件"}`
+        : `当前视图显示 ${model?.shownClusterCount || 0} / ${model?.visibleClusterCount || 0} 个关键事件簇`;
+      els.chartEventRail.hidden = false;
+      els.chartEventRail.innerHTML = `
+        <div class="chart-event-rail-head">
+          <div>
+            <strong>图层事件轨</strong>
+            <p>${escapeHtml(summaryText)}</p>
+          </div>
+          <div class="chart-event-rail-stats">
+            <span>可视 ${model?.visibleBarCount || 0} 根</span>
+            <span>折叠 ${model?.hiddenVisibleClusterCount || 0}</span>
+          </div>
+        </div>
+        <div class="chart-event-rail-list">
+          ${railClusters.map((cluster) => `
+            <button
+              type="button"
+              class="secondary chart-event-pill${cluster.key === selectedKey ? " selected" : ""}"
+              data-event-cluster-key="${escapeHtml(cluster.key)}"
+              title="${escapeHtml(`${cluster.timeLabel || "--"} · ${cluster.summaryText || "事件"} · ${cluster.priceText || "价格未知"}`)}"
+            >
+              <span class="chart-event-pill-time">${escapeHtml(cluster.timeLabel || "--")}</span>
+              <span class="chart-event-pill-label">${escapeHtml(cluster.summaryText || "事件")}</span>
+              <span class="chart-event-pill-count">${escapeHtml(String(cluster.itemCount || 1))}</span>
+            </button>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function buildHoverOverlayItemFromCluster(cluster) {
+      if (!cluster?.items?.length) {
+        return null;
+      }
+      const prices = cluster.items
+        .flatMap((item) => [item.price, item.priceLow, item.priceHigh])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+      return {
+        id: cluster.key,
+        category: cluster.dominantCategory || cluster.items[0]?.category || "events",
+        title: cluster.summaryText || cluster.items[0]?.shortLabel || "事件",
+        observedAt: cluster.items[0]?.observedAt || (cluster.time ? cluster.time * 1000 : null),
+        price: prices.length ? prices[0] : null,
+        priceLow: prices.length ? Math.min(...prices) : null,
+        priceHigh: prices.length ? Math.max(...prices) : null,
+      };
+    }
+
+    function renderVerticalEventStream(model, state, els) {
+      if (!els?.eventStreamList || !els?.eventStreamSummary) {
+        return;
+      }
+      const sourceItems = Array.isArray(model?.visibleClusters) && model.visibleClusters.length
+        ? [...model.visibleClusters].sort((left, right) => Number(right.time) - Number(left.time))
+        : (Array.isArray(model?.railClusters) && model.railClusters.length
+          ? model.railClusters
+          : (Array.isArray(model?.topVisibleClusters) ? model.topVisibleClusters : []));
+      const activeFilter = String(state?.eventStreamFilter || "all").trim() || "all";
+      const counts = sourceItems.reduce((acc, cluster) => {
+        const category = cluster?.dominantCategory || cluster?.items?.[0]?.category || "events";
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+      }, {});
+      els.eventStreamFilterBar?.querySelectorAll("[data-event-stream-filter]").forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.eventStreamFilter === activeFilter);
+      });
+      const streamItems = activeFilter === "all"
+        ? sourceItems
+        : sourceItems.filter((cluster) => {
+          const category = cluster?.dominantCategory || cluster?.items?.[0]?.category || "events";
+          return category === activeFilter;
+        });
+      state.eventStreamItems = streamItems;
+      if (state?.eventStreamHoverItem && !streamItems.some((item) => item.key === state.eventStreamHoverItem?.id)) {
+        state.eventStreamHoverItem = null;
+        window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
+      }
+      if (!streamItems.length) {
+        els.eventStreamSummary.textContent = state?.snapshot ? "当前窗口没有可展示的关键事件。" : "等待盘口事件与关键点位进入时间线。";
+        els.eventStreamList.innerHTML = `<div class="event-stream-empty">${escapeHtml(state?.snapshot ? "当前视图还没有吸收、大单、被套、冰山单等关键事件。" : "先加载图表，事件流会跟随时间生成。")}</div>`;
+        return;
+      }
+      const filterLabel = activeFilter === "all"
+        ? "全部类型"
+        : (markerLayerStyles[activeFilter]?.label || activeFilter);
+      els.eventStreamSummary.textContent = `当前显示 ${streamItems.length} 个事件簇（${filterLabel}），吸收 ${counts.absorption || 0} / 大单 ${counts.largeOrders || 0} / 被套 ${counts.trapped || 0} / 冰山 ${counts.iceberg || 0}，hover 后会在左侧图表显示点位或区域。`;
+      els.eventStreamList.innerHTML = streamItems.map((cluster) => {
+        const category = cluster.dominantCategory || cluster.items?.[0]?.category || "events";
+        const active = state.eventStreamHoverItem?.id === cluster.key ? " active" : "";
+        const hoverStyle = `--event-color:${markerLayerStyles[category]?.color || markerLayerStyles.events.color}`;
+        return `
+          <article class="event-stream-item${active}" data-event-stream-id="${escapeHtml(cluster.key)}" style="${escapeHtml(hoverStyle)}">
+            <div class="event-stream-dot" aria-hidden="true"></div>
+            <div>
+              <div class="event-stream-item-head">
+                <strong>${escapeHtml(cluster.summaryText || "事件")}</strong>
+                <span class="meta">${escapeHtml(cluster.timeLabel || "--")}</span>
+              </div>
+              <p>${escapeHtml(cluster.priceText || "价格未知")}</p>
+              <p>${escapeHtml(cluster.notePreviewText || cluster.items?.[0]?.metaText || "关键盘口事件")}</p>
+            </div>
+          </article>
+        `;
+      }).join("");
+      els.eventStreamList.querySelectorAll("[data-event-stream-id]").forEach((node) => {
+        const cluster = streamItems.find((item) => item.key === node.dataset.eventStreamId);
+        node.addEventListener("mouseenter", () => {
+          state.eventStreamHoverItem = buildHoverOverlayItemFromCluster(cluster);
+          node.classList.add("active");
+          window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
+        });
+        node.addEventListener("mouseleave", () => {
+          state.eventStreamHoverItem = null;
+          node.classList.remove("active");
+          window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
+        });
+      });
+    }
+
+    function showChartEventTooltip(cluster, point, els) {
+      if (!cluster || !point || !els.chartEventTooltip || !els.chartFrame) {
+        return;
+      }
+      els.chartEventTooltip.hidden = false;
+      if (els.chartEventTooltipTitle) {
+        els.chartEventTooltipTitle.textContent = cluster.summaryText || "事件";
+      }
+      if (els.chartEventTooltipMeta) {
+        els.chartEventTooltipMeta.textContent = `${cluster.timeLabel || "--"} · ${cluster.priceText || "价格未知"} · ${cluster.itemCount || 1} 条`;
+      }
+      if (els.chartEventTooltipBody) {
+        els.chartEventTooltipBody.textContent = cluster.notePreviewText || cluster.items?.[0]?.metaText || "点击可打开右侧详情。";
+      }
+      const tooltip = els.chartEventTooltip;
+      const frameRect = els.chartFrame.getBoundingClientRect();
+      const tooltipWidth = tooltip.offsetWidth || 280;
+      const tooltipHeight = tooltip.offsetHeight || 128;
+      const nextLeft = Math.min(
+        Math.max(12, point.x + 18),
+        Math.max(12, frameRect.width - tooltipWidth - 12),
+      );
+      const nextTop = Math.min(
+        Math.max(56, point.y + 16),
+        Math.max(12, frameRect.height - tooltipHeight - 12),
+      );
+      tooltip.style.left = `${nextLeft}px`;
+      tooltip.style.top = `${nextTop}px`;
+    }
+
+    function hideChartEventTooltip(els) {
+      if (els.chartEventTooltip) {
+        els.chartEventTooltip.hidden = true;
+      }
+    }
+
+    function buildChartEventModel(snapshot, els, view) {
+      const candles = snapshot?.candles || [];
+      if (!candles.length || !view) {
+        return {
+          markers: [],
+          clusters: [],
+          clusterIndex: {},
+          clusterByTime: {},
+          visibleClusters: [],
+          topVisibleClusters: [],
+          shownClusters: [],
+          railClusters: [],
+          visibleClusterCount: 0,
+          shownClusterCount: 0,
+          hiddenVisibleClusterCount: 0,
+          visibleBarCount: 0,
+          viewportSummary: "未初始化",
+          selectedCluster: null,
+        };
+      }
+
+      const rawItems = [];
+      const pushItem = (category, source, timeValue, fallbackText = "", meta = {}) => {
+        if (!isMarkerLayerVisible(category, els)) {
+          return;
+        }
+        const snappedTime = snapMarkerToCandle(toMarkerSeconds(timeValue), candles);
+        if (!Number.isFinite(snappedTime)) {
+          return;
+        }
+        const notes = (Array.isArray(meta.notes) ? meta.notes : []).filter(Boolean);
+        const linkedIds = Array.isArray(meta.linkedIds) ? meta.linkedIds : [];
+        const price = Number(meta.price);
+        const priceLow = Number(meta.priceLow);
+        const priceHigh = Number(meta.priceHigh);
+        const shortLabel = formatEventMarkerText(category, source, fallbackText);
+        const timeLabel = formatAxisTime((snappedTime || 0) * 1000);
+        const priceText = Number.isFinite(price)
+          ? price.toFixed(2)
+          : ([priceLow, priceHigh].every((value) => Number.isFinite(value))
+            ? `${priceLow.toFixed(2)} - ${priceHigh.toFixed(2)}`
+            : "价格未知");
+        const sourceLabel = String(meta.sourceKind || source?.source_kind || "collector").replaceAll("_", " ");
+        const score = buildChartEventScore(category, source, {
+          eventKind: meta.eventKind,
+          sourceKind: meta.sourceKind || source?.source_kind || "collector",
+          confidence: meta.confidence,
+          notes,
+          linkedIds,
+        });
+        rawItems.push({
+          key: meta.key || `${category}:${snappedTime}:${shortLabel}:${priceText}`,
+          id: meta.id || meta.key || `${category}:${snappedTime}:${shortLabel}`,
+          category,
+          source,
+          eventKind: String(meta.eventKind || source?.event_kind || fallbackText || shortLabel || "事件"),
+          shortLabel,
+          title: String(meta.title || source?.title || source?.label || fallbackText || shortLabel || "事件"),
+          observedAt: meta.observedAt || timeValue,
+          snappedTime,
+          timeLabel,
+          sourceKind: meta.sourceKind || source?.source_kind || "collector",
+          sourceLabel,
+          confidence: Number.isFinite(Number(meta.confidence)) ? Number(meta.confidence) : null,
+          price: Number.isFinite(price) ? price : null,
+          priceLow: Number.isFinite(priceLow) ? priceLow : null,
+          priceHigh: Number.isFinite(priceHigh) ? priceHigh : null,
+          priceText,
+          notes,
+          notePreviewText: notes.slice(0, 2).join(" / "),
+          linkedIds,
+          score,
+          metaText: `${sourceLabel} · ${priceText}`,
+        });
+      };
+
+      filterEventAnnotationsForLayers(snapshot.event_annotations || [], els).forEach((event) => {
+        const category = getEventMarkerCategory(event.event_kind);
+        pushItem(category, event, event.observed_at, event.event_kind || "事件", {
+          id: event.event_id,
+          eventKind: event.event_kind,
+          title: String(event.event_kind || "事件").replaceAll("_", " "),
+          observedAt: event.observed_at,
+          price: event.price,
+          priceLow: event.price_low,
+          priceHigh: event.price_high,
+          confidence: event.confidence,
+          notes: event.notes || [],
+          linkedIds: event.linked_ids || [],
+          sourceKind: event.source_kind || "collector",
+        });
+      });
+
+      const liveTail = snapshot?.live_tail && typeof snapshot.live_tail === "object" ? snapshot.live_tail : null;
+      (liveTail?.significant_liquidity || []).forEach((item, index) => {
+        const observedAt = item.last_observed_at || item.updated_at || item.first_observed_at || liveTail?.latest_observed_at;
+        const size = Number(item.current_size || item.size || 0);
+        pushItem("largeOrders", item, observedAt, "大单", {
+          key: `largeOrders:${index}:${observedAt || ""}:${item.price || ""}`,
+          id: item.event_id || `large-order-${index}`,
+          eventKind: "significant_liquidity",
+          title: "大单",
+          observedAt,
+          price: item.price,
+          notes: [
+            size > 0 ? `当前体量 ${Math.round(size)}` : "",
+            item.side ? `方向 ${item.side}` : "",
+          ].filter(Boolean),
+          sourceKind: "live_tail",
+        });
+      });
+
+      (liveTail?.same_price_replenishment || []).forEach((item, index) => {
+        const observedAt = item.last_observed_at || item.updated_at || item.first_observed_at || liveTail?.latest_observed_at;
+        const replenishCount = Number(item.replenishment_count || 0);
+        pushItem("replenishment", item, observedAt, "补单", {
+          key: `replenishment:${index}:${observedAt || ""}:${item.price || ""}`,
+          id: item.event_id || `replenishment-${index}`,
+          eventKind: "same_price_replenishment",
+          title: "补单",
+          observedAt,
+          price: item.price,
+          notes: [
+            replenishCount > 0 ? `补单次数 ${replenishCount}` : "",
+            item.side ? `方向 ${item.side}` : "",
+          ].filter(Boolean),
+          sourceKind: "live_tail",
+        });
+      });
+
+      const clusterMap = new Map();
+      rawItems.forEach((item) => {
+        const key = `cluster:${item.snappedTime}`;
+        const existing = clusterMap.get(key) || {
+          key,
+          time: item.snappedTime,
+          items: [],
+          categoryCounts: {},
+        };
+        existing.items.push(item);
+        existing.categoryCounts[item.category] = (existing.categoryCounts[item.category] || 0) + 1;
+        clusterMap.set(key, existing);
+      });
+
+      const clusters = Array.from(clusterMap.values())
+        .map((cluster) => {
+          const items = [...cluster.items].sort((left, right) => right.score - left.score || Number(right.snappedTime) - Number(left.snappedTime));
+          const dominantCategory = Object.entries(cluster.categoryCounts)
+            .sort((left, right) => {
+              if (right[1] !== left[1]) {
+                return right[1] - left[1];
+              }
+              return (chartEventCategoryWeights[right[0]] || 0) - (chartEventCategoryWeights[left[0]] || 0);
+            })[0]?.[0] || items[0]?.category || "events";
+          const itemCount = items.length;
+          const summaryText = itemCount > 1
+            ? formatClusterCategorySummary(cluster.categoryCounts)
+            : (items[0]?.shortLabel || items[0]?.title || getEventCategoryLabel(dominantCategory));
+          const notePreviewText = items
+            .map((item) => item.notePreviewText || item.metaText || "")
+            .filter(Boolean)
+            .slice(0, 2)
+            .join(" / ");
+          const priceText = formatClusterPriceText(items);
+          const timeLabel = items[0]?.timeLabel || formatAxisTime((cluster.time || 0) * 1000);
+          const score = items.reduce((maxScore, item) => Math.max(maxScore, item.score), 0)
+            + Math.min(20, (itemCount - 1) * 6)
+            + (Object.keys(cluster.categoryCounts).length > 1 ? 4 : 0);
+          return {
+            key: cluster.key,
+            time: cluster.time,
+            items,
+            itemCount,
+            categoryCounts: cluster.categoryCounts,
+            dominantCategory,
+            summaryText,
+            notePreviewText,
+            priceText,
+            timeLabel,
+            score,
+          };
+        })
+        .sort((left, right) => Number(left.time) - Number(right.time));
+
+      const clusterIndex = Object.fromEntries(clusters.map((cluster) => [cluster.key, cluster]));
+      const clusterByTime = Object.fromEntries(clusters.map((cluster) => [String(cluster.time), cluster]));
+      const visibleStartTime = toMarkerSeconds(candles[Math.max(0, view.startIndex)]?.started_at);
+      const visibleEndTime = toMarkerSeconds(candles[Math.min(candles.length - 1, view.endIndex)]?.started_at);
+      const visibleClusters = clusters.filter((cluster) => {
+        if (!Number.isFinite(visibleStartTime) || !Number.isFinite(visibleEndTime)) {
+          return true;
+        }
+        return cluster.time >= visibleStartTime && cluster.time <= visibleEndTime;
+      });
+
+      const topVisibleClusters = [...visibleClusters]
+        .sort((left, right) => right.score - left.score || Number(right.time) - Number(left.time))
+        .slice(0, chartEventTopVisibleLimit);
+      const selectedClusterKey = app.state?.selectedChartEventClusterKey || null;
+      const selectedVisibleCluster = selectedClusterKey
+        ? visibleClusters.find((cluster) => cluster.key === selectedClusterKey)
+        : null;
+      if (selectedVisibleCluster && !topVisibleClusters.some((cluster) => cluster.key === selectedVisibleCluster.key)) {
+        if (topVisibleClusters.length >= chartEventTopVisibleLimit) {
+          topVisibleClusters.pop();
+        }
+        topVisibleClusters.push(selectedVisibleCluster);
+      }
+
+      const shownClusters = [...topVisibleClusters].sort((left, right) => Number(left.time) - Number(right.time));
+      const railClusters = [...shownClusters];
+      const selectedCluster = selectedClusterKey ? (clusterIndex[selectedClusterKey] || null) : null;
+      if (selectedCluster && !railClusters.some((cluster) => cluster.key === selectedCluster.key)) {
+        railClusters.push(selectedCluster);
+        railClusters.sort((left, right) => Number(left.time) - Number(right.time));
+      }
+
+      const markers = shownClusters.map((cluster) => {
+        const style = cluster.itemCount > 1
+          ? (markerLayerStyles[cluster.dominantCategory] || chartEventClusterStyle)
+          : (markerLayerStyles[cluster.dominantCategory] || markerLayerStyles.events);
+        return {
+          time: cluster.time,
+          position: cluster.itemCount > 1 ? chartEventClusterStyle.position : style.position,
+          color: cluster.itemCount > 1 ? style.color : style.color,
+          shape: cluster.itemCount > 1 ? chartEventClusterStyle.shape : style.shape,
+          text: cluster.itemCount > 1 ? String(cluster.itemCount) : (cluster.items[0]?.shortLabel || style.label || "事件"),
+        };
+      });
+
+      return {
+        markers,
+        clusters,
+        clusterIndex,
+        clusterByTime,
+        visibleClusters,
+        topVisibleClusters: [...topVisibleClusters].sort((left, right) => Number(left.time) - Number(right.time)),
+        shownClusters,
+        railClusters,
+        visibleClusterCount: visibleClusters.length,
+        shownClusterCount: shownClusters.length,
+        hiddenVisibleClusterCount: Math.max(0, visibleClusters.length - shownClusters.length),
+        visibleBarCount: Math.max(0, view.endIndex - view.startIndex + 1),
+        viewportSummary: `可见 ${Math.max(0, view.endIndex - view.startIndex + 1)} 根 / 关键 ${shownClusters.length}/${visibleClusters.length} / 折叠 ${Math.max(0, visibleClusters.length - shownClusters.length)}`,
+        selectedCluster,
+      };
+    }
+
+    function requestChartViewportRefresh() {
+      if (!app.state || app.state.pendingChartRerender) {
+        return;
+      }
+      app.state.pendingChartRerender = true;
+      window.requestAnimationFrame(() => {
+        app.state.pendingChartRerender = false;
+        renderChart();
+        app.renderViewportDerivedSurfaces?.();
+      });
+    }
+
+    function syncChartViewportSize() {
+      const { els } = app;
+      if (!els?.chartFrame) {
+        return;
+      }
+      const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+      if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
+        return;
+      }
+      const frameTop = els.chartFrame.getBoundingClientRect().top;
+      const availableHeight = Math.floor(viewportHeight - frameTop - 20);
+      const frameHeight = Math.max(320, availableHeight);
+      const volumeHeight = Math.max(84, Math.min(140, Math.round(frameHeight * 0.16)));
+      const mainChartHeight = Math.max(220, frameHeight - volumeHeight);
+
+      els.chartFrame.style.height = `${frameHeight}px`;
+      els.chartFrame.style.maxHeight = `${frameHeight}px`;
+      if (els.chartContainer) {
+        els.chartContainer.style.minHeight = `${mainChartHeight}px`;
+      }
+      if (els.volumeChartContainer) {
+        els.volumeChartContainer.style.height = `${volumeHeight}px`;
+        els.volumeChartContainer.style.flexBasis = `${volumeHeight}px`;
+      }
+      if (els.chartSvg) {
+        els.chartSvg.style.height = `${frameHeight}px`;
+      }
     }
 
     function renderChart() {
       const { state, els, ensureChartView } = app;
+      syncChartViewportSize();
       const snapshot = state?.snapshot;
       if (!snapshot || !snapshot.candles || !snapshot.candles.length) {
         els.chartPlaceholder.style.display = "flex";
         els.chartViewportMeta.textContent = "视图未初始化";
         state.chartMetrics = null;
+        state.chartEventModel = null;
+        state.eventStreamItems = [];
+        renderChartEventRail(null, els);
+        renderVerticalEventStream(null, state, els);
+        renderEventHoverOverlay();
+        state.chartEventModel = null;
+        state.selectedChartEventClusterKey = null;
+        renderChartEventRail(null, els);
+        hideChartEventTooltip(els);
         
         // 更新图表信息标签
         const symbol = els.instrumentSymbol?.value?.trim() || "-";
@@ -734,7 +1466,33 @@
       }
 
       const candles = snapshot.candles;
-      const view = ensureChartView(snapshot);
+      ensureChartView(snapshot);
+      const liveChart = window._lwChartState?.chartInstance;
+      if (liveChart?.timeScale && state.chartView) {
+        const logicalRange = liveChart.timeScale().getVisibleLogicalRange?.();
+        if (logicalRange) {
+          const nextStart = Math.max(0, Math.floor(logicalRange.from ?? state.chartView.startIndex));
+          const nextEnd = Math.max(nextStart, Math.min(candles.length - 1, Math.ceil(logicalRange.to ?? state.chartView.endIndex)));
+          state.chartView = {
+            ...state.chartView,
+            startIndex: nextStart,
+            endIndex: nextEnd,
+          };
+        }
+      }
+      const view = state.chartView;
+      const initialViewRange = {
+        startIndex: Number(view?.startIndex ?? 0),
+        endIndex: Number(view?.endIndex ?? 0),
+      };
+      let eventModel = buildChartEventModel(snapshot, els, view);
+      if (state.selectedChartEventClusterKey && !eventModel.clusterIndex[state.selectedChartEventClusterKey]) {
+        state.selectedChartEventClusterKey = null;
+        eventModel.selectedCluster = null;
+      }
+      state.chartEventModel = eventModel;
+      renderChartEventRail(eventModel, els);
+      renderVerticalEventStream(eventModel, state, els);
       els.chartPlaceholder.style.display = "none";
       els.chartFrame.classList.toggle("region-mode", state.chartInteraction.regionMode);
 
@@ -779,26 +1537,48 @@
                     state.chartMetrics.currentX = param.point.x;
                     state.chartMetrics.currentY = param.point.y;
                   }
+                  const hoveredCluster = param?.time != null
+                    ? app.state?.chartEventModel?.clusterByTime?.[String(toMarkerSeconds(param.time))]
+                    : null;
+                  if (hoveredCluster && param?.point) {
+                    showChartEventTooltip(hoveredCluster, param.point, els);
+                  } else {
+                    hideChartEventTooltip(els);
+                  }
                 });
 
                 subscribeClick((param) => {
+                  const activeCandles = app.state?.snapshot?.candles || [];
                   if (param.time) {
-                    const timestamp = param.time * 1000;
-                    const bar = candles.find((c) => {
+                    const markerSeconds = toMarkerSeconds(param.time);
+                    const timestamp = Number(markerSeconds) * 1000;
+                    const bar = activeCandles.find((c) => {
                       const barTime = typeof c.started_at === "string" ? new Date(c.started_at).getTime() : c.started_at;
                       return Math.abs(barTime - timestamp) < 60000;
                     });
                     if (bar) {
-                      const idx = candles.indexOf(bar);
-                      if (state.selectedCandleIndex !== idx) {
-                        state.selectedCandleIndex = idx;
-                        if (app.renderSnapshot) {
-                          app.renderSnapshot();
-                        }
-                      }
+                      state.selectedCandleIndex = activeCandles.indexOf(bar);
+                    }
+                    const cluster = app.state?.chartEventModel?.clusterByTime?.[String(markerSeconds)];
+                    if (cluster && app.selectChartEventCluster) {
+                      app.selectChartEventCluster(cluster.key, {
+                        centerChart: false,
+                        openContext: true,
+                        announce: false,
+                      });
+                      return;
+                    }
+                    if (bar && app.renderSnapshot) {
+                      app.renderSnapshot();
                     }
                   }
                 }, els);
+                subscribeVisibleRangeChange(() => {
+                  if (!app.state?.snapshot?.candles?.length) {
+                    return;
+                  }
+                  requestChartViewportRefresh();
+                });
               } catch (error) {
                 console.error("LightweightCharts 初始化错误:", error);
                 window._lwChartsReady = false;
@@ -817,8 +1597,20 @@
         if (window._lwChartState && window._lwChartState.chartInstance) {
           try {
             const updateType = state.lastChartUpdateType || "full_reset";
-            updateChartData(snapshot, view, els, { updateType });
+            updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
             state.lastChartUpdateType = null;
+            const syncedViewChanged = view.startIndex !== initialViewRange.startIndex
+              || view.endIndex !== initialViewRange.endIndex;
+            if (syncedViewChanged) {
+              eventModel = buildChartEventModel(snapshot, els, view);
+              if (state.selectedChartEventClusterKey && !eventModel.clusterIndex[state.selectedChartEventClusterKey]) {
+                state.selectedChartEventClusterKey = null;
+                eventModel.selectedCluster = null;
+              }
+              state.chartEventModel = eventModel;
+              renderChartEventRail(eventModel, els);
+              renderVerticalEventStream(eventModel, state, els);
+            }
             const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
             const firstCandle = visibleCandles.length ? visibleCandles[0] : null;
             const lastCandle = visibleCandles.length ? visibleCandles[visibleCandles.length - 1] : null;
@@ -834,6 +1626,7 @@
               const lastTime = lastCandle ? new Date(lastCandle.started_at) : new Date();
               els.chartInfoTime.textContent = "UTC " + lastTime.toISOString().slice(0, 19).replace("T", " ");
             }
+            renderEventHoverOverlay();
           } catch (error) {
             console.error("更新图表数据错误:", error);
             els.chartContainer.style.display = "none";
@@ -855,6 +1648,7 @@
       const { state, els, ensureChartView } = app;
       const snapshot = state?.snapshot;
       if (!snapshot || !snapshot.candles?.length || !state.chartView) return;
+      hideChartEventTooltip(els);
 
       const candles = snapshot.candles;
       const view = state.chartView;
@@ -894,7 +1688,7 @@
         clampNumber,
       });
 
-      const events = els.layerEvents?.checked ? (snapshot.event_annotations || []) : [];
+      const events = filterEventAnnotationsForLayers(snapshot.event_annotations || [], els);
       const focusRegions = els.layerFocusRegions?.checked ? (snapshot.focus_regions || []) : [];
       const manualRegions = els.layerManualRegions?.checked ? (state.manualRegions || []) : [];
       const operatorEntries = els.layerOperatorEntries?.checked ? (state.operatorEntries || []) : [];
@@ -986,60 +1780,106 @@
         clampChartY,
         state,
       });
+      if (state.eventStreamHoverItem) {
+        const hoverItem = state.eventStreamHoverItem;
+        const overlayTime = snapMarkerToCandle(
+          toMarkerSeconds(hoverItem.observedAt || hoverItem.started_at || hoverItem.time),
+          candles,
+        );
+        const overlayX = Number.isFinite(overlayTime) ? timeToX(overlayTime * 1000) : leftPad + chartWidth / 2;
+        const overlayPrice = Number.isFinite(Number(hoverItem.price)) ? Number(hoverItem.price) : null;
+        const overlayLow = Number.isFinite(Number(hoverItem.priceLow)) ? Number(hoverItem.priceLow) : null;
+        const overlayHigh = Number.isFinite(Number(hoverItem.priceHigh)) ? Number(hoverItem.priceHigh) : null;
+        const color = markerLayerStyles[hoverItem.category]?.color || markerLayerStyles.events.color;
+        const label = escapeHtml(hoverItem.title || "事件");
+        if (overlayLow != null || overlayHigh != null) {
+          const lowY = priceToY(overlayLow ?? overlayPrice ?? overlayHigh);
+          const highY = priceToY(overlayHigh ?? overlayPrice ?? overlayLow);
+          const zoneTop = Math.min(lowY, highY);
+          const zoneHeight = Math.max(12, Math.abs(highY - lowY));
+          markupParts.push(`
+            <rect x="${leftPad}" y="${zoneTop}" width="${chartWidth}" height="${zoneHeight}" fill="${color}" opacity="0.14" stroke="${color}" stroke-width="1.5" rx="8"></rect>
+            <text x="${leftPad + 10}" y="${Math.max(18, zoneTop - 8)}" fill="${color}" font-size="12" font-weight="600">${label}</text>
+          `);
+        } else if (overlayPrice != null) {
+          const y = priceToY(overlayPrice);
+          markupParts.push(`
+            <line x1="${leftPad}" y1="${y}" x2="${leftPad + chartWidth}" y2="${y}" stroke="${color}" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.9"></line>
+            <circle cx="${overlayX}" cy="${y}" r="7" fill="${color}" opacity="0.24"></circle>
+            <circle cx="${overlayX}" cy="${y}" r="4" fill="${color}"></circle>
+            <text x="${Math.min(leftPad + chartWidth - 180, overlayX + 14)}" y="${Math.max(22, y - 10)}" fill="${color}" font-size="12" font-weight="600">${label}</text>
+          `);
+        }
+      }
       svg.innerHTML = markupParts.join("");
       svg.dataset.rangeStart = xToTime(leftPad);
       svg.dataset.rangeEnd = xToTime(leftPad + chartWidth);
     }
 
-    function renderOverlayLayers() {
+    function renderEventHoverOverlay() {
       const { state, els } = app;
       const snapshot = state?.snapshot;
-      if (!snapshot || !state.chartView) return;
-
-      const chart = getChartInstance();
-      if (!chart) return;
-
-      const candles = snapshot.candles;
-      const events = els.layerEvents?.checked ? (snapshot.event_annotations || []) : [];
-      const focusRegions = els.layerFocusRegions?.checked ? (snapshot.focus_regions || []) : [];
-      const manualRegions = els.layerManualRegions?.checked ? (state.manualRegions || []) : [];
-      const operatorEntries = els.layerOperatorEntries?.checked ? (state.operatorEntries || []) : [];
-      const aiAnnotations = els.layerAiAnnotations?.checked ? (state.aiAnnotations || []) : [];
-
-      const view = state.chartView;
-      const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
-      const visibleStartTime = new Date(visibleCandles[0]?.started_at).getTime() || 0;
-      const visibleEndTime = new Date(visibleCandles[visibleCandles.length - 1]?.ended_at).getTime() || 0;
-      const chartWidth = els.chartContainer.clientWidth - 18 - 78;
-      const timeToX = (timestamp) => {
-        if (visibleEndTime === visibleStartTime) return 0;
-        return 18 + ((timestamp - visibleStartTime) / (visibleEndTime - visibleStartTime)) * chartWidth;
-      };
-
-      const priceRange = state.chartView?.yMax - state.chartView?.yMin;
-      const chartHeight = els.chartContainer.clientHeight - 20 - 42;
-      const priceToY = (price) => {
-        if (priceRange === 0) return chartHeight / 2;
-        return 20 + ((state.chartView.yMax - price) / priceRange) * chartHeight;
-      };
-
-      focusRegions.forEach((region) => {
-        const regionEnd = region.ended_at || snapshot.window_end;
-        if (region.started_at > visibleEndTime || regionEnd < visibleStartTime) return;
-      });
-
-      manualRegions.forEach((region) => {
-        const regionEnd = region.ended_at || snapshot.window_end;
-        if (region.started_at > visibleEndTime || regionEnd < visibleStartTime) return;
-      });
-
-      events.forEach((event) => {
-        if (event.observed_at < visibleStartTime || event.observed_at > visibleEndTime) return;
-      });
-
-      operatorEntries.forEach((entry) => {
-        if (entry.executed_at < visibleStartTime || entry.executed_at > visibleEndTime) return;
-      });
+      const hoverItem = state?.eventStreamHoverItem;
+      if (!els?.chartSvg) {
+        return;
+      }
+      if (!snapshot?.candles?.length || !hoverItem) {
+        if (window._lwChartState?.chartInstance) {
+          els.chartSvg.innerHTML = "";
+          els.chartSvg.style.display = "none";
+          els.chartSvg.dataset.overlayMode = "false";
+        } else if (snapshot?.candles?.length) {
+          renderChart();
+        }
+        return;
+      }
+      if (!window._lwChartState?.chartInstance || !window._lwChartState?.candleSeries) {
+        renderChart();
+        return;
+      }
+      const overlayTime = snapMarkerToCandle(
+        toMarkerSeconds(hoverItem.observedAt || hoverItem.started_at || hoverItem.time),
+        snapshot.candles,
+      );
+      const width = els.chartFrame?.clientWidth || els.chartSvg.clientWidth || 1200;
+      const height = els.chartFrame?.clientHeight || els.chartSvg.clientHeight || 760;
+      const chartWidth = els.chartContainer?.clientWidth || width;
+      const color = markerLayerStyles[hoverItem.category]?.color || markerLayerStyles.events.color;
+      const label = escapeHtml(hoverItem.title || "事件");
+      const x = Number.isFinite(overlayTime)
+        ? window._lwChartState.chartInstance.timeScale().timeToCoordinate(overlayTime)
+        : chartWidth / 2;
+      const price = Number.isFinite(Number(hoverItem.price)) ? Number(hoverItem.price) : null;
+      const priceLow = Number.isFinite(Number(hoverItem.priceLow)) ? Number(hoverItem.priceLow) : null;
+      const priceHigh = Number.isFinite(Number(hoverItem.priceHigh)) ? Number(hoverItem.priceHigh) : null;
+      const y = price != null ? window._lwChartState.candleSeries.priceToCoordinate(price) : null;
+      const yLow = priceLow != null ? window._lwChartState.candleSeries.priceToCoordinate(priceLow) : null;
+      const yHigh = priceHigh != null ? window._lwChartState.candleSeries.priceToCoordinate(priceHigh) : null;
+      const svg = els.chartSvg;
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.dataset.overlayMode = "true";
+      if ((priceLow != null || priceHigh != null) && Number.isFinite(yLow ?? y) && Number.isFinite(yHigh ?? y)) {
+        const zoneTop = Math.min(yLow ?? y, yHigh ?? y);
+        const zoneHeight = Math.max(12, Math.abs((yHigh ?? y) - (yLow ?? y)));
+        svg.innerHTML = `
+          <rect x="18" y="${zoneTop}" width="${Math.max(0, chartWidth - 36)}" height="${zoneHeight}" fill="${color}" opacity="0.14" stroke="${color}" stroke-width="1.5" rx="8"></rect>
+          <text x="28" y="${Math.max(18, zoneTop - 8)}" fill="${color}" font-size="12" font-weight="600">${label}</text>
+        `;
+        svg.style.display = "block";
+        return;
+      }
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        svg.innerHTML = "";
+        svg.style.display = "none";
+        return;
+      }
+      svg.innerHTML = `
+        <line x1="18" y1="${y}" x2="${Math.max(18, chartWidth - 18)}" y2="${y}" stroke="${color}" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.9"></line>
+        <circle cx="${x}" cy="${y}" r="7" fill="${color}" opacity="0.24"></circle>
+        <circle cx="${x}" cy="${y}" r="4" fill="${color}"></circle>
+        <text x="${Math.min(chartWidth - 180, x + 14)}" y="${Math.max(22, y - 10)}" fill="${color}" font-size="12" font-weight="600">${label}</text>
+      `;
+      svg.style.display = "block";
     }
 
     Object.assign(app, bootReplayWorkbench({
@@ -1047,6 +1887,10 @@
       getRenderSnapshot: () => app.renderSnapshot,
       getBuildRequestPayload: () => buildRequestPayload,
     }));
+    app.renderEventHoverOverlay = renderEventHoverOverlay;
+    window.addEventListener("replay-workbench:hover-item-changed", () => {
+      renderEventHoverOverlay();
+    });
 
     app.attachBindings();
     app.bootstrap();

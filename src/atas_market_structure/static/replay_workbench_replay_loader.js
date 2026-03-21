@@ -83,6 +83,8 @@ export function createReplayLoader({
     state.operatorEntries = [];
     state.manualRegions = [];
     state.aiReview = null;
+    state.chartEventModel = null;
+    state.selectedChartEventClusterKey = null;
     state.selectedCandleIndex = shouldPreserveSelection ? previousSelectedCandleIndex : null;
     state.selectedFootprintBar = shouldPreserveSelection ? previousSelectedFootprintBar : null;
     state.chartView = shouldPreserveChartView ? previousChartView : null;

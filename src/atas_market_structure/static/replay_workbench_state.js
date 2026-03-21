@@ -6,6 +6,7 @@ function createDefaultSession(index = 0) {
   return {
     id: sessionId,
     sessionId,
+    workspaceRole: "analyst",
     title: ordinal,
     pinned: index < 3,
     preset: "general",
@@ -63,9 +64,23 @@ export function createWorkbenchState() {
   const persistedWorkbench = readStorage("workbench", {});
   const persistedSessions = readStorage("sessions", null);
   const persistedFilters = readStorage("annotationFilters", null);
-  const sessions = (Array.isArray(persistedSessions) && persistedSessions.length
+  /** 按 sessionId 去重，避免本地存储或异常合并产生重复条目 */
+  const rawSessions = Array.isArray(persistedSessions) && persistedSessions.length
     ? persistedSessions
-    : [createDefaultSession(0), createDefaultSession(1), createDefaultSession(2)])
+    : [createDefaultSession(0)];
+  const dedupedRaw = [];
+  const seenIds = new Set();
+  for (let i = rawSessions.length - 1; i >= 0; i -= 1) {
+    const s = rawSessions[i];
+    const id = String(s?.id || s?.sessionId || "").trim();
+    if (!id || seenIds.has(id)) {
+      continue;
+    }
+    seenIds.add(id);
+    dedupedRaw.unshift(s);
+  }
+  const sessionsSource = dedupedRaw.length ? dedupedRaw : [createDefaultSession(0)];
+  const sessions = sessionsSource
       .map((session, index) => ({
         ...createDefaultSession(index),
         ...session,
@@ -86,6 +101,7 @@ export function createWorkbenchState() {
         unreadCount: Number.isFinite(session?.unreadCount) ? session.unreadCount : 0,
         scrollOffset: Number.isFinite(session?.scrollOffset) ? session.scrollOffset : 0,
         activePlanId: session?.activePlanId || null,
+        workspaceRole: session?.workspaceRole || "analyst",
         handoffMode: session?.handoffMode || "summary_only",
       }));
 
@@ -101,10 +117,12 @@ export function createWorkbenchState() {
     selectedCandleIndex: null,
     selectedFootprintBar: null,
     selectedAnnotationId: null,
+    selectedChartEventClusterKey: null,
     // chartView 保存当前视口；lastChartUpdateType 用于区分 initial / tail_update / full_reset。
     chartView: null,
     lastChartUpdateType: null,
     chartMetrics: null,
+    chartEventModel: null,
     buildInFlight: false,
     snapshotLoading: false,
     sidebarLoading: false,
@@ -153,6 +171,17 @@ export function createWorkbenchState() {
       recap: persistedWorkbench.drawerState?.recap ?? false,
       gamma: persistedWorkbench.drawerState?.gamma ?? false,
     },
+    layerState: {
+      largeOrders: persistedWorkbench.layerState?.largeOrders ?? false,
+      absorption: persistedWorkbench.layerState?.absorption ?? false,
+      iceberg: persistedWorkbench.layerState?.iceberg ?? false,
+      replenishment: persistedWorkbench.layerState?.replenishment ?? false,
+      events: persistedWorkbench.layerState?.events ?? true,
+      focusRegions: persistedWorkbench.layerState?.focusRegions ?? true,
+      manualRegions: persistedWorkbench.layerState?.manualRegions ?? true,
+      operatorEntries: persistedWorkbench.layerState?.operatorEntries ?? true,
+      aiAnnotations: persistedWorkbench.layerState?.aiAnnotations ?? true,
+    },
     annotationFilters: persistedFilters || {
       onlyCurrentSession: true,
       hideCompleted: true,
@@ -168,6 +197,15 @@ export function createWorkbenchState() {
     aiAnnotations: [],
     pinnedPlanId: persistedWorkbench.pinnedPlanId || null,
     annotationPopoverTargetId: null,
+    symbolWorkspaceState: persistedWorkbench.symbolWorkspaceState || {},
+    eventStreamItems: [],
+    eventStreamHoverItem: null,
+    eventStreamFilter: persistedWorkbench.eventStreamFilter || "all",
+    replyExtractionState: {
+      filter: persistedWorkbench.replyExtractionState?.filter || "all",
+      showIgnored: !!persistedWorkbench.replyExtractionState?.showIgnored,
+      bySymbol: persistedWorkbench.replyExtractionState?.bySymbol || {},
+    },
     sessionComparisonEnabled: false,
     topBar: {
       symbol: persistedWorkbench.topBar?.symbol || "NQ",

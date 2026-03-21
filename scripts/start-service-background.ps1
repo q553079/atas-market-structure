@@ -53,16 +53,21 @@ if (Test-Path -LiteralPath $localEnvFile) {
     . $localEnvFile
 }
 
+$serverHost = if ($env:ATAS_MS_HOST) { $env:ATAS_MS_HOST } else { "127.0.0.1" }
+$serverPort = if ($env:ATAS_MS_PORT) { [int]$env:ATAS_MS_PORT } else { 8080 }
+$probeHost = if ($serverHost -in @("0.0.0.0", "::", "[::]")) { "127.0.0.1" } else { $serverHost }
+
 if (-not $env:OPENAI_API_KEY) {
     Write-Warning "OPENAI_API_KEY is not set. AI endpoints may be unavailable."
 }
 else {
     Write-Host "AI provider: $($env:ATAS_MS_AI_PROVIDER) / model: $($env:ATAS_MS_AI_MODEL)"
 }
+Write-Host "Server bind: $serverHost`:$serverPort"
 
 function Test-WorkbenchRoute {
     try {
-        $response = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8080/workbench/replay" -TimeoutSec 3
+        $response = Invoke-WebRequest -UseBasicParsing "http://${probeHost}:${serverPort}/workbench/replay" -TimeoutSec 3
         return $response.StatusCode -eq 200
     }
     catch {
@@ -70,18 +75,27 @@ function Test-WorkbenchRoute {
     }
 }
 
-function Get-Port8080OwningPid {
-    $line = netstat -ano -p tcp | Select-String '127.0.0.1:8080|0.0.0.0:8080|\[::\]:8080' | Select-Object -First 1
-    if (-not $line) {
+function Get-ServicePortOwningPid {
+    try {
+        $listener = Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction Stop | Select-Object -First 1
+        if (-not $listener) {
+            return $null
+        }
+        return $listener.OwningProcess
+    }
+    catch {
         return $null
     }
+}
 
-    $parts = ($line.Line -replace "\s+", " ").Trim().Split(" ")
-    if ($parts.Length -lt 5) {
-        return $null
-    }
-
-    return $parts[-1]
+function Get-ServerProcess {
+    Get-CimInstance Win32_Process |
+        Where-Object {
+            $_.Name -eq "python.exe" -and
+            $_.CommandLine -like "*-m atas_market_structure.server*"
+        } |
+        Sort-Object CreationDate -Descending |
+        Select-Object -First 1
 }
 
 function Stop-ExistingServerProcess {
@@ -110,13 +124,13 @@ if (Test-Path -LiteralPath $pidFile) {
 
 if (-not $ForceRestart) {
     try {
-        $listener = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction Stop | Select-Object -First 1
+        $listener = Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction Stop | Select-Object -First 1
         if ($listener) {
             if (Test-WorkbenchRoute) {
-                Write-Host "Port 8080 is already serving the current replay workbench. Reusing the existing server."
+                Write-Host "Port $serverPort is already serving the current replay workbench. Reusing the existing server."
                 exit 0
             }
-            Write-Host "Port 8080 is occupied by a stale or incompatible service. Restarting it."
+            Write-Host "Port $serverPort is occupied by a stale or incompatible service. Restarting it."
         }
     }
     catch {
@@ -130,18 +144,34 @@ if ($existingPid) {
     }
 }
 
-$portPid = Get-Port8080OwningPid
+$portPid = Get-ServicePortOwningPid
 if ($portPid) {
     Stop-ExistingServerProcess -PidValue $portPid
 }
 
+$pythonExecutable = (Get-Command python -ErrorAction Stop).Source
+$launchStartedAt = Get-Date
 $process = Start-Process `
-    -FilePath "python" `
+    -FilePath $pythonExecutable `
     -ArgumentList "-m", "atas_market_structure.server" `
     -WorkingDirectory $repoRoot `
     -RedirectStandardOutput $stdoutFile `
     -RedirectStandardError $stderrFile `
     -PassThru
 
-$process.Id | Set-Content -LiteralPath $pidFile -Encoding ascii
-Write-Host "Started server with PID $($process.Id)"
+$resolvedPid = $null
+for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    Start-Sleep -Milliseconds 500
+    $candidate = Get-ServerProcess
+    if ($candidate -and ([datetime]$candidate.CreationDate) -ge $launchStartedAt.AddSeconds(-2)) {
+        $resolvedPid = $candidate.ProcessId
+        break
+    }
+}
+
+if (-not $resolvedPid) {
+    $resolvedPid = $process.Id
+}
+
+$resolvedPid | Set-Content -LiteralPath $pidFile -Encoding ascii
+Write-Host "Started server with PID $resolvedPid"

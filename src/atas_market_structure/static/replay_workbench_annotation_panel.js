@@ -102,7 +102,7 @@ export function createAnnotationPanelController({
     els.annotationObjectList.innerHTML = state.aiAnnotations.filter((item) => shouldListAnnotation(item, filters, state)).length
       ? state.aiAnnotations
           .filter((item) => shouldListAnnotation(item, filters, state))
-          .map((item) => `<div class="annotation-object-row ${state.selectedAnnotationId === item.id ? "active" : ""}" data-annotation-id="${item.id}"><span>[${sessions.find((s) => s.id === item.session_id)?.title || "--"}] ${item.label}</span><span>${item.status}</span><div class="button-row tight"><button type="button" class="secondary tiny" data-annotation-action="locate" data-annotation-id="${item.id}">定位</button><button type="button" class="secondary tiny" data-annotation-action="only" data-annotation-id="${item.id}">仅看此对象</button><button type="button" class="secondary tiny" data-annotation-action="pin" data-annotation-id="${item.id}">${item.pinned ? "取消固定" : "固定"}</button><button type="button" class="secondary tiny" data-annotation-action="source" data-annotation-id="${item.id}">来源</button><button type="button" class="secondary tiny" data-annotation-action="toggle" data-annotation-id="${item.id}">${item.visible === false ? "显示" : "隐藏"}</button><button type="button" class="secondary tiny" data-annotation-action="delete" data-annotation-id="${item.id}">删除</button></div></div>`).join("")
+          .map((item) => `<div class="annotation-object-row ${state.selectedAnnotationId === item.id ? "active" : ""}" data-annotation-id="${item.id}"><span>[${sessions.find((s) => s.id === item.session_id)?.title || "--"}] ${item.label}</span><span>${item.status}</span><div class="button-row tight"><button type="button" class="secondary tiny" data-annotation-action="locate" data-annotation-id="${item.id}">定位</button><button type="button" class="secondary tiny" data-annotation-action="only" data-annotation-id="${item.id}">仅看此对象</button><button type="button" class="secondary tiny" data-annotation-action="pin" data-annotation-id="${item.id}">${item.pinned ? "取消固定" : "固定"}</button><button type="button" class="secondary tiny" data-annotation-action="source" data-annotation-id="${item.id}">原回复</button><button type="button" class="secondary tiny" data-annotation-action="toggle" data-annotation-id="${item.id}">${item.visible === false ? "显示" : "隐藏"}</button><button type="button" class="secondary tiny" data-annotation-action="delete" data-annotation-id="${item.id}">删除</button></div></div>`).join("")
       : `<div class="empty-note">当前筛选条件下暂无 AI 标记对象。</div>`;
 
     bindFilterInputs();
@@ -165,7 +165,7 @@ export function createAnnotationPanelController({
         }
         if (action === "source") {
           applyAnnotationScope?.(id, {
-            mode: "source",
+            mode: "reply",
             activateSession: true,
             jumpToSource: true,
             render: true,

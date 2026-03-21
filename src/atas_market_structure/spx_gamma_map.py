@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from html import escape
 from pathlib import Path
 
@@ -1937,7 +1937,7 @@ def _history_timestamp(summary: GammaMapSummary) -> str:
         token = re.sub(r"[^0-9]", "", summary.quote_time)
         if token:
             return token[:14]
-    return datetime.now().strftime("%Y%m%d%H%M%S")
+    return datetime.now(tz=UTC).strftime("%Y%m%d%H%M%S")
 
 
 def _load_latest_history_summary(output_dir: Path, *, stem: str) -> dict[str, object] | None:

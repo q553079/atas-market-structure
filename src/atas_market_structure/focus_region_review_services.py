@@ -20,6 +20,15 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+
+def _parse_utc(value: str) -> datetime:
+    """Parse an ISO datetime string and normalize it to UTC."""
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 from atas_market_structure.analysis_orchestration_services import DeepRegionAnalysisResult
 from atas_market_structure.repository import AnalysisRepository
 
@@ -337,8 +346,8 @@ class FocusRegionReviewService:
                 instrument_symbol=payload["instrument_symbol"],
                 timeframe=payload["timeframe"],
                 session=payload.get("session"),
-                time_range_start=datetime.fromisoformat(payload["time_range_start"]),
-                time_range_end=datetime.fromisoformat(payload["time_range_end"]),
+                time_range_start=_parse_utc(payload["time_range_start"]),
+                time_range_end=_parse_utc(payload["time_range_end"]),
                 price_range_low=payload["price_range_low"],
                 price_range_high=payload["price_range_high"],
                 selection_source=payload["selection_source"],
@@ -359,11 +368,11 @@ class FocusRegionReviewService:
                 review_status=payload.get("review_status", "pending"),
                 reviewer_notes=payload.get("reviewer_notes", ""),
                 reviewed_at=(
-                    datetime.fromisoformat(payload["reviewed_at"])
+                    _parse_utc(payload["reviewed_at"])
                     if payload.get("reviewed_at")
                     else None
                 ),
-                stored_at=datetime.fromisoformat(payload["stored_at"]),
+                stored_at=_parse_utc(payload["stored_at"]),
             )
         except (KeyError, ValueError):
             return None

@@ -691,6 +691,29 @@ class SQLiteAnalysisRepository:
                 )
                 """,
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chart_candles (
+                    symbol          TEXT    NOT NULL,
+                    timeframe       TEXT    NOT NULL,
+                    started_at      TEXT    NOT NULL,
+                    ended_at        TEXT    NOT NULL,
+                    open            REAL    NOT NULL,
+                    high            REAL    NOT NULL,
+                    low             REAL    NOT NULL,
+                    close           REAL    NOT NULL,
+                    volume          INTEGER NOT NULL DEFAULT 0,
+                    tick_volume     INTEGER NOT NULL DEFAULT 0,
+                    delta           INTEGER NOT NULL DEFAULT 0,
+                    updated_at      TEXT    NOT NULL,
+                    PRIMARY KEY (symbol, timeframe, started_at)
+                )
+                """,
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chart_candles_symbol_tf_started "
+                "ON chart_candles (symbol, timeframe, started_at DESC)"
+            )
             connection.execute("CREATE INDEX IF NOT EXISTS idx_ingestions_symbol_time ON ingestions (instrument_symbol, stored_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_analyses_ingestion ON analyses (ingestion_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_liquidity_memories_symbol_expiry ON liquidity_memories (instrument_symbol, expires_at, updated_at)")
@@ -1343,10 +1366,177 @@ class SQLiteAnalysisRepository:
 
     @staticmethod
     def _parse_datetime(value: str) -> datetime:
-        return datetime.fromisoformat(value)
+        dt = datetime.fromisoformat(value)
+        # Ensure UTC awareness — the codebase convention is UTC everywhere.
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
 
     @classmethod
     def _parse_datetime_optional(cls, value: str | None) -> datetime | None:
         if value is None:
             return None
         return cls._parse_datetime(value)
+
+    # ─── Chart Candles ──────────────────────────────────────────────────────────
+
+    def upsert_chart_candle(self, candle: "ChartCandle") -> "ChartCandle":
+        """Insert or update a single chart candle.  Raises on validation error."""
+        from atas_market_structure.models._replay import ChartCandle as ChartCandleModel
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chart_candles
+                    (symbol, timeframe, started_at, ended_at,
+                     open, high, low, close, volume, tick_volume, delta, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
+                    high        = MAX(excluded.high,  chart_candles.high),
+                    low         = MIN(excluded.low,   chart_candles.low),
+                    close       = excluded.close,
+                    volume      = chart_candles.volume    + (excluded.volume    - MAX(chart_candles.open, chart_candles.high, chart_candles.low, chart_candles.close)),
+                    tick_volume = chart_candles.tick_volume + excluded.tick_volume,
+                    delta       = chart_candles.delta       + excluded.delta,
+                    updated_at  = excluded.updated_at
+                """,
+                (
+                    candle.symbol,
+                    candle.timeframe.value,
+                    self._serialize_datetime(candle.started_at),
+                    self._serialize_datetime(candle.ended_at),
+                    candle.open,
+                    candle.high,
+                    candle.low,
+                    candle.close,
+                    candle.volume,
+                    candle.tick_volume,
+                    candle.delta,
+                    self._serialize_datetime(candle.updated_at),
+                ),
+            )
+            conn.commit()
+        return candle
+
+    def upsert_chart_candles(self, candles: list["ChartCandle"]) -> int:
+        """Bulk upsert a list of chart candles. Returns number of rows written."""
+        if not candles:
+            return 0
+        rows = [
+            (
+                c.symbol,
+                c.timeframe.value,
+                self._serialize_datetime(c.started_at),
+                self._serialize_datetime(c.ended_at),
+                c.open,
+                c.high,
+                c.low,
+                c.close,
+                c.volume,
+                c.tick_volume,
+                c.delta,
+                self._serialize_datetime(c.updated_at),
+            )
+            for c in candles
+        ]
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO chart_candles
+                    (symbol, timeframe, started_at, ended_at,
+                     open, high, low, close, volume, tick_volume, delta, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
+                    high        = MAX(excluded.high,  chart_candles.high),
+                    low         = MIN(excluded.low,   chart_candles.low),
+                    close       = excluded.close,
+                    volume      = chart_candles.volume      + excluded.volume,
+                    tick_volume = chart_candles.tick_volume + excluded.tick_volume,
+                    delta       = chart_candles.delta       + excluded.delta,
+                    updated_at  = excluded.updated_at
+                """,
+                rows,
+            )
+            conn.commit()
+        return len(candles)
+
+    def list_chart_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 20000,
+    ) -> list["ChartCandle"]:
+        """Return pre-aggregated chart candles for a symbol/timeframe/window.
+
+        The returned list is ordered ASC by started_at, ready for the UI.
+        """
+        from atas_market_structure.models._replay import ChartCandle as ChartCandleModel
+        from atas_market_structure.models._enums import Timeframe
+
+        tf_value = Timeframe(timeframe).value
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT symbol, timeframe, started_at, ended_at,
+                       open, high, low, close, volume, tick_volume, delta, updated_at
+                  FROM chart_candles
+                 WHERE symbol    = ?
+                   AND timeframe = ?
+                   AND started_at >= ?
+                   AND started_at <= ?
+                 ORDER BY started_at ASC
+                 LIMIT ?
+                """,
+                (
+                    symbol,
+                    tf_value,
+                    self._serialize_datetime(window_start),
+                    self._serialize_datetime(window_end),
+                    limit,
+                ),
+            ).fetchall()
+
+        return [
+            ChartCandleModel(
+                symbol=row["symbol"],
+                timeframe=Timeframe(row["timeframe"]),
+                started_at=self._parse_datetime(row["started_at"]),
+                ended_at=self._parse_datetime(row["ended_at"]),
+                open=row["open"],
+                high=row["high"],
+                low=row["low"],
+                close=row["close"],
+                volume=row["volume"],
+                tick_volume=row["tick_volume"],
+                delta=row["delta"],
+                updated_at=self._parse_datetime(row["updated_at"]),
+            )
+            for row in rows
+        ]
+
+    def count_chart_candles(self, symbol: str, timeframe: str) -> int:
+        """Return total candle count for a symbol/timeframe, useful for backfill status."""
+        from atas_market_structure.models._enums import Timeframe
+
+        tf_value = Timeframe(timeframe).value
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM chart_candles WHERE symbol = ? AND timeframe = ?",
+                (symbol, tf_value),
+            ).fetchone()
+        return row["cnt"] if row else 0
+
+    def purge_chart_candles(self, *, symbol: str | None, older_than: datetime) -> int:
+        """Delete chart candle rows older than a cutoff. Returns row count."""
+        where_parts = ["updated_at < ?"]
+        params: list[Any] = [self._serialize_datetime(older_than)]
+        if symbol:
+            where_parts.insert(0, "symbol = ?")
+            params.insert(0, symbol)
+        where_clause = "WHERE " + " AND ".join(where_parts)
+        with self._connect() as conn:
+            cur = conn.execute(f"DELETE FROM chart_candles {where_clause}", tuple(params))
+            conn.commit()
+        return cur.rowcount

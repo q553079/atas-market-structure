@@ -21,6 +21,7 @@ from atas_market_structure.ai_review_services import (
     ReplayAiChatService,
 )
 from atas_market_structure.app_routes import handle_analysis_routes, handle_chat_routes, handle_options_routes
+from atas_market_structure.chart_candle_service import ChartCandleService
 from atas_market_structure.app_shared import NotFoundError
 from atas_market_structure.config import AppConfig
 from atas_market_structure.depth_services import DepthMonitoringService
@@ -115,6 +116,7 @@ class MarketStructureApplication:
             repository=repository,
             replay_ai_chat_service=self._replay_ai_chat_service,
         )
+        self._chart_candle_service = ChartCandleService(repository=repository)
         self._analysis_pattern = re.compile(r"^/api/v1/analyses/(?P<analysis_id>[^/]+)$")
         self._ingestion_pattern = re.compile(r"^/api/v1/ingestions/(?P<ingestion_id>[^/]+)$")
         self._logger = LOGGER
@@ -312,7 +314,51 @@ class MarketStructureApplication:
                 except Exception as e:
                     return self._json_response(500, {"error": str(e)})
 
-            if method == "POST" and route_path == "/api/v1/workbench/operator-entries":
+            # ── Chart Candles ────────────────────────────────────────────────
+            # GET /api/v1/workbench/chart-candles?symbol=NQ&timeframe=1m&window_start=...&window_end=...
+            if method == "GET" and route_path == "/api/v1/workbench/chart-candles":
+                symbol = query.get("symbol", [None])[0]
+                tf_raw = query.get("timeframe", [None])[0]
+                ws_raw = query.get("window_start", [None])[0]
+                we_raw = query.get("window_end", [None])[0]
+                if not symbol or not tf_raw or not ws_raw or not we_raw:
+                    return self._json_response(
+                        400,
+                        {"error": "missing_query_parameter", "detail": "symbol, timeframe, window_start, window_end are required."},
+                    )
+                try:
+                    tf = Timeframe(tf_raw)
+                    ws = self._parse_datetime_arg(ws_raw)
+                    we = self._parse_datetime_arg(we_raw)
+                    limit = int(query.get("limit", ["20000"])[0])
+                except (ValueError, TypeError) as e:
+                    return self._json_response(400, {"error": "invalid_parameter", "detail": str(e)})
+                candles = self._chart_candle_service.get_candles(symbol, tf, ws, we, limit=limit)
+                return self._json_model_response(200, {
+                    "symbol": symbol,
+                    "timeframe": tf.value,
+                    "window_start": ws,
+                    "window_end": we,
+                    "count": len(candles),
+                    "candles": candles,
+                })
+
+            # POST /api/v1/workbench/chart-candles/backfill
+            if method == "POST" and route_path == "/api/v1/workbench/chart-candles/backfill":
+                from atas_market_structure.models._replay import ChartCandleBackfillRequest, ChartCandleBackfillEnvelope
+                req = ChartCandleBackfillRequest.model_validate_json(body or b"{}")
+                started = datetime.now(tz=UTC)
+                result = self._chart_candle_service.backfill_from_ingestions(req.symbol, req.to_timeframes)
+                total_written = sum(result.values())
+                env = ChartCandleBackfillEnvelope(
+                    symbol=req.symbol,
+                    backfill_started=started,
+                    bars_aggregated=0,
+                    candles_written=total_written,
+                )
+                return self._json_model_response(200, env)
+
+            # POST /api/v1/workbench/operator-entries
                 payload = ReplayOperatorEntryRequest.model_validate_json(body or b"{}")
                 response = self._replay_workbench_service.record_operator_entry(payload)
                 return self._json_model_response(201, response)
@@ -420,7 +466,7 @@ class MarketStructureApplication:
     @staticmethod
     def _json_model_response(
         status_code: int,
-        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse,
+        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope,
     ) -> HttpResponse:
         payload = model.model_dump(mode="json")
         return MarketStructureApplication._json_response(status_code, payload)
@@ -442,6 +488,14 @@ class MarketStructureApplication:
             },
             stream_chunks=tuple(chunks),
         )
+
+    @staticmethod
+    def _parse_datetime_arg(value: str | None) -> datetime:
+        """Parse a datetime query-string value, supporting bare ISO or space-separated."""
+        if not value:
+            raise TypeError("datetime value must not be None")
+        normalized = _normalize_query_datetime(value)
+        return datetime.fromisoformat(normalized).astimezone(UTC)
 
     @staticmethod
     def _json_response(status_code: int, payload: dict[str, Any]) -> HttpResponse:

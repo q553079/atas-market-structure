@@ -22,6 +22,32 @@ function toChartTime(value) {
   return 0;
 }
 
+/** 横轴与十字线统一用 UTC，避免与「UTC 20:52」对照时因浏览器本地时区产生 8h 等偏差 */
+function formatUtcChartTime(time) {
+  if (typeof time === "number") {
+    const d = new Date(time * 1000);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const min = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${mm}/${dd} ${hh}:${min} UTC`;
+  }
+  if (time && typeof time === "object" && "year" in time) {
+    return `${time.year}-${String(time.month).padStart(2, "0")}-${String(time.day).padStart(2, "0")}`;
+  }
+  return "";
+}
+
+function utcTickMarkFormatter(time) {
+  if (typeof time === "number") {
+    const d = new Date(time * 1000);
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const min = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${hh}:${min}`;
+  }
+  return null;
+}
+
 function buildChartData(snapshot) {
   const candles = snapshot?.candles || [];
   const candleData = candles.map((bar) => ({
@@ -75,6 +101,17 @@ function buildSnapshotSignature(snapshot) {
   }
   const lastBar = candles[candles.length - 1] || {};
   return `${candles.length}:${lastBar.started_at || ""}:${lastBar.ended_at || ""}:${lastBar.close || ""}`;
+}
+
+function syncStateChartViewFromLogicalRange(logicalRange, snapshot, chartView) {
+  if (!logicalRange || !snapshot?.candles?.length || !chartView) {
+    return;
+  }
+  const lastIndex = snapshot.candles.length - 1;
+  const from = Number.isFinite(logicalRange.from) ? logicalRange.from : 0;
+  const to = Number.isFinite(logicalRange.to) ? logicalRange.to : lastIndex;
+  chartView.startIndex = Math.max(0, Math.min(lastIndex, Math.floor(from)));
+  chartView.endIndex = Math.max(chartView.startIndex, Math.min(lastIndex, Math.ceil(to)));
 }
 
 function canApplyTailUpdate(snapshot, updateType) {
@@ -203,6 +240,12 @@ export function initLightweightCharts(els) {
       lockVisibleTimeRangeOnResize: false,
       fixLeftEdge: false,
       fixRightEdge: false,
+      tickMarkFormatter: utcTickMarkFormatter,
+    },
+    localization: {
+      locale: "en-US",
+      dateFormat: "dd MMM 'yy",
+      timeFormatter: formatUtcChartTime,
     },
     rightPriceScale: {
       visible: true,
@@ -375,6 +418,10 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
     }
   }
 
+  if (candleSeries?.setMarkers) {
+    candleSeries.setMarkers(Array.isArray(options.markers) ? options.markers : []);
+  }
+
   if (chartInstance && snapshot?.candles?.length && chartView) {
     const logicalRange = chartInstance.timeScale().getVisibleLogicalRange?.();
     if (logicalRange) {
@@ -444,6 +491,14 @@ export function subscribeClick(callback, els = null) {
   if (els?.chartContainer) {
     els.chartContainer.addEventListener("contextmenu", (e) => {
       e.preventDefault();
+    });
+  }
+}
+
+export function subscribeVisibleRangeChange(callback) {
+  if (chartInstance?.timeScale) {
+    chartInstance.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      callback(range);
     });
   }
 }

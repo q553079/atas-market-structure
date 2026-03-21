@@ -35,7 +35,7 @@ class AdapterIngestionService:
     ) -> None:
         self._repository = repository
         self._orchestrator = orchestrator or IngestionOrchestrator(repository=repository)
-        self._bridge = bridge or AdapterPayloadBridge(regime_monitor=RegimeMonitor())
+        self._bridge = bridge or AdapterPayloadBridge(regime_monitor=RegimeMonitor(repository=repository))
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> AdapterAcceptedResponse:
         self._bridge.regime_monitor.ingest_continuous_state(payload)
@@ -144,6 +144,11 @@ class AdapterIngestionService:
     def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> AdapterAcceptedResponse:
         self._purge_expired_history(payload.instrument.symbol)
         self._bridge.regime_monitor.ingest_history_bars(payload)
+        # Bulk-persist into chart_candles for all timeframes
+        bars_dicts = [b.model_dump() for b in payload.bars]
+        self._bridge.regime_monitor.persist_history_bars(
+            payload.instrument.symbol.upper(), bars_dicts
+        )
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
             observed_window_start=payload.observed_window_start,

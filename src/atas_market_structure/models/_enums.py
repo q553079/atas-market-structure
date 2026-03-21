@@ -13,6 +13,7 @@ class Timeframe(str, Enum):
     DAY_1 = "1d"
     DAY_3 = "3d"
     HOUR_1 = "1h"
+    HOUR_4 = "4h"
     MIN_30 = "30m"
     MIN_15 = "15m"
     MIN_5 = "5m"
