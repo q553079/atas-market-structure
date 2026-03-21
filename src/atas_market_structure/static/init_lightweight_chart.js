@@ -48,6 +48,18 @@ function utcTickMarkFormatter(time) {
   return null;
 }
 
+function getBarVolume(bar) {
+  if (!bar || typeof bar !== "object") {
+    return 0;
+  }
+  return Number(
+    bar.bar_total_price_level_volume
+    ?? bar.total_volume
+    ?? bar.volume
+    ?? 0,
+  ) || 0;
+}
+
 function buildChartData(snapshot) {
   const candles = snapshot?.candles || [];
   const candleData = candles.map((bar) => ({
@@ -60,7 +72,7 @@ function buildChartData(snapshot) {
 
   const volumeData = candles.map((bar) => ({
     time: toChartTime(bar.started_at),
-    value: Number(bar.volume) || 0,
+    value: getBarVolume(bar),
     color: Number(bar.close) >= Number(bar.open)
       ? "rgba(34, 171, 148, 0.58)"
       : "rgba(242, 54, 69, 0.58)",
@@ -169,7 +181,7 @@ function applyTailUpdate(snapshot) {
   };
   const latestVolume = {
     time: toChartTime(latestBar.started_at),
-    value: Number(latestBar.volume) || 0,
+    value: getBarVolume(latestBar),
     color: Number(latestBar.close) >= Number(latestBar.open)
       ? "rgba(34, 171, 148, 0.58)"
       : "rgba(242, 54, 69, 0.58)",
@@ -294,6 +306,12 @@ export function initLightweightCharts(els) {
     ...chartOptions,
     width: volumeWidth,
     height: volumeHeight,
+    timeScale: {
+      ...chartOptions.timeScale,
+      visible: false,
+      borderVisible: false,
+      ticksVisible: false,
+    },
     rightPriceScale: {
       visible: false,
       borderColor: "#2d3748",
