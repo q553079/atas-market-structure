@@ -16,6 +16,14 @@ def _env(name: str, default: str) -> str:
     return os.getenv(name, default).strip()
 
 
+def _env_int(name: str, default: int) -> int:
+    return int(_env(name, str(default)))
+
+
+def _env_float(name: str, default: float) -> float:
+    return float(_env(name, str(default)))
+
+
 def _base_http_url() -> str:
     return _env("ATAS_RT_BASE_URL", "http://127.0.0.1:8090").rstrip("/")
 
@@ -25,13 +33,26 @@ def _ws_url() -> str:
 
 
 def _clickhouse_client():
-    return clickhouse_connect.get_client(
-        host=_env("CLICKHOUSE_HOST", "127.0.0.1"),
-        port=int(_env("CLICKHOUSE_PORT", "8123")),
-        username=_env("CLICKHOUSE_USER", "default"),
-        password=_env("CLICKHOUSE_PASSWORD", ""),
-        database=_env("CLICKHOUSE_DB", "market_data"),
-    )
+    retries = _env_int("CLICKHOUSE_CONNECT_RETRIES", 5)
+    retry_delay_seconds = _env_float("CLICKHOUSE_RETRY_DELAY_SECONDS", 1.5)
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            client = clickhouse_connect.get_client(
+                host=_env("CLICKHOUSE_HOST", "127.0.0.1"),
+                port=int(_env("CLICKHOUSE_PORT", "8123")),
+                username=_env("CLICKHOUSE_USER", "default"),
+                password=_env("CLICKHOUSE_PASSWORD", ""),
+                database=_env("CLICKHOUSE_DB", "market_data"),
+            )
+            client.query("SELECT 1")
+            return client
+        except Exception as exc:
+            last_error = exc
+            if attempt == retries:
+                break
+            sleep(retry_delay_seconds * attempt)
+    raise RuntimeError("Unable to connect to ClickHouse after retries.") from last_error
 
 
 def _table_name() -> str:

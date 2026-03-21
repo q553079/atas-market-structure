@@ -1,5 +1,72 @@
 import { createPlanId, summarizeText, writeStorage } from "./replay_workbench_ui_utils.js";
 
+function normalizeLifecycleStatus(status, type = "") {
+  const raw = String(status || "").trim().toLowerCase();
+  const normalizedType = String(type || "").trim().toLowerCase();
+  const activeStatuses = new Set(["active", "triggered", "tp_hit"]);
+  const terminalSuccessStatuses = new Set(["completed"]);
+  const terminalFailureStatuses = new Set(["sl_hit", "invalidated", "expired", "archived"]);
+
+  if (activeStatuses.has(raw)) {
+    return {
+      status: raw,
+      lifecycle_stage: raw === "triggered" || raw === "tp_hit" ? "in_progress" : "active",
+      lifecycle_bucket: "active",
+      terminal: false,
+      outcome: raw === "tp_hit" ? "partial_profit" : null,
+      visual_state: raw === "tp_hit" ? "green_dot" : "blue_dot",
+    };
+  }
+  if (terminalSuccessStatuses.has(raw)) {
+    return {
+      status: raw,
+      lifecycle_stage: "closed",
+      lifecycle_bucket: "completed",
+      terminal: true,
+      outcome: "completed",
+      visual_state: "green_check",
+    };
+  }
+  if (raw === "sl_hit") {
+    return {
+      status: raw,
+      lifecycle_stage: "closed",
+      lifecycle_bucket: "invalidated",
+      terminal: true,
+      outcome: "stop_loss_hit",
+      visual_state: "red_cross",
+    };
+  }
+  if (terminalFailureStatuses.has(raw)) {
+    return {
+      status: raw,
+      lifecycle_stage: "closed",
+      lifecycle_bucket: raw === "archived" ? "archived" : "invalidated",
+      terminal: true,
+      outcome: raw,
+      visual_state: raw === "archived" ? "gray_cross" : "gray_dot",
+    };
+  }
+  if (raw === "inactive_waiting_entry") {
+    return {
+      status: raw,
+      lifecycle_stage: normalizedType === "stop_loss" || normalizedType === "take_profit" ? "pending_entry" : "draft",
+      lifecycle_bucket: "pending",
+      terminal: false,
+      outcome: null,
+      visual_state: "gray_dot",
+    };
+  }
+  return {
+    status: raw || "active",
+    lifecycle_stage: raw === "draft" ? "draft" : "active",
+    lifecycle_bucket: raw === "draft" ? "pending" : "active",
+    terminal: false,
+    outcome: null,
+    visual_state: raw === "draft" ? "gray_dot" : "blue_dot",
+  };
+}
+
 function normalizePlanCard(raw = {}) {
   return {
     id: raw.id || raw.plan_id || createPlanId(),
@@ -33,10 +100,16 @@ function normalizeAnnotation(raw = {}, { session, messageId, state, planId = nul
   const endTime = raw.end_time || latestCandle?.ended_at || state.snapshot?.window_end || new Date().toISOString();
   const type = raw.type || raw.annotation_type || raw.subtype || "entry_line";
   const isPendingPlanChild = ["stop_loss", "take_profit"].includes(type) && raw.status == null;
+  const createdAt = raw.created_at || raw.createdAt || startTime;
+  const updatedAt = raw.updated_at || raw.updatedAt || endTime || createdAt;
+  const normalizedLifecycle = normalizeLifecycleStatus(raw.status || (isPendingPlanChild ? "inactive_waiting_entry" : "active"), type);
   return {
     id: raw.id || `${planId || session.id}-${messageId}-${type}-${Math.random().toString(36).slice(2, 8)}`,
+    annotation_id: raw.annotation_id || raw.id || null,
+    object_id: raw.object_id || raw.annotation_id || raw.id || null,
     session_id: raw.session_id || session.id,
     message_id: raw.message_id || messageId,
+    source_message_id: raw.source_message_id || raw.message_id || messageId,
     plan_id: raw.plan_id || planId || null,
     symbol: raw.symbol || state.topBar?.symbol || state.snapshot?.instrument_symbol || "",
     timeframe: raw.timeframe || state.topBar?.timeframe || state.snapshot?.display_timeframe || "",
@@ -47,12 +120,18 @@ function normalizeAnnotation(raw = {}, { session, messageId, state, planId = nul
     start_time: startTime,
     end_time: endTime,
     expires_at: raw.expires_at || null,
-    status: raw.status || (isPendingPlanChild ? "inactive_waiting_entry" : "active"),
+    status: normalizedLifecycle.status,
+    lifecycle_stage: raw.lifecycle_stage || normalizedLifecycle.lifecycle_stage,
+    lifecycle_bucket: raw.lifecycle_bucket || normalizedLifecycle.lifecycle_bucket,
+    lifecycle_terminal: raw.lifecycle_terminal ?? normalizedLifecycle.terminal,
+    lifecycle_outcome: raw.lifecycle_outcome || normalizedLifecycle.outcome,
+    visual_state: raw.visual_state || normalizedLifecycle.visual_state,
     priority: raw.priority ?? null,
     confidence: raw.confidence ?? null,
     visible: raw.visible !== false,
     pinned: !!raw.pinned,
     source_kind: raw.source_kind || "replay_analysis",
+    source_reply_title: raw.source_reply_title || raw.reply_title || raw.replyTitle || null,
     side: raw.side || null,
     entry_price: raw.entry_price ?? raw.entryPrice ?? null,
     stop_price: raw.stop_price ?? raw.stopPrice ?? null,
@@ -61,6 +140,8 @@ function normalizeAnnotation(raw = {}, { session, messageId, state, planId = nul
     price_low: raw.price_low ?? raw.low ?? null,
     price_high: raw.price_high ?? raw.high ?? null,
     path_points: raw.path_points || [],
+    created_at: createdAt,
+    updated_at: updatedAt,
   };
 }
 

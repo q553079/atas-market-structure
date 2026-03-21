@@ -12,7 +12,8 @@ from atas_market_structure.ai_review_services import (
 )
 from atas_market_structure.app import MarketStructureApplication
 from atas_market_structure.config import AppConfig
-from atas_market_structure.repository import SQLiteAnalysisRepository
+from atas_market_structure.repository import AnalysisRepository, SQLiteAnalysisRepository
+from atas_market_structure.repository_clickhouse import ClickHouseChartCandleRepository, HybridAnalysisRepository
 from atas_market_structure.strategy_library_services import StrategyLibraryService
 
 
@@ -55,8 +56,30 @@ class ApplicationRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(response.body)
 
 
+def build_repository(config: AppConfig) -> AnalysisRepository:
+    sqlite_repository = SQLiteAnalysisRepository(database_path=config.database_path)
+
+    market_data_repository = ClickHouseChartCandleRepository(
+        host=config.clickhouse_host,
+        port=config.clickhouse_port,
+        username=config.clickhouse_user,
+        password=config.clickhouse_password,
+        database=config.clickhouse_database,
+        table=config.clickhouse_chart_candles_table,
+        workspace_root=sqlite_repository.workspace_root,
+        ingestions_table=config.clickhouse_ingestions_table,
+        connect_retries=config.clickhouse_connect_retries,
+        retry_delay_seconds=config.clickhouse_retry_delay_seconds,
+    )
+    return HybridAnalysisRepository(
+        metadata_repository=sqlite_repository,
+        chart_candle_repository=market_data_repository,
+        ingestion_repository=market_data_repository,
+    )
+
+
 def build_application(config: AppConfig) -> MarketStructureApplication:
-    repository = SQLiteAnalysisRepository(database_path=config.database_path)
+    repository = build_repository(config)
     repository.initialize()
     replay_ai_review_service = ReplayAiReviewService(
         repository=repository,

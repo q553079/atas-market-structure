@@ -291,6 +291,10 @@ class ChartCandle(BaseModel):
     timeframe: Timeframe = Field(..., description="Bar timeframe.")
     started_at: datetime = Field(..., description="Inclusive bar start in UTC.")
     ended_at: datetime = Field(..., description="Inclusive bar end in UTC.")
+    source_started_at: datetime | None = Field(
+        None,
+        description="Original source-bar start in UTC, used to preserve open/close ordering during append-only storage.",
+    )
     open: float = Field(..., description="Bar open price.", examples=[21540.25])
     high: float = Field(..., description="Bar high price.", examples=[21548.0])
     low: float = Field(..., description="Bar low price.", examples=[21535.5])
@@ -688,6 +692,10 @@ class ReplayWorkbenchAtasBackfillRecord(BaseModel):
     window_end: datetime = Field(..., description="Inclusive replay window end.")
     chart_instance_id: str | None = Field(None, description="Preferred chart instance when explicitly targeted.")
     missing_segments: list[ReplayWorkbenchGapSegment] = Field(default_factory=list, description="Observed missing segments.")
+    requested_ranges: list[ReplayWorkbenchBackfillRange] = Field(
+        default_factory=list,
+        description="Explicit bar-time ranges that should be resent during backfill.",
+    )
     reason: str = Field(..., description="Why the request exists.")
     request_history_bars: bool = Field(..., description="Whether history bars should be resent.")
     request_history_footprint: bool = Field(..., description="Whether history footprint should be resent.")
@@ -736,6 +744,10 @@ class ReplayWorkbenchAtasBackfillRequest(BaseModel):
     missing_segments: list[ReplayWorkbenchGapSegment] = Field(
         default_factory=list,
         description="Detected candle-time holes to help the adapter understand what should be resent.",
+    )
+    requested_ranges: list[ReplayWorkbenchBackfillRange] = Field(
+        default_factory=list,
+        description="Optional explicit resend ranges; when omitted the server derives them from missing segments.",
     )
     reason: str = Field(
         "candle_gap_detected",
@@ -897,6 +909,18 @@ class ReplayWorkbenchGapSegment(BaseModel):
     )
 
 
+
+class ReplayWorkbenchBackfillRange(BaseModel):
+    """One explicit time range the adapter should prioritize during a backfill resend."""
+
+    range_start: datetime = Field(..., description="Inclusive backfill range start in UTC.")
+    range_end: datetime = Field(..., description="Inclusive backfill range end in UTC.")
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "ReplayWorkbenchBackfillRange":
+        if self.range_end < self.range_start:
+            raise ValueError("range_end must be greater than or equal to range_start")
+        return self
 
 class ReplayWorkbenchInvalidationRequest(BaseModel):
     """Manual invalidation request for a cached replay packet."""
@@ -1127,5 +1151,6 @@ class ReplayWorkbenchSnapshotPayload(BaseModel):
         if self.verification_state.status == ReplayVerificationStatus.INVALIDATED and self.verification_state.invalidated_at is None:
             raise ValueError("invalidated replay packets must include invalidated_at")
         return self
+
 
 

@@ -184,6 +184,7 @@ class ChartCandleService:
                     timeframe=tf,
                     started_at=bucket_start,
                     ended_at=bucket_end,
+                    source_started_at=raw_first.astimezone(UTC),
                     open=open_,
                     high=high,
                     low=low,

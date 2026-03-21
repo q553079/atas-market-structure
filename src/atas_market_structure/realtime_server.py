@@ -60,6 +60,24 @@ def _log_background_task_failure(task: asyncio.Task[None]) -> None:
         LOGGER.exception("Background persistence worker stopped unexpectedly.", exc_info=exception)
 
 
+async def _wait_for_redis_ready(redis_client: Redis, config: RealtimeConfig) -> None:
+    last_error: Exception | None = None
+    for attempt in range(1, config.connect_retries + 1):
+        try:
+            await redis_client.ping()
+            return
+        except Exception as exc:
+            last_error = exc
+            LOGGER.warning(
+                "Redis connection attempt %s/%s failed: %s",
+                attempt,
+                config.connect_retries,
+                exc,
+            )
+            await asyncio.sleep(config.retry_delay_seconds * attempt)
+    raise RuntimeError("Unable to connect to Redis after retries.") from last_error
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = _app_config(app)
@@ -70,7 +88,7 @@ async def lifespan(app: FastAPI):
         health_check_interval=30,
     )
     app.state.redis = redis_client
-    await redis_client.ping()
+    await _wait_for_redis_ready(redis_client, config)
     persistence_task = asyncio.create_task(
         run_tick_persistence_worker(redis_client, config),
         name="tick-persistence-worker",

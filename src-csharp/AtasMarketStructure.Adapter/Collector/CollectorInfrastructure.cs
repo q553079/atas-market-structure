@@ -331,12 +331,19 @@ internal static class AtasReflection
         return value switch
         {
             null => null,
-            DateTime dateTime => dateTime.Kind == DateTimeKind.Utc ? dateTime : dateTime.ToUniversalTime(),
+            DateTime dateTime => NormalizeUtc(dateTime),
             DateTimeOffset offset => offset.UtcDateTime,
-            _ when DateTime.TryParse(value.ToString(), out var parsed) => parsed.Kind == DateTimeKind.Utc ? parsed : parsed.ToUniversalTime(),
+            _ when DateTime.TryParse(value.ToString(), out var parsed) => NormalizeUtc(parsed),
             _ => null,
         };
     }
+
+    private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
 
     public static string? ReadString(object? source, params string[] propertyNames)
     {

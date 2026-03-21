@@ -151,6 +151,7 @@ from atas_market_structure.models._replay import (
     ReplayWorkbenchBuildResponse,
     ReplayWorkbenchCacheEnvelope,
     ReplayWorkbenchCacheRecord,
+    ReplayWorkbenchBackfillRange,
     ReplayWorkbenchGapSegment,
     ReplayWorkbenchIntegrity,
     ReplayWorkbenchInvalidationRequest,

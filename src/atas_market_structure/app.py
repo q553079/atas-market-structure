@@ -35,6 +35,7 @@ from atas_market_structure.models import (
     AdapterHistoryFootprintPayload,
     AdapterTriggerBurstPayload,
     AnalysisEnvelope,
+    ChartCandleEnvelope,
     DepthSnapshotAcceptedResponse,
     DepthSnapshotPayload,
     EventSnapshotPayload,
@@ -334,14 +335,17 @@ class MarketStructureApplication:
                 except (ValueError, TypeError) as e:
                     return self._json_response(400, {"error": "invalid_parameter", "detail": str(e)})
                 candles = self._chart_candle_service.get_candles(symbol, tf, ws, we, limit=limit)
-                return self._json_model_response(200, {
-                    "symbol": symbol,
-                    "timeframe": tf.value,
-                    "window_start": ws,
-                    "window_end": we,
-                    "count": len(candles),
-                    "candles": candles,
-                })
+                return self._json_model_response(
+                    200,
+                    ChartCandleEnvelope(
+                        symbol=symbol,
+                        timeframe=tf,
+                        window_start=ws,
+                        window_end=we,
+                        count=len(candles),
+                        candles=candles,
+                    ),
+                )
 
             # POST /api/v1/workbench/chart-candles/backfill
             if method == "POST" and route_path == "/api/v1/workbench/chart-candles/backfill":

@@ -107,8 +107,7 @@
         </header>
         <div class="workspace-section-header">
           <div>
-            <h2>图表工作区</h2>
-            <p>图表是主战场，AI 标记、重点区域与交易计划统一在此协作。</p>
+            <h2>图表</h2>
           </div>
           <div class="panel-actions">
             <button id="annotationManagerButton" class="secondary" type="button">标记管理</button>
@@ -173,7 +172,7 @@
             <div class="chart-event-tooltip-meta" id="chartEventTooltipMeta"></div>
             <div class="chart-event-tooltip-body" id="chartEventTooltipBody"></div>
           </div>
-          <div class="placeholder" id="chartPlaceholder">先点击“加载图表”，然后在右侧工作区与 AI 协作。</div>
+          <div class="placeholder" id="chartPlaceholder">点击“加载图表”开始。</div>
           <div id="chartContainer" class="chart-container" style="display:none"></div>
           <div id="volumeChartContainer" class="volume-chart-container" style="display:none"></div>
           <svg id="chartSvg" viewBox="0 0 1200 760" preserveAspectRatio="none" style="display:none"></svg>
@@ -184,8 +183,8 @@
       <section class="event-stream-column card-surface" id="eventStreamPanel">
         <div class="workspace-section-header compact">
           <div>
-            <h2>事件流</h2>
-            <p id="eventStreamSummary">等待盘口事件与关键点位进入时间线。</p>
+            <h2>盘口事件</h2>
+            <p id="eventStreamSummary">暂无事件。</p>
           </div>
         </div>
         <div class="mini-filter-bar" id="eventStreamFilterBar" aria-label="事件流筛选">
@@ -212,8 +211,8 @@
               </svg>
             </div>
             <div class="ai-sidebar-title">
-              <strong>AI 交易助手</strong>
-              <span class="ai-sidebar-subtitle">智能分析与交易计划</span>
+              <strong>AI 助手</strong>
+              <span class="ai-sidebar-subtitle">分析 / 计划</span>
             </div>
           </div>
           <div class="ai-sidebar-header-actions">
@@ -241,8 +240,7 @@
             <div class="chat-workspace" id="rightPanel">
               <div class="workspace-section-header compact">
                 <div>
-                  <strong>行情分析 AI</strong>
-                  <p class="meta">主聊天负责看盘、分析、计划与回放交流。</p>
+                  <strong>行情分析</strong>
                 </div>
                 <div class="panel-actions">
                   <button id="toggleAnnotationPanelButton" class="secondary tiny" type="button">标记管理</button>
@@ -308,7 +306,7 @@
 
         <div class="chat-current-session card-surface">
           <div class="chat-current-session-head">
-            <strong id="currentSessionTitle">当前会话：01</strong>
+            <strong id="currentSessionTitle">会话：01</strong>
             <span class="mono" id="currentSessionModelLabel">模型：服务端默认</span>
           </div>
           <div class="button-row tight session-manage-row">
@@ -318,7 +316,7 @@
             <button id="sessionMoreButton" type="button" class="secondary tiny">更多▼</button>
           </div>
           <div id="sessionMoreMenu" class="session-more-menu" hidden></div>
-          <div class="chat-memory-summary" id="sessionMemorySummary">当前会话还没有摘要。</div>
+          <div class="chat-memory-summary" id="sessionMemorySummary" hidden>无摘要</div>
         </div>
 
         <div class="chat-pinned-plan card-surface" id="pinnedPlanCard" hidden>
@@ -330,11 +328,11 @@
           <div class="button-row tight" id="pinnedPlanCardActions"></div>
         </div>
 
-        <div class="session-context-strip card-surface" id="sessionContextStrip">
+        <div class="session-context-strip card-surface" id="sessionContextStrip" hidden>
           <div class="strip-head">
-            <span class="strip-title">会话主信息</span>
+            <span class="strip-title">会话摘要</span>
           </div>
-          <div class="meta">当前会话还没有形成主信息摘要。</div>
+          <div class="meta">无摘要。</div>
         </div>
 
         <div class="mounted-reply-strip card-surface" id="mountedReplyStrip" hidden>
@@ -360,7 +358,7 @@
           <div class="secondary-ai-panel-head">
             <div>
               <strong>事件判断 AI</strong>
-              <div class="meta" id="eventScribeSessionLabel">尚未建立事件整理会话</div>
+              <div class="meta" id="eventScribeSessionLabel">未建立会话</div>
             </div>
             <div class="button-row tight">
               <button id="eventScribeMirrorButton" type="button" class="secondary tiny">引用主回复</button>
@@ -369,9 +367,9 @@
           </div>
           <div class="secondary-ai-thread" id="eventScribeThread"></div>
           <div class="secondary-ai-composer">
-            <textarea id="eventScribeInput" placeholder="整理关键价位、区域、吸收/冰山/大单事件、风险提示与计划线索"></textarea>
+            <textarea id="eventScribeInput" placeholder="整理价位、区域、事件、风险"></textarea>
             <div class="button-row tight">
-              <button id="eventScribeSendButton" type="button">发送到事件判断 AI</button>
+              <button id="eventScribeSendButton" type="button">发送</button>
             </div>
           </div>
         </section>
@@ -379,16 +377,32 @@
         <section class="reply-extraction-panel card-surface" id="replyExtractionPanel">
           <div class="secondary-ai-panel-head">
             <div>
-              <strong>提取引擎 / 候选流</strong>
-              <div class="meta" id="replyExtractionSummary">等待 AI 回复后提取关键价位、区域与风险位置。</div>
+              <strong>事件整理</strong>
+              <div class="meta" id="replyExtractionSummary">等待事件整理。</div>
+            </div>
+          </div>
+          <div class="reply-extraction-controls">
+            <button type="button" class="secondary tiny is-active" id="replyExtractionAutoButton">自动记录：开</button>
+            <label class="field compact reply-extraction-intensity-field">
+              <span class="meta">记录强度</span>
+              <select id="replyExtractionIntensitySelect">
+                <option value="strict">严格</option>
+                <option value="balanced" selected>平衡</option>
+                <option value="aggressive">激进</option>
+              </select>
+            </label>
+            <div class="button-row tight reply-extraction-batch-actions">
+              <button type="button" class="secondary tiny" id="replyExtractionBatchConfirmButton">批量确认</button>
+              <button type="button" class="secondary tiny" id="replyExtractionBatchMountButton">批量上图</button>
+              <button type="button" class="secondary tiny" id="replyExtractionBatchIgnoreButton">批量忽略</button>
             </div>
           </div>
           <div class="mini-filter-bar" id="replyExtractionFilterBar" aria-label="提取候选筛选">
             <button type="button" class="secondary tiny is-active" data-reply-extraction-filter="all">全部</button>
-            <button type="button" class="secondary tiny" data-reply-extraction-filter="price">价位</button>
+            <button type="button" class="secondary tiny" data-reply-extraction-filter="plan">行动</button>
             <button type="button" class="secondary tiny" data-reply-extraction-filter="zone">区域</button>
             <button type="button" class="secondary tiny" data-reply-extraction-filter="risk">风险</button>
-            <button type="button" class="secondary tiny" data-reply-extraction-filter="plan">计划</button>
+            <button type="button" class="secondary tiny" data-reply-extraction-filter="price">价位</button>
             <button type="button" class="secondary tiny" id="replyExtractionShowIgnoredButton">显示已忽略</button>
           </div>
           <div class="reply-extraction-list" id="replyExtractionList"></div>
@@ -983,14 +997,23 @@
         .flatMap((item) => [item.price, item.priceLow, item.priceHigh])
         .map((value) => Number(value))
         .filter((value) => Number.isFinite(value));
+      const primaryItem = cluster.items[0] || {};
+      const detailText = [
+        cluster.notePreviewText,
+        primaryItem.metaText,
+        cluster.priceText,
+      ].filter(Boolean).join(" · ");
       return {
         id: cluster.key,
-        category: cluster.dominantCategory || cluster.items[0]?.category || "events",
-        title: cluster.summaryText || cluster.items[0]?.shortLabel || "事件",
-        observedAt: cluster.items[0]?.observedAt || (cluster.time ? cluster.time * 1000 : null),
+        category: cluster.dominantCategory || primaryItem.category || "events",
+        title: cluster.summaryText || primaryItem.shortLabel || "事件",
+        observedAt: primaryItem.observedAt || (cluster.time ? cluster.time * 1000 : null),
         price: prices.length ? prices[0] : null,
         priceLow: prices.length ? Math.min(...prices) : null,
         priceHigh: prices.length ? Math.max(...prices) : null,
+        timeLabel: cluster.timeLabel || "--",
+        priceText: cluster.priceText || "价格未知",
+        detailText: detailText || "关键盘口事件",
       };
     }
 
@@ -1024,14 +1047,14 @@
         window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
       }
       if (!streamItems.length) {
-        els.eventStreamSummary.textContent = state?.snapshot ? "当前窗口没有可展示的关键事件。" : "等待盘口事件与关键点位进入时间线。";
-        els.eventStreamList.innerHTML = `<div class="event-stream-empty">${escapeHtml(state?.snapshot ? "当前视图还没有吸收、大单、被套、冰山单等关键事件。" : "先加载图表，事件流会跟随时间生成。")}</div>`;
+        els.eventStreamSummary.textContent = state?.snapshot ? "当前窗口无事件。" : "等待事件。";
+        els.eventStreamList.innerHTML = `<div class="event-stream-empty">${escapeHtml(state?.snapshot ? "当前视图无关键事件。" : "先加载图表。")}</div>`;
         return;
       }
       const filterLabel = activeFilter === "all"
         ? "全部类型"
         : (markerLayerStyles[activeFilter]?.label || activeFilter);
-      els.eventStreamSummary.textContent = `当前显示 ${streamItems.length} 个事件簇（${filterLabel}），吸收 ${counts.absorption || 0} / 大单 ${counts.largeOrders || 0} / 被套 ${counts.trapped || 0} / 冰山 ${counts.iceberg || 0}，hover 后会在左侧图表显示点位或区域。`;
+      els.eventStreamSummary.textContent = `当前 ${streamItems.length} 个事件，筛选：${filterLabel}。`;
       els.eventStreamList.innerHTML = streamItems.map((cluster) => {
         const category = cluster.dominantCategory || cluster.items?.[0]?.category || "events";
         const active = state.eventStreamHoverItem?.id === cluster.key ? " active" : "";
@@ -1045,7 +1068,6 @@
                 <span class="meta">${escapeHtml(cluster.timeLabel || "--")}</span>
               </div>
               <p>${escapeHtml(cluster.priceText || "价格未知")}</p>
-              <p>${escapeHtml(cluster.notePreviewText || cluster.items?.[0]?.metaText || "关键盘口事件")}</p>
             </div>
           </article>
         `;
@@ -1066,38 +1088,17 @@
     }
 
     function showChartEventTooltip(cluster, point, els) {
-      if (!cluster || !point || !els.chartEventTooltip || !els.chartFrame) {
+      if (!cluster) {
         return;
       }
-      els.chartEventTooltip.hidden = false;
-      if (els.chartEventTooltipTitle) {
-        els.chartEventTooltipTitle.textContent = cluster.summaryText || "事件";
-      }
-      if (els.chartEventTooltipMeta) {
-        els.chartEventTooltipMeta.textContent = `${cluster.timeLabel || "--"} · ${cluster.priceText || "价格未知"} · ${cluster.itemCount || 1} 条`;
-      }
-      if (els.chartEventTooltipBody) {
-        els.chartEventTooltipBody.textContent = cluster.notePreviewText || cluster.items?.[0]?.metaText || "点击可打开右侧详情。";
-      }
-      const tooltip = els.chartEventTooltip;
-      const frameRect = els.chartFrame.getBoundingClientRect();
-      const tooltipWidth = tooltip.offsetWidth || 280;
-      const tooltipHeight = tooltip.offsetHeight || 128;
-      const nextLeft = Math.min(
-        Math.max(12, point.x + 18),
-        Math.max(12, frameRect.width - tooltipWidth - 12),
-      );
-      const nextTop = Math.min(
-        Math.max(56, point.y + 16),
-        Math.max(12, frameRect.height - tooltipHeight - 12),
-      );
-      tooltip.style.left = `${nextLeft}px`;
-      tooltip.style.top = `${nextTop}px`;
+      app.state.eventStreamHoverItem = buildHoverOverlayItemFromCluster(cluster);
+      window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
     }
 
     function hideChartEventTooltip(els) {
-      if (els.chartEventTooltip) {
-        els.chartEventTooltip.hidden = true;
+      if (app.state.eventStreamHoverItem) {
+        app.state.eventStreamHoverItem = null;
+        window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
       }
     }
 
@@ -1506,18 +1507,19 @@
         els.volumeChartContainer.style.display = "block";
         els.chartSvg.style.display = "none";
 
-        if (!window._lwChartsReady) {
+        if (!window._lwChartsReady && !window._lwChartsInitializing) {
+          window._lwChartsInitializing = true;
           const initCharts = () => {
             requestAnimationFrame(() => {
               const chartWidth = els.chartContainer.clientWidth || els.chartContainer.offsetWidth || els.chartFrame.clientWidth - 32;
               const chartHeight = els.chartContainer.clientHeight || els.chartContainer.offsetHeight || (els.chartFrame.clientHeight - 120);
               const volumeHeight = els.volumeChartContainer.clientHeight || els.volumeChartContainer.offsetHeight || 120;
-              
+
               if (chartWidth <= 0 || chartHeight <= 0) {
                 setTimeout(initCharts, 50);
                 return;
               }
-              
+
               try {
                 const chartEls = initLightweightCharts(els);
                 if (!chartEls) {
@@ -1579,18 +1581,57 @@
                   }
                   requestChartViewportRefresh();
                 });
+
+                // 初始化完成后立即设置数据
+                try {
+                  const updateType = state.lastChartUpdateType || "full_reset";
+                  updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
+                  state.lastChartUpdateType = null;
+                  const syncedViewChanged = view.startIndex !== initialViewRange.startIndex
+                    || view.endIndex !== initialViewRange.endIndex;
+                  if (syncedViewChanged) {
+                    eventModel = buildChartEventModel(snapshot, els, view);
+                    if (state.selectedChartEventClusterKey && !eventModel.clusterIndex[state.selectedChartEventClusterKey]) {
+                      state.selectedChartEventClusterKey = null;
+                      eventModel.selectedCluster = null;
+                    }
+                    state.chartEventModel = eventModel;
+                    renderChartEventRail(eventModel, els);
+                    renderVerticalEventStream(eventModel, state, els);
+                  }
+                  const visibleCandles = candles.slice(view.startIndex, view.endIndex + 1);
+                  const firstCandle = visibleCandles.length ? visibleCandles[0] : null;
+                  const lastCandle = visibleCandles.length ? visibleCandles[visibleCandles.length - 1] : null;
+                  if (firstCandle && lastCandle) {
+                    els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(firstCandle.started_at)} -> ${formatAxisTime(lastCandle.ended_at)}`;
+                  }
+                  const symbol = els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-";
+                  const timeframe = els.displayTimeframe?.value || snapshot?.display_timeframe || "-";
+                  if (els.chartInfoSymbol) els.chartInfoSymbol.textContent = symbol;
+                  if (els.chartInfoTimeframe) els.chartInfoTimeframe.textContent = timeframe + "图";
+                  if (els.chartInfoTime) {
+                    const lastTime = lastCandle ? new Date(lastCandle.started_at) : new Date();
+                    els.chartInfoTime.textContent = "UTC " + lastTime.toISOString().slice(0, 19).replace("T", " ");
+                  }
+                  renderEventHoverOverlay();
+                } catch (updateError) {
+                  console.error("初始化后更新图表数据错误:", updateError);
+                }
               } catch (error) {
                 console.error("LightweightCharts 初始化错误:", error);
                 window._lwChartsReady = false;
+                window._lwChartsInitializing = false;
                 els.chartContainer.style.display = "none";
                 els.volumeChartContainer.style.display = "none";
                 els.chartSvg.style.display = "block";
                 renderSvgChart();
                 return;
+              } finally {
+                window._lwChartsInitializing = false;
               }
             });
           };
-          
+
           initCharts();
         }
 
@@ -1846,6 +1887,10 @@
       const chartWidth = els.chartContainer?.clientWidth || width;
       const color = markerLayerStyles[hoverItem.category]?.color || markerLayerStyles.events.color;
       const label = escapeHtml(hoverItem.title || "事件");
+      const timeLabel = escapeHtml(hoverItem.timeLabel || "--");
+      const priceText = escapeHtml(hoverItem.priceText || "价格未知");
+      const detailLines = String(hoverItem.detailText || "关键盘口事件")
+        .match(/.{1,34}/g) || ["关键盘口事件"];
       const x = Number.isFinite(overlayTime)
         ? window._lwChartState.chartInstance.timeScale().timeToCoordinate(overlayTime)
         : chartWidth / 2;
@@ -1858,12 +1903,34 @@
       const svg = els.chartSvg;
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.dataset.overlayMode = "true";
+      const targetX = Number.isFinite(x) ? x : chartWidth / 2;
+      const targetY = Number.isFinite(y) ? y : (
+        Number.isFinite(yLow) && Number.isFinite(yHigh)
+          ? (Math.min(yLow, yHigh) + Math.max(yLow, yHigh)) / 2
+          : Math.max(42, height * 0.45)
+      );
+      const noteWidth = Math.min(320, Math.max(220, chartWidth * 0.28));
+      const noteHeight = 74 + Math.max(0, detailLines.length - 1) * 14;
+      const noteX = targetX > chartWidth * 0.58
+        ? Math.max(18, targetX - noteWidth - 52)
+        : Math.min(Math.max(18, chartWidth - noteWidth - 18), targetX + 28);
+      const noteY = Math.max(18, Math.min(height - noteHeight - 18, targetY - noteHeight - 18));
+      const arrowStartX = noteX < targetX ? noteX + noteWidth : noteX;
+      const arrowStartY = noteY + Math.min(noteHeight - 18, 30);
+      const detailMarkup = detailLines.slice(0, 3).map((line, index) => `
+          <text x="${noteX + 14}" y="${noteY + 56 + (index * 14)}" fill="#94a3b8" font-size="10">${escapeHtml(line)}</text>
+      `).join("");
       if ((priceLow != null || priceHigh != null) && Number.isFinite(yLow ?? y) && Number.isFinite(yHigh ?? y)) {
         const zoneTop = Math.min(yLow ?? y, yHigh ?? y);
         const zoneHeight = Math.max(12, Math.abs((yHigh ?? y) - (yLow ?? y)));
         svg.innerHTML = `
           <rect x="18" y="${zoneTop}" width="${Math.max(0, chartWidth - 36)}" height="${zoneHeight}" fill="${color}" opacity="0.14" stroke="${color}" stroke-width="1.5" rx="8"></rect>
-          <text x="28" y="${Math.max(18, zoneTop - 8)}" fill="${color}" font-size="12" font-weight="600">${label}</text>
+          <line x1="${arrowStartX}" y1="${arrowStartY}" x2="${targetX}" y2="${Math.max(zoneTop + 8, Math.min(zoneTop + zoneHeight - 8, targetY))}" stroke="${color}" stroke-width="1.6" opacity="0.92"></line>
+          <polygon points="${targetX - 8},${Math.max(zoneTop + 8, Math.min(zoneTop + zoneHeight - 8, targetY)) - 5} ${targetX},${Math.max(zoneTop + 8, Math.min(zoneTop + zoneHeight - 8, targetY))} ${targetX - 8},${Math.max(zoneTop + 8, Math.min(zoneTop + zoneHeight - 8, targetY)) + 5}" fill="${color}" opacity="0.92"></polygon>
+          <rect x="${noteX}" y="${noteY}" width="${noteWidth}" height="${noteHeight}" rx="12" fill="rgba(8, 13, 24, 0.94)" stroke="${color}" stroke-width="1.5"></rect>
+          <text x="${noteX + 14}" y="${noteY + 20}" fill="${color}" font-size="12" font-weight="700">${label}</text>
+          <text x="${noteX + 14}" y="${noteY + 38}" fill="#cbd5e1" font-size="10">${timeLabel} · ${priceText}</text>
+          ${detailMarkup}
         `;
         svg.style.display = "block";
         return;
@@ -1874,10 +1941,15 @@
         return;
       }
       svg.innerHTML = `
-        <line x1="18" y1="${y}" x2="${Math.max(18, chartWidth - 18)}" y2="${y}" stroke="${color}" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.9"></line>
+        <line x1="18" y1="${y}" x2="${Math.max(18, chartWidth - 18)}" y2="${y}" stroke="${color}" stroke-width="1.3" stroke-dasharray="6 6" opacity="0.45"></line>
+        <line x1="${arrowStartX}" y1="${arrowStartY}" x2="${x}" y2="${y}" stroke="${color}" stroke-width="1.6" opacity="0.92"></line>
+        <polygon points="${x - 8},${y - 5} ${x},${y} ${x - 8},${y + 5}" fill="${color}" opacity="0.92"></polygon>
         <circle cx="${x}" cy="${y}" r="7" fill="${color}" opacity="0.24"></circle>
         <circle cx="${x}" cy="${y}" r="4" fill="${color}"></circle>
-        <text x="${Math.min(chartWidth - 180, x + 14)}" y="${Math.max(22, y - 10)}" fill="${color}" font-size="12" font-weight="600">${label}</text>
+        <rect x="${noteX}" y="${noteY}" width="${noteWidth}" height="${noteHeight}" rx="12" fill="rgba(8, 13, 24, 0.94)" stroke="${color}" stroke-width="1.5"></rect>
+        <text x="${noteX + 14}" y="${noteY + 20}" fill="${color}" font-size="12" font-weight="700">${label}</text>
+        <text x="${noteX + 14}" y="${noteY + 38}" fill="#cbd5e1" font-size="10">${timeLabel} · ${priceText}</text>
+        ${detailMarkup}
       `;
       svg.style.display = "block";
     }

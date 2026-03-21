@@ -965,6 +965,15 @@ internal sealed class BackfillGapSegmentPayload
     public int MissingBarCount { get; init; }
 }
 
+internal sealed class BackfillRangePayload
+{
+    [JsonPropertyName("range_start")]
+    public DateTime RangeStart { get; init; }
+
+    [JsonPropertyName("range_end")]
+    public DateTime RangeEnd { get; init; }
+}
+
 internal sealed class AdapterBackfillCommandPayload
 {
     [JsonPropertyName("request_id")]
@@ -991,6 +1000,9 @@ internal sealed class AdapterBackfillCommandPayload
 
     [JsonPropertyName("missing_segments")]
     public List<BackfillGapSegmentPayload> MissingSegments { get; init; } = new();
+
+    [JsonPropertyName("requested_ranges")]
+    public List<BackfillRangePayload> RequestedRanges { get; init; } = new();
 
     [JsonPropertyName("reason")]
     public string Reason { get; init; } = string.Empty;

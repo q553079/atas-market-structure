@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import re
 from threading import Lock
-from typing import Any
+from typing import Any, Sequence
 from uuid import uuid4
 
 
@@ -83,6 +83,7 @@ from atas_market_structure.models import (
     ReplayWorkbenchBuildResponse,
     ReplayWorkbenchCacheEnvelope,
     ReplayWorkbenchCacheRecord,
+    ReplayWorkbenchBackfillRange,
     ReplayWorkbenchGapSegment,
     ReplayWorkbenchInvalidationRequest,
     ReplayWorkbenchInvalidationResponse,
@@ -1394,6 +1395,100 @@ class ReplayWorkbenchService:
             )
         return segments
 
+    @staticmethod
+    def _ensure_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def _derive_backfill_ranges_from_missing_segments(
+        self,
+        *,
+        display_timeframe: Timeframe,
+        missing_segments: list[ReplayWorkbenchGapSegment],
+    ) -> list[ReplayWorkbenchBackfillRange]:
+        if not missing_segments:
+            return []
+        timeframe_minutes = max(1, self._TIMEFRAME_MINUTES.get(display_timeframe, 1))
+        expected_delta = timedelta(minutes=timeframe_minutes)
+        derived: list[ReplayWorkbenchBackfillRange] = []
+        for segment in missing_segments:
+            missing_bar_count = max(1, int(segment.missing_bar_count))
+            if segment.prev_ended_at is not None:
+                range_start = self._ensure_utc(segment.prev_ended_at) + timedelta(seconds=1)
+            else:
+                range_start = self._ensure_utc(segment.next_started_at) - (expected_delta * missing_bar_count)
+            range_end = range_start + (expected_delta * missing_bar_count) - timedelta(seconds=1)
+            derived.append(ReplayWorkbenchBackfillRange(range_start=range_start, range_end=range_end))
+        return derived
+
+    def _normalize_backfill_ranges(
+        self,
+        *,
+        requested_ranges: list[ReplayWorkbenchBackfillRange],
+        window_start: datetime,
+        window_end: datetime,
+    ) -> list[ReplayWorkbenchBackfillRange]:
+        window_start_utc = self._ensure_utc(window_start)
+        window_end_utc = self._ensure_utc(window_end)
+        if window_end_utc < window_start_utc:
+            return []
+
+        clamped: list[tuple[datetime, datetime]] = []
+        for item in requested_ranges:
+            range_start_utc = max(self._ensure_utc(item.range_start), window_start_utc)
+            range_end_utc = min(self._ensure_utc(item.range_end), window_end_utc)
+            if range_end_utc < range_start_utc:
+                continue
+            clamped.append((range_start_utc, range_end_utc))
+
+        if not clamped:
+            return []
+
+        clamped.sort(key=lambda value: (value[0], value[1]))
+        merged: list[ReplayWorkbenchBackfillRange] = []
+        current_start, current_end = clamped[0]
+        for next_start, next_end in clamped[1:]:
+            if next_start <= current_end + timedelta(seconds=1):
+                current_end = max(current_end, next_end)
+                continue
+            merged.append(ReplayWorkbenchBackfillRange(range_start=current_start, range_end=current_end))
+            current_start, current_end = next_start, next_end
+        merged.append(ReplayWorkbenchBackfillRange(range_start=current_start, range_end=current_end))
+        return merged
+
+    def _build_requested_backfill_ranges(
+        self,
+        *,
+        display_timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        missing_segments: list[ReplayWorkbenchGapSegment],
+        requested_ranges: list[ReplayWorkbenchBackfillRange],
+    ) -> list[ReplayWorkbenchBackfillRange]:
+        candidates = requested_ranges
+        if not candidates:
+            candidates = self._derive_backfill_ranges_from_missing_segments(
+                display_timeframe=display_timeframe,
+                missing_segments=missing_segments,
+            )
+        normalized = self._normalize_backfill_ranges(
+            requested_ranges=candidates,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        if normalized:
+            return normalized
+        fallback = ReplayWorkbenchBackfillRange(
+            range_start=self._ensure_utc(window_start),
+            range_end=self._ensure_utc(window_end),
+        )
+        return self._normalize_backfill_ranges(
+            requested_ranges=[fallback],
+            window_start=window_start,
+            window_end=window_end,
+        )
+
     def _find_latest_backfill_request(
         self,
         *,
@@ -1795,9 +1890,22 @@ class ReplayWorkbenchService:
         request: ReplayWorkbenchAtasBackfillRequest,
     ) -> ReplayWorkbenchAtasBackfillAcceptedResponse:
         now = datetime.now(tz=UTC)
+        normalized_request = request.model_copy(
+            update={
+                "window_start": self._ensure_utc(request.window_start),
+                "window_end": self._ensure_utc(request.window_end),
+                "requested_ranges": self._build_requested_backfill_ranges(
+                    display_timeframe=request.display_timeframe,
+                    window_start=request.window_start,
+                    window_end=request.window_end,
+                    missing_segments=request.missing_segments,
+                    requested_ranges=request.requested_ranges,
+                ),
+            }
+        )
         with self._backfill_lock:
             self._expire_backfill_requests_locked(now)
-            reusable = self._find_reusable_backfill_request_locked(request, now)
+            reusable = self._find_reusable_backfill_request_locked(normalized_request, now)
             if reusable is not None:
                 return ReplayWorkbenchAtasBackfillAcceptedResponse(
                     request=reusable,
@@ -1806,16 +1914,17 @@ class ReplayWorkbenchService:
 
             record = ReplayWorkbenchAtasBackfillRecord(
                 request_id=f"atas-backfill-{uuid4().hex}",
-                cache_key=request.cache_key,
-                instrument_symbol=request.instrument_symbol,
-                display_timeframe=request.display_timeframe,
-                window_start=request.window_start,
-                window_end=request.window_end,
-                chart_instance_id=request.chart_instance_id,
-                missing_segments=request.missing_segments,
-                reason=request.reason,
-                request_history_bars=request.request_history_bars,
-                request_history_footprint=request.request_history_footprint,
+                cache_key=normalized_request.cache_key,
+                instrument_symbol=normalized_request.instrument_symbol,
+                display_timeframe=normalized_request.display_timeframe,
+                window_start=normalized_request.window_start,
+                window_end=normalized_request.window_end,
+                chart_instance_id=normalized_request.chart_instance_id,
+                missing_segments=normalized_request.missing_segments,
+                requested_ranges=normalized_request.requested_ranges,
+                reason=normalized_request.reason,
+                request_history_bars=normalized_request.request_history_bars,
+                request_history_footprint=normalized_request.request_history_footprint,
                 status=ReplayWorkbenchAtasBackfillStatus.PENDING,
                 requested_at=now,
                 expires_at=now + self._BACKFILL_REQUEST_TTL,
@@ -2029,6 +2138,9 @@ class ReplayWorkbenchService:
 
         continuous_messages = self._collect_matching_continuous_messages(request)
         trade_active_continuous_messages = self._select_trade_active_continuous_messages(continuous_messages)
+        local_history_insufficient = (
+            len(trade_active_continuous_messages) < request.min_continuous_messages
+        )
         if history_payloads:
             payload = self._build_snapshot_from_history_bars(
                 request,
@@ -2052,51 +2164,19 @@ class ReplayWorkbenchService:
                 atas_backfill_request=None,
                 integrity=payload.integrity,
             )
-
-
-        if len(trade_active_continuous_messages) < request.min_continuous_messages:
-            integrity = self._build_integrity(
-                window_start=request.window_start,
-                window_end=request.window_end,
-                candle_gaps=[],
-                latest_backfill_request=latest_backfill_request,
-                status_override="missing_local_history",
-            )
-            backfill_request = self._maybe_request_backfill_for_integrity(
-                cache_key=request.cache_key,
-                instrument_symbol=request.instrument_symbol,
-                display_timeframe=request.display_timeframe,
-                window_start=request.window_start,
-                window_end=request.window_end,
-                chart_instance_id=request.chart_instance_id,
-                integrity=integrity,
-                reason="local_history_insufficient",
-            )
-            integrity = self._with_backfill_metadata(integrity, backfill_request)
-            return ReplayWorkbenchBuildResponse(
-                action=ReplayWorkbenchBuildAction.ATAS_FETCH_REQUIRED,
-                cache_key=request.cache_key,
-                reason="Local adapter history is insufficient for this replay window.",
-                local_message_count=len(continuous_messages),
-                replay_snapshot_id=None,
-                ingestion_id=None,
-                core_snapshot=None,
-                summary=None,
-                cache_record=cache.record,
-                atas_fetch_request={
-                    "instrument_symbol": request.instrument_symbol,
-                    "display_timeframe": request.display_timeframe,
-                    "window_start": request.window_start,
-                    "window_end": request.window_end,
-                    "chart_instance_id": None,
-                    "fetch_only_when_missing": True,
-                },
-                atas_backfill_request=backfill_request,
-                integrity=integrity,
-            )
-
-
         payload = self._build_snapshot_from_local_history(request, continuous_messages)
+        if (
+            local_history_insufficient
+            and payload.integrity is not None
+            and payload.integrity.status == "complete"
+        ):
+            payload = payload.model_copy(
+                update={
+                    "integrity": payload.integrity.model_copy(
+                        update={"status": "missing_local_history"},
+                    )
+                }
+            )
         accepted = self.ingest_replay_snapshot(payload)
         cache_after = self.get_cache_record(request.cache_key)
         backfill_request = None
@@ -2110,13 +2190,17 @@ class ReplayWorkbenchService:
                 window_end=request.window_end,
                 chart_instance_id=request.chart_instance_id,
                 integrity=integrity,
-                reason="candle_gap_detected",
+                reason="local_history_insufficient" if local_history_insufficient else "candle_gap_detected",
             )
             integrity = self._with_backfill_metadata(integrity, backfill_request)
         return ReplayWorkbenchBuildResponse(
             action=ReplayWorkbenchBuildAction.BUILT_FROM_LOCAL_HISTORY,
             cache_key=request.cache_key,
-            reason="Replay packet rebuilt from locally stored adapter history.",
+            reason=(
+                "Local adapter history is missing for this replay window; returned a placeholder snapshot and queued backfill."
+                if not trade_active_continuous_messages
+                else "Replay packet rebuilt from locally stored adapter history."
+            ),
             local_message_count=len(continuous_messages),
             replay_snapshot_id=accepted.replay_snapshot_id,
             ingestion_id=accepted.ingestion_id,
@@ -2433,12 +2517,52 @@ class ReplayWorkbenchService:
         ingestions: list[StoredIngestion],
     ) -> ReplayWorkbenchSnapshotPayload:
         created_at = datetime.now(tz=UTC)
-        first_payload = ingestions[0].observed_payload
-        last_payload = ingestions[-1].observed_payload
+        first_payload = ingestions[0].observed_payload if ingestions else None
+        last_payload = ingestions[-1].observed_payload if ingestions else None
         replay_snapshot_id = f"replay-{request.instrument_symbol.lower()}-{created_at.strftime('%Y%m%dT%H%M%SZ')}"
 
-        candle_ingestions = self._select_trade_active_continuous_messages(ingestions)
-        candles = self._build_candles(request.display_timeframe, candle_ingestions)
+        # ─── Fast path: try pre-aggregated ClickHouse materialized view ───────
+        # Queries return sub-100ms regardless of raw message count (109k+ rows).
+        # Falls back to raw-message aggregation when MV is empty or unavailable.
+        pre_bars = self._try_get_preaggregated_bars(
+            symbol=request.instrument_symbol,
+            timeframe=request.display_timeframe,
+            window_start=request.window_start,
+            window_end=request.window_end,
+        )
+        if pre_bars:
+            candles = [
+                ReplayChartBar(
+                    started_at=bar["started_at"],
+                    ended_at=bar["ended_at"],
+                    open=bar["open"],
+                    high=bar["high"],
+                    low=bar["low"],
+                    close=bar["close"],
+                    volume=bar["volume"],
+                    delta=bar["delta"],
+                    bid_volume=bar["bid_volume"],
+                    ask_volume=bar["ask_volume"],
+                )
+                for bar in pre_bars
+            ]
+            # Rebuild event annotations from pre-aggregated events table
+            pre_events = self._try_get_preaggregated_events(
+                symbol=request.instrument_symbol,
+                window_start=request.window_start,
+                window_end=request.window_end,
+            )
+            event_annotations = self._build_event_annotations_from_preaggregated(pre_events) if pre_events else []
+            focus_regions = self._build_focus_regions_from_preaggregated(pre_events) if pre_events else []
+            history_source = "continuous_state_preaggregate"
+        else:
+            # ─── Slow path: aggregate from raw continuous_state messages ────────
+            candle_ingestions = self._select_trade_active_continuous_messages(ingestions)
+            candles = self._build_candles(request.display_timeframe, candle_ingestions)
+            event_annotations = self._build_event_annotations(ingestions) if ingestions else []
+            focus_regions = self._build_focus_regions(ingestions, event_annotations) if ingestions else []
+            history_source = "adapter_continuous_state"
+
         candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(candles, request.display_timeframe)
         candles, initial_window_applied, initial_window_bar_limit, total_candle_count = self._apply_initial_snapshot_window(
             candles,
@@ -2457,10 +2581,31 @@ class ReplayWorkbenchService:
             candle_gaps=candle_gaps,
             latest_backfill_request=latest_backfill_request,
         )
-        event_annotations = self._build_event_annotations(ingestions)
-        focus_regions = self._build_focus_regions(ingestions, event_annotations)
         strategy_candidates = self._build_strategy_candidates(event_annotations)
         ai_briefing = self._build_ai_briefing(request.instrument_symbol, strategy_candidates, focus_regions)
+        source_payload = (
+            last_payload["source"]
+            if last_payload is not None
+            else {
+                "system": "ATAS",
+                "instance_id": "local-service",
+                "chart_instance_id": request.chart_instance_id,
+                "adapter_version": "unknown",
+            }
+        )
+        instrument_payload = (
+            last_payload["instrument"]
+            if last_payload is not None
+            else {
+                "symbol": request.instrument_symbol,
+                "venue": "CME",
+                "tick_size": 0.25,
+                "currency": "USD",
+            }
+        )
+        chart_instance_id = request.chart_instance_id
+        if chart_instance_id is None and isinstance(source_payload, dict):
+            chart_instance_id = source_payload.get("chart_instance_id")
 
         return ReplayWorkbenchSnapshotPayload(
             schema_version="1.1.0",
@@ -2468,8 +2613,8 @@ class ReplayWorkbenchService:
             cache_key=request.cache_key,
             acquisition_mode=ReplayAcquisitionMode.CACHE_REUSE,
             created_at=created_at,
-            source=last_payload["source"],
-            instrument=last_payload["instrument"],
+            source=source_payload,
+            instrument=instrument_payload,
             display_timeframe=request.display_timeframe,
             window_start=actual_window_start,
             window_end=actual_window_end,
@@ -2490,12 +2635,12 @@ class ReplayWorkbenchService:
             strategy_candidates=strategy_candidates,
             ai_briefing=ai_briefing,
             raw_features={
-                "history_source": "adapter_continuous_state",
+                "history_source": history_source,
                 "local_message_count": len(ingestions),
-                "chart_instance_id": request.chart_instance_id or last_payload["source"].get("chart_instance_id"),
+                "chart_instance_id": chart_instance_id,
                 "build_reason": "cache_miss_local_history_rebuild",
-                "first_message_id": first_payload["message_id"],
-                "last_message_id": last_payload["message_id"],
+                "first_message_id": first_payload["message_id"] if first_payload is not None else None,
+                "last_message_id": last_payload["message_id"] if last_payload is not None else None,
                 "requested_window_start": request.window_start,
                 "requested_window_end": request.window_end,
                 "actual_window_start": actual_window_start,
@@ -2511,11 +2656,105 @@ class ReplayWorkbenchService:
             },
         )
 
+    def _try_get_preaggregated_bars(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Query pre-aggregated bars from ClickHouse MV. Returns empty list if unavailable."""
+        try:
+            bars = self._repository.list_continuous_state_bars(
+                symbol=symbol.upper(),
+                timeframe=timeframe,
+                window_start=window_start,
+                window_end=window_end,
+                trade_active_only=True,
+                limit=limit,
+            )
+            return bars
+        except Exception:
+            return []
+
+    def _try_get_preaggregated_events(
+        self,
+        symbol: str,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 2000,
+    ) -> list[dict[str, Any]]:
+        """Query pre-aggregated replenishment events from ClickHouse MV."""
+        try:
+            events = self._repository.list_continuous_state_events(
+                symbol=symbol.upper(),
+                window_start=window_start,
+                window_end=window_end,
+                limit=limit,
+            )
+            return events
+        except Exception:
+            return []
+
+    def _build_event_annotations_from_preaggregated(
+        self,
+        pre_events: list[dict[str, Any]],
+    ) -> list[ReplayEventAnnotation]:
+        """Build ReplayEventAnnotation list from pre-aggregated events."""
+        if not pre_events:
+            return []
+        events: dict[str, ReplayEventAnnotation] = {}
+        for item in pre_events:
+            event_id = f"replenish-{item['track_id']}"
+            if event_id not in events:
+                events[event_id] = ReplayEventAnnotation(
+                    event_id=event_id,
+                    event_kind="same_price_replenishment",
+                    source_kind="collector",
+                    observed_at=item["observed_at"],
+                    price=item["price"],
+                    price_low=item["price"],
+                    price_high=item["price"],
+                    side=item.get("side", "unknown"),
+                    confidence=min(1.0, 0.5 + (item.get("replenishment_count", 0) * 0.1)),
+                    linked_ids=[item["track_id"]],
+                    notes=[f"replenishment_count={item.get('replenishment_count', 0)}"],
+                )
+        return list(events.values())
+
+    def _build_focus_regions_from_preaggregated(
+        self,
+        pre_events: list[dict[str, Any]],
+    ) -> list[ReplayFocusRegion]:
+        """Build ReplayFocusRegion list from pre-aggregated events."""
+        if not pre_events:
+            return []
+        regions: dict[str, ReplayFocusRegion] = {}
+        for item in pre_events:
+            track_id = item["track_id"]
+            if track_id not in regions:
+                regions[track_id] = ReplayFocusRegion(
+                    region_id=f"focus-{track_id}",
+                    label=f"补充区域 {item['price']}",
+                    started_at=item["observed_at"],
+                    ended_at=item["observed_at"],
+                    price_low=item["price"],
+                    price_high=item["price"],
+                    priority=min(10, 1 + int(item.get("replenishment_count", 0))),
+                    reason_codes=["same_price_replenishment"],
+                    linked_event_ids=[f"replenish-{track_id}"],
+                    notes=[f"track_id={track_id}"],
+                )
+        return list(regions.values())
+
     def _collect_matching_continuous_messages(self, request: ReplayWorkbenchBuildRequest) -> list[StoredIngestion]:
         candidates = self._repository.list_ingestions(
             ingestion_kind="adapter_continuous_state",
             instrument_symbol=request.instrument_symbol,
             limit=10000,
+            stored_at_after=request.window_start,
+            stored_at_before=request.window_end,
         )
         matched: list[StoredIngestion] = []
         for stored in candidates:
@@ -3716,6 +3955,7 @@ class ReplayWorkbenchService:
                 and record.request_history_bars == request.request_history_bars
                 and record.request_history_footprint == request.request_history_footprint
                 and self._gap_segments_equal(record.missing_segments, request.missing_segments)
+                and self._backfill_ranges_equal(record.requested_ranges, request.requested_ranges)
             ):
                 return record
         return None
@@ -3771,6 +4011,7 @@ class ReplayWorkbenchService:
             window_end=record.window_end,
             chart_instance_id=record.chart_instance_id,
             missing_segments=record.missing_segments,
+            requested_ranges=record.requested_ranges,
             reason=record.reason,
             request_history_bars=record.request_history_bars,
             request_history_footprint=record.request_history_footprint,
@@ -3789,6 +4030,18 @@ class ReplayWorkbenchService:
             next_started_at = getattr(segment, "next_started_at", None)
             missing_bar_count = getattr(segment, "missing_bar_count", None)
             return prev_ended_at, next_started_at, int(missing_bar_count or 0)
+
+        return [_normalize(item) for item in left] == [_normalize(item) for item in right]
+
+    @staticmethod
+    def _backfill_ranges_equal(left: list[Any], right: list[Any]) -> bool:
+        if len(left) != len(right):
+            return False
+
+        def _normalize(item: Any) -> tuple[Any, Any]:
+            range_start = getattr(item, "range_start", None)
+            range_end = getattr(item, "range_end", None)
+            return range_start, range_end
 
         return [_normalize(item) for item in left] == [_normalize(item) for item in right]
 

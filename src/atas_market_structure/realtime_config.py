@@ -20,6 +20,8 @@ class RealtimeConfig:
     clickhouse_table: str = "ticks_raw"
     batch_size: int = 5000
     flush_interval_seconds: float = 1.0
+    connect_retries: int = 5
+    retry_delay_seconds: float = 1.5
 
     @classmethod
     def from_env(cls) -> "RealtimeConfig":
@@ -36,4 +38,6 @@ class RealtimeConfig:
             clickhouse_table=os.getenv("ATAS_RT_CLICKHOUSE_TABLE", "ticks_raw"),
             batch_size=int(os.getenv("ATAS_RT_BATCH_SIZE", "5000")),
             flush_interval_seconds=float(os.getenv("ATAS_RT_FLUSH_INTERVAL_SECONDS", "1.0")),
+            connect_retries=int(os.getenv("ATAS_RT_CONNECT_RETRIES", "5")),
+            retry_delay_seconds=float(os.getenv("ATAS_RT_RETRY_DELAY_SECONDS", "1.5")),
         )

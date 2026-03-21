@@ -41,12 +41,31 @@ def _build_clickhouse_client(config: RealtimeConfig) -> Client:
     )
 
 
+async def _connect_clickhouse_with_retry(config: RealtimeConfig) -> Client:
+    last_error: Exception | None = None
+    for attempt in range(1, config.connect_retries + 1):
+        try:
+            client = await asyncio.to_thread(_build_clickhouse_client, config)
+            await asyncio.to_thread(client.query, "SELECT 1")
+            return client
+        except Exception as exc:
+            last_error = exc
+            LOGGER.warning(
+                "ClickHouse connection attempt %s/%s failed: %s",
+                attempt,
+                config.connect_retries,
+                exc,
+            )
+            await asyncio.sleep(config.retry_delay_seconds * attempt)
+    raise RuntimeError("Unable to connect to ClickHouse after retries.") from last_error
+
+
 async def _reconnect_clickhouse_client(client: Client, config: RealtimeConfig) -> Client:
     try:
         await asyncio.to_thread(client.close)
     except Exception:
         LOGGER.warning("Failed to close ClickHouse client cleanly during reconnect.", exc_info=True)
-    return await asyncio.to_thread(_build_clickhouse_client, config)
+    return await _connect_clickhouse_with_retry(config)
 
 
 def _parse_tick_row(payload_text: str) -> TickRow | None:
@@ -96,7 +115,7 @@ async def _flush_buffer(client: Client, table_name: str, buffer: list[TickRow]) 
 
 async def run_tick_persistence_worker(redis_client: Redis, config: RealtimeConfig) -> None:
     pubsub: PubSub = redis_client.pubsub()
-    client = await asyncio.to_thread(_build_clickhouse_client, config)
+    client = await _connect_clickhouse_with_retry(config)
     table_name = _table_name(config)
     buffer: list[TickRow] = []
     loop = asyncio.get_running_loop()

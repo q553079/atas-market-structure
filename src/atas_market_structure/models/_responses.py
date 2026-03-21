@@ -20,6 +20,7 @@ from atas_market_structure.models._observed import ObservedLargeLiquidityLevel
 from atas_market_structure.models._replay import (
     ReplayCachePolicy,
     ReplayChartBar,
+    ReplayWorkbenchBackfillRange,
     ReplayLiveStreamState,
     ReplayWorkbenchAcceptedSummary,
     ReplayWorkbenchAckRebuildResult,
@@ -151,6 +152,10 @@ class AdapterBackfillCommand(BaseModel):
     window_end: datetime = Field(..., description="Inclusive replay window end.")
     chart_instance_id: str | None = Field(None, description="Preferred chart instance when targeted.")
     missing_segments: list[ReplayWorkbenchGapSegment] = Field(default_factory=list, description="Observed missing segments.")
+    requested_ranges: list[ReplayWorkbenchBackfillRange] = Field(
+        default_factory=list,
+        description="Explicit resend ranges for the adapter to prioritize.",
+    )
     reason: str = Field(..., description="Why the request was created.")
     request_history_bars: bool = Field(..., description="Whether history bars should be resent.")
     request_history_footprint: bool = Field(..., description="Whether history footprint should be resent.")
@@ -2082,5 +2087,4 @@ MACRO_TIMEFRAMES = {Timeframe.MONTH_1, Timeframe.WEEK_1, Timeframe.DAY_1}
 INTRADAY_TIMEFRAMES = {Timeframe.DAY_3, Timeframe.HOUR_1, Timeframe.MIN_30}
 SETUP_TIMEFRAMES = {Timeframe.MIN_15, Timeframe.MIN_5}
 EXECUTION_TIMEFRAMES = {Timeframe.MIN_1, Timeframe.FOOTPRINT, Timeframe.DOM}
-
 
