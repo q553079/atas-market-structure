@@ -13,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
 from atas_market_structure.ai_review_services import ReplayAiChatService
 from atas_market_structure.app import MarketStructureApplication
 from atas_market_structure.models import ReplayAiChatContent, ReplayAiChatPreset
+from atas_market_structure.models._replay import ReplayAiChatAnnotationCandidate
 from atas_market_structure.repository import SQLiteAnalysisRepository
 
 
@@ -56,9 +57,48 @@ class FakeReplayChatAssistant:
         user_message: str,
         history,
         attachments=None,
+        enable_structured_outputs: bool = False,
         model_override: str | None = None,
     ):
         model_name = model_override or "fake-chat-e2e"
+        if enable_structured_outputs:
+            return (
+                "fake-openai",
+                model_name,
+                ReplayAiChatContent(
+                    reply_text=(
+                        f"Session-only 结构化回复：{user_message}\n"
+                        "文本噪音：22000-22005 与 22123 仅作旧案例说明，不应作为当前事件候选。"
+                    ),
+                    live_context_summary=[],
+                    referenced_strategy_ids=[],
+                    follow_up_suggestions=["优先采用结构化事件，不要重复从正文再提取。"],
+                    plan_cards=[],
+                    annotations=[
+                        ReplayAiChatAnnotationCandidate(
+                            type="plan",
+                            label="结构化计划",
+                            reason="若回踩 21524 并守住，可考虑做多。",
+                            entry_price=21524.0,
+                            side="buy",
+                        ),
+                        ReplayAiChatAnnotationCandidate(
+                            type="price_zone",
+                            label="结构化支撑区",
+                            reason="21524-21528 是本轮回踩防守区。",
+                            price_low=21524.0,
+                            price_high=21528.0,
+                            side="buy",
+                        ),
+                        ReplayAiChatAnnotationCandidate(
+                            type="risk_note",
+                            label="结构化风险位",
+                            reason="跌破 21518 则本轮回踩脚本失效。",
+                            stop_price=21518.0,
+                        ),
+                    ],
+                ),
+            )
         return (
             "fake-openai",
             model_name,
@@ -269,6 +309,78 @@ def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
     assert len(stored_messages) == 2
     stored_memory = repository.get_session_memory(session_id)
     assert stored_memory is not None
+
+
+def test_chat_session_event_timeline_prefers_structured_annotations_without_replay_snapshot() -> None:
+    application, repository = build_application()
+
+    create_session_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "事件整理会话",
+                "symbol": "NQ",
+                "contract_id": "NQM2026",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "active_model": "fake-chat-e2e",
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    assert create_session_response.status_code == 201
+    session_id = json.loads(create_session_response.body)["session"]["session_id"]
+
+    reply_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/reply",
+        json.dumps(
+            {
+                "replay_ingestion_id": None,
+                "preset": ReplayAiChatPreset.GENERAL.value,
+                "user_input": "请整理当前窗口的关键计划、区域和风险。",
+                "selected_block_ids": [],
+                "pinned_block_ids": [],
+                "include_memory_summary": True,
+                "include_recent_messages": True,
+                "analysis_type": "event_timeline",
+                "analysis_range": "current_window",
+                "analysis_style": "standard",
+                "extra_context": {"analyst_latest_reply": "关注 21524 回踩是否守住。"},
+                "model": "fake-chat-e2e",
+                "attachments": [],
+            }
+        ).encode("utf-8"),
+    )
+    assert reply_response.status_code == 200
+    reply_payload = json.loads(reply_response.body)
+
+    assert reply_payload["ok"] is True
+    assert reply_payload["session_only"] is True
+    assert len(reply_payload["annotations"]) == 3
+
+    labels = {item["label"] for item in reply_payload["annotations"]}
+    assert labels == {"结构化计划", "结构化支撑区", "结构化风险位"}
+
+    annotations_by_label = {item["label"]: item for item in reply_payload["annotations"]}
+    assert annotations_by_label["结构化计划"]["event_kind"] == "plan"
+    assert annotations_by_label["结构化计划"]["type"] == "entry_line"
+    assert annotations_by_label["结构化计划"]["entry_price"] == 21524.0
+    assert annotations_by_label["结构化支撑区"]["event_kind"] == "zone"
+    assert annotations_by_label["结构化支撑区"]["type"] == "support_zone"
+    assert annotations_by_label["结构化支撑区"]["price_low"] == 21524.0
+    assert annotations_by_label["结构化支撑区"]["price_high"] == 21528.0
+    assert annotations_by_label["结构化风险位"]["event_kind"] == "risk"
+    assert annotations_by_label["结构化风险位"]["type"] == "stop_loss"
+    assert annotations_by_label["结构化风险位"]["stop_price"] == 21518.0
+
+    stored_annotations = repository.list_chat_annotations(session_id=session_id)
+    assert len(stored_annotations) == 3
 
 
 def test_chat_stream_endpoint_returns_sse_events_without_replay_snapshot() -> None:

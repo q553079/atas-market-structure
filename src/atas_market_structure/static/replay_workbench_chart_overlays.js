@@ -146,7 +146,7 @@ export function appendChartOverlayMarkup({
         markupParts.push(`<text x="${Math.max(x1, x2) + 6}" y="${y + 4}" font-size="12" fill="${color}">${marker}</text>`);
       }
     }
-    if (["support_zone", "resistance_zone", "no_trade_zone"].includes(item.type)) {
+    if (["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type)) {
       const low = item.price_low;
       const high = item.price_high;
       if (low == null || high == null) {
@@ -156,8 +156,20 @@ export function appendChartOverlayMarkup({
       const x2 = clampChartX(timeToX(end), 8);
       const y1 = clampChartY(priceToY(high), 8);
       const y2 = clampChartY(priceToY(low), 8);
-      const fill = item.type === "support_zone" ? "rgba(20,184,166,0.16)" : item.type === "resistance_zone" ? "rgba(249,115,22,0.14)" : "rgba(239,68,68,0.12)";
-      const stroke = item.type === "support_zone" ? "#14b8a6" : item.type === "resistance_zone" ? "#f97316" : "#ef4444";
+      const fill = item.type === "support_zone"
+        ? "rgba(20,184,166,0.16)"
+        : item.type === "resistance_zone"
+          ? "rgba(249,115,22,0.14)"
+          : item.type === "zone"
+            ? "rgba(59,130,246,0.12)"
+            : "rgba(239,68,68,0.12)";
+      const stroke = item.type === "support_zone"
+        ? "#14b8a6"
+        : item.type === "resistance_zone"
+          ? "#f97316"
+          : item.type === "zone"
+            ? "#3b82f6"
+            : "#ef4444";
       markupParts.push(`<rect x="${Math.min(x1, x2)}" y="${Math.min(y1, y2)}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, Math.abs(y2 - y1))}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" rx="8" opacity="${opacity}" ${hit} />`);
       markupParts.push(`<text x="${Math.min(x1, x2) + 8}" y="${Math.min(y1, y2) + 14}" font-size="12" fill="${stroke}">${escapeHtml(item.label)}</text>`);
       if (["invalidated", "completed", "expired"].includes(item.status)) {

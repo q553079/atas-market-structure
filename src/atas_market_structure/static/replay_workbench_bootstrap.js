@@ -2079,7 +2079,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       sessionIds: [],
       messageIds: [],
       annotationIds: [],
-      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone"],
+      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone", "zone"],
       showPaths: false,
       showInvalidated: false,
       selectedOnly: false,
@@ -2120,6 +2120,41 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
   function getLatestAssistantMessage(session) {
     return [...(session?.messages || [])].reverse().find((item) => item.role === "assistant" && String(item.content || "").trim()) || null;
+  }
+
+  function getStructuredReplyMessageIds(session) {
+    const sessionId = session?.id || null;
+    const ids = new Set();
+    (session?.messages || []).forEach((message) => {
+      if (message?.role !== "assistant") {
+        return;
+      }
+      const structuredCount = [
+        ...(Array.isArray(message.annotations) ? message.annotations : []),
+        ...(Array.isArray(message.planCards) ? message.planCards : []),
+        ...(Array.isArray(message.meta?.annotations) ? message.meta.annotations : []),
+        ...(Array.isArray(message.meta?.planCards) ? message.meta.planCards : []),
+      ].length;
+      if (structuredCount > 0 && message.message_id) {
+        ids.add(message.message_id);
+      }
+    });
+    (state.aiAnnotations || []).forEach((annotation) => {
+      if (sessionId && annotation.session_id !== sessionId) {
+        return;
+      }
+      if (annotation.message_id) {
+        ids.add(annotation.message_id);
+      }
+      if (annotation.source_message_id) {
+        ids.add(annotation.source_message_id);
+      }
+    });
+    return ids;
+  }
+
+  function hasStructuredReplyContent(session) {
+    return getStructuredReplyMessageIds(session).size > 0;
   }
 
   function getLatestUserMessage(session) {
@@ -2525,6 +2560,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const sourceActor = meta.sourceActor || (sourceRole === "scribe" ? "事件判断 AI" : "行情分析 AI");
     const sourceTitle = meta.sourceTitle || "AI 提取";
     const observedAt = meta.observedAt || null;
+    const sourceKind = meta.sourceKind || "text_fallback";
     const summary = summarizeText(content, 120);
     const rangeRegex = /(\d{3,6}(?:\.\d+)?)[\s]*(?:-|~|到|至)[\s]*(\d{3,6}(?:\.\d+)?)/g;
     const rangeSpans = [];
@@ -2549,6 +2585,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         sourceRole,
         sourceActor,
         sourceTitle,
+        sourceKind,
         messageId: meta.messageId || null,
         sessionId: meta.sessionId || null,
         observedAt,
@@ -2585,6 +2622,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         sourceRole,
         sourceActor,
         sourceTitle,
+        sourceKind,
         messageId: meta.messageId || null,
         sessionId: meta.sessionId || null,
         observedAt,
@@ -2603,6 +2641,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         sourceRole,
         sourceActor,
         sourceTitle,
+        sourceKind,
         messageId: meta.messageId || null,
         sessionId: meta.sessionId || null,
         observedAt,
@@ -2621,6 +2660,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         sourceRole,
         sourceActor,
         sourceTitle,
+        sourceKind,
         messageId: meta.messageId || null,
         sessionId: meta.sessionId || null,
         observedAt,
@@ -2637,7 +2677,14 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const analystSession = getSessionByRole(symbol, "analyst");
     const scribeSession = getSessionByRole(symbol, "scribe");
     const sessions = [scribeSession, analystSession].filter(Boolean);
-    const scribeHasStructuredReply = !!getLatestAssistantMessage(scribeSession);
+    const structuredMessageIdsBySession = new Map(
+      sessions.map((session) => [session.id, getStructuredReplyMessageIds(session)]),
+    );
+    const hasStructuredCandidates = sessions.some((session) => {
+      const structuredIds = structuredMessageIdsBySession.get(session.id);
+      return structuredIds && structuredIds.size > 0;
+    });
+    const scribeHasStructuredReply = hasStructuredReplyContent(scribeSession);
     const candidateMap = new Map();
     const pushCandidate = (item) => {
       const dedupKey = getReplyCandidateDedupKey(item);
@@ -2656,9 +2703,11 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         .filter((annotation) => annotation.session_id === session.id)
         .forEach((annotation) => {
           const annotationType = String(annotation.type || "").toLowerCase();
-          const normalizedType = annotation.price_low != null || annotation.price_high != null
-            ? (/no_trade|risk|invalid/.test(annotationType) ? "risk" : "zone")
-            : (/stop|risk|invalid/.test(annotationType) ? "risk" : /plan|entry|profit|target/.test(annotationType) ? "plan" : "price");
+          const normalizedType = ["plan", "zone", "risk", "price"].includes(annotation.event_kind)
+            ? annotation.event_kind
+            : annotation.price_low != null || annotation.price_high != null
+              ? (/no_trade|risk|invalid/.test(annotationType) ? "risk" : "zone")
+              : (/stop|risk|invalid/.test(annotationType) ? "risk" : /plan|entry|profit|target/.test(annotationType) ? "plan" : "price");
           pushCandidate({
             id: `annotation-${annotation.id}`,
             stableKey: `annotation:${annotation.id}`,
@@ -2677,8 +2726,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
             observedAt: annotation.started_at || annotation.created_at || annotation.updated_at || null,
           });
         });
-      const allowMessageExtraction = sessionRole === "scribe"
-        || (sessionRole === "analyst" && (aggressiveMode || !scribeHasStructuredReply));
+      const structuredMessageIds = structuredMessageIdsBySession.get(session.id) || new Set();
+      const allowMessageExtraction = aggressiveMode
+        || !hasStructuredCandidates
+        || (sessionRole === "analyst" && !scribeHasStructuredReply);
       if (!allowMessageExtraction) {
         return;
       }
@@ -2686,6 +2737,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         .filter((message) => message.role === "assistant")
         .slice(sessionRole === "scribe" ? -8 : -4)
         .forEach((message) => {
+          if (structuredMessageIds.has(message.message_id)) {
+            return;
+          }
           extractReplyCandidatesFromText(message.content, {
             sessionId: session.id,
             messageId: message.message_id,
@@ -2693,6 +2747,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
             sourceActor: sessionRole === "scribe" ? "事件判断 AI" : "行情分析 AI",
             sourceTitle: message.replyTitle || session.title || (sessionRole === "scribe" ? "事件整理 AI" : "行情分析 AI"),
             observedAt: message.created_at || message.updated_at || null,
+            sourceKind: "text_fallback",
           }).forEach(pushCandidate);
         });
     });
@@ -3808,8 +3863,21 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     els.replyExtractionBatchMountButton?.addEventListener("click", () => {
       applyReplyExtractionBatchAction("mount");
     });
+    els.replyExtractionBatchPromoteButton?.addEventListener("click", () => {
+      applyReplyExtractionBatchAction("promote-plan");
+    });
     els.replyExtractionBatchIgnoreButton?.addEventListener("click", () => {
       applyReplyExtractionBatchAction("ignore");
+    });
+    els.replyExtractionCollapseButton?.addEventListener("click", () => {
+      const extractionState = getReplyExtractionState();
+      extractionState.collapsed = !extractionState.collapsed;
+      persistWorkbenchState();
+      renderReplyExtractionPanel();
+      renderStatusStrip([{
+        label: extractionState.collapsed ? "事件整理面板已收起。" : "事件整理面板已展开。",
+        variant: "emphasis",
+      }]);
     });
     els.saveRegionButton?.addEventListener("click", async () => {
       await runButtonAction(els.saveRegionButton, async () => {

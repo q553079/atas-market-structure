@@ -70,6 +70,7 @@ class ReplayAiChatAssistant(Protocol):
         user_message: str,
         history: list[ReplayAiChatMessage],
         attachments: list[ReplayAiChatAttachment],
+        enable_structured_outputs: bool = False,
         model_override: str | None = None,
     ) -> tuple[str, str, ReplayAiChatContent]:
         ...
@@ -353,6 +354,7 @@ class OpenAiReplayChatAssistant:
         user_message: str,
         history: list[ReplayAiChatMessage],
         attachments: list[ReplayAiChatAttachment],
+        enable_structured_outputs: bool = False,
         model_override: str | None = None,
     ) -> tuple[str, str, ReplayAiChatContent]:
         if not self._api_key:
@@ -377,8 +379,16 @@ class OpenAiReplayChatAssistant:
             "output_expectations": {
                 "live_context_summary": [],
                 "referenced_strategy_ids": [],
-                "annotations": [],
-                "plan_cards": [],
+                "annotations": (
+                    "When explicit prices/zones/invalidation cues are present, return structured annotations."
+                    if enable_structured_outputs
+                    else []
+                ),
+                "plan_cards": (
+                    "When a concrete execution plan is present, return at most one compact plan_card."
+                    if enable_structured_outputs
+                    else []
+                ),
             },
         }
         user_content: object = json.dumps(
@@ -433,8 +443,9 @@ class OpenAiReplayChatAssistant:
         parsed = ReplayAiChatContent.model_validate_json(OpenAiReplayReviewer._extract_json_text(raw_text))
         parsed.live_context_summary = []
         parsed.referenced_strategy_ids = []
-        parsed.annotations = []
-        parsed.plan_cards = []
+        if not enable_structured_outputs:
+            parsed.annotations = []
+            parsed.plan_cards = []
         if attachment_summaries and not parsed.attachment_summaries:
             parsed.attachment_summaries = attachment_summaries
         return self._provider_name, chosen_model, parsed

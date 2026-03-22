@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 import re
 from threading import Lock
 from typing import Any, Sequence
@@ -365,6 +366,10 @@ class ReplayWorkbenchChatService:
             include_recent_messages=bool(request_payload.get("include_recent_messages", True)),
             model=message.model,
             preset=str(message.request_payload.get("preset") or request_payload.get("preset") or "general"),
+            analysis_type=request_payload.get("analysis_type"),
+            analysis_range=request_payload.get("analysis_range"),
+            analysis_style=request_payload.get("analysis_style"),
+            extra_context=request_payload.get("extra_context") if isinstance(request_payload.get("extra_context"), dict) else None,
             attachments=[],
             replay_ingestion_id=message.response_payload.get("replay_ingestion_id") or request_payload.get("replay_ingestion_id"),
         )
@@ -468,6 +473,10 @@ class ReplayWorkbenchChatService:
                 "pinned_block_ids": request.pinned_block_ids,
                 "include_memory_summary": request.include_memory_summary,
                 "include_recent_messages": request.include_recent_messages,
+                "analysis_type": request.analysis_type,
+                "analysis_range": request.analysis_range,
+                "analysis_style": request.analysis_style,
+                "extra_context": request.extra_context or {},
                 "attachments": [item.model_dump(mode="json") for item in request.attachments],
             },
             response_payload={},
@@ -510,12 +519,14 @@ class ReplayWorkbenchChatService:
             raise ReplayWorkbenchChatUnavailableError(
                 "Replay workbench chat service is not configured. Configure AI provider credentials before sending a reply."
             )
+        model_user_input = self._build_model_user_input(prepared)
+        allow_session_structured_outputs = self._should_enable_session_structured_output(prepared.request)
         if prepared.has_replay_context:
             return self._replay_ai_chat_service.chat(
                 __import__("atas_market_structure.models", fromlist=["ReplayAiChatRequest"]).ReplayAiChatRequest(
                     replay_ingestion_id=prepared.replay_ingestion_id,
                     preset=prepared.request.preset,
-                    user_message=prepared.request.user_input,
+                    user_message=model_user_input,
                     history=prepared.history,
                     model_override=prepared.request.model or prepared.session.active_model,
                     include_live_context=True,
@@ -523,9 +534,10 @@ class ReplayWorkbenchChatService:
                 )
             )
         provider, model, content = self._replay_ai_chat_service._assistant.generate_session_reply(
-            user_message=prepared.request.user_input,
+            user_message=model_user_input,
             history=prepared.history,
             attachments=prepared.request.attachments,
+            enable_structured_outputs=allow_session_structured_outputs,
             model_override=prepared.request.model or prepared.session.active_model,
         )
         return __import__("types").SimpleNamespace(
@@ -537,8 +549,8 @@ class ReplayWorkbenchChatService:
             live_context_summary=[],
             follow_up_suggestions=content.follow_up_suggestions,
             attachment_summaries=content.attachment_summaries,
-            plan_cards=[],
-            annotations=[],
+            plan_cards=content.plan_cards if allow_session_structured_outputs else [],
+            annotations=content.annotations if allow_session_structured_outputs else [],
             session_only=True,
             model_dump=lambda mode="json": {
                 "reply_text": content.reply_text,
@@ -549,8 +561,8 @@ class ReplayWorkbenchChatService:
                 "live_context_summary": [],
                 "follow_up_suggestions": content.follow_up_suggestions,
                 "attachment_summaries": content.attachment_summaries,
-                "plan_cards": [],
-                "annotations": [],
+                "plan_cards": [item.model_dump(mode="json") for item in (content.plan_cards if allow_session_structured_outputs else [])],
+                "annotations": [item.model_dump(mode="json") for item in (content.annotations if allow_session_structured_outputs else [])],
                 "session_only": True,
             },
         )
@@ -563,7 +575,13 @@ class ReplayWorkbenchChatService:
 
     def _finalize_reply_turn(self, prepared: _PreparedReplyTurn, replay_response) -> _FinalizedReplyTurn:
         plan_cards = self._extract_plan_cards(prepared.session, prepared.assistant_pending.message_id, replay_response)
-        annotations = self._build_annotations(prepared.session, prepared.assistant_pending.message_id, replay_response, plan_cards)
+        annotations = self._build_annotations(
+            prepared.session,
+            prepared.assistant_pending.message_id,
+            replay_response,
+            plan_cards,
+            prepared.request,
+        )
         assistant_record = self._repository.update_chat_message(
             prepared.assistant_pending.message_id,
             content=replay_response.reply_text,
@@ -1007,12 +1025,24 @@ class ReplayWorkbenchChatService:
         )
         return [plan]
 
-    def _build_annotations(self, session: StoredChatSession, message_id: str, replay_response, plans: list[StoredChatPlanCard]) -> list[StoredChatAnnotation]:
+    def _build_annotations(
+        self,
+        session: StoredChatSession,
+        message_id: str,
+        replay_response,
+        plans: list[StoredChatPlanCard],
+        request: ChatReplyRequest | None = None,
+    ) -> list[StoredChatAnnotation]:
         structured_candidates = list(getattr(replay_response, "annotations", []) or [])
         if structured_candidates:
             annotations: list[StoredChatAnnotation] = []
             now = datetime.now(tz=UTC)
             for candidate in structured_candidates:
+                annotation_type, event_kind = self._normalize_structured_annotation_candidate(candidate)
+                payload = candidate.model_dump(mode="json")
+                payload["event_kind"] = event_kind
+                if annotation_type != candidate.type:
+                    payload["raw_annotation_type"] = candidate.type
                 annotations.append(
                     self._repository.save_chat_annotation(
                         annotation_id=f"ann-{uuid4().hex}",
@@ -1022,9 +1052,9 @@ class ReplayWorkbenchChatService:
                         symbol=session.symbol,
                         contract_id=session.contract_id,
                         timeframe=session.timeframe,
-                        annotation_type=candidate.type,
-                        subtype=candidate.subtype,
-                        label=candidate.label or "AI标记",
+                        annotation_type=annotation_type,
+                        subtype=candidate.subtype or (candidate.type if annotation_type != candidate.type else None),
+                        label=candidate.label or self._default_annotation_label(annotation_type),
                         reason=candidate.reason or "",
                         start_time=candidate.start_time or now,
                         end_time=candidate.end_time,
@@ -1035,7 +1065,7 @@ class ReplayWorkbenchChatService:
                         visible=candidate.visible,
                         pinned=candidate.pinned,
                         source_kind=candidate.source_kind or ("replay_analysis" if getattr(replay_response, "live_context_summary", None) else "session_chat"),
-                        payload=candidate.model_dump(mode="json"),
+                        payload=payload,
                         created_at=now,
                         updated_at=now,
                     )
@@ -1044,6 +1074,16 @@ class ReplayWorkbenchChatService:
 
         annotations: list[StoredChatAnnotation] = []
         now = datetime.now(tz=UTC)
+        if request is not None and self._should_enable_session_structured_output(request):
+            annotations.extend(
+                self._build_text_fallback_annotations(
+                    session=session,
+                    message_id=message_id,
+                    reply_text=str(getattr(replay_response, "reply_text", "") or ""),
+                    source_kind="session_chat" if getattr(replay_response, "session_only", False) else "replay_analysis",
+                    now=now,
+                )
+            )
         for plan in plans:
             if plan.entry_price is not None:
                 annotations.append(
@@ -1068,7 +1108,7 @@ class ReplayWorkbenchChatService:
                         visible=True,
                         pinned=False,
                         source_kind="session_chat" if getattr(replay_response, "session_only", False) else "replay_analysis",
-                        payload={"entry_price": plan.entry_price, "side": plan.side},
+                        payload={"entry_price": plan.entry_price, "side": plan.side, "event_kind": "plan"},
                         created_at=now,
                         updated_at=now,
                     )
@@ -1096,11 +1136,252 @@ class ReplayWorkbenchChatService:
                         visible=True,
                         pinned=False,
                         source_kind="session_chat" if getattr(replay_response, "session_only", False) else "replay_analysis",
-                        payload={"stop_price": plan.stop_price, "side": plan.side},
+                        payload={"stop_price": plan.stop_price, "side": plan.side, "event_kind": "plan"},
                         created_at=now,
                         updated_at=now,
                     )
                 )
+        return annotations
+
+    @classmethod
+    def _normalize_structured_annotation_candidate(cls, candidate) -> tuple[str, str]:
+        raw_type = str(getattr(candidate, "type", "") or "").strip().lower()
+        hint_parts = [
+            str(getattr(candidate, "label", "") or ""),
+            str(getattr(candidate, "reason", "") or ""),
+            str(getattr(candidate, "subtype", "") or ""),
+        ]
+        hint_text = " ".join(part for part in hint_parts if part).lower()
+        has_zone = getattr(candidate, "price_low", None) is not None or getattr(candidate, "price_high", None) is not None
+        has_stop = getattr(candidate, "stop_price", None) is not None
+        has_target = getattr(candidate, "target_price", None) is not None or getattr(candidate, "tp_level", None) is not None
+        has_entry = getattr(candidate, "entry_price", None) is not None
+
+        if raw_type in {"entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone"}:
+            return raw_type, cls._derive_annotation_event_kind(raw_type)
+        if raw_type in {"plan", "plan_intent"}:
+            if has_zone:
+                return cls._infer_zone_annotation_type(hint_text, side=getattr(candidate, "side", None)), "plan"
+            if has_stop and not has_entry and not has_target:
+                return "stop_loss", "plan"
+            if has_target:
+                return "take_profit", "plan"
+            return "entry_line", "plan"
+        if raw_type in {"risk", "risk_note"}:
+            return ("no_trade_zone" if has_zone else "stop_loss"), "risk"
+        if raw_type in {"zone", "price_zone"}:
+            return cls._infer_zone_annotation_type(hint_text, side=getattr(candidate, "side", None)), "zone"
+        if raw_type in {"price", "key_level", "market_event", "thesis_fragment"}:
+            if has_stop and not has_entry and not has_target:
+                return "stop_loss", "risk"
+            if has_target:
+                return "take_profit", "price"
+            if has_zone:
+                return cls._infer_zone_annotation_type(hint_text, side=getattr(candidate, "side", None)), "zone"
+            return "entry_line", "price"
+        if has_zone:
+            return cls._infer_zone_annotation_type(hint_text, side=getattr(candidate, "side", None)), "zone"
+        if has_stop and not has_entry and not has_target:
+            return "stop_loss", "risk"
+        if has_target:
+            return "take_profit", "price"
+        return "entry_line", "price"
+
+    @staticmethod
+    def _infer_zone_annotation_type(hint_text: str, *, side: str | None = None) -> str:
+        side_value = str(side or "").strip().lower()
+        if re.search(r"风险|失效|无交易|谨慎|放弃|不要追|不能追|risk|invalid", hint_text):
+            return "no_trade_zone"
+        if re.search(r"阻力|压力|供给|反抽|空头|resistance|supply", hint_text) or side_value in {"sell", "short"}:
+            return "resistance_zone"
+        if re.search(r"支撑|需求|回踩|多头|support|demand", hint_text) or side_value in {"buy", "long"}:
+            return "support_zone"
+        return "zone"
+
+    @staticmethod
+    def _derive_annotation_event_kind(annotation_type: str, *, plan_id: str | None = None, payload: dict[str, Any] | None = None) -> str:
+        payload_dict = payload if isinstance(payload, dict) else {}
+        explicit_kind = str(payload_dict.get("event_kind") or "").strip().lower()
+        if explicit_kind in {"plan", "zone", "risk", "price"}:
+            return explicit_kind
+        if plan_id:
+            return "plan"
+        normalized_type = str(annotation_type or "").strip().lower()
+        if normalized_type in {"support_zone", "resistance_zone", "zone", "price_zone"}:
+            return "zone"
+        if normalized_type in {"no_trade_zone", "stop_loss", "risk", "risk_note"}:
+            return "risk"
+        if normalized_type in {"plan", "plan_intent"}:
+            return "plan"
+        return "price"
+
+    @staticmethod
+    def _default_annotation_label(annotation_type: str) -> str:
+        return {
+            "entry_line": "关键价位",
+            "stop_loss": "风险位",
+            "take_profit": "目标位",
+            "support_zone": "支撑区域",
+            "resistance_zone": "阻力区域",
+            "no_trade_zone": "风险区域",
+            "zone": "候选区域",
+        }.get(annotation_type, "AI标记")
+
+    def _build_text_fallback_annotations(
+        self,
+        *,
+        session: StoredChatSession,
+        message_id: str,
+        reply_text: str,
+        source_kind: str,
+        now: datetime,
+    ) -> list[StoredChatAnnotation]:
+        text = (reply_text or "").strip()
+        if not text:
+            return []
+
+        annotations: list[StoredChatAnnotation] = []
+        seen_keys: set[str] = set()
+        range_pattern = re.compile(r"(\d{3,6}(?:\.\d+)?)[\s]*(?:-|~|到|至)[\s]*(\d{3,6}(?:\.\d+)?)")
+        single_pattern = re.compile(r"\d{3,6}(?:\.\d+)?")
+        single_prices: list[tuple[float, int]] = []
+
+        def _save_candidate(
+            *,
+            annotation_type: str,
+            label: str,
+            reason: str,
+            payload: dict[str, Any],
+        ) -> None:
+            payload = dict(payload)
+            payload.setdefault("event_kind", self._derive_annotation_event_kind(annotation_type, payload=payload))
+            dedup_key = json.dumps(
+                {
+                    "type": annotation_type,
+                    "label": label,
+                    "price_low": payload.get("price_low"),
+                    "price_high": payload.get("price_high"),
+                    "entry_price": payload.get("entry_price"),
+                    "stop_price": payload.get("stop_price"),
+                    "target_price": payload.get("target_price"),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            if dedup_key in seen_keys:
+                return
+            seen_keys.add(dedup_key)
+            annotations.append(
+                self._repository.save_chat_annotation(
+                    annotation_id=f"ann-{uuid4().hex}",
+                    session_id=session.session_id,
+                    message_id=message_id,
+                    plan_id=None,
+                    symbol=session.symbol,
+                    contract_id=session.contract_id,
+                    timeframe=session.timeframe,
+                    annotation_type=annotation_type,
+                    subtype=None,
+                    label=label,
+                    reason=reason,
+                    start_time=now,
+                    end_time=None,
+                    expires_at=None,
+                    status="active",
+                    priority=None,
+                    confidence=None,
+                    visible=True,
+                    pinned=False,
+                    source_kind=source_kind,
+                    payload=payload,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        for match in range_pattern.finditer(text):
+            low = float(match.group(1))
+            high = float(match.group(2))
+            price_low = min(low, high)
+            price_high = max(low, high)
+            context = text[max(0, match.start() - 24): min(len(text), match.end() + 24)]
+            if re.search(r"风险|失效|谨慎|放弃|不要追|不能追", context):
+                annotation_type = "no_trade_zone"
+                label = "风险区域"
+            elif re.search(r"阻力|压力|供给|反抽|空头", context):
+                annotation_type = "resistance_zone"
+                label = "阻力区域"
+            elif re.search(r"支撑|需求|回踩|多头", context):
+                annotation_type = "support_zone"
+                label = "支撑区域"
+            else:
+                annotation_type = "zone"
+                label = "候选区域"
+            _save_candidate(
+                annotation_type=annotation_type,
+                label=label,
+                reason=context.strip() or text[:120],
+                payload={
+                    "price_low": price_low,
+                    "price_high": price_high,
+                },
+            )
+
+        occupied_spans = [(m.start(), m.end()) for m in range_pattern.finditer(text)]
+        for match in single_pattern.finditer(text):
+            if any(start <= match.start() < end for start, end in occupied_spans):
+                continue
+            price = float(match.group(0))
+            context = text[max(0, match.start() - 18): min(len(text), match.end() + 18)]
+            if re.search(r"止损|失效|跌破|站不上|风险", context):
+                single_prices.append((price, match.start()))
+                _save_candidate(
+                    annotation_type="no_trade_zone",
+                    label="风险位",
+                    reason=context.strip(),
+                    payload={
+                        "price_low": price - 6,
+                        "price_high": price + 6,
+                        "stop_price": price,
+                    },
+                )
+                continue
+            if re.search(r"止盈|目标|TP", context):
+                _save_candidate(
+                    annotation_type="take_profit",
+                    label="目标位",
+                    reason=context.strip(),
+                    payload={
+                        "target_price": price,
+                        "tp_level": 1,
+                    },
+                )
+                continue
+            if re.search(r"入场|回踩|关注|突破", context):
+                _save_candidate(
+                    annotation_type="entry_line",
+                    label="关键价位",
+                    reason=context.strip(),
+                    payload={
+                        "entry_price": price,
+                    },
+                )
+
+        if not annotations:
+            risk_match = re.search(r"(风险|失效|谨慎|放弃|不要追|不能追)[^。；\n]*", text)
+            anchor_price = single_prices[0][0] if single_prices else None
+            if risk_match and anchor_price is not None:
+                _save_candidate(
+                    annotation_type="no_trade_zone",
+                    label="风险提示",
+                    reason=risk_match.group(0).strip(),
+                    payload={
+                        "price_low": anchor_price - 6,
+                        "price_high": anchor_price + 6,
+                        "stop_price": anchor_price,
+                    },
+                )
+
         return annotations
 
     def _build_history_for_reply(self, session_id: str, include_recent_messages: bool, include_memory_summary: bool):
@@ -1118,6 +1399,94 @@ class ReplayWorkbenchChatService:
                 if item.role in {"user", "assistant"} and item.content:
                     history.append(ReplayAiChatMessage(role=item.role, content=item.content))
         return history
+
+    def _build_model_user_input(self, prepared: _PreparedReplyTurn) -> str:
+        request = prepared.request
+        base_input = (request.user_input or "").strip()
+        sections: list[str] = [base_input] if base_input else []
+
+        contract_lines: list[str] = []
+        if request.analysis_type:
+            contract_lines.append(f"- analysis_type: {request.analysis_type}")
+        if request.analysis_range:
+            contract_lines.append(f"- analysis_range: {request.analysis_range}")
+        if request.analysis_style:
+            contract_lines.append(f"- analysis_style: {request.analysis_style}")
+        if contract_lines:
+            sections.append("[analysis_contract]\n" + "\n".join(contract_lines))
+
+        if isinstance(request.extra_context, dict) and request.extra_context:
+            context_lines: list[str] = []
+            for key in sorted(request.extra_context.keys()):
+                value = request.extra_context.get(key)
+                if value in (None, "", [], {}):
+                    continue
+                if isinstance(value, str):
+                    rendered = value.strip()
+                else:
+                    rendered = json.dumps(value, ensure_ascii=False)
+                rendered = rendered[:600] + ("..." if len(rendered) > 600 else "")
+                context_lines.append(f"- {key}: {rendered}")
+            if context_lines:
+                sections.append("[extra_context]\n" + "\n".join(context_lines))
+
+        block_lines = self._collect_prompt_block_context(
+            prepared.session,
+            [*request.selected_block_ids, *request.pinned_block_ids],
+        )
+        if block_lines:
+            sections.append("[selected_prompt_blocks]\n" + "\n".join(block_lines))
+
+        if self._should_enable_session_structured_output(request):
+            sections.append(
+                "[output_requirements]\n"
+                "- Prefer structured annotations for concrete price levels/zones/invalidation points.\n"
+                "- Prefer one compact plan card when a clear executable plan is present.\n"
+                "- Keep reply_text concise and evidence-first."
+            )
+
+        combined = "\n\n".join(part for part in sections if part.strip())
+        return combined or request.user_input
+
+    def _collect_prompt_block_context(self, session: StoredChatSession, block_ids: list[str]) -> list[str]:
+        ordered_ids = list(dict.fromkeys(block_ids))
+        lines: list[str] = []
+        for block_id in ordered_ids:
+            block = self._repository.get_prompt_block(block_id)
+            if block is None:
+                continue
+            if block.session_id != session.session_id and (block.symbol != session.symbol or block.contract_id != session.contract_id):
+                continue
+            preview = (block.preview_text or "").strip()
+            preview = preview[:200] + ("..." if len(preview) > 200 else "")
+            head = f"- {block.kind}: {block.title}"
+            if preview:
+                head = f"{head} | {preview}"
+            payload_excerpt = self._compact_prompt_block_payload(block.full_payload)
+            if payload_excerpt:
+                head = f"{head}\n  full_payload: {payload_excerpt}"
+            lines.append(head)
+        return lines[:12]
+
+    @staticmethod
+    def _compact_prompt_block_payload(payload: dict[str, Any] | None, max_chars: int = 900) -> str:
+        if not isinstance(payload, dict) or not payload:
+            return ""
+        try:
+            rendered = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+        except TypeError:
+            rendered = str(payload)
+        rendered = re.sub(r"\s+", " ", rendered).strip()
+        if len(rendered) > max_chars:
+            rendered = rendered[:max_chars] + "..."
+        return rendered
+
+    @staticmethod
+    def _should_enable_session_structured_output(request: ChatReplyRequest) -> bool:
+        analysis_type = (request.analysis_type or "").strip().lower()
+        if analysis_type in {"event_timeline", "event_extraction", "event_scribe", "event_summary"}:
+            return True
+        return False
 
     def _validate_block_scope(self, session: StoredChatSession, block_ids: list[str]) -> None:
         for block_id in block_ids:
@@ -1243,6 +1612,7 @@ class ReplayWorkbenchChatService:
         )
 
     def _annotation_model(self, stored: StoredChatAnnotation) -> ChatAnnotation:
+        payload = stored.payload if isinstance(stored.payload, dict) else {}
         return ChatAnnotation(
             annotation_id=stored.annotation_id,
             session_id=stored.session_id,
@@ -1264,6 +1634,15 @@ class ReplayWorkbenchChatService:
             visible=stored.visible,
             pinned=stored.pinned,
             source_kind=stored.source_kind,
+            event_kind=self._derive_annotation_event_kind(stored.annotation_type, plan_id=stored.plan_id, payload=payload),
+            side=payload.get("side"),
+            entry_price=payload.get("entry_price"),
+            stop_price=payload.get("stop_price"),
+            target_price=payload.get("target_price"),
+            tp_level=payload.get("tp_level"),
+            price_low=payload.get("price_low"),
+            price_high=payload.get("price_high"),
+            path_points=payload.get("path_points") if isinstance(payload.get("path_points"), list) else [],
             payload=stored.payload,
             created_at=stored.created_at,
             updated_at=stored.updated_at,
@@ -2664,17 +3043,50 @@ class ReplayWorkbenchService:
         window_end: datetime,
         limit: int = 5000,
     ) -> list[dict[str, Any]]:
-        """Query pre-aggregated bars from ClickHouse MV. Returns empty list if unavailable."""
+        """Query pre-aggregated bars from the chart_candles table.
+
+        The chart_candles table (in ClickHouse or SQLite) is populated by
+        ChartCandleService during ingestion, so queries are sub-100ms regardless
+        of the raw message volume.
+
+        Falls back to raw-message aggregation when no chart candles exist.
+        """
         try:
-            bars = self._repository.list_continuous_state_bars(
+            # First check: do we have any chart candles for this symbol/timeframe?
+            count = self._repository.count_chart_candles(symbol.upper(), timeframe.value)
+            if count == 0:
+                return []
+
+            # Query pre-aggregated chart candles from chart_candles table.
+            # Both SQLite and ClickHouse repositories support this method.
+            candles = self._repository.list_chart_candles(
                 symbol=symbol.upper(),
-                timeframe=timeframe,
+                timeframe=timeframe.value,
                 window_start=window_start,
                 window_end=window_end,
-                trade_active_only=True,
                 limit=limit,
             )
-            return bars
+
+            if not candles:
+                return []
+
+            # Convert ChartCandle model objects to the dict format expected
+            # by _build_snapshot_from_local_history.
+            return [
+                {
+                    "started_at": bar.started_at,
+                    "ended_at": bar.ended_at,
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                    "delta": bar.delta,
+                    "bid_volume": None,
+                    "ask_volume": None,
+                }
+                for bar in candles
+            ]
         except Exception:
             return []
 

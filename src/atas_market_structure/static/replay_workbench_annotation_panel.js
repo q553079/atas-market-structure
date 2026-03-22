@@ -95,6 +95,7 @@ export function createAnnotationPanelController({
       ["support_zone", "支撑/阻力区"],
       ["resistance_zone", "支撑/阻力区"],
       ["no_trade_zone", "无交易区"],
+      ["zone", "一般价格区"],
       ["path_arrow", "路径箭头"],
     ];
     els.annotationTypeFilters.innerHTML = typeOptions.map(([value, label]) => `<label class="filter-item"><input type="checkbox" data-filter-kind="type" data-filter-id="${value}" ${filters.objectTypes.includes(value) ? "checked" : ""}>${label}</label>`).join("");

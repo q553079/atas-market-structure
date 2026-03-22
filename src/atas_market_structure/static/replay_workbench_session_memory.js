@@ -97,7 +97,7 @@ export function createSessionMemoryEngine({ state, els, fetchJson }) {
     memory.key_zones_summary = Array.from(new Set([
       ...(memory.key_zones_summary || []),
       ...sessionAnnotations
-        .filter((item) => ["support_zone", "resistance_zone", "no_trade_zone"].includes(item.type))
+        .filter((item) => ["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type))
         .map((item) => item.label)
         .filter(Boolean),
     ])).slice(-8);
@@ -145,7 +145,7 @@ export function createSessionMemoryEngine({ state, els, fetchJson }) {
     memory.key_zones_summary = Array.from(new Set([
       ...(memory.key_zones_summary || []),
       ...sessionAnnotations
-        .filter((item) => ["support_zone", "resistance_zone", "no_trade_zone"].includes(item.type))
+        .filter((item) => ["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type))
         .map((item) => item.label)
         .filter(Boolean),
     ])).slice(-8);
@@ -186,7 +186,7 @@ export function createSessionMemoryEngine({ state, els, fetchJson }) {
       `- 窗口：${session.windowRange || els?.statusWindowChip?.textContent || memory.window_range || "-"}`,
       `- 用户当前目标：${memory.current_user_intent || memory.user_goal_summary || "待补充"}`,
       `- 市场摘要：${memory.market_context_summary || "待补充"}`,
-      `- 关键区域：${(memory.key_zones_summary || []).join("；") || activeAnnotations.filter((item) => ["support_zone", "resistance_zone", "no_trade_zone"].includes(item.type)).map((item) => item.label).join("；") || "无"}`,
+      `- 关键区域：${(memory.key_zones_summary || []).join("；") || activeAnnotations.filter((item) => ["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type)).map((item) => item.label).join("；") || "无"}`,
       `- 当前活动计划：${activePlans.join("；") || "无"}`,
       `- 关键对象状态：${activeAnnotations.map((item) => `${item.label}(${item.status})`).join("；") || "无"}`,
       mode === "summary_plus_recent_3" ? `- 最近3轮原文：\n${recentTurns || "无"}` : "",

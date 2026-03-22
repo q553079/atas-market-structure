@@ -1717,6 +1717,15 @@ button.chart-event-pill.selected {
   padding: 12px;
 }
 
+.reply-extraction-panel.is-collapsed {
+  gap: 6px;
+  padding-bottom: 10px;
+}
+
+.reply-extraction-panel.is-collapsed .secondary-ai-panel-head {
+  margin-bottom: 0;
+}
+
 .reply-extraction-controls {
   display: flex;
   flex-wrap: wrap;

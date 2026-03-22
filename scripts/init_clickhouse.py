@@ -80,7 +80,7 @@ def build_ddl(database: str) -> list[str]:
         latest_observed_at DateTime64(3, 'UTC'),
         stored_at          DateTime64(3, 'UTC')
     )
-    ENGINE = SummingMergeTree()
+    ENGINE = ReplacingMergeTree(stored_at)
     PARTITION BY (symbol, toYYYYMMDD(bucket_start))
     ORDER BY (symbol, timeframe, bucket_start)
     """
@@ -143,15 +143,15 @@ def build_ddl(database: str) -> list[str]:
     TO {database}.continuous_state_events
     AS
     SELECT
-        instrument_symbol                                                                     AS symbol,
-        toStartOfInterval(toDateTime64(observed_window_end, 3, 'UTC'), INTERVAL 1 minute)       AS bucket_start,
-        JSONExtractString(observed_payload_json, 'same_price_replenishment', '0', 'track_id')   AS track_id,
-        'same_price_replenishment'                                                            AS event_kind,
-        JSONExtractFloat(observed_payload_json, 'same_price_replenishment', '0', 'price')       AS price,
-        JSONExtractString(observed_payload_json, 'same_price_replenishment', '0', 'side')       AS side,
+        instrument_symbol                                                                            AS symbol,
+        toStartOfInterval(toDateTime64(observed_window_end, 3, 'UTC'), INTERVAL 1 minute)           AS bucket_start,
+        JSONExtractString(observed_payload_json, 'same_price_replenishment', '0', 'track_id')         AS track_id,
+        'same_price_replenishment'                                                                   AS event_kind,
+        JSONExtractFloat(observed_payload_json, 'same_price_replenishment', '0', 'price')            AS price,
+        JSONExtractString(observed_payload_json, 'same_price_replenishment', '0', 'side')            AS side,
         JSONExtractUInt(observed_payload_json, 'same_price_replenishment', '0', 'replenishment_count') AS replenishment_count,
-        toDateTime64(observed_window_end, 3, 'UTC')                                             AS observed_at,
-        now64(3)                                                                               AS stored_at
+        toDateTime64(observed_window_end, 3, 'UTC')                                                  AS observed_at,
+        now64(3)                                                                                    AS stored_at
     FROM {database}.ingestions
     WHERE ingestion_kind = 'adapter_continuous_state'
       AND JSONLength(observed_payload_json, 'same_price_replenishment') > 0
