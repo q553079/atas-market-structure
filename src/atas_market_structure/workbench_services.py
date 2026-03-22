@@ -101,6 +101,7 @@ from atas_market_structure.models import (
     ReplayFocusRegion,
     ReplayLiveStreamState,
     ReplayStrategyCandidate,
+    RollMode,
     StructureSide,
     Timeframe,
 )
@@ -2492,6 +2493,8 @@ class ReplayWorkbenchService:
                 request_id=f"atas-backfill-{uuid4().hex}",
                 cache_key=normalized_request.cache_key,
                 instrument_symbol=normalized_request.instrument_symbol,
+                contract_symbol=normalized_request.contract_symbol,
+                root_symbol=normalized_request.root_symbol,
                 display_timeframe=normalized_request.display_timeframe,
                 window_start=normalized_request.window_start,
                 window_end=normalized_request.window_end,
@@ -2518,6 +2521,8 @@ class ReplayWorkbenchService:
         *,
         instrument_symbol: str,
         chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
     ) -> AdapterBackfillDispatchResponse:
         now = datetime.now(tz=UTC)
         with self._backfill_lock:
@@ -2525,6 +2530,8 @@ class ReplayWorkbenchService:
             for record in self._iter_matching_backfill_requests_locked(
                 instrument_symbol=instrument_symbol,
                 chart_instance_id=chart_instance_id,
+                contract_symbol=contract_symbol,
+                root_symbol=root_symbol,
             ):
                 if not self._is_backfill_dispatchable(record, now):
                     continue
@@ -2601,6 +2608,140 @@ class ReplayWorkbenchService:
             verification=verification,
             rebuild_result=rebuild_result,
         )
+
+    def get_mirror_bars(
+        self,
+        *,
+        chart_instance_id: str | None,
+        contract_symbol: str,
+        timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 5000,
+    ) -> list[ReplayChartBar]:
+        """Query raw contract bars without continuous/roll adjustments.
+
+        Mirror bars return the exact contract data as stored, useful when
+        you need to see the true contract prices without any roll logic.
+
+        Args:
+            chart_instance_id: Optional ATAS chart-instance filter.
+            contract_symbol: The contract symbol to query (e.g. "NQH6").
+            timeframe: Target timeframe for the bars.
+            window_start: Inclusive query window start.
+            window_end: Inclusive query window end.
+            limit: Maximum bars to return.
+
+        Returns:
+            List of ReplayChartBar representing raw contract data.
+        """
+        ingestions = self._repository.list_ingestions(
+            ingestion_kind="adapter_history_bars",
+            instrument_symbol=contract_symbol,
+            limit=limit * 2,
+        )
+        if chart_instance_id is not None:
+            ingestions = [
+                i for i in ingestions
+                if i.metadata.get("chart_instance_id") == chart_instance_id
+            ]
+        bars: list[ReplayChartBar] = []
+        for st in ingestions:
+            payload = st.observed_payload
+            if not payload or payload.get("message_type") != "history_bars":
+                continue
+            bar_tf = payload.get("bar_timeframe")
+            if bar_tf and Timeframe(bar_tf) != timeframe:
+                continue
+            raw_bars = payload.get("bars") or []
+            for bar in raw_bars:
+                started_at = bar.get("started_at")
+                if isinstance(started_at, str):
+                    started_at = datetime.fromisoformat(started_at.replace("Z", "+00:00")).astimezone(UTC)
+                elif started_at is None:
+                    continue
+                else:
+                    started_at = started_at.astimezone(UTC) if started_at.tzinfo else started_at.replace(tzinfo=UTC)
+                if window_start <= started_at <= window_end:
+                    ended_at = bar.get("ended_at")
+                    if isinstance(ended_at, str):
+                        ended_at = datetime.fromisoformat(ended_at.replace("Z", "+00:00")).astimezone(UTC)
+                    bars.append(
+                        ReplayChartBar(
+                            started_at=started_at,
+                            ended_at=ended_at or started_at,
+                            open=float(bar.get("open") or 0),
+                            high=float(bar.get("high") or 0),
+                            low=float(bar.get("low") or 0),
+                            close=float(bar.get("close") or 0),
+                            volume=int(bar.get("volume") or 0) if bar.get("volume") else None,
+                            delta=int(bar.get("delta") or 0) if bar.get("delta") else None,
+                            bid_volume=int(bar.get("bid_volume") or 0) if bar.get("bid_volume") else None,
+                            ask_volume=int(bar.get("ask_volume") or 0) if bar.get("ask_volume") else None,
+                            bar_timestamp_utc=bar.get("bar_timestamp_utc"),
+                            original_bar_time_text=bar.get("original_bar_time_text"),
+                        )
+                    )
+        bars.sort(key=lambda b: b.started_at)
+        return bars[:limit]
+
+    def get_continuous_bars(
+        self,
+        *,
+        root_symbol: str,
+        timeframe: Timeframe,
+        roll_mode: RollMode,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 5000,
+    ) -> list[ReplayChartBar]:
+        """Query continuous-series bars with roll adjustments applied.
+
+        Continuous bars provide a seamless price series across contract
+        expirations. The roll_mode parameter controls how adjustments
+        and transitions between contracts are handled.
+
+        Args:
+            root_symbol: Root/continuous symbol (e.g. "NQ").
+            timeframe: Target timeframe for the bars.
+            roll_mode: Roll mode controlling contract transitions.
+            window_start: Inclusive query window start.
+            window_end: Inclusive query window end.
+            limit: Maximum bars to return.
+
+        Returns:
+            List of ReplayChartBar representing continuous adjusted data.
+        """
+        ingestions = self._repository.list_ingestions(
+            ingestion_kind="adapter_continuous_state",
+            instrument_symbol=root_symbol,
+            limit=limit * 2,
+        )
+        active_messages = self._select_trade_active_continuous_messages(ingestions)
+        if not active_messages:
+            return []
+        continuous_candles = self._build_candles(timeframe, active_messages)
+        bars: list[ReplayChartBar] = []
+        for candle in continuous_candles:
+            started_at = candle.started_at
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=UTC)
+            if window_start <= started_at <= window_end:
+                bars.append(
+                    ReplayChartBar(
+                        started_at=started_at,
+                        ended_at=candle.ended_at,
+                        open=candle.open,
+                        high=candle.high,
+                        low=candle.low,
+                        close=candle.close,
+                        volume=candle.volume,
+                        delta=candle.delta,
+                        bid_volume=None,
+                        ask_volume=None,
+                    )
+                )
+        return bars[:limit]
 
     def _verify_acknowledged_backfill(
         self,
@@ -4583,6 +4724,8 @@ class ReplayWorkbenchService:
         *,
         instrument_symbol: str,
         chart_instance_id: str | None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
     ) -> list[ReplayWorkbenchAtasBackfillRecord]:
         return sorted(
             (
@@ -4595,6 +4738,14 @@ class ReplayWorkbenchService:
                         chart_instance_id is not None
                         and record.chart_instance_id == chart_instance_id
                     )
+                )
+                and (
+                    record.contract_symbol is None
+                    or (contract_symbol is not None and record.contract_symbol == contract_symbol)
+                )
+                and (
+                    record.root_symbol is None
+                    or (root_symbol is not None and record.root_symbol == root_symbol)
                 )
             ),
             key=lambda item: (item.requested_at, item.request_id),
@@ -4625,6 +4776,8 @@ class ReplayWorkbenchService:
                 and record.request_history_footprint == request.request_history_footprint
                 and self._gap_segments_equal(record.missing_segments, request.missing_segments)
                 and self._backfill_ranges_equal(record.requested_ranges, request.requested_ranges)
+                and record.contract_symbol == request.contract_symbol
+                and record.root_symbol == request.root_symbol
             ):
                 return record
         return None

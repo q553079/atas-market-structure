@@ -769,6 +769,10 @@ class SQLiteAnalysisRepository:
                 connection.execute("UPDATE chart_candles SET source_started_at = started_at WHERE source_started_at = ''")
             except sqlite3.OperationalError:
                 pass
+            try:
+                connection.execute("ALTER TABLE chart_candles ADD COLUMN source_timezone TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_time ON chat_messages (session_id, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_prompt_blocks_session_kind ON chat_prompt_blocks (session_id, kind, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_annotations_session_message ON chat_annotations (session_id, message_id, created_at)")
@@ -1439,8 +1443,9 @@ class SQLiteAnalysisRepository:
                 """
                 INSERT INTO chart_candles
                     (symbol, timeframe, started_at, ended_at,
-                     source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at,
+                     source_timezone)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
                     source_started_at = MIN(chart_candles.source_started_at, excluded.source_started_at),
                     high        = MAX(excluded.high,  chart_candles.high),
@@ -1449,7 +1454,8 @@ class SQLiteAnalysisRepository:
                     volume      = chart_candles.volume    + (excluded.volume    - MAX(chart_candles.open, chart_candles.high, chart_candles.low, chart_candles.close)),
                     tick_volume = chart_candles.tick_volume + excluded.tick_volume,
                     delta       = chart_candles.delta       + excluded.delta,
-                    updated_at  = excluded.updated_at
+                    updated_at  = excluded.updated_at,
+                    source_timezone = COALESCE(NULLIF(excluded.source_timezone, ''), chart_candles.source_timezone)
                 """,
                 (
                     candle.symbol,
@@ -1465,6 +1471,7 @@ class SQLiteAnalysisRepository:
                     candle.tick_volume,
                     candle.delta,
                     self._serialize_datetime(candle.updated_at),
+                    candle.source_timezone or "",
                 ),
             )
             conn.commit()
@@ -1489,6 +1496,7 @@ class SQLiteAnalysisRepository:
                 c.tick_volume,
                 c.delta,
                 self._serialize_datetime(c.updated_at),
+                c.source_timezone or "",
             )
             for c in candles
         ]
@@ -1497,8 +1505,9 @@ class SQLiteAnalysisRepository:
                 """
                 INSERT INTO chart_candles
                     (symbol, timeframe, started_at, ended_at,
-                     source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at,
+                     source_timezone)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
                     source_started_at = MIN(chart_candles.source_started_at, excluded.source_started_at),
                     high        = MAX(excluded.high,  chart_candles.high),
@@ -1507,7 +1516,8 @@ class SQLiteAnalysisRepository:
                     volume      = chart_candles.volume      + excluded.volume,
                     tick_volume = chart_candles.tick_volume + excluded.tick_volume,
                     delta       = chart_candles.delta       + excluded.delta,
-                    updated_at  = excluded.updated_at
+                    updated_at  = excluded.updated_at,
+                    source_timezone = COALESCE(NULLIF(excluded.source_timezone, ''), chart_candles.source_timezone)
                 """,
                 rows,
             )
@@ -1534,7 +1544,8 @@ class SQLiteAnalysisRepository:
             rows = conn.execute(
                 """
                 SELECT symbol, timeframe, started_at, ended_at,
-                       source_started_at, open, high, low, close, volume, tick_volume, delta, updated_at
+                       source_started_at, open, high, low, close, volume, tick_volume, delta,
+                       updated_at, source_timezone
                   FROM chart_candles
                  WHERE symbol    = ?
                    AND timeframe = ?
@@ -1567,6 +1578,7 @@ class SQLiteAnalysisRepository:
                 tick_volume=row["tick_volume"],
                 delta=row["delta"],
                 updated_at=self._parse_datetime(row["updated_at"]),
+                source_timezone=row["source_timezone"] or None,
             )
             for row in rows
         ]

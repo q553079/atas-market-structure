@@ -147,7 +147,8 @@ class ClickHouseChartCandleRepository:
                     volume Int64,
                     tick_volume Int64,
                     delta Int64,
-                    updated_at DateTime64(3, 'UTC')
+                    updated_at DateTime64(3, 'UTC'),
+                    source_timezone String DEFAULT ''
                 )
                 ENGINE = ReplacingMergeTree(updated_at)
                 PARTITION BY (symbol, toYYYYMM(started_at))
@@ -206,6 +207,7 @@ class ClickHouseChartCandleRepository:
                 candle.tick_volume,
                 candle.delta,
                 _normalize_utc(candle.updated_at),
+                candle.source_timezone or "",
             ]
             for candle in candles
         ]
@@ -227,6 +229,7 @@ class ClickHouseChartCandleRepository:
                     "tick_volume",
                     "delta",
                     "updated_at",
+                    "source_timezone",
                 ],
             )
         )
@@ -255,7 +258,8 @@ class ClickHouseChartCandleRepository:
             toInt64(sum(volume)) AS volume,
             toInt64(sum(tick_volume)) AS tick_volume,
             toInt64(sum(delta)) AS delta,
-            max(updated_at) AS updated_at_max
+            max(updated_at) AS updated_at_max,
+            argMin(source_timezone, tuple(source_started_at, updated_at)) AS source_timezone
         FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
         WHERE symbol = {_quote_string(symbol)}
           AND timeframe = {_quote_string(tf_value)}
@@ -282,6 +286,7 @@ class ClickHouseChartCandleRepository:
                 tick_volume=int(row[10]),
                 delta=int(row[11]),
                 updated_at=_normalize_utc(row[12]),
+                source_timezone=row[13] or None,
             )
             for row in rows
         ]

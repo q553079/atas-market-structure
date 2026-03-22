@@ -7,9 +7,10 @@ Also maintains a lightweight rolling per-instrument bar cache so low-latency
 adapter ingestion can query adaptive thresholds in O(1) for repeated requests
 within the same minute.
 
-On every bar ingestion (continuous or history-loaded), this module immediately
-writes pre-aggregated OHLCV into the `chart_candles` table.  All chart reads
-subsequently bypass per-request aggregation and read pre-computed rows directly.
+On every bar ingestion (continuous or history-loaded), this module writes
+OHLCV into the `chart_candles` table ONLY for the native/source timeframe.
+Upper-timeframe aggregation is a separate downstream process that aggregates
+from finer to coarser timeframes — never the reverse.
 
 Consumers:
 - strategy_selection_engine (session_scope filter + regime-aware ranking)
@@ -38,16 +39,7 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
-# All timeframes written by this monitor on ingest.
-ALL_TFS: list[Timeframe] = [
-    Timeframe.MIN_1,
-    Timeframe.MIN_5,
-    Timeframe.MIN_15,
-    Timeframe.MIN_30,
-    Timeframe.HOUR_1,
-    Timeframe.HOUR_4,
-]
-
+# Timeframe resolution constants for UTC bucketing.
 _TF_SECONDS: dict[Timeframe, int] = {
     Timeframe.MIN_1:  60,
     Timeframe.MIN_5:  300,
@@ -55,6 +47,7 @@ _TF_SECONDS: dict[Timeframe, int] = {
     Timeframe.MIN_30: 1800,
     Timeframe.HOUR_1: 3600,
     Timeframe.HOUR_4: 14400,
+    Timeframe.DAY_1:  86400,
 }
 
 
@@ -129,8 +122,9 @@ class _InstrumentRollingBar:
 class RegimeMonitor:
     """Infers market regime and serves cached adaptive thresholds from rolling bars.
 
-    On every bar ingestion, pre-aggregated OHLCV rows are immediately written to
-    the `chart_candles` table for all registered timeframes.
+    On every bar ingestion, OHLCV rows are written to the `chart_candles` table
+    for the native/source timeframe only.  Upper-timeframe aggregation is a
+    separate downstream process that aggregates from finer to coarser timeframes.
     """
 
     def __init__(self, repository: "AnalysisRepository | None" = None) -> None:
@@ -282,7 +276,6 @@ class RegimeMonitor:
                 )
             )
         self._evict_cache_for_symbol(symbol)
-        # Persist the (possibly updated) last bar into chart_candles
         if bars:
             bar = bars[-1]
             self._persist_bar(
@@ -293,10 +286,9 @@ class RegimeMonitor:
                 high=bar.high,
                 low=bar.low,
                 close=bar.close,
-                # Repeated writes for the same timeframe bucket rely on the repository
-                # to merge OHLC state while summing only the newly observed flow.
-                volume=volume,
-                delta=delta,
+                volume=bar.volume,
+                delta=bar.delta,
+                timeframe=Timeframe.MIN_1,
             )
 
     def get_dynamic_thresholds(
@@ -410,47 +402,68 @@ class RegimeMonitor:
         close: float,
         volume: int,
         delta: int,
+        timeframe: Timeframe,
     ) -> None:
-        """Project one raw bar into all timeframes and write to chart_candles immediately.
+        """Write one raw bar into chart_candles for its native timeframe only.
 
-        ON CONFLICT(symbol, timeframe, started_at) handles deduplication, so repeated
-        updates to the same bucket safely aggregate latest OHLC state while summing
-        incremental volume/delta from each observation.
+        This is used for continuous-state ingestion where the regime monitor
+        maintains its own rolling bars at whatever timeframe the adapter sends.
+        For history ingestion, use `persist_history_bars_native` instead.
         """
         if self._repository is None:
             return
 
         now = datetime.now(tz=UTC)
-        candles: list[ChartCandle] = []
-        for tf in ALL_TFS:
-            bucket = _floor(started_at, tf)
-            bucket_end = bucket + timedelta(seconds=_TF_SECONDS[tf])
-            candles.append(
-                ChartCandle(
-                    symbol=symbol,
-                    timeframe=tf,
-                    started_at=bucket,
-                    ended_at=bucket_end,
-                    source_started_at=started_at,
-                    open=open,
-                    high=high,
-                    low=low,
-                    close=close,
-                    volume=volume,
-                    tick_volume=1,
-                    delta=delta,
-                    updated_at=now,
-                )
-            )
-        # Write to DB immediately — ON CONFLICT handles deduplication.
-        # This mirrors ingest_history_bars → persist_history_bars and ensures
-        # chart_candles are always current even when the buffer never fills.
-        self._repository.upsert_chart_candles(candles)
+        bucket = _floor(started_at, timeframe)
+        bucket_end = bucket + timedelta(seconds=_TF_SECONDS[timeframe])
+        candle = ChartCandle(
+            symbol=symbol,
+            timeframe=timeframe,
+            started_at=bucket,
+            ended_at=bucket_end,
+            source_started_at=started_at,
+            open=open,
+            high=high,
+            low=low,
+            close=close,
+            volume=volume,
+            tick_volume=1,
+            delta=delta,
+            updated_at=now,
+        )
+        self._repository.upsert_chart_candles([candle])
 
-    def persist_history_bars(self, symbol: str, bars: list[dict]) -> int:
-        """Bulk-persist a list of raw bars. Used for batch history ingestion."""
+    def persist_history_bars_native(
+        self,
+        symbol: str,
+        bars: list[dict],
+        native_timeframe: Timeframe,
+    ) -> int:
+        """Bulk-persist history bars for ONE native timeframe only.
+
+        This replaces the old behaviour that projected every raw bar into all
+        timeframes (1m × 5m × 15m × 30m × 1h × 4h).  Upper-timeframe candles
+        must be produced by a separate upward-aggregation pass that reads from
+        finer timeframes.
+
+        Aggregation rules (strict direction):
+        - 1m  → 5m, 15m, 30m, 1h, 4h   (OK: fine to coarse)
+        - 5m  → 15m, 30m, 1h, 4h       (OK)
+        - 15m → 30m, 1h, 4h             (OK)
+        - 30m → 1h, 4h                  (OK)
+        - 1h  → 4h                      (OK)
+        - 4h  → daily, weekly, monthly  (OK)
+
+        Reverse aggregation (coarse to fine) is NOT permitted.
+        """
         if self._repository is None or not bars:
             return 0
+
+        tf_seconds = _TF_SECONDS.get(native_timeframe)
+        if tf_seconds is None:
+            LOGGER.warning("[ChartCandle] Unknown timeframe %s for %s — skipping.", native_timeframe, symbol)
+            return 0
+
         now = datetime.now(tz=UTC)
         candles: list[ChartCandle] = []
         for bar in bars:
@@ -459,8 +472,6 @@ class RegimeMonitor:
                 raw_started = datetime.fromisoformat(raw_started.replace("Z", "+00:00"))
             elif not isinstance(raw_started, datetime):
                 continue
-            # Normalize to UTC — guard against naive datetimes that would be
-            # interpreted as local time by fromtimestamp() inside _floor.
             started = raw_started.astimezone(UTC)
             ended = bar.get("ended_at")
             if isinstance(ended, str):
@@ -468,27 +479,32 @@ class RegimeMonitor:
             elif isinstance(ended, datetime):
                 ended = ended.astimezone(UTC)
             else:
-                ended = started + timedelta(seconds=60)
-            for tf in ALL_TFS:
-                bucket = _floor(started, tf)
-                candles.append(
-                    ChartCandle(
-                        symbol=symbol,
-                        timeframe=tf,
-                        started_at=bucket,
-                        ended_at=bucket + timedelta(seconds=_TF_SECONDS[tf]),
-                        source_started_at=started,
-                        open=bar.get("open") or 0.0,
-                        high=bar.get("high") or 0.0,
-                        low=bar.get("low") or 0.0,
-                        close=bar.get("close") or 0.0,
-                        volume=int(bar.get("volume") or 0),
-                        tick_volume=1,
-                        delta=int(bar.get("delta") or 0),
-                        updated_at=now,
-                    )
+                ended = started + timedelta(seconds=tf_seconds)
+
+            bucket = _floor(started, native_timeframe)
+            candles.append(
+                ChartCandle(
+                    symbol=symbol,
+                    timeframe=native_timeframe,
+                    started_at=bucket,
+                    ended_at=bucket + timedelta(seconds=tf_seconds),
+                    source_started_at=started,
+                    open=bar.get("open") or 0.0,
+                    high=bar.get("high") or 0.0,
+                    low=bar.get("low") or 0.0,
+                    close=bar.get("close") or 0.0,
+                    volume=int(bar.get("volume") or 0),
+                    tick_volume=1,
+                    delta=int(bar.get("delta") or 0),
+                    updated_at=now,
                 )
+            )
+
         self._repository.upsert_chart_candles(candles)
-        LOGGER.info("[ChartCandle] batch-persisted %d candles (%d bars × %d tfs) for %s",
-                    len(candles), len(bars), len(ALL_TFS), symbol)
+        LOGGER.info(
+            "[ChartCandle] persisted %d native candles (%s) for %s",
+            len(candles),
+            native_timeframe.value,
+            symbol,
+        )
         return len(candles)

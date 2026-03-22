@@ -183,3 +183,12 @@ class AdapterTriggerType(str, Enum):
     POST_HARVEST_PULLBACK = "post_harvest_pullback"
     POST_HARVEST_REVERSAL = "post_harvest_reversal"
 
+
+class RollMode(str, Enum):
+    """Continuous contract roll mode specification."""
+
+    FRONT_MONTH = "front_month"
+    PASSIVE_ROLL = "passive_roll"
+    NEAR_ROLL = "near_roll"
+    ALL_CONTRACTS = "all_contracts"
+

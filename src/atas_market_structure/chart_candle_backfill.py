@@ -175,6 +175,11 @@ def iter_sqlite_chart_candle_batches(
         if sqlite_has_column(connection, table="chart_candles", column="source_started_at")
         else "started_at AS source_started_at"
     )
+    source_timezone_expr = (
+        "COALESCE(NULLIF(source_timezone, ''), '') AS source_timezone"
+        if sqlite_has_column(connection, table="chart_candles", column="source_timezone")
+        else "'' AS source_timezone"
+    )
 
     after_key: SQLiteCursorKey | None = None
     while True:
@@ -195,7 +200,8 @@ def iter_sqlite_chart_candle_batches(
                 volume,
                 tick_volume,
                 delta,
-                updated_at
+                updated_at,
+                {source_timezone_expr}
             FROM chart_candles
             WHERE {where_clause}
             ORDER BY symbol ASC, timeframe ASC, started_at ASC
@@ -272,6 +278,7 @@ def row_to_chart_candle(row: Mapping[str, object]) -> ChartCandle:
         raise ValueError("SQLite chart_candles row is missing started_at, ended_at, or updated_at.")
 
     source_started_at = parse_datetime(_as_optional_str(_row_value(row, "source_started_at"))) or started_at
+    source_timezone = _as_optional_str(_row_value(row, "source_timezone"))
 
     return ChartCandle(
         symbol=str(_row_value(row, "symbol")),
@@ -287,6 +294,7 @@ def row_to_chart_candle(row: Mapping[str, object]) -> ChartCandle:
         tick_volume=int(_row_value(row, "tick_volume")),
         delta=int(_row_value(row, "delta")),
         updated_at=updated_at,
+        source_timezone=source_timezone or None,
     )
 
 
