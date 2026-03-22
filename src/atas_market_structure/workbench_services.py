@@ -3043,17 +3043,50 @@ class ReplayWorkbenchService:
         window_end: datetime,
         limit: int = 5000,
     ) -> list[dict[str, Any]]:
-        """Query pre-aggregated bars from ClickHouse MV. Returns empty list if unavailable."""
+        """Query pre-aggregated bars from the chart_candles table.
+
+        The chart_candles table (in ClickHouse or SQLite) is populated by
+        ChartCandleService during ingestion, so queries are sub-100ms regardless
+        of the raw message volume.
+
+        Falls back to raw-message aggregation when no chart candles exist.
+        """
         try:
-            bars = self._repository.list_continuous_state_bars(
+            # First check: do we have any chart candles for this symbol/timeframe?
+            count = self._repository.count_chart_candles(symbol.upper(), timeframe.value)
+            if count == 0:
+                return []
+
+            # Query pre-aggregated chart candles from chart_candles table.
+            # Both SQLite and ClickHouse repositories support this method.
+            candles = self._repository.list_chart_candles(
                 symbol=symbol.upper(),
-                timeframe=timeframe,
+                timeframe=timeframe.value,
                 window_start=window_start,
                 window_end=window_end,
-                trade_active_only=True,
                 limit=limit,
             )
-            return bars
+
+            if not candles:
+                return []
+
+            # Convert ChartCandle model objects to the dict format expected
+            # by _build_snapshot_from_local_history.
+            return [
+                {
+                    "started_at": bar.started_at,
+                    "ended_at": bar.ended_at,
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                    "delta": bar.delta,
+                    "bid_volume": None,
+                    "ask_volume": None,
+                }
+                for bar in candles
+            ]
         except Exception:
             return []
 

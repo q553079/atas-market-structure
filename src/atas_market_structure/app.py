@@ -482,12 +482,14 @@ class MarketStructureApplication:
             event_name = item.get("event", "message")
             data = json.dumps(item.get("data", {}), ensure_ascii=True, separators=(",", ":"), default=_default_json_serializer)
             chunks.append(f"event: {event_name}\ndata: {data}\n\n".encode("utf-8"))
+        content_length = sum(len(chunk) for chunk in chunks)
         return HttpResponse(
             status_code=200,
             headers={
                 "Content-Type": "text/event-stream; charset=utf-8",
                 "Cache-Control": "no-store",
-                "Connection": "keep-alive",
+                "Content-Length": str(content_length),
+                "Connection": "close",
                 "X-Accel-Buffering": "no",
             },
             stream_chunks=tuple(chunks),
