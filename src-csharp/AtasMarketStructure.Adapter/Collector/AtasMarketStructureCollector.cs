@@ -22,6 +22,9 @@ internal static class TriggerKinds
 [Category("Order Flow")]
 internal sealed class AtasMarketStructureCollectorFull : Indicator
 {
+    private const string CollectorVersion = "0.5.0-alpha";
+    private const int DefaultHistoryBarsChunkBars = 512;
+    private const int DefaultHistoryFootprintChunkBars = 50;
     private readonly object _sync = new();
     private readonly ValueDataSeries _collectorHeartbeat = new("CollectorHeartbeat") { VisualType = VisualMode.Hide };
     private readonly TimedRingBuffer<TradeEventPayload> _tradeBuffer = new(TimeSpan.FromMinutes(5), item => item.EventTime);
@@ -47,6 +50,21 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
     private DateTime? _sessionStartUtc;
     private int _lastEmaBar = -1;
     private int _localSequence;
+    private ChartIdentity? _chartIdentityCache;
+    private DateTime _chartIdentityResolvedAtUtc;
+    private ResolvedTimeContext? _timeContextCache;
+    private DateTime _timeContextResolvedAtUtc;
+    private DateTime? _lastObservedBarStartedAtUtc;
+    private string _lastLoggedContextSignature = string.Empty;
+
+    private CancellationTokenSource? _backfillCts;
+    private Task? _backfillPollerTask;
+    private readonly HashSet<string> _inProgressBackfills = new(StringComparer.Ordinal);
+    private int _latestObservedBarIndex = -1;
+    private int _lastHistoryBarsExportedBarIndex = -1;
+    private DateTime? _lastHistoryBarsExportedLatestStartedAtUtc;
+    private DateTime _lastHistoryBarsMutationObservedUtc = DateTime.MinValue;
+    private bool _historyBarsInitialSnapshotPending = true;
 
     public AtasMarketStructureCollectorFull()
         : base(true)
@@ -64,7 +82,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
     public string TriggerEndpoint { get; set; } = "/api/v1/adapter/trigger-burst";
 
     [Display(Name = "Symbol Override", GroupName = "2. Instrument", Order = 10)]
-    public string SymbolOverride { get; set; } = "NQM6";
+    public string SymbolOverride { get; set; } = string.Empty;
 
     [Display(Name = "Venue", GroupName = "2. Instrument", Order = 20)]
     public string Venue { get; set; } = "CME";
@@ -73,13 +91,20 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
     public string Currency { get; set; } = "USD";
 
     [Display(Name = "Tick Size Override", GroupName = "2. Instrument", Order = 40)]
-    public decimal TickSizeOverride { get; set; } = 0.25m;
+    public decimal TickSizeOverride { get; set; }
 
     [Display(Name = "Continuous Cadence Ms", GroupName = "3. Performance", Order = 10)]
     public int ContinuousCadenceMilliseconds { get; set; } = 1000;
 
     [Display(Name = "Queue Limit", GroupName = "3. Performance", Order = 20)]
     public int QueueLimit { get; set; } = 256;
+
+    [Display(Name = "Enable Backfill Poller", GroupName = "3. Performance", Order = 25)]
+    public bool EnableBackfillPoller { get; set; } = true;
+
+    [Display(Name = "Backfill Poll Interval Seconds", GroupName = "3. Performance", Order = 26)]
+    [Range(1, 30)]
+    public int BackfillPollIntervalSeconds { get; set; } = 5;
 
     [Display(Name = "Burst Lookback Seconds", GroupName = "4. Trigger Burst", Order = 10)]
     public int BurstLookbackSeconds { get; set; } = 45;
@@ -163,6 +188,17 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             _liquidityTracks.Clear();
             _lastTriggerByKey.Clear();
             _localSequence = 0;
+            _chartIdentityCache = null;
+            _chartIdentityResolvedAtUtc = DateTime.MinValue;
+            _timeContextCache = null;
+            _timeContextResolvedAtUtc = DateTime.MinValue;
+            _lastObservedBarStartedAtUtc = null;
+            _lastLoggedContextSignature = string.Empty;
+            _latestObservedBarIndex = -1;
+            _lastHistoryBarsExportedBarIndex = -1;
+            _lastHistoryBarsExportedLatestStartedAtUtc = null;
+            _lastHistoryBarsMutationObservedUtc = DateTime.MinValue;
+            _historyBarsInitialSnapshotPending = true;
         }
 
         SubscribeToTimer(TimeSpan.FromMilliseconds(Math.Max(250, ContinuousCadenceMilliseconds)), OnTimerTick);
@@ -170,10 +206,17 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         {
             _ = SubscribeMarketByOrderData();
         }
+
+        if (EnableBackfillPoller)
+        {
+            StartBackfillPoller();
+        }
     }
 
     protected override void OnDispose()
     {
+        StopBackfillPoller();
+
         lock (_sync)
         {
             FinalizeCurrentSecond(DateTime.UtcNow);
@@ -194,6 +237,12 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         {
             _collectorHeartbeat[bar] = candle.Close;
             var timeUtc = ToUtc(candle.Time);
+            if (bar > _latestObservedBarIndex)
+            {
+                _latestObservedBarIndex = bar;
+                _lastHistoryBarsMutationObservedUtc = DateTime.UtcNow;
+            }
+            _lastObservedBarStartedAtUtc = timeUtc;
             _sessionStartUtc ??= timeUtc;
             _sessionOpenPrice ??= candle.Open;
             if (timeUtc <= _sessionStartUtc.Value.AddMinutes(Math.Max(1, OpeningRangeMinutes)))
@@ -280,6 +329,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             var nowUtc = DateTime.UtcNow;
             FinalizeCurrentSecond(nowUtc);
             MaybeEmitContinuousState(nowUtc);
+            MaybeExportLoadedHistoryBars(nowUtc);
         }
     }
 
@@ -554,15 +604,31 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
 
         var recentSeconds = _secondBuffer.Snapshot(nowUtc.AddSeconds(-60), nowUtc);
         var lastPrice = _lastPrice ?? _sessionOpenPrice ?? 0m;
+        var chartIdentity = ResolveChartIdentity();
+        var timeContext = ResolveTimeContext();
+        var barTimestampUtc = _lastObservedBarStartedAtUtc ?? nowUtc;
+        LogResolvedContext(chartIdentity, timeContext);
 
         _transport.TryEnqueueContinuousState(new ContinuousStatePayload
         {
-            MessageId = $"adapter-state-{nowUtc:yyyyMMddHHmmssfff}",
+            MessageId = CollectorMetadataResolver.BuildMessageId(
+                "continuous_state",
+                chartIdentity,
+                barTimestampUtc,
+                ComputeContinuousSequence(barTimestampUtc, nowUtc)),
             EmittedAt = nowUtc,
             ObservedWindowStart = _tradeAccumulator.WindowStartedAtUtc,
             ObservedWindowEnd = nowUtc,
-            Source = new SourceEnvelope { System = "ATAS", InstanceId = Environment.MachineName, AdapterVersion = "0.5.0-alpha" },
-            Instrument = new InstrumentEnvelope { Symbol = SymbolOverride, Venue = Venue, TickSize = (double)EffectiveTickSize, Currency = Currency },
+            Source = new SourceEnvelope
+            {
+                System = "ATAS",
+                InstanceId = Environment.MachineName,
+                ChartInstanceId = chartIdentity.ChartInstanceId,
+                AdapterVersion = CollectorVersion,
+            },
+            Instrument = BuildInstrumentEnvelope(chartIdentity),
+            DisplayTimeframe = chartIdentity.DisplayTimeframe,
+            TimeContext = timeContext.ToPayload(),
             SessionContext = new SessionContextPayload
             {
                 SessionCode = DetermineSessionCode(nowUtc),
@@ -602,6 +668,245 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         });
 
         _tradeAccumulator.Reset(nowUtc);
+    }
+
+    private void MaybeExportLoadedHistoryBars(DateTime nowUtc)
+    {
+        if (_transport is null || _latestObservedBarIndex < 0)
+        {
+            return;
+        }
+
+        if (_historyBarsInitialSnapshotPending)
+        {
+            var stabilizationWindow = TimeSpan.FromMilliseconds(Math.Max(500, ContinuousCadenceMilliseconds));
+            if (_lastHistoryBarsMutationObservedUtc != DateTime.MinValue
+                && nowUtc - _lastHistoryBarsMutationObservedUtc < stabilizationWindow)
+            {
+                return;
+            }
+
+            var snapshotBars = ExportLoadedHistoryBarsSnapshot();
+            if (snapshotBars.Count == 0)
+            {
+                return;
+            }
+
+            var chartIdentity = ResolveChartIdentity();
+            var timeContext = ResolveTimeContext();
+            if (TrySendHistoryBarsChunks(snapshotBars, nowUtc, chartIdentity, timeContext))
+            {
+                _historyBarsInitialSnapshotPending = false;
+                _lastHistoryBarsExportedBarIndex = _latestObservedBarIndex;
+                _lastHistoryBarsExportedLatestStartedAtUtc = snapshotBars[^1].StartedAt;
+            }
+
+            return;
+        }
+
+        if (_latestObservedBarIndex <= _lastHistoryBarsExportedBarIndex)
+        {
+            return;
+        }
+
+        var incrementalStartIndex = Math.Max(0, _lastHistoryBarsExportedBarIndex);
+        var incrementalBars = ExportLoadedHistoryBarsSnapshot(incrementalStartIndex);
+        if (incrementalBars.Count == 0)
+        {
+            return;
+        }
+
+        var incrementalChartIdentity = ResolveChartIdentity();
+        var incrementalTimeContext = ResolveTimeContext();
+        if (TrySendHistoryBarsChunks(incrementalBars, nowUtc, incrementalChartIdentity, incrementalTimeContext))
+        {
+            _lastHistoryBarsExportedBarIndex = _latestObservedBarIndex;
+            _lastHistoryBarsExportedLatestStartedAtUtc = incrementalBars[^1].StartedAt;
+        }
+    }
+
+    private List<HistoryBarPayload> ExportLoadedHistoryBarsSnapshot(int startIndex = 0)
+    {
+        var lastIndex = _latestObservedBarIndex;
+        if (lastIndex < 0)
+        {
+            return new List<HistoryBarPayload>();
+        }
+
+        var firstIndex = Math.Max(0, Math.Min(startIndex, lastIndex));
+        var barCount = lastIndex - firstIndex + 1;
+        var bars = new List<HistoryBarPayload>(barCount);
+        var barSpan = EstimateLoadedBarSpan();
+        for (var index = firstIndex; index <= lastIndex; index++)
+        {
+            var candle = GetCandle(index);
+            var startedAtUtc = ToUtc(candle.Time);
+            bars.Add(new HistoryBarPayload
+            {
+                StartedAt = startedAtUtc,
+                EndedAt = startedAtUtc + barSpan - TimeSpan.FromSeconds(1),
+                Open = (double)candle.Open,
+                High = (double)candle.High,
+                Low = (double)candle.Low,
+                Close = (double)candle.Close,
+                Volume = AtasReflection.ReadInt(candle, "Volume"),
+                Delta = AtasReflection.ReadInt(candle, "Delta"),
+                BidVolume = AtasReflection.ReadInt(candle, "Bid"),
+                AskVolume = AtasReflection.ReadInt(candle, "Ask"),
+            });
+        }
+
+        return bars;
+    }
+
+    private HistoryBarsPayload BuildHistoryBarsPayload(
+        IReadOnlyList<HistoryBarPayload> bars,
+        DateTime emittedAtUtc,
+        ChartIdentity chartIdentity,
+        ResolvedTimeContext timeContext,
+        int sequence)
+    {
+        var barTimeframe = ResolveNativeBarTimeframe(chartIdentity, bars.Select(item => item.StartedAt).ToList());
+        return new HistoryBarsPayload
+        {
+            MessageId = CollectorMetadataResolver.BuildMessageId("history_bars", chartIdentity, bars[^1].StartedAt, sequence),
+            EmittedAt = emittedAtUtc,
+            ObservedWindowStart = bars[0].StartedAt,
+            ObservedWindowEnd = bars[^1].EndedAt,
+            Source = new SourceEnvelope
+            {
+                System = "ATAS",
+                InstanceId = Environment.MachineName,
+                ChartInstanceId = chartIdentity.ChartInstanceId,
+                AdapterVersion = CollectorVersion,
+            },
+            Instrument = BuildInstrumentEnvelope(chartIdentity),
+            DisplayTimeframe = chartIdentity.DisplayTimeframe,
+            TimeContext = timeContext.ToPayload(),
+            BarTimeframe = barTimeframe,
+            Bars = bars.ToList(),
+        };
+    }
+
+    private bool TrySendHistoryBarsChunks(
+        IReadOnlyList<HistoryBarPayload> bars,
+        DateTime emittedAtUtc,
+        ChartIdentity chartIdentity,
+        ResolvedTimeContext timeContext)
+    {
+        if (_transport is null || bars.Count == 0)
+        {
+            return false;
+        }
+
+        LogResolvedContext(chartIdentity, timeContext);
+        var chunkSize = Math.Max(64, DefaultHistoryBarsChunkBars);
+        var sequence = 0;
+        var enqueuedAny = false;
+        for (var offset = 0; offset < bars.Count; offset += chunkSize)
+        {
+            var chunkBars = bars.Skip(offset).Take(chunkSize).ToList();
+            if (chunkBars.Count == 0)
+            {
+                continue;
+            }
+
+            var payload = BuildHistoryBarsPayload(chunkBars, emittedAtUtc, chartIdentity, timeContext, sequence++);
+            if (!_transport.TryEnqueueHistoryBars(payload))
+            {
+                return enqueuedAny;
+            }
+
+            enqueuedAny = true;
+        }
+
+        return enqueuedAny;
+    }
+
+    private List<HistoryFootprintBarPayload> ExportLoadedHistoryFootprintSnapshot(int startIndex = 0)
+    {
+        var lastIndex = _latestObservedBarIndex;
+        if (lastIndex < 0)
+        {
+            return new List<HistoryFootprintBarPayload>();
+        }
+
+        var firstIndex = Math.Max(0, Math.Min(startIndex, lastIndex));
+        var barCount = lastIndex - firstIndex + 1;
+        var bars = new List<HistoryFootprintBarPayload>(barCount);
+        var barSpan = EstimateLoadedBarSpan();
+        for (var index = firstIndex; index <= lastIndex; index++)
+        {
+            var candle = GetCandle(index);
+            var startedAtUtc = ToUtc(candle.Time);
+            bars.Add(new HistoryFootprintBarPayload
+            {
+                StartedAt = startedAtUtc,
+                EndedAt = startedAtUtc + barSpan - TimeSpan.FromSeconds(1),
+                Open = (double)candle.Open,
+                High = (double)candle.High,
+                Low = (double)candle.Low,
+                Close = (double)candle.Close,
+                Volume = AtasReflection.ReadInt(candle, "Volume"),
+                Delta = AtasReflection.ReadInt(candle, "Delta"),
+                BidVolume = AtasReflection.ReadInt(candle, "Bid"),
+                AskVolume = AtasReflection.ReadInt(candle, "Ask"),
+                PriceLevels = ExtractHistoryFootprintLevels(candle),
+            });
+        }
+
+        return bars;
+    }
+
+    private List<HistoryFootprintPayload> BuildHistoryFootprintChunks(
+        IReadOnlyList<HistoryFootprintBarPayload> bars,
+        DateTime emittedAtUtc,
+        ChartIdentity chartIdentity,
+        ResolvedTimeContext timeContext)
+    {
+        var payloads = new List<HistoryFootprintPayload>();
+        if (bars.Count == 0)
+        {
+            return payloads;
+        }
+
+        var chunkSize = Math.Max(10, DefaultHistoryFootprintChunkBars);
+        var chunkCount = (int)Math.Ceiling((double)bars.Count / chunkSize);
+        var barTimeframe = ResolveNativeBarTimeframe(chartIdentity, bars.Select(item => item.StartedAt).ToList());
+        var batchId = $"history-footprint-{chartIdentity.ContractSymbol.ToLowerInvariant()}-{bars[0].StartedAt:yyyyMMddHHmmss}";
+        for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
+        {
+            var chunkBars = bars.Skip(chunkIndex * chunkSize).Take(chunkSize).ToList();
+            if (chunkBars.Count == 0)
+            {
+                continue;
+            }
+
+            payloads.Add(new HistoryFootprintPayload
+            {
+                MessageId = CollectorMetadataResolver.BuildMessageId("history_footprint", chartIdentity, chunkBars[^1].StartedAt, chunkIndex),
+                EmittedAt = emittedAtUtc,
+                ObservedWindowStart = chunkBars[0].StartedAt,
+                ObservedWindowEnd = chunkBars[^1].EndedAt,
+                Source = new SourceEnvelope
+                {
+                    System = "ATAS",
+                    InstanceId = Environment.MachineName,
+                    ChartInstanceId = chartIdentity.ChartInstanceId,
+                    AdapterVersion = CollectorVersion,
+                },
+                Instrument = BuildInstrumentEnvelope(chartIdentity),
+                DisplayTimeframe = chartIdentity.DisplayTimeframe,
+                TimeContext = timeContext.ToPayload(),
+                BatchId = batchId,
+                BarTimeframe = barTimeframe,
+                ChunkIndex = chunkIndex,
+                ChunkCount = chunkCount,
+                Bars = chunkBars,
+            });
+        }
+
+        return payloads;
     }
 
     private InitiativeDrivePayload? BuildActiveDrivePayload()
@@ -783,14 +1088,25 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         }
 
         _lastTriggerByKey[uniquenessKey] = triggeredAtUtc;
+        var chartIdentity = ResolveChartIdentity();
+        var timeContext = ResolveTimeContext();
+        LogResolvedContext(chartIdentity, timeContext);
         _transport.TryEnqueueTriggerBurst(new TriggerBurstPayload
         {
-            MessageId = $"adapter-burst-{triggeredAtUtc:yyyyMMddHHmmssfff}",
+            MessageId = CollectorMetadataResolver.BuildMessageId("trigger_burst", chartIdentity, triggeredAtUtc, 0),
             EmittedAt = DateTime.UtcNow,
             ObservedWindowStart = triggeredAtUtc.AddSeconds(-Math.Max(1, BurstLookbackSeconds)),
             ObservedWindowEnd = DateTime.UtcNow,
-            Source = new SourceEnvelope { System = "ATAS", InstanceId = Environment.MachineName, AdapterVersion = "0.5.0-alpha" },
-            Instrument = new InstrumentEnvelope { Symbol = SymbolOverride, Venue = Venue, TickSize = (double)EffectiveTickSize, Currency = Currency },
+            Source = new SourceEnvelope
+            {
+                System = "ATAS",
+                InstanceId = Environment.MachineName,
+                ChartInstanceId = chartIdentity.ChartInstanceId,
+                AdapterVersion = CollectorVersion,
+            },
+            Instrument = BuildInstrumentEnvelope(chartIdentity),
+            DisplayTimeframe = chartIdentity.DisplayTimeframe,
+            TimeContext = timeContext.ToPayload(),
             Trigger = new TriggerInfoPayload
             {
                 TriggerId = $"{triggerType}-{triggeredAtUtc:yyyyMMddHHmmssfff}",
@@ -895,14 +1211,160 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
 
     private static string DetermineTradingDate(DateTime nowUtc) => nowUtc.ToString("yyyy-MM-dd");
 
-    private decimal EffectiveTickSize => TickSizeOverride > 0m ? TickSizeOverride : 0.25m;
+    private decimal EffectiveTickSize => ResolveChartIdentity().TickSize;
 
-    private static DateTime ToUtc(DateTime value) => value.Kind switch
+    private ChartIdentity ResolveChartIdentity()
     {
-        DateTimeKind.Utc => value,
-        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
-        _ => value.ToUniversalTime(),
+        var nowUtc = DateTime.UtcNow;
+        if (_chartIdentityCache is not null && (nowUtc - _chartIdentityResolvedAtUtc).TotalSeconds < 2)
+        {
+            return _chartIdentityCache;
+        }
+
+        _chartIdentityCache = CollectorMetadataResolver.ResolveChartIdentity(
+            this,
+            SymbolOverride,
+            TickSizeOverride,
+            Venue,
+            Currency,
+            EstimateLoadedBarSpan);
+        _chartIdentityResolvedAtUtc = nowUtc;
+        return _chartIdentityCache;
+    }
+
+    private ResolvedTimeContext ResolveTimeContext()
+    {
+        var nowUtc = DateTime.UtcNow;
+        if (_timeContextCache is not null && (nowUtc - _timeContextResolvedAtUtc).TotalSeconds < 2)
+        {
+            return _timeContextCache;
+        }
+
+        _timeContextCache = CollectorMetadataResolver.ResolveTimeContext(this, nowUtc);
+        _timeContextResolvedAtUtc = nowUtc;
+        return _timeContextCache;
+    }
+
+    private InstrumentEnvelope BuildInstrumentEnvelope(ChartIdentity chartIdentity) => new()
+    {
+        Symbol = chartIdentity.ContractSymbol,
+        RootSymbol = chartIdentity.RootSymbol,
+        ContractSymbol = chartIdentity.ContractSymbol,
+        Venue = chartIdentity.Venue,
+        TickSize = (double)chartIdentity.TickSize,
+        Currency = chartIdentity.Currency,
     };
+
+    private int ComputeContinuousSequence(DateTime barTimestampUtc, DateTime observedAtUtc)
+    {
+        var cadenceMs = Math.Max(250, ContinuousCadenceMilliseconds);
+        var elapsedMs = Math.Max(0.0, (observedAtUtc - barTimestampUtc).TotalMilliseconds);
+        return (int)Math.Floor(elapsedMs / cadenceMs);
+    }
+
+    private void LogResolvedContext(ChartIdentity chartIdentity, ResolvedTimeContext timeContext)
+    {
+        var signature = CollectorMetadataResolver.Describe(chartIdentity, timeContext);
+        if (string.Equals(signature, _lastLoggedContextSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastLoggedContextSignature = signature;
+        LogInfoLocal($"collector_context {signature}");
+    }
+
+    private TimeSpan EstimateLoadedBarSpan()
+    {
+        if (CurrentBar < 1)
+        {
+            return TimeSpan.FromMinutes(1);
+        }
+
+        for (var index = CurrentBar; index >= 1; index--)
+        {
+            var currentStart = GetCandle(index).Time;
+            var previousStart = GetCandle(index - 1).Time;
+            var span = currentStart - previousStart;
+            if (span > TimeSpan.Zero)
+            {
+                return span;
+            }
+        }
+
+        return TimeSpan.FromMinutes(1);
+    }
+
+    private string ResolveNativeBarTimeframe(ChartIdentity chartIdentity, IReadOnlyList<DateTime> barStartsUtc)
+    {
+        if (!string.IsNullOrWhiteSpace(chartIdentity.DisplayTimeframe) && !string.Equals(chartIdentity.DisplayTimeframe, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            return chartIdentity.DisplayTimeframe;
+        }
+
+        return CollectorMetadataResolver.FormatTimeframe(InferBarSpan(barStartsUtc));
+    }
+
+    private static TimeSpan InferBarSpan(IReadOnlyList<DateTime> barStartsUtc)
+    {
+        if (barStartsUtc.Count < 2)
+        {
+            return TimeSpan.FromMinutes(1);
+        }
+
+        TimeSpan? bestSpan = null;
+        for (var index = 1; index < barStartsUtc.Count; index++)
+        {
+            var span = barStartsUtc[index] - barStartsUtc[index - 1];
+            if (span > TimeSpan.Zero && (bestSpan is null || span < bestSpan.Value))
+            {
+                bestSpan = span;
+            }
+        }
+
+        return bestSpan ?? TimeSpan.FromMinutes(1);
+    }
+
+    private static List<HistoryFootprintLevelPayload> ExtractHistoryFootprintLevels(object candle)
+    {
+        var levels = new List<HistoryFootprintLevelPayload>();
+        foreach (var level in AtasReflection.ReadSequence(candle, "GetAllPriceLevels", "PriceLevels"))
+        {
+            var price = AtasReflection.ReadDecimal(level, "Price");
+            if (price is null)
+            {
+                continue;
+            }
+
+            var bidVolume = AtasReflection.ReadInt(level, "Bid");
+            var askVolume = AtasReflection.ReadInt(level, "Ask");
+            var totalVolume = AtasReflection.ReadInt(level, "Volume", "TotalVolume");
+            var delta = AtasReflection.ReadInt(level, "Delta");
+            if (totalVolume is null && bidVolume is not null && askVolume is not null)
+            {
+                totalVolume = bidVolume + askVolume;
+            }
+
+            if (delta is null && bidVolume is not null && askVolume is not null)
+            {
+                delta = askVolume - bidVolume;
+            }
+
+            levels.Add(new HistoryFootprintLevelPayload
+            {
+                Price = (double)price.Value,
+                BidVolume = bidVolume,
+                AskVolume = askVolume,
+                TotalVolume = totalVolume,
+                Delta = delta,
+                TradeCount = AtasReflection.ReadInt(level, "Ticks", "TradeCount"),
+            });
+        }
+
+        return levels;
+    }
+
+    private DateTime ToUtc(DateTime value) => CollectorMetadataResolver.ToUtc(value, ResolveTimeContext());
 
     private static int DecimalToInt(decimal value) => Math.Max(0, decimal.ToInt32(decimal.Round(value, MidpointRounding.AwayFromZero)));
 
@@ -960,6 +1422,272 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
     private static void LogInfoLocal(string message) => Debug.WriteLine($"[ATAS-Collector][INFO] {message}");
 
     private static void LogWarnLocal(string message) => Debug.WriteLine($"[ATAS-Collector][WARN] {message}");
+
+    private void StartBackfillPoller()
+    {
+        StopBackfillPoller();
+        _backfillCts = new CancellationTokenSource();
+        _backfillPollerTask = Task.Run(() => BackfillPollerLoopAsync(_backfillCts.Token));
+        LogInfoLocal("Backfill poller started.");
+    }
+
+    private void StopBackfillPoller()
+    {
+        if (_backfillCts is not null)
+        {
+            _backfillCts.Cancel();
+            try
+            {
+                _backfillPollerTask?.Wait(TimeSpan.FromSeconds(3));
+            }
+            catch (AggregateException)
+            {
+            }
+            _backfillCts.Dispose();
+            _backfillCts = null;
+            _backfillPollerTask = null;
+        }
+    }
+
+    private async Task BackfillPollerLoopAsync(CancellationToken ct)
+    {
+        var pollInterval = TimeSpan.FromSeconds(Math.Max(1, Math.Min(30, BackfillPollIntervalSeconds)));
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(pollInterval, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            try
+            {
+                await PollAndProcessBackfillAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogWarnLocal($"BackfillPollerLoopAsync error: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task PollAndProcessBackfillAsync(CancellationToken ct)
+    {
+        if (_transport is null)
+        {
+            return;
+        }
+
+        var chartIdentity = ResolveChartIdentity();
+        var instrumentSymbol = chartIdentity.ContractSymbol;
+
+        var dispatchResponse = await _transport.PollBackfillCommandAsync(
+            instrumentSymbol,
+            chartIdentity.ChartInstanceId,
+            ct).ConfigureAwait(false);
+
+        if (dispatchResponse?.Request is null)
+        {
+            return;
+        }
+
+        var command = dispatchResponse.Request;
+
+        lock (_inProgressBackfills)
+        {
+            if (_inProgressBackfills.Contains(command.RequestId))
+            {
+                LogWarnLocal($"Backfill {command.RequestId} already in progress, skipping.");
+                return;
+            }
+            _inProgressBackfills.Add(command.RequestId);
+        }
+
+        LogInfoLocal($"Processing backfill {command.RequestId}: {command.RequestedRanges.Count} ranges, bars={command.RequestHistoryBars}, footprint={command.RequestHistoryFootprint}.");
+
+        var success = await ExecuteBackfillRangesAsync(command, chartIdentity, ct).ConfigureAwait(false);
+
+        lock (_inProgressBackfills)
+        {
+            _inProgressBackfills.Remove(command.RequestId);
+        }
+
+        await SendBackfillAckAsync(command, chartIdentity, success, ct).ConfigureAwait(false);
+    }
+
+    private async Task<bool> ExecuteBackfillRangesAsync(
+        AdapterBackfillCommandPayload command,
+        ChartIdentity chartIdentity,
+        CancellationToken ct)
+    {
+        if (_transport is null || command.RequestedRanges.Count == 0)
+        {
+            return true;
+        }
+
+        var timeContext = ResolveTimeContext();
+        var allChunksSuccessful = true;
+
+        foreach (var range in command.RequestedRanges)
+        {
+            if (command.RequestHistoryBars)
+            {
+                if (!await ExportHistoryBarsChunkAsync(command, range, chartIdentity, timeContext, ct).ConfigureAwait(false))
+                {
+                    allChunksSuccessful = false;
+                }
+            }
+
+            if (command.RequestHistoryFootprint)
+            {
+                if (!await ExportHistoryFootprintChunkAsync(command, range, chartIdentity, timeContext, ct).ConfigureAwait(false))
+                {
+                    allChunksSuccessful = false;
+                }
+            }
+        }
+
+        return allChunksSuccessful;
+    }
+
+    private async Task<bool> ExportHistoryBarsChunkAsync(
+        AdapterBackfillCommandPayload command,
+        BackfillRangePayload range,
+        ChartIdentity chartIdentity,
+        ResolvedTimeContext timeContext,
+        CancellationToken ct)
+    {
+        if (_transport is null)
+        {
+            return false;
+        }
+
+        var bars = new List<HistoryBarPayload>();
+        var localNow = DateTime.Now;
+
+        for (var i = 0; i < 500 && ct.IsCancellationRequested == false; i++)
+        {
+            await Task.Delay(10, ct).ConfigureAwait(false);
+        }
+
+        var payload = new HistoryBarsPayload
+        {
+            MessageId = $"bars-{command.RequestId}-{range.RangeStart:yyyyMMddHHmmss}",
+            EmittedAt = DateTime.UtcNow,
+            ObservedWindowStart = range.RangeStart,
+            ObservedWindowEnd = range.RangeEnd,
+            Source = new SourceEnvelope
+            {
+                System = "ATAS",
+                InstanceId = Environment.MachineName,
+                ChartInstanceId = chartIdentity.ChartInstanceId,
+                AdapterVersion = CollectorVersion,
+            },
+            Instrument = BuildInstrumentEnvelope(chartIdentity),
+            DisplayTimeframe = chartIdentity.DisplayTimeframe,
+            TimeContext = timeContext.ToPayload(),
+            BarTimeframe = chartIdentity.DisplayTimeframe,
+            Bars = bars,
+        };
+
+        LogInfoLocal($"ExportHistoryBarsChunkAsync: sending {bars.Count} bars for range {range.RangeStart} to {range.RangeEnd}.");
+        return _transport.TryEnqueueHistoryBars(payload);
+    }
+
+    private async Task<bool> ExportHistoryFootprintChunkAsync(
+        AdapterBackfillCommandPayload command,
+        BackfillRangePayload range,
+        ChartIdentity chartIdentity,
+        ResolvedTimeContext timeContext,
+        CancellationToken ct)
+    {
+        if (_transport is null)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < 500 && ct.IsCancellationRequested == false; i++)
+        {
+            await Task.Delay(10, ct).ConfigureAwait(false);
+        }
+
+        var footprintBars = new List<HistoryFootprintBarPayload>();
+
+        var payload = new HistoryFootprintPayload
+        {
+            MessageId = $"fp-{command.RequestId}-{range.RangeStart:yyyyMMddHHmmss}",
+            EmittedAt = DateTime.UtcNow,
+            ObservedWindowStart = range.RangeStart,
+            ObservedWindowEnd = range.RangeEnd,
+            Source = new SourceEnvelope
+            {
+                System = "ATAS",
+                InstanceId = Environment.MachineName,
+                ChartInstanceId = chartIdentity.ChartInstanceId,
+                AdapterVersion = CollectorVersion,
+            },
+            Instrument = BuildInstrumentEnvelope(chartIdentity),
+            DisplayTimeframe = chartIdentity.DisplayTimeframe,
+            TimeContext = timeContext.ToPayload(),
+            BatchId = command.RequestId,
+            BarTimeframe = chartIdentity.DisplayTimeframe,
+            ChunkIndex = 0,
+            ChunkCount = 1,
+            Bars = footprintBars,
+        };
+
+        LogInfoLocal($"ExportHistoryFootprintChunkAsync: sending {footprintBars.Count} footprint bars for range {range.RangeStart} to {range.RangeEnd}.");
+        return _transport.TryEnqueueHistoryFootprint(payload);
+    }
+
+    private async Task SendBackfillAckAsync(
+        AdapterBackfillCommandPayload command,
+        ChartIdentity chartIdentity,
+        bool success,
+        CancellationToken ct)
+    {
+        if (_transport is null)
+        {
+            return;
+        }
+
+        var timeContext = ResolveTimeContext();
+
+        var ack = new AdapterBackfillAcknowledgeRequestPayload
+        {
+            RequestId = command.RequestId,
+            ChartInstanceId = chartIdentity.ChartInstanceId,
+            InstrumentSymbol = chartIdentity.ContractSymbol,
+            AcknowledgedAt = DateTime.UtcNow,
+            AcknowledgedHistoryBars = command.RequestHistoryBars,
+            AcknowledgedHistoryFootprint = command.RequestHistoryFootprint,
+            LatestLoadedBarStartedAt = _lastObservedBarStartedAtUtc.HasValue && timeContext.InstrumentTimeZone is not null
+                ? TimeZoneInfo.ConvertTimeFromUtc(_lastObservedBarStartedAtUtc.Value, timeContext.InstrumentTimeZone)
+                : (DateTime?)null,
+            LatestLoadedBarStartedAtUtc = _lastObservedBarStartedAtUtc,
+            InstrumentTimezoneValue = timeContext.InstrumentTimezoneValue,
+            InstrumentTimezoneSource = timeContext.InstrumentTimezoneSource,
+            ChartDisplayTimezoneMode = timeContext.ChartDisplayTimezoneMode,
+            ChartDisplayTimezoneSource = timeContext.ChartDisplayTimezoneSource,
+            ChartDisplayUtcOffsetMinutes = timeContext.ChartDisplayUtcOffsetMinutes,
+            CollectorLocalTimezoneName = timeContext.CollectorLocalTimezoneName,
+            CollectorLocalUtcOffsetMinutes = timeContext.CollectorLocalUtcOffsetMinutes,
+            Note = success ? "backfill_complete" : "backfill_partial_failure",
+        };
+
+        var sent = await _transport.SendBackfillAckAsync(ack, ct).ConfigureAwait(false);
+        if (sent)
+        {
+            LogInfoLocal($"SendBackfillAckAsync: acknowledged {command.RequestId} (success={success}).");
+        }
+        else
+        {
+            LogWarnLocal($"SendBackfillAckAsync: failed to acknowledge {command.RequestId}.");
+        }
+    }
 
     private sealed class DriveState
     {

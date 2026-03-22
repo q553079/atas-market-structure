@@ -9,6 +9,20 @@ export function createModelSwitcherController({
   sessionMemoryEngine,
   renderSnapshot,
 }) {
+  function getResolvedTargetModel(session) {
+    return els.activeModelSelect?.value || session?.activeModel || null;
+  }
+
+  function getHandoffModeLabel(mode) {
+    if (mode === "summary_plus_recent_3") {
+      return "会话主信息 + 最近3轮问答";
+    }
+    if (mode === "question_only") {
+      return "仅当前问题";
+    }
+    return "会话主信息";
+  }
+
   async function refreshHandoffPreview({ forceServer = false } = {}) {
     const session = getActiveThread();
     if (!session) {
@@ -21,7 +35,11 @@ export function createModelSwitcherController({
     if (els.handoffSummaryPreview) {
       els.handoffSummaryPreview.textContent = "正在生成交接摘要…";
     }
-    const preview = await sessionMemoryEngine.buildHandoffPacket(session, { forceServer });
+    const preview = await sessionMemoryEngine.buildHandoffPacket(session, {
+      forceServer,
+      targetModel: getResolvedTargetModel(session),
+      commit: false,
+    });
     if (els.handoffSummaryPreview) {
       els.handoffSummaryPreview.textContent = preview || "暂无交接摘要";
     }
@@ -55,14 +73,33 @@ export function createModelSwitcherController({
 
   async function confirmModelSwitch() {
     const session = getActiveThread();
-    session.activeModel = els.activeModelSelect.value;
+    const previousModel = session.activeModel || "";
+    const nextModel = els.activeModelSelect.value;
+    session.activeModel = nextModel;
     session.handoffMode = sessionMemoryEngine.normalizeHandoffMode(els.handoffModeSelect.value);
-    session.handoffSummary = await sessionMemoryEngine.buildHandoffPacket(session, { forceServer: true });
-    appendAiChatMessage("assistant", `已切换到 ${session.activeModel || "服务端默认"}，交接信息已按 ${session.handoffMode} 模式刷新。`, {
+    const handoffSummary = await sessionMemoryEngine.buildHandoffPacket(session, {
+      forceServer: true,
+      targetModel: nextModel,
+      commit: true,
+    });
+    const activePlans = Array.isArray(session.lastHandoffPacket?.active_plans) ? session.lastHandoffPacket.active_plans.length : 0;
+    const activeAnnotations = Array.isArray(session.lastHandoffPacket?.active_annotations) ? session.lastHandoffPacket.active_annotations.length : 0;
+    const modeLabel = getHandoffModeLabel(session.handoffMode);
+    const lead = previousModel && previousModel !== nextModel
+      ? `已从 ${previousModel} 切换到 ${nextModel || "服务端默认"}`
+      : `已刷新 ${nextModel || "服务端默认"} 的交接摘要`;
+    const detailParts = [
+      `模式：${modeLabel}`,
+      activePlans ? `活动计划 ${activePlans} 项` : "",
+      activeAnnotations ? `关键对象 ${activeAnnotations} 项` : "",
+    ].filter(Boolean);
+    session.handoffSummary = handoffSummary || session.lastHandoffSummary || "";
+    appendAiChatMessage("assistant", `${lead}，交接内容包含${detailParts.join("，")}。`, {
       preset: "system",
       provider: "system",
       model: session.activeModel || "default",
       handoff_mode: session.handoffMode,
+      handoff_summary: session.lastHandoffSummary || handoffSummary || "",
     }, session.id, session.title);
     els.aiModelSwitcherModal.classList.add("is-hidden");
     persistSessions();
@@ -85,6 +122,9 @@ export function createModelSwitcherController({
         return;
       }
       session.handoffMode = sessionMemoryEngine.normalizeHandoffMode(els.handoffModeSelect.value);
+      refreshHandoffPreview();
+    });
+    els.activeModelSelect?.addEventListener("change", () => {
       refreshHandoffPreview();
     });
     els.confirmModelSwitchButton?.addEventListener("click", () => {

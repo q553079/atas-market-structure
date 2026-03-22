@@ -50,6 +50,7 @@ class ChatMessage(BaseModel):
     reply_title: str | None = Field(None, description="Optional short assistant reply title.")
     stream_buffer: str = Field("", description="Temporary streaming buffer.")
     model: str | None = Field(None, description="Model used to generate the assistant reply.")
+    attachments: list[ReplayAiChatAttachment] = Field(default_factory=list, description="Message attachments.")
     annotations: list[str] = Field(default_factory=list, description="Associated annotation ids.")
     plan_cards: list[str] = Field(default_factory=list, description="Associated plan card ids.")
     mounted_to_chart: bool = Field(False, description="Whether this message is mounted to chart.")

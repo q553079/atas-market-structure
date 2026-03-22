@@ -1,4 +1,8 @@
 import { deriveSessionOrdinal, pickModelOptions, readStorage } from "./replay_workbench_ui_utils.js";
+import {
+  createDefaultAnnotationFilters,
+  normalizeAnnotationPreferences,
+} from "./replay_workbench_annotation_utils.js";
 
 function createDefaultSession(index = 0) {
   const ordinal = deriveSessionOrdinal(index);
@@ -22,6 +26,7 @@ function createDefaultSession(index = 0) {
     promptBlocks: [],
     mountedReplyIds: [],
     activePlanId: null,
+    recapItems: [],
     scrollOffset: 0,
     messages: [],
     turns: [],
@@ -29,6 +34,8 @@ function createDefaultSession(index = 0) {
     draftText: "",
     attachments: [],
     draftAttachments: [],
+    attachmentPreviewCollapsed: false,
+    expandedLongTextMessageIds: [],
     analysisTemplate: {
       type: "recent_20_bars",
       range: "current_window",
@@ -37,6 +44,17 @@ function createDefaultSession(index = 0) {
     },
     activeModel: "",
     handoffMode: "summary_only",
+    handoffSummary: "",
+    handoffPreviewSummary: "",
+    handoffPreviewPacket: null,
+    handoffPreviewAt: null,
+    handoffPreviewTargetModel: "",
+    handoffPreviewMode: "summary_only",
+    lastHandoffSummary: "",
+    lastHandoffPacket: null,
+    lastHandoffAt: null,
+    lastHandoffTargetModel: "",
+    lastHandoffMode: "summary_only",
     memory: {
       session_id: sessionId,
       summary_version: 1,
@@ -92,6 +110,8 @@ export function createWorkbenchState() {
         draftText: session?.draftText ?? session?.draft ?? "",
         // draftAttachments 是待发送附件主字段；attachments 仅作兼容镜像。
         draftAttachments: Array.isArray(session?.draftAttachments) ? session.draftAttachments : (Array.isArray(session?.attachments) ? session.attachments : []),
+        attachmentPreviewCollapsed: !!session?.attachmentPreviewCollapsed,
+        expandedLongTextMessageIds: Array.isArray(session?.expandedLongTextMessageIds) ? session.expandedLongTextMessageIds : [],
         selectedPromptBlockIds: Array.isArray(session?.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [],
         pinnedContextBlockIds: Array.isArray(session?.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [],
         includeMemorySummary: !!session?.includeMemorySummary,
@@ -101,9 +121,13 @@ export function createWorkbenchState() {
         unreadCount: Number.isFinite(session?.unreadCount) ? session.unreadCount : 0,
         scrollOffset: Number.isFinite(session?.scrollOffset) ? session.scrollOffset : 0,
         activePlanId: session?.activePlanId || null,
+        recapItems: Array.isArray(session?.recapItems) ? session.recapItems : [],
         workspaceRole: session?.workspaceRole || "analyst",
         handoffMode: session?.handoffMode || "summary_only",
       }));
+
+  const defaultAnnotationFilters = createDefaultAnnotationFilters();
+  const persistedAnnotationFilters = persistedFilters && typeof persistedFilters === "object" ? persistedFilters : {};
 
   const state = {
     buildResponse: null,
@@ -182,19 +206,19 @@ export function createWorkbenchState() {
       operatorEntries: persistedWorkbench.layerState?.operatorEntries ?? true,
       aiAnnotations: persistedWorkbench.layerState?.aiAnnotations ?? true,
     },
-    annotationFilters: persistedFilters || {
-      onlyCurrentSession: true,
-      hideCompleted: true,
-      sessionIds: [],
-      messageIds: [],
-      annotationIds: [],
-      objectTypes: ["entry_line", "stop_loss", "take_profit", "support_zone", "resistance_zone", "no_trade_zone", "zone"],
-      showPaths: false,
-      showInvalidated: false,
-      selectedOnly: false,
+    annotationFilters: {
+      ...defaultAnnotationFilters,
+      ...persistedAnnotationFilters,
+      sessionIds: Array.isArray(persistedAnnotationFilters.sessionIds) ? persistedAnnotationFilters.sessionIds : defaultAnnotationFilters.sessionIds,
+      messageIds: Array.isArray(persistedAnnotationFilters.messageIds) ? persistedAnnotationFilters.messageIds : defaultAnnotationFilters.messageIds,
+      annotationIds: Array.isArray(persistedAnnotationFilters.annotationIds) ? persistedAnnotationFilters.annotationIds : defaultAnnotationFilters.annotationIds,
+      objectTypes: Array.isArray(persistedAnnotationFilters.objectTypes) && persistedAnnotationFilters.objectTypes.length
+        ? persistedAnnotationFilters.objectTypes
+        : defaultAnnotationFilters.objectTypes,
     },
     annotationPanelOpen: false,
     aiAnnotations: [],
+    annotationPreferences: normalizeAnnotationPreferences(persistedWorkbench.annotationPreferences || {}),
     pinnedPlanId: persistedWorkbench.pinnedPlanId || null,
     annotationPopoverTargetId: null,
     symbolWorkspaceState: persistedWorkbench.symbolWorkspaceState || {},
@@ -204,6 +228,7 @@ export function createWorkbenchState() {
     replyExtractionState: {
       filter: persistedWorkbench.replyExtractionState?.filter || "all",
       showIgnored: !!persistedWorkbench.replyExtractionState?.showIgnored,
+      pendingOnly: !!persistedWorkbench.replyExtractionState?.pendingOnly,
       intensity: persistedWorkbench.replyExtractionState?.intensity || "balanced",
       autoExtractEnabled: persistedWorkbench.replyExtractionState?.autoExtractEnabled !== false,
       collapsed: !!persistedWorkbench.replyExtractionState?.collapsed,

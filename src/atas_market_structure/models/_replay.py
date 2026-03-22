@@ -276,6 +276,15 @@ class ReplayChartBar(BaseModel):
     delta: int | None = Field(None, description="Optional net delta for the bar.", examples=[121])
     bid_volume: int | None = Field(None, ge=0, description="Optional bid-side traded volume.", examples=[360])
     ask_volume: int | None = Field(None, ge=0, description="Optional ask-side traded volume.", examples=[481])
+    bar_timestamp_utc: datetime | None = Field(
+        None,
+        description="UTC-normalised bar timestamp preserved from ATAS metadata before timezone normalisation.",
+    )
+    original_bar_time_text: str | None = Field(
+        None,
+        description="Raw bar time text string as it appeared in ATAS before any timezone interpretation.",
+        examples=["2026-03-17 09:30:00 EST"],
+    )
 
 
 

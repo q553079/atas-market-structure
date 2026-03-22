@@ -24,7 +24,7 @@ public sealed class CollectorPropertyTypesProbeIndicator : Indicator
     public string ContinuousEndpoint { get; set; } = "/api/v1/adapter/continuous-state";
 
     [Display(Name = "Tick Size Override", GroupName = "2. Instrument", Order = 10)]
-    public decimal TickSizeOverride { get; set; } = 0.25m;
+    public decimal TickSizeOverride { get; set; }
 
     [Display(Name = "Queue Limit", GroupName = "3. Performance", Order = 10)]
     public int QueueLimit { get; set; } = 256;

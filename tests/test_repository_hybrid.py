@@ -63,6 +63,7 @@ class _FakeChartCandleRepository:
     def __init__(self) -> None:
         self.initialized = False
         self.upserted: list[ChartCandle] = []
+        self.latest_tick_quote: dict[str, object] | None = None
 
     def initialize(self) -> None:
         self.initialized = True
@@ -85,6 +86,16 @@ class _FakeChartCandleRepository:
         deleted = len(self.upserted)
         self.upserted.clear()
         return deleted
+
+    def get_latest_tick_quote(
+        self,
+        symbol: str,
+        *,
+        lookback_seconds: int = 300,
+        limit: int = 2000,
+    ) -> dict[str, object] | None:
+        _ = (symbol, lookback_seconds, limit)
+        return self.latest_tick_quote
 
 
 class _FakeIngestionRepository:
@@ -247,6 +258,29 @@ def test_hybrid_repository_can_delegate_ingestions_to_secondary_store() -> None:
     assert listed[0].observed_payload["message_id"] == "msg-1"
     assert updated is not None
     assert updated.observed_payload["status"] == "updated"
+
+
+def test_hybrid_repository_can_delegate_tick_quote_lookup() -> None:
+    metadata_repo = _FakeMetadataRepository()
+    chart_repo = _FakeChartCandleRepository()
+    chart_repo.latest_tick_quote = {
+        "observed_at": datetime(2026, 3, 22, 10, 3, tzinfo=UTC),
+        "last_price": 24843.25,
+        "best_bid": 24843.0,
+        "best_ask": 24843.25,
+        "tick_count": 12,
+    }
+    hybrid_repo = HybridAnalysisRepository(
+        metadata_repository=metadata_repo,
+        chart_candle_repository=chart_repo,
+    )
+
+    quote = hybrid_repo.get_latest_tick_quote("NQ")
+
+    assert quote is not None
+    assert quote["last_price"] == 24843.25
+    assert quote["best_bid"] == 24843.0
+    assert quote["best_ask"] == 24843.25
 
 
 def test_build_repository_defaults_to_clickhouse_for_market_data(tmp_path: Path) -> None:
@@ -417,3 +451,40 @@ def test_clickhouse_repository_count_chart_candles_counts_distinct_buckets_witho
     assert count == 2
     assert "FINAL" not in captured_query["sql"]
     assert "GROUP BY started_at" in captured_query["sql"]
+
+
+def test_clickhouse_repository_get_latest_tick_quote_reads_ticks_raw(monkeypatch, tmp_path: Path) -> None:
+    captured_query: dict[str, str] = {}
+
+    class _FakeClient:
+        def query(self, sql: str):
+            captured_query["sql"] = sql
+            return SimpleNamespace(
+                result_rows=[
+                    [datetime(2026, 3, 22, 10, 0, 2, tzinfo=UTC), 24843.5, "Ask"],
+                    [datetime(2026, 3, 22, 10, 0, 1, tzinfo=UTC), 24843.25, "Bid"],
+                    [datetime(2026, 3, 22, 10, 0, 0, tzinfo=UTC), 24843.0, "Bid"],
+                ]
+            )
+
+    repository = ClickHouseChartCandleRepository(
+        host="127.0.0.1",
+        port=8123,
+        username="default",
+        password="",
+        database="market_data",
+        table="chart_candles",
+        workspace_root=tmp_path,
+    )
+    monkeypatch.setattr(repository, "_execute", lambda operation: operation(_FakeClient()))
+
+    quote = repository.get_latest_tick_quote("NQ", lookback_seconds=120, limit=100)
+
+    assert quote is not None
+    assert quote["observed_at"] == datetime(2026, 3, 22, 10, 0, 2, tzinfo=UTC)
+    assert quote["last_price"] == 24843.5
+    assert quote["best_bid"] == 24843.25
+    assert quote["best_ask"] == 24843.5
+    assert quote["tick_count"] == 3
+    assert "ticks_raw" in captured_query["sql"]
+    assert "ORDER BY event_time DESC, ts_unix_ms DESC" in captured_query["sql"]

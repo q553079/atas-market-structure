@@ -1,5 +1,7 @@
+import { isAnnotationDeleted } from "./replay_workbench_annotation_utils.js";
+
 function shouldRenderAnnotation(item, state) {
-  if (!item || item.visible === false) {
+  if (!item || item.visible === false || isAnnotationDeleted(item)) {
     return false;
   }
   const filters = state.annotationFilters || {};

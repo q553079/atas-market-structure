@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -206,6 +206,15 @@ class AdapterHistoryBar(BaseModel):
     delta: int | None = Field(None, description="Optional net delta.", examples=[121])
     bid_volume: int | None = Field(None, ge=0, description="Optional bid-side traded volume.", examples=[360])
     ask_volume: int | None = Field(None, ge=0, description="Optional ask-side traded volume.", examples=[481])
+    bar_timestamp_utc: datetime | None = Field(
+        None,
+        description="UTC-normalised bar timestamp preserved from ATAS metadata before timezone normalisation.",
+    )
+    original_bar_time_text: str | None = Field(
+        None,
+        description="Raw bar time text string as it appeared in ATAS before any timezone interpretation.",
+        examples=["2026-03-17 09:30:00 EST"],
+    )
 
 
 class AdapterHistoryBarsPayload(AdapterEnvelopeBase):
@@ -285,4 +294,3 @@ class AdapterHistoryFootprintPayload(AdapterEnvelopeBase):
                 raise ValueError("history footprint bars must be ordered by started_at")
             previous_start = bar.started_at
         return self
-

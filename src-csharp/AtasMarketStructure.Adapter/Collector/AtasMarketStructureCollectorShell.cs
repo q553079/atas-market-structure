@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -106,7 +107,11 @@ public sealed class AtasMarketStructureCollector : Indicator
     private DateTime? _lastCollectorInternalErrorUtc;
     private string _lastCollectorInternalError = string.Empty;
     private int _localSequence;
-    private string? _chartInstanceId;
+    private ChartIdentity? _chartIdentityCache;
+    private DateTime _chartIdentityResolvedAtUtc;
+    private ResolvedTimeContext? _timeContextCache;
+    private DateTime _timeContextResolvedAtUtc;
+    private string _lastLoggedContextSignature = string.Empty;
     private HttpClient? _controlPlaneClient;
     private AdapterBackfillCommandPayload? _pendingBackfillCommand;
     private int _backfillPollInFlight;
@@ -295,7 +300,7 @@ public sealed class AtasMarketStructureCollector : Indicator
     public decimal EffectiveTickSizeDisplay => EffectiveTickSize;
 
     [Display(Name = "Tick Size Override", GroupName = "2. Instrument", Order = 40)]
-    public decimal TickSizeOverride { get; set; } = 0.25m;
+    public decimal TickSizeOverride { get; set; }
 
     [Display(Name = "Venue", GroupName = "2. Instrument", Order = 50)]
     public string Venue { get; set; } = "CME";
@@ -408,6 +413,11 @@ public sealed class AtasMarketStructureCollector : Indicator
             _liquidityTracks.Clear();
             _lastTriggerByKey.Clear();
             _localSequence = 0;
+            _chartIdentityCache = null;
+            _chartIdentityResolvedAtUtc = DateTime.MinValue;
+            _timeContextCache = null;
+            _timeContextResolvedAtUtc = DateTime.MinValue;
+            _lastLoggedContextSignature = string.Empty;
             _sessionOpenPrice = null;
             _ema20 = null;
             _openingRangeHigh = decimal.MinValue;
@@ -426,7 +436,6 @@ public sealed class AtasMarketStructureCollector : Indicator
             _lastHistoryBarStartedAt = null;
             _lastCollectorInternalErrorUtc = null;
             _lastCollectorInternalError = string.Empty;
-            _chartInstanceId = null;
             _lastTradeObservedUtc = null;
             _pendingBackfillCommand = null;
             _backfillPollInFlight = 0;
@@ -584,7 +593,9 @@ public sealed class AtasMarketStructureCollector : Indicator
                 }
 
                 var nowUtc = DateTime.UtcNow;
-                var chartInstanceId = ResolveChartInstanceId();
+                var chartIdentity = ResolveChartIdentity();
+                var chartInstanceId = chartIdentity.ChartInstanceId;
+                var timeContext = ResolveTimeContext();
 
                 Guard("depth_snapshot", () => PollDisplayedLiquiditySnapshot(nowUtc));
                 Guard("finalize_current_second", () => FinalizeCurrentSecond(nowUtc));
@@ -604,9 +615,15 @@ public sealed class AtasMarketStructureCollector : Indicator
                     .Where(item => item.CurrentSize > 0 && item.Status == "active")
                     .OrderByDescending(item => item.HeatScore)
                     .ToList();
+                var barTimestampUtc = _lastHistoryBarStartedAt ?? nowUtc;
+                LogResolvedContext(chartIdentity, timeContext);
                 _transport.TryEnqueueContinuousState(new ContinuousStatePayload
                 {
-                    MessageId = $"collector-shell-{nowUtc:yyyyMMddHHmmssfff}",
+                    MessageId = CollectorMetadataResolver.BuildMessageId(
+                        "continuous_state",
+                        chartIdentity,
+                        barTimestampUtc,
+                        ComputeContinuousSequence(barTimestampUtc, nowUtc)),
                     EmittedAt = nowUtc,
                     ObservedWindowStart = _lastHeartbeatUtc == default ? nowUtc.AddSeconds(-1) : _lastHeartbeatUtc,
                     ObservedWindowEnd = nowUtc,
@@ -617,13 +634,9 @@ public sealed class AtasMarketStructureCollector : Indicator
                         ChartInstanceId = chartInstanceId,
                         AdapterVersion = CollectorVersion,
                     },
-                    Instrument = new InstrumentEnvelope
-                    {
-                        Symbol = ResolveEffectiveSymbol(),
-                        Venue = Venue,
-                        TickSize = (double)EffectiveTickSize,
-                        Currency = Currency,
-                    },
+                    Instrument = BuildInstrumentEnvelope(chartIdentity),
+                    DisplayTimeframe = chartIdentity.DisplayTimeframe,
+                    TimeContext = timeContext.ToPayload(),
                     SessionContext = new SessionContextPayload
                     {
                         SessionCode = DetermineSessionCode(nowUtc),
@@ -727,9 +740,16 @@ public sealed class AtasMarketStructureCollector : Indicator
             return false;
         }
 
+        var chartIdentity = ResolveChartIdentity();
+        var timeContext = ResolveTimeContext();
+        LogResolvedContext(chartIdentity, timeContext);
         if (_transport.TryEnqueueHistoryBars(new HistoryBarsPayload
             {
-                MessageId = $"collector-history-{nowUtc:yyyyMMddHHmmssfff}",
+                MessageId = CollectorMetadataResolver.BuildMessageId(
+                    "history_bars",
+                    chartIdentity,
+                    latestBarStartedAt,
+                    0),
                 EmittedAt = nowUtc,
                 ObservedWindowStart = bars[0].StartedAt,
                 ObservedWindowEnd = bars[^1].EndedAt,
@@ -740,13 +760,9 @@ public sealed class AtasMarketStructureCollector : Indicator
                     ChartInstanceId = chartInstanceId,
                     AdapterVersion = CollectorVersion,
                 },
-                Instrument = new InstrumentEnvelope
-                {
-                    Symbol = ResolveEffectiveSymbol(),
-                    Venue = Venue,
-                    TickSize = (double)EffectiveTickSize,
-                    Currency = Currency,
-                },
+                Instrument = BuildInstrumentEnvelope(chartIdentity),
+                DisplayTimeframe = chartIdentity.DisplayTimeframe,
+                TimeContext = timeContext.ToPayload(),
                 BarTimeframe = timeframe,
                 Bars = bars,
             }))
@@ -795,6 +811,9 @@ public sealed class AtasMarketStructureCollector : Indicator
         var batchId = $"history-footprint-{ResolveEffectiveSymbol().ToLowerInvariant()}-{nowUtc:yyyyMMddHHmmss}";
         var timeframe = DetermineHistoryFootprintTimeframe(bars);
         var enqueuedAny = false;
+        var chartIdentity = ResolveChartIdentity();
+        var timeContext = ResolveTimeContext();
+        LogResolvedContext(chartIdentity, timeContext);
         for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
         {
             var chunkBars = bars.Skip(chunkIndex * chunkSize).Take(chunkSize).ToList();
@@ -805,7 +824,11 @@ public sealed class AtasMarketStructureCollector : Indicator
 
             if (_transport.TryEnqueueHistoryFootprint(new HistoryFootprintPayload
             {
-                MessageId = $"{batchId}-chunk-{chunkIndex:D3}",
+                MessageId = CollectorMetadataResolver.BuildMessageId(
+                    "history_footprint",
+                    chartIdentity,
+                    chunkBars[^1].StartedAt,
+                    chunkIndex),
                 EmittedAt = nowUtc,
                 ObservedWindowStart = chunkBars[0].StartedAt,
                 ObservedWindowEnd = chunkBars[^1].EndedAt,
@@ -816,13 +839,9 @@ public sealed class AtasMarketStructureCollector : Indicator
                     ChartInstanceId = chartInstanceId,
                     AdapterVersion = CollectorVersion,
                 },
-                Instrument = new InstrumentEnvelope
-                {
-                    Symbol = ResolveEffectiveSymbol(),
-                    Venue = Venue,
-                    TickSize = (double)EffectiveTickSize,
-                    Currency = Currency,
-                },
+                Instrument = BuildInstrumentEnvelope(chartIdentity),
+                DisplayTimeframe = chartIdentity.DisplayTimeframe,
+                TimeContext = timeContext.ToPayload(),
                 BatchId = batchId,
                 BarTimeframe = timeframe,
                 ChunkIndex = chunkIndex,
@@ -1573,10 +1592,13 @@ public sealed class AtasMarketStructureCollector : Indicator
         }
 
         _lastTriggerByKey[uniquenessKey] = triggeredAtUtc;
-        var chartInstanceId = ResolveChartInstanceId();
+        var chartIdentity = ResolveChartIdentity();
+        var chartInstanceId = chartIdentity.ChartInstanceId;
+        var timeContext = ResolveTimeContext();
+        LogResolvedContext(chartIdentity, timeContext);
         _transport.TryEnqueueTriggerBurst(new TriggerBurstPayload
         {
-            MessageId = $"collector-burst-{triggeredAtUtc:yyyyMMddHHmmssfff}",
+            MessageId = CollectorMetadataResolver.BuildMessageId("trigger_burst", chartIdentity, triggeredAtUtc, 0),
             EmittedAt = DateTime.UtcNow,
             ObservedWindowStart = triggeredAtUtc.AddSeconds(-Math.Max(1, BurstLookbackSeconds)),
             ObservedWindowEnd = DateTime.UtcNow,
@@ -1587,13 +1609,9 @@ public sealed class AtasMarketStructureCollector : Indicator
                 ChartInstanceId = chartInstanceId,
                 AdapterVersion = CollectorVersion,
             },
-            Instrument = new InstrumentEnvelope
-            {
-                Symbol = ResolveEffectiveSymbol(),
-                Venue = Venue,
-                TickSize = (double)EffectiveTickSize,
-                Currency = Currency,
-            },
+            Instrument = BuildInstrumentEnvelope(chartIdentity),
+            DisplayTimeframe = chartIdentity.DisplayTimeframe,
+            TimeContext = timeContext.ToPayload(),
             Trigger = new TriggerInfoPayload
             {
                 TriggerId = $"{triggerType}-{triggeredAtUtc:yyyyMMddHHmmssfff}",
@@ -2232,23 +2250,9 @@ public sealed class AtasMarketStructureCollector : Indicator
         _lastCollectorInternalError = string.Empty;
     }
 
-    private decimal EffectiveTickSize => UseTickSizeOverride && TickSizeOverride > 0m
-        ? TickSizeOverride
-        : ResolveDetectedTickSize();
+    private decimal EffectiveTickSize => ResolveChartIdentity().TickSize;
 
-    private string ResolveEffectiveSymbol()
-    {
-        if (UseSymbolOverride)
-        {
-            var overrideSymbol = NormalizeSymbolCandidate(SymbolOverride);
-            if (!string.IsNullOrWhiteSpace(overrideSymbol))
-            {
-                return overrideSymbol;
-            }
-        }
-
-        return ResolveDetectedSymbol() ?? "UNKNOWN";
-    }
+    private string ResolveEffectiveSymbol() => ResolveChartIdentity().ContractSymbol;
 
     private string? ResolveDetectedSymbol()
     {
@@ -2280,19 +2284,76 @@ public sealed class AtasMarketStructureCollector : Indicator
             }
         }
 
-        return TickSizeOverride > 0m ? TickSizeOverride : 0.25m;
+        return 0m;
     }
 
-    private string ResolveChartInstanceId()
+    private ChartIdentity ResolveChartIdentity()
     {
-        _chartInstanceId ??= $"{ResolveEffectiveSymbol()}-{GetHashCode():x8}";
-        return _chartInstanceId;
+        var nowUtc = DateTime.UtcNow;
+        if (_chartIdentityCache is not null && (nowUtc - _chartIdentityResolvedAtUtc).TotalSeconds < 2)
+        {
+            return _chartIdentityCache;
+        }
+
+        _chartIdentityCache = CollectorMetadataResolver.ResolveChartIdentity(
+            this,
+            UseSymbolOverride ? SymbolOverride : null,
+            UseTickSizeOverride ? TickSizeOverride : 0m,
+            Venue,
+            Currency,
+            EstimateLoadedBarSpan);
+        _chartIdentityResolvedAtUtc = nowUtc;
+        return _chartIdentityCache;
+    }
+
+    private ResolvedTimeContext ResolveTimeContext()
+    {
+        var nowUtc = DateTime.UtcNow;
+        if (_timeContextCache is not null && (nowUtc - _timeContextResolvedAtUtc).TotalSeconds < 2)
+        {
+            return _timeContextCache;
+        }
+
+        _timeContextCache = CollectorMetadataResolver.ResolveTimeContext(this, nowUtc);
+        _timeContextResolvedAtUtc = nowUtc;
+        return _timeContextCache;
+    }
+
+    private string ResolveChartInstanceId() => ResolveChartIdentity().ChartInstanceId;
+
+    private InstrumentEnvelope BuildInstrumentEnvelope(ChartIdentity chartIdentity) => new()
+    {
+        Symbol = chartIdentity.ContractSymbol,
+        RootSymbol = chartIdentity.RootSymbol,
+        ContractSymbol = chartIdentity.ContractSymbol,
+        Venue = chartIdentity.Venue,
+        TickSize = (double)chartIdentity.TickSize,
+        Currency = chartIdentity.Currency,
+    };
+
+    private int ComputeContinuousSequence(DateTime barTimestampUtc, DateTime observedAtUtc)
+    {
+        var cadenceMs = Math.Max(250, ContinuousCadenceMilliseconds);
+        var elapsedMs = Math.Max(0.0, (observedAtUtc - barTimestampUtc).TotalMilliseconds);
+        return (int)Math.Floor(elapsedMs / cadenceMs);
+    }
+
+    private void LogResolvedContext(ChartIdentity chartIdentity, ResolvedTimeContext timeContext)
+    {
+        var signature = CollectorMetadataResolver.Describe(chartIdentity, timeContext);
+        if (string.Equals(signature, _lastLoggedContextSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastLoggedContextSignature = signature;
+        LogInfoLocal($"collector_context {signature}");
     }
 
     private static string BuildLiquidityTrackId(CollectorSide side, decimal price)
         => $"{side.ToPayloadString()}:{price:F8}";
 
-    private static DateTime ToUtc(DateTime value) => EnsureUtc(value);
+    private DateTime ToUtc(DateTime value) => CollectorMetadataResolver.ToUtc(value, ResolveTimeContext());
 
     private static int DecimalToInt(decimal value) => Math.Max(0, decimal.ToInt32(decimal.Round(value, MidpointRounding.AwayFromZero)));
 
@@ -2354,6 +2415,8 @@ public sealed class AtasMarketStructureCollector : Indicator
 
         return candidate;
     }
+
+    private static void LogInfoLocal(string message) => Debug.WriteLine($"[ATAS-Collector][INFO] {message}");
 
     private static int ComputeReactionTicks(CollectorSide side, decimal trackPrice, decimal currentPrice, decimal tickSize) => side switch
     {

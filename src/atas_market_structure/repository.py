@@ -376,7 +376,7 @@ class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
     def get_chat_message(self, message_id: str) -> StoredChatMessage | None:
         ...
 
-    def list_chat_messages(self, *, session_id: str, limit: int = 200) -> list[StoredChatMessage]:
+    def list_chat_messages(self, *, session_id: str, limit: int = 200, latest: bool = False) -> list[StoredChatMessage]:
         ...
 
     def update_chat_message(self, message_id: str, **updates: Any) -> StoredChatMessage | None:
@@ -1022,10 +1022,17 @@ class SQLiteAnalysisRepository:
             row = connection.execute("SELECT * FROM chat_messages WHERE message_id = ?", (message_id,)).fetchone()
         return self._row_to_chat_message(row) if row is not None else None
 
-    def list_chat_messages(self, *, session_id: str, limit: int = 200) -> list[StoredChatMessage]:
+    def list_chat_messages(self, *, session_id: str, limit: int = 200, latest: bool = False) -> list[StoredChatMessage]:
+        order = "DESC" if latest else "ASC"
         with self._connect() as connection:
-            rows = connection.execute("SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ?", (session_id, limit)).fetchall()
-        return [self._row_to_chat_message(row) for row in rows]
+            rows = connection.execute(
+                f"SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at {order} LIMIT ?",
+                (session_id, limit),
+            ).fetchall()
+        messages = [self._row_to_chat_message(row) for row in rows]
+        if latest:
+            messages.reverse()
+        return messages
 
     def update_chat_message(self, message_id: str, **updates: Any) -> StoredChatMessage | None:
         if not updates:

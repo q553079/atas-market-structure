@@ -27,6 +27,7 @@ import { createModelSwitcherController } from "./replay_workbench_model_switcher
 import {
   createDefaultAnnotationFilters,
   isAnnotationDeleted,
+  normalizeWorkbenchAnnotation,
   updateAnnotationPreference,
 } from "./replay_workbench_annotation_utils.js";
 
@@ -163,6 +164,113 @@ function formatCompactLocalDateTime(value) {
   return `${month}/${day} ${hour}:${minute}`;
 }
 
+function getActiveSession(state) {
+  return (state.aiThreads || []).find((item) => item.id === state.activeAiThreadId || item.sessionId === state.activeAiThreadId)
+    || state.aiThreads?.[0]
+    || null;
+}
+
+function formatRecapSideLabel(side) {
+  const normalized = String(side || "").trim().toLowerCase();
+  if (normalized === "buy" || normalized === "long") {
+    return "做多";
+  }
+  if (normalized === "sell" || normalized === "short") {
+    return "做空";
+  }
+  return normalized || "--";
+}
+
+function formatRecapStatusLabel(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  const statusLabels = {
+    active: "进行中",
+    pending: "待观察",
+    executed: "已执行",
+    completed: "已完成",
+    invalidated: "已失效",
+    cancelled: "已取消",
+  };
+  return statusLabels[normalized] || (status || "--");
+}
+
+function getRecapStatusVariant(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "active" || normalized === "pending") {
+    return "active";
+  }
+  if (normalized === "executed" || normalized === "completed") {
+    return "good";
+  }
+  if (normalized === "invalidated" || normalized === "cancelled") {
+    return "warn";
+  }
+  return "";
+}
+
+function renderRecapDrawerMarkup(state) {
+  const activeSession = getActiveSession(state);
+  const recapItems = Array.isArray(activeSession?.recapItems) ? activeSession.recapItems : [];
+  const sections = [];
+
+  if (state.aiReview) {
+    sections.push(`
+      <div class="info-card">
+        <div class="recap-card-head">
+          <div>
+            <h4>${escapeHtml(state.aiReview.model || "AI复盘")}</h4>
+            <p class="recap-card-meta">${escapeHtml(activeSession?.title || "当前会话")}</p>
+          </div>
+        </div>
+        <p>${escapeHtml(summarizeText(state.aiReview.review || state.aiReview.reply_text || "", 600))}</p>
+      </div>
+    `);
+  }
+
+  if (recapItems.length) {
+    sections.push(`
+      <div class="info-card">
+        <div class="recap-card-head">
+          <div>
+            <h4>计划卡复盘素材</h4>
+            <p class="recap-card-meta">${escapeHtml(activeSession?.title || "当前会话")} · ${recapItems.length} 条</p>
+          </div>
+        </div>
+        <div class="recap-item-list">
+          ${recapItems.map((item) => {
+            const targetLabels = Array.isArray(item.targetLabels) ? item.targetLabels.filter(Boolean) : [];
+            const statusVariant = getRecapStatusVariant(item.status);
+            const chipClass = `session-workspace-chip${statusVariant ? ` ${statusVariant}` : ""}`;
+            const detailChips = [
+              `方向 ${formatRecapSideLabel(item.side)}`,
+              item.entryLabel ? `入场 ${item.entryLabel}` : "",
+              item.stopLabel && item.stopLabel !== "--" ? `止损 ${item.stopLabel}` : "",
+              targetLabels.length ? `止盈 ${targetLabels.join(" / ")}` : "",
+            ].filter(Boolean);
+            return `
+              <article class="recap-item-card">
+                <div class="recap-item-head">
+                  <strong>${escapeHtml(item.title || "AI计划卡")}</strong>
+                  <span class="${chipClass}">${escapeHtml(formatRecapStatusLabel(item.status))}</span>
+                </div>
+                ${detailChips.length ? `<div class="recap-item-chip-row">${detailChips.map((label) => `<span class="session-workspace-chip">${escapeHtml(label)}</span>`).join("")}</div>` : ""}
+                ${item.summary ? `<p class="recap-item-note">${escapeHtml(summarizeText(item.summary, 180))}</p>` : ""}
+                ${item.structuredSummary ? `<pre class="summary-preview recap-item-structured">${escapeHtml(item.structuredSummary)}</pre>` : ""}
+                <p class="recap-card-meta">加入时间：${escapeHtml(formatCompactLocalDateTime(item.addedAt))}${item.sourceModel ? ` · ${escapeHtml(item.sourceModel)}` : ""}</p>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `);
+  }
+
+  if (!sections.length) {
+    return `<div class="empty-note">无复盘简报。</div>`;
+  }
+  return `<div class="recap-panel-stack">${sections.join("")}</div>`;
+}
+
 function renderClusterItemsMarkup(cluster) {
   const items = Array.isArray(cluster?.items) ? cluster.items.slice(0, 5) : [];
   if (!items.length) {
@@ -247,9 +355,7 @@ function renderDrawers({ state, els }) {
       : `<div class="empty-note">无开仓记录。</div>`;
   }
 
-  els.drawerRecapPanel.innerHTML = state.aiReview
-    ? `<div class="info-card"><h4>${state.aiReview.model || "AI复盘"}</h4><p>${summarizeText(state.aiReview.review || state.aiReview.reply_text || "", 600)}</p></div>`
-    : `<div class="empty-note">无复盘简报。</div>`;
+  els.drawerRecapPanel.innerHTML = renderRecapDrawerMarkup(state);
 
   renderGammaDrawer({ state, els });
 }
@@ -1517,6 +1623,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       status: meta.status || item.status || "candidate",
       pinned: !!meta.pinned,
       ignored: (meta.status || item.status) === "ignored",
+      linkedClusterKey: meta.linkedClusterKey || item.linkedClusterKey || null,
     };
   }
 
@@ -2336,6 +2443,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       if (targetIds.includes(state.activeAiThreadId)) {
         renderAiThreadTabs();
         renderAiChat();
+        if (els.aiModelSwitcherModal && !els.aiModelSwitcherModal.classList.contains("is-hidden")) {
+          try {
+            await modelSwitcherController.refreshHandoffPreview({ forceServer: false });
+          } catch (error) {
+            console.warn("刷新交接预览失败:", error);
+          }
+        }
       }
     }, delay);
   }
@@ -2942,6 +3056,192 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     });
   }
 
+  function getReplyCandidatePriceMetrics(item = {}) {
+    const directPrice = Number(item.price);
+    const low = Number(item.priceLow);
+    const high = Number(item.priceHigh);
+    if (Number.isFinite(low) && Number.isFinite(high)) {
+      const min = Math.min(low, high);
+      const max = Math.max(low, high);
+      return { min, max, midpoint: (min + max) / 2 };
+    }
+    if (Number.isFinite(directPrice)) {
+      return { min: directPrice, max: directPrice, midpoint: directPrice };
+    }
+    return { min: null, max: null, midpoint: null };
+  }
+
+  function getChartEventClusterPriceMetrics(cluster = {}) {
+    const values = (Array.isArray(cluster?.items) ? cluster.items : [])
+      .flatMap((item) => [item.price, item.priceLow, item.priceHigh])
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+    if (!values.length) {
+      return { min: null, max: null, midpoint: null };
+    }
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return { min, max, midpoint: (min + max) / 2 };
+  }
+
+  function getPriceRangeDistance(minA, maxA, minB, maxB) {
+    if (![minA, maxA, minB, maxB].every((value) => Number.isFinite(value))) {
+      return null;
+    }
+    if (maxA >= minB && maxB >= minA) {
+      return 0;
+    }
+    if (maxA < minB) {
+      return minB - maxA;
+    }
+    return minA - maxB;
+  }
+
+  function buildReplyCandidateHoverItemFromCluster(cluster = null) {
+    if (!cluster?.items?.length) {
+      return null;
+    }
+    const prices = cluster.items
+      .flatMap((item) => [item.price, item.priceLow, item.priceHigh])
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+    const primaryItem = cluster.items[0] || {};
+    const detailText = [
+      cluster.notePreviewText,
+      primaryItem.metaText,
+      cluster.priceText,
+    ].filter(Boolean).join(" · ");
+    return {
+      id: cluster.key,
+      category: cluster.dominantCategory || primaryItem.category || "events",
+      title: cluster.summaryText || primaryItem.shortLabel || "事件",
+      observedAt: primaryItem.observedAt || (cluster.time ? cluster.time * 1000 : null),
+      price: prices.length ? prices[0] : null,
+      priceLow: prices.length ? Math.min(...prices) : null,
+      priceHigh: prices.length ? Math.max(...prices) : null,
+      timeLabel: cluster.timeLabel || "--",
+      priceText: cluster.priceText || "价格未知",
+      detailText: detailText || "关键盘口事件",
+    };
+  }
+
+  function buildReplyCandidateClusterLink(item = {}, chartEventModel = state.chartEventModel) {
+    const clusterIndex = chartEventModel?.clusterIndex || {};
+    const manualCluster = item?.linkedClusterKey ? clusterIndex[item.linkedClusterKey] : null;
+    if (manualCluster) {
+      return {
+        cluster: manualCluster,
+        score: 999,
+        priceMatched: true,
+        timeMatched: true,
+        reason: "manual",
+      };
+    }
+    const clusters = Array.isArray(chartEventModel?.clusters) ? chartEventModel.clusters : [];
+    if (!clusters.length) {
+      return null;
+    }
+
+    const candidatePrice = getReplyCandidatePriceMetrics(item);
+    const observedAtMs = Date.parse(item?.observedAt || "");
+    let best = null;
+
+    clusters.forEach((cluster) => {
+      let score = 0;
+      let priceMatched = false;
+      let timeMatched = false;
+      const clusterPrice = getChartEventClusterPriceMetrics(cluster);
+      const rangeDistance = getPriceRangeDistance(
+        candidatePrice.min,
+        candidatePrice.max,
+        clusterPrice.min,
+        clusterPrice.max,
+      );
+      if (rangeDistance === 0) {
+        score += item.type === "zone" ? 120 : 104;
+        priceMatched = true;
+      } else if (Number.isFinite(rangeDistance)) {
+        const referencePrice = Math.abs(candidatePrice.midpoint || clusterPrice.midpoint || 0);
+        const tolerance = Math.max(4, referencePrice * 0.0006);
+        const normalizedDistance = rangeDistance / tolerance;
+        if (normalizedDistance <= 2.5) {
+          score += Math.max(0, 92 - normalizedDistance * 28);
+          priceMatched = true;
+        }
+      }
+
+      if (Number.isFinite(observedAtMs)) {
+        const diffSeconds = Math.abs(Math.round(observedAtMs / 1000) - Number(cluster.time || 0));
+        if (diffSeconds <= 15 * 60) {
+          score += 36;
+          timeMatched = true;
+        } else if (diffSeconds <= 60 * 60) {
+          score += 24;
+          timeMatched = true;
+        } else if (diffSeconds <= 6 * 60 * 60) {
+          score += 12;
+          timeMatched = true;
+        } else if (diffSeconds <= 24 * 60 * 60) {
+          score += 6;
+        }
+      }
+
+      if (item.type === "risk" && cluster.dominantCategory === "trapped") {
+        score += 18;
+      } else if (item.type === "zone" && ["events", "absorption", "largeOrders", "replenishment", "trapped"].includes(cluster.dominantCategory)) {
+        score += 10;
+      } else if (item.type === "plan" && ["events", "absorption", "largeOrders", "replenishment"].includes(cluster.dominantCategory)) {
+        score += 8;
+      } else if (item.type === "price") {
+        score += 4;
+      }
+
+      if (!priceMatched && !timeMatched) {
+        return;
+      }
+      if (!best || score > best.score) {
+        best = {
+          cluster,
+          score,
+          priceMatched,
+          timeMatched,
+          reason: priceMatched ? "price" : "time",
+        };
+      }
+    });
+
+    if (!best || best.score < 28) {
+      return null;
+    }
+    return best;
+  }
+
+  function attachReplyCandidateEventLinks(items = [], chartEventModel = state.chartEventModel) {
+    return (Array.isArray(items) ? items : []).map((item) => {
+      const link = buildReplyCandidateClusterLink(item, chartEventModel);
+      if (!link?.cluster) {
+        return {
+          ...item,
+          linkedClusterKey: null,
+          linkedClusterTimeLabel: "",
+          linkedClusterSummary: "",
+          linkedClusterPriceText: "",
+          linkedClusterScore: 0,
+          linkedClusterReason: "",
+        };
+      }
+      return {
+        ...item,
+        linkedClusterKey: link.cluster.key,
+        linkedClusterTimeLabel: link.cluster.timeLabel || "--",
+        linkedClusterSummary: link.cluster.summaryText || "事件",
+        linkedClusterPriceText: link.cluster.priceText || "价格未知",
+        linkedClusterScore: link.score,
+        linkedClusterReason: link.reason || "",
+      };
+    });
+  }
+
   function applyReplyExtractionRuntimeFilters(items = [], extractionState = getReplyExtractionState()) {
     const intensity = extractionState?.intensity || "balanced";
     const autoExtractEnabled = extractionState?.autoExtractEnabled !== false;
@@ -2976,6 +3276,42 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }
       return filter === "all" ? true : item.type === filter;
     });
+  }
+
+  function buildReplyExtractionClusterSummaryMap(items = []) {
+    const summaryByCluster = {};
+    (Array.isArray(items) ? items : [])
+      .filter((item) => item?.linkedClusterKey && !item?.ignored)
+      .forEach((item) => {
+        const key = item.linkedClusterKey;
+        if (!summaryByCluster[key]) {
+          summaryByCluster[key] = {
+            total: 0,
+            plan: 0,
+            zone: 0,
+            risk: 0,
+            price: 0,
+            pending: 0,
+            labels: [],
+          };
+        }
+        const bucket = summaryByCluster[key];
+        bucket.total += 1;
+        bucket[item.type] = (bucket[item.type] || 0) + 1;
+        if (isPendingReplyExtractionItem(item)) {
+          bucket.pending += 1;
+        }
+        if (item.label && !bucket.labels.includes(item.label) && bucket.labels.length < 2) {
+          bucket.labels.push(item.label);
+        }
+      });
+    return summaryByCluster;
+  }
+
+  function getReplyExtractionClusterSummaryMap() {
+    const extractionState = getReplyExtractionState();
+    const items = applyReplyExtractionRuntimeFilters(buildReplyExtractionItems(), extractionState);
+    return buildReplyExtractionClusterSummaryMap(items);
   }
 
   function getVisibleReplyExtractionItems() {
@@ -3193,8 +3529,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (["support_zone", "resistance_zone", "no_trade_zone"].includes(type) && (!Number.isFinite(priceLow) || !Number.isFinite(priceHigh))) {
       return null;
     }
-    const now = new Date().toISOString();
-    return {
+    return normalizeWorkbenchAnnotation({
       id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       annotation_id: null,
       object_id: null,
@@ -3210,19 +3545,16 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       reason,
       start_time: startTime,
       end_time: endTime,
-      expires_at: null,
+      expires_at: candidate.expiresAt || candidate.expires_at || null,
       status: "active",
-      lifecycle_stage: "active",
-      lifecycle_bucket: "active",
-      lifecycle_terminal: false,
-      lifecycle_outcome: null,
-      visual_state: "blue_dot",
-      priority: null,
-      confidence: null,
+      priority: candidate.priority ?? null,
+      confidence: candidate.confidence ?? null,
       visible: true,
       pinned: false,
       source_kind: "event_candidate",
       source_event_key: candidateKey,
+      event_kind: candidate.type || null,
+      source_reply_title: candidate.replyTitle || candidate.sourceReplyTitle || null,
       side,
       entry_price: Number.isFinite(entryPrice) ? entryPrice : null,
       stop_price: Number.isFinite(stopPrice) ? stopPrice : null,
@@ -3231,9 +3563,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       price_low: Number.isFinite(priceLow) ? priceLow : null,
       price_high: Number.isFinite(priceHigh) ? priceHigh : null,
       path_points: [],
-      created_at: now,
-      updated_at: now,
-    };
+    }, {
+      session: targetSession,
+      messageId: candidate.messageId || targetSession.messages?.[targetSession.messages.length - 1]?.message_id || null,
+      state,
+      defaultSourceKind: "event_candidate",
+      sourceReplyTitle: candidate.replyTitle || candidate.sourceReplyTitle || null,
+    });
   }
 
   function promoteCandidateToAnnotation(candidate = {}) {
@@ -3276,6 +3612,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       status: "active",
       side,
       entryPrice,
+      entryPriceLow: Number.isFinite(candidate.priceLow) ? Math.min(candidate.priceLow, candidate.priceHigh ?? candidate.priceLow) : null,
+      entryPriceHigh: Number.isFinite(candidate.priceHigh) ? Math.max(candidate.priceLow ?? candidate.priceHigh, candidate.priceHigh) : null,
       stopPrice,
       targetPrice: tp1,
       targetPrice2: tp2,
@@ -3283,6 +3621,11 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         { id: "1", tp_level: 1, target_price: tp1 },
         { id: "2", tp_level: 2, target_price: tp2 },
       ],
+      message_id: candidate.messageId || null,
+      session_id: targetSession.id,
+      source_kind: "event_candidate",
+      confidence: candidate.confidence ?? null,
+      priority: candidate.priority ?? null,
       summary: summarizeText(candidate.excerpt || candidate.label || "来自事件整理候选", 120),
       notes: candidate.excerpt || candidate.label || "来自事件整理候选",
     };
@@ -3528,10 +3871,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
           }).forEach(pushCandidate);
         });
     });
-    return sortReplyCandidates(
+    return attachReplyCandidateEventLinks(sortReplyCandidates(
       Array.from(candidateMap.values())
         .map((item) => hydrateReplyCandidateState(symbol, item)),
-    ).slice(0, 36);
+    )).slice(0, 36);
   }
 
   function setHoverOverlayItem(item = null) {
@@ -3772,6 +4115,20 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }
       return item.sourceActor || "来源";
     };
+    const focusLinkedCluster = (item, { announce = false } = {}) => {
+      if (!item?.linkedClusterKey) {
+        return false;
+      }
+      const focused = selectChartEventCluster(item.linkedClusterKey, {
+        centerChart: false,
+        openContext: true,
+        announce,
+      });
+      if (focused) {
+        setHoverOverlayItem(buildReplyCandidateHoverItemFromCluster(state.chartEventModel?.clusterIndex?.[item.linkedClusterKey]) || item);
+      }
+      return focused;
+    };
     const buildItemMarkup = (item) => {
       const priceLabel = item.type === "zone"
         ? `${item.priceLow?.toFixed?.(2) ?? item.priceLow} - ${item.priceHigh?.toFixed?.(2) ?? item.priceHigh}`
@@ -3802,6 +4159,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
           </div>
           <div class="reply-extraction-price">${escapeHtml(priceLabel)}</div>
           <p>${escapeHtml(item.excerpt || "等待确认")}</p>
+          ${item.linkedClusterKey ? `
+            <div class="reply-extraction-link-line">
+              <span class="reply-extraction-link-chip">事件 ${escapeHtml(item.linkedClusterTimeLabel || "--")}</span>
+              <span>${escapeHtml(item.linkedClusterSummary || "已关联事件簇")}</span>
+            </div>
+          ` : ""}
           <div class="reply-extraction-source-line">
             <span>${escapeHtml(item.sourceActor || "AI")}</span>
             <span>${escapeHtml(observedAtLabel)}</span>
@@ -3810,6 +4173,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
             <button type="button" class="secondary tiny" data-extraction-action="mount" data-extraction-id="${escapeHtml(item.id)}">${item.status === "mounted" || item.status === "promoted_annotation" ? "再上图" : "上图"}</button>
             <button type="button" class="secondary tiny" data-extraction-action="confirm" data-extraction-id="${escapeHtml(item.id)}">${item.status === "confirmed" ? "已确认" : "确认"}</button>
             <button type="button" class="secondary tiny" data-extraction-action="promote-plan" data-extraction-id="${escapeHtml(item.id)}">${item.status === "promoted_plan" ? "再转计划" : "转计划卡"}</button>
+            ${item.linkedClusterKey ? `<button type="button" class="secondary tiny" data-extraction-action="event" data-extraction-id="${escapeHtml(item.id)}">事件</button>` : ""}
             <button type="button" class="secondary tiny" data-extraction-action="source" data-extraction-id="${escapeHtml(item.id)}">来源</button>
             <button type="button" class="secondary tiny" data-extraction-action="ignore" data-extraction-id="${escapeHtml(item.id)}">${item.ignored ? "恢复" : "忽略"}</button>
           </div>
@@ -3860,9 +4224,14 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderEventScribePanel();
       jumpToSecondaryMessageWhenReady(item.messageId);
     };
-    els.replyExtractionList.querySelectorAll("[data-extraction-id]").forEach((node) => {
+    els.replyExtractionList.querySelectorAll(".reply-extraction-item[data-extraction-id]").forEach((node) => {
       const item = items.find((entry) => entry.id === node.dataset.extractionId);
-      node.addEventListener("mouseenter", () => setHoverOverlayItem(item));
+      node.addEventListener("mouseenter", () => {
+        const hoverItem = item?.linkedClusterKey
+          ? buildReplyCandidateHoverItemFromCluster(state.chartEventModel?.clusterIndex?.[item.linkedClusterKey])
+          : item;
+        setHoverOverlayItem(hoverItem || item);
+      });
       node.addEventListener("mouseleave", () => setHoverOverlayItem(null));
       node.addEventListener("click", (event) => {
         const actionButton = event.target?.closest("[data-extraction-action]");
@@ -3873,6 +4242,14 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
           const action = actionButton.dataset.extractionAction;
           if (action === "source") {
             openExtractionSource(item);
+            return;
+          }
+          if (action === "event") {
+            if (focusLinkedCluster(item, { announce: false })) {
+              renderStatusStrip([{ label: `已定位到事件簇：${item.linkedClusterTimeLabel || "--"} · ${item.linkedClusterSummary || "事件"}`, variant: "emphasis" }]);
+            } else {
+              renderStatusStrip([{ label: "当前候选还没有可定位的事件簇。", variant: "warn" }]);
+            }
             return;
           }
           if (action === "ignore") {
@@ -3932,6 +4309,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
             renderReplyExtractionPanel();
             renderStatusStrip([{ label: `已生成计划卡：${promoted.planCard.title || "候选计划"}`, variant: "good" }]);
           }
+          return;
+        }
+        if (focusLinkedCluster(item, { announce: false })) {
+          renderStatusStrip([{ label: `已聚焦关联事件：${item.linkedClusterTimeLabel || "--"} · ${item.linkedClusterSummary || "事件"}`, variant: "emphasis" }]);
           return;
         }
         openExtractionSource(item);
@@ -5082,6 +5463,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     renderSnapshot,
     updateHeaderStatus,
     renderViewportDerivedSurfaces,
+    getReplyExtractionClusterSummaryMap,
     selectChartEventCluster,
     attachBindings,
     bootstrap,

@@ -403,6 +403,7 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
   }
 
   const updateType = options.updateType || "initial";
+  const syncStateFromLogicalRange = options.syncStateFromLogicalRange !== false;
   const signature = buildSnapshotSignature(snapshot);
   const shouldFitInitially = !lastDataSignature;
   const dataChanged = signature !== lastDataSignature;
@@ -440,7 +441,7 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
     candleSeries.setMarkers(Array.isArray(options.markers) ? options.markers : []);
   }
 
-  if (chartInstance && snapshot?.candles?.length && chartView) {
+  if (syncStateFromLogicalRange && chartInstance && snapshot?.candles?.length && chartView) {
     const logicalRange = chartInstance.timeScale().getVisibleLogicalRange?.();
     if (logicalRange) {
       syncStateChartViewFromLogicalRange(logicalRange, snapshot, chartView);

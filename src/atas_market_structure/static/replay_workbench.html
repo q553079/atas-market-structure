@@ -1055,6 +1055,7 @@
       if (!els?.eventStreamList || !els?.eventStreamSummary) {
         return;
       }
+      const linkedSummaryMap = app.getReplyExtractionClusterSummaryMap?.() || {};
       const sourceItems = Array.isArray(model?.visibleClusters) && model.visibleClusters.length
         ? [...model.visibleClusters].sort((left, right) => Number(right.time) - Number(left.time))
         : (Array.isArray(model?.railClusters) && model.railClusters.length
@@ -1088,20 +1089,41 @@
       const filterLabel = activeFilter === "all"
         ? "全部类型"
         : (markerLayerStyles[activeFilter]?.label || activeFilter);
-      els.eventStreamSummary.textContent = `当前 ${streamItems.length} 个事件，筛选：${filterLabel}。`;
+      const linkedClusterCount = streamItems.filter((cluster) => !!linkedSummaryMap[cluster.key]).length;
+      els.eventStreamSummary.textContent = linkedClusterCount
+        ? `当前 ${streamItems.length} 个事件，筛选：${filterLabel}，已挂回 ${linkedClusterCount} 个整理事件。`
+        : `当前 ${streamItems.length} 个事件，筛选：${filterLabel}。`;
       els.eventStreamList.innerHTML = streamItems.map((cluster) => {
         const category = cluster.dominantCategory || cluster.items?.[0]?.category || "events";
+        const linkedSummary = linkedSummaryMap[cluster.key] || null;
         const active = state.eventStreamHoverItem?.id === cluster.key ? " active" : "";
+        const selected = state.selectedChartEventClusterKey === cluster.key ? " is-selected" : "";
         const hoverStyle = `--event-color:${markerLayerStyles[category]?.color || markerLayerStyles.events.color}`;
+        const summaryTitle = [
+          cluster.timeLabel || "--",
+          cluster.summaryText || "事件",
+          cluster.priceText || "价格未知",
+          linkedSummary ? `整理 ${linkedSummary.total} 条` : "",
+          linkedSummary?.labels?.length ? `重点 ${linkedSummary.labels.join(" / ")}` : "",
+        ].filter(Boolean).join(" · ");
         return `
-          <article class="event-stream-item${active}" data-event-stream-id="${escapeHtml(cluster.key)}" style="${escapeHtml(hoverStyle)}">
+          <article class="event-stream-item${active}${selected}" data-event-stream-id="${escapeHtml(cluster.key)}" style="${escapeHtml(hoverStyle)}" title="${escapeHtml(summaryTitle)}">
             <div class="event-stream-dot" aria-hidden="true"></div>
-            <div>
+            <div class="event-stream-item-body">
               <div class="event-stream-item-head">
                 <strong>${escapeHtml(cluster.summaryText || "事件")}</strong>
                 <span class="meta">${escapeHtml(cluster.timeLabel || "--")}</span>
               </div>
               <p>${escapeHtml(cluster.priceText || "价格未知")}</p>
+              ${linkedSummary ? `
+                <div class="event-stream-linked-row">
+                  <span class="event-stream-linked-chip total">整理 ${linkedSummary.total}</span>
+                  ${linkedSummary.plan ? `<span class="event-stream-linked-chip plan">行动 ${linkedSummary.plan}</span>` : ""}
+                  ${linkedSummary.zone ? `<span class="event-stream-linked-chip zone">区域 ${linkedSummary.zone}</span>` : ""}
+                  ${linkedSummary.risk ? `<span class="event-stream-linked-chip risk">风险 ${linkedSummary.risk}</span>` : ""}
+                  ${linkedSummary.pending ? `<span class="event-stream-linked-chip pending">待 ${linkedSummary.pending}</span>` : ""}
+                </div>
+              ` : ""}
             </div>
           </article>
         `;
@@ -1117,6 +1139,15 @@
           state.eventStreamHoverItem = null;
           node.classList.remove("active");
           window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
+        });
+        node.addEventListener("click", () => {
+          if (cluster?.key && app.selectChartEventCluster) {
+            app.selectChartEventCluster(cluster.key, {
+              centerChart: false,
+              openContext: true,
+              announce: true,
+            });
+          }
         });
       });
     }
@@ -1710,7 +1741,11 @@
                 // 初始化完成后立即设置数据
                 try {
                   const updateType = state.lastChartUpdateType || "full_reset";
-                  updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
+                  updateChartData(snapshot, view, els, {
+                    updateType,
+                    markers: eventModel.markers,
+                    syncStateFromLogicalRange: !state.chartViewportResetPending,
+                  });
                   if (state.chartViewportResetPending || state.chartAutoScalePending) {
                     syncLightweightChartViewportToState();
                     state.chartViewportResetPending = false;
@@ -1766,7 +1801,11 @@
         if (window._lwChartState && window._lwChartState.chartInstance) {
           try {
             const updateType = state.lastChartUpdateType || "full_reset";
-            updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
+            updateChartData(snapshot, view, els, {
+              updateType,
+              markers: eventModel.markers,
+              syncStateFromLogicalRange: !state.chartViewportResetPending,
+            });
             if (state.chartViewportResetPending || state.chartAutoScalePending) {
               syncLightweightChartViewportToState();
               state.chartViewportResetPending = false;

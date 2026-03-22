@@ -6,6 +6,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from atas_market_structure.models._refs import InstrumentRef, SourceRef
 
+class AdapterTimeContext(BaseModel):
+    """Time-zone metadata describing how ATAS timestamps were interpreted."""
+
+    instrument_timezone_value: str | None = Field(None, description="Raw instrument timezone value from ATAS metadata.")
+    instrument_timezone_source: str = Field("unavailable", description="Where the instrument timezone came from.")
+    chart_display_timezone_mode: str | None = Field(None, description="ATAS chart display timezone mode when known.")
+    chart_display_timezone_source: str | None = Field(None, description="Where the chart display timezone mode came from.")
+    chart_display_timezone_name: str | None = Field(None, description="Resolved chart display timezone name or abbreviation.")
+    chart_display_utc_offset_minutes: int | None = Field(None, description="Resolved chart display UTC offset in minutes.")
+    timezone_capture_confidence: str | None = Field(None, description="Confidence level of the timezone capture: high, medium, low, or unknown.")
+    collector_local_timezone_name: str | None = Field(None, description="Collector machine local timezone name.")
+    collector_local_utc_offset_minutes: int | None = Field(None, description="Collector machine local UTC offset in minutes.")
+    timestamp_basis: str | None = Field(None, description="Primary basis used to normalize timestamps to UTC.")
+    started_at_output_timezone: str = Field("UTC", description="Timezone used for started_at-style output fields.")
+    started_at_time_source: str | None = Field(None, description="Source used to resolve started_at timestamps.")
+
 class AdapterEnvelopeBase(BaseModel):
     """Common adapter message envelope shared by continuous and burst payloads."""
 
@@ -16,6 +32,8 @@ class AdapterEnvelopeBase(BaseModel):
     observed_window_end: datetime = Field(..., description="Inclusive end of the observed window.")
     source: SourceRef = Field(..., description="Source metadata.")
     instrument: InstrumentRef = Field(..., description="Instrument metadata.")
+    display_timeframe: str | None = Field(None, description="Display/native chart timeframe when known.")
+    time_context: AdapterTimeContext | None = Field(None, description="Timezone-resolution metadata for this payload.")
 
     @model_validator(mode="after")
     def validate_observed_window(self) -> "AdapterEnvelopeBase":
