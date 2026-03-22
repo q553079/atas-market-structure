@@ -16,6 +16,7 @@ from atas_market_structure.models._adapter_states import (
 from atas_market_structure.models._enums import (
     ReplayAcquisitionMode,
     ReplayVerificationStatus,
+    RollMode,
     StructureSide,
     Timeframe,
 )
@@ -276,6 +277,15 @@ class ReplayChartBar(BaseModel):
     delta: int | None = Field(None, description="Optional net delta for the bar.", examples=[121])
     bid_volume: int | None = Field(None, ge=0, description="Optional bid-side traded volume.", examples=[360])
     ask_volume: int | None = Field(None, ge=0, description="Optional ask-side traded volume.", examples=[481])
+    bar_timestamp_utc: datetime | None = Field(
+        None,
+        description="UTC-normalised bar timestamp preserved from ATAS metadata before timezone normalisation.",
+    )
+    original_bar_time_text: str | None = Field(
+        None,
+        description="Raw bar time text string as it appeared in ATAS before any timezone interpretation.",
+        examples=["2026-03-17 09:30:00 EST"],
+    )
 
 
 
@@ -303,6 +313,10 @@ class ChartCandle(BaseModel):
     tick_volume: int = Field(default=0, ge=0, description="Total tick count for the bar.")
     delta: int = Field(default=0, description="Net buy-sell volume (bid_fill - ask_fill).")
     updated_at: datetime = Field(..., description="When this row was last updated.")
+    source_timezone: str | None = Field(
+        None,
+        description="Original timezone of the source bar before UTC normalisation (e.g. 'America/New_York', 'EST').",
+    )
 
     model_config = {"frozen": False}
 
@@ -352,6 +366,39 @@ class ChartCandleBackfillEnvelope(BaseModel):
     backfill_started: datetime = Field(..., description="When the backfill job started.")
     bars_aggregated: int = Field(default=0, description="Number of source bars processed.")
     candles_written: int = Field(default=0, description="Number of chart candle rows written.")
+
+
+class MirrorBarsEnvelope(BaseModel):
+    """REST response for mirror (raw contract) bar queries.
+
+    Mirror bars return the raw contract data exactly as stored, without
+    any continuous or roll adjustments. This is the "true" contract view.
+    """
+
+    chart_instance_id: str | None = Field(None, description="ATAS chart-instance filter when specified.")
+    contract_symbol: str = Field(..., description="Contract symbol queried.")
+    timeframe: Timeframe = Field(..., description="Bar timeframe.")
+    window_start: datetime = Field(..., description="Query window start (inclusive).")
+    window_end: datetime = Field(..., description="Query window end (inclusive).")
+    count: int = Field(default=0, description="Number of bars returned.")
+    bars: list[ReplayChartBar] = Field(default_factory=list, description="Raw contract bars.")
+
+
+class ContinuousBarsEnvelope(BaseModel):
+    """REST response for continuous-series bar queries.
+
+    Continuous bars return price bars adjusted for contract rolls,
+    providing a seamless series across expiration dates. The roll_mode
+    parameter controls how adjustments are applied.
+    """
+
+    root_symbol: str = Field(..., description="Root/continuous symbol queried.")
+    timeframe: Timeframe = Field(..., description="Bar timeframe.")
+    roll_mode: RollMode = Field(..., description="Roll mode used for this continuous series.")
+    window_start: datetime = Field(..., description="Query window start (inclusive).")
+    window_end: datetime = Field(..., description="Query window end (inclusive).")
+    count: int = Field(default=0, description="Number of bars returned.")
+    bars: list[ReplayChartBar] = Field(default_factory=list, description="Continuous-series bars.")
 
 
 class ReplayEventAnnotation(BaseModel):
@@ -687,6 +734,8 @@ class ReplayWorkbenchAtasBackfillRecord(BaseModel):
     request_id: str = Field(..., description="Stable server-generated request identifier.")
     cache_key: str = Field(..., description="Replay cache key whose coverage should be repaired.")
     instrument_symbol: str = Field(..., description="Instrument symbol being repaired.")
+    contract_symbol: str | None = Field(None, description="Specific contract symbol to backfill.")
+    root_symbol: str | None = Field(None, description="Root/continuous symbol for the backfill.")
     display_timeframe: Timeframe = Field(..., description="Timeframe where the gap was observed.")
     window_start: datetime = Field(..., description="Inclusive replay window start.")
     window_end: datetime = Field(..., description="Inclusive replay window end.")
@@ -734,6 +783,14 @@ class ReplayWorkbenchAtasBackfillRequest(BaseModel):
 
     cache_key: str = Field(..., description="Replay cache key whose missing coverage should be repaired.")
     instrument_symbol: str = Field(..., description="Instrument symbol to repair.", examples=["NQ"])
+    contract_symbol: str | None = Field(
+        None,
+        description="Optional specific contract symbol to backfill instead of the default.",
+    )
+    root_symbol: str | None = Field(
+        None,
+        description="Optional root/continuous symbol for the backfill request.",
+    )
     display_timeframe: Timeframe = Field(..., description="Display timeframe where the missing bars were detected.")
     window_start: datetime = Field(..., description="Inclusive replay window start needing repair.")
     window_end: datetime = Field(..., description="Inclusive replay window end needing repair.")
@@ -997,6 +1054,18 @@ class ReplayWorkbenchLiveTailResponse(BaseModel):
     best_ask: float | None = Field(
         None,
         description="Most recent best ask from the adapter stream when available.",
+    )
+    latest_price_source: str | None = Field(
+        None,
+        description="Source used for latest_price (for example: continuous_state, ticks_raw, candle_close).",
+    )
+    best_bid_source: str | None = Field(
+        None,
+        description="Source used for best_bid (for example: continuous_state, ticks_raw).",
+    )
+    best_ask_source: str | None = Field(
+        None,
+        description="Source used for best_ask (for example: continuous_state, ticks_raw).",
     )
     source_message_count: int = Field(
         ...,

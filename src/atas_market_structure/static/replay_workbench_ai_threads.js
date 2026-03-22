@@ -1,4 +1,9 @@
 import { createMessageId, createPlanId, escapeHtml, formatPrice, summarizeText, writeStorage } from "./replay_workbench_ui_utils.js";
+import {
+  applyAnnotationPreferences,
+  isAnnotationDeleted,
+  normalizeWorkbenchPlanCard,
+} from "./replay_workbench_annotation_utils.js";
 
 function isImageAttachment(attachment) {
   const kind = String(attachment?.kind || "").toLowerCase();
@@ -6,16 +11,63 @@ function isImageAttachment(attachment) {
   return kind.startsWith("image/") || kind.includes("screenshot") || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
 }
 
+function normalizeAttachmentItem(attachment, fallback = {}) {
+  if (!attachment || typeof attachment !== "object") {
+    return null;
+  }
+  const name = typeof attachment.name === "string" && attachment.name.trim()
+    ? attachment.name.trim()
+    : (typeof fallback.name === "string" ? fallback.name : "");
+  const mediaType = String(
+    attachment.media_type
+    || attachment.mediaType
+    || attachment.kind
+    || fallback.media_type
+    || fallback.mediaType
+    || fallback.kind
+    || "application/octet-stream"
+  );
+  const previewUrl = typeof attachment.preview_url === "string" && attachment.preview_url
+    ? attachment.preview_url
+    : (typeof attachment.previewUrl === "string" && attachment.previewUrl
+      ? attachment.previewUrl
+      : (typeof attachment.data_url === "string" && attachment.data_url
+        ? attachment.data_url
+        : (typeof attachment.dataUrl === "string" ? attachment.dataUrl : "")));
+  const dataUrl = typeof attachment.data_url === "string" && attachment.data_url
+    ? attachment.data_url
+    : (typeof attachment.dataUrl === "string" && attachment.dataUrl
+      ? attachment.dataUrl
+      : previewUrl);
+  const sizeValue = Number(attachment.size ?? attachment.byte_size ?? attachment.bytes ?? fallback.size ?? 0);
+  return {
+    ...attachment,
+    name,
+    kind: String(attachment.kind || mediaType || "file"),
+    media_type: mediaType,
+    preview_url: previewUrl,
+    data_url: dataUrl,
+    size: Number.isFinite(sizeValue) && sizeValue > 0 ? sizeValue : 0,
+  };
+}
+
+function normalizeAttachmentList(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item, index) => normalizeAttachmentItem(item, { name: `附件${index + 1}` }))
+    .filter(Boolean);
+}
+
 function buildAttachmentPreviewMarkup(attachment) {
   const label = escapeHtml(attachment.name || "附件");
-  if (attachment.preview_url && isImageAttachment(attachment)) {
+  const previewUrl = attachment?.preview_url || attachment?.data_url || "";
+  if (previewUrl && isImageAttachment(attachment)) {
     return `
       <div class="attachment-thumb">
-        <img src="${escapeHtml(attachment.preview_url)}" alt="${label}">
+        <img src="${escapeHtml(previewUrl)}" alt="${label}">
       </div>
     `;
   }
-  return `<div class="attachment-thumb attachment-thumb-fallback">${escapeHtml((attachment.kind || "file").slice(0, 10))}</div>`;
+  return `<div class="attachment-thumb attachment-thumb-fallback">${escapeHtml((attachment.kind || attachment.media_type || "file").slice(0, 10))}</div>`;
 }
 
 function sanitizeAttachmentForStorage(attachment) {
@@ -42,6 +94,56 @@ function buildServerAttachmentPayloads(items = []) {
     .filter((item) => typeof item.data_url === "string" && item.data_url.startsWith("data:"));
 }
 
+function formatAttachmentSize(size) {
+  const bytes = Number(size || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1")} ${units[unitIndex]}`;
+}
+
+function buildAttachmentSummary(items = []) {
+  const attachments = Array.isArray(items) ? items : [];
+  if (!attachments.length) {
+    return "暂无附件";
+  }
+  const imageCount = attachments.filter((item) => isImageAttachment(item)).length;
+  const totalSize = attachments.reduce((sum, item) => sum + Number(item?.size || 0), 0);
+  const parts = [`${attachments.length} 个附件`];
+  if (imageCount) {
+    parts.push(`${imageCount} 张图片`);
+  }
+  const sizeLabel = formatAttachmentSize(totalSize);
+  if (sizeLabel) {
+    parts.push(sizeLabel);
+  }
+  return parts.join(" · ");
+}
+
+function buildAttachmentCollapsedSummaryMarkup(items = []) {
+  const attachments = Array.isArray(items) ? items : [];
+  const chips = attachments.slice(0, 3).map((item, index) => {
+    const name = escapeHtml(item?.name || `附件${index + 1}`);
+    return `<span class="attachment-mini-chip" title="${name}">${name}</span>`;
+  });
+  const remaining = attachments.length - chips.length;
+  if (remaining > 0) {
+    chips.push(`<span class="attachment-mini-chip meta">+${remaining}</span>`);
+  }
+  return `
+    <div class="attachment-mini-chip-row">${chips.join("")}</div>
+    <div class="meta">${escapeHtml(buildAttachmentSummary(attachments))}</div>
+  `;
+}
+
 function clonePlainData(value, fallback = null) {
   if (value == null) {
     return fallback;
@@ -53,44 +155,39 @@ function clonePlainData(value, fallback = null) {
   }
 }
 
-function buildLongTextMarkup(text, limit = 220) {
-  const safe = escapeHtml(text || "");
-  if (!safe || safe.length <= limit) {
+function buildLongTextMarkup(text, { limit = 220, expanded = false, messageId = "" } = {}) {
+  const raw = String(text || "").replace(/\r\n/g, "\n");
+  const safe = escapeHtml(raw);
+  if (!raw || raw.length <= limit) {
     return `<p>${safe}</p>`;
   }
-  const preview = safe.slice(0, limit);
+  const preview = escapeHtml(raw.slice(0, limit));
+  const normalizedMessageId = escapeHtml(String(messageId || ""));
   return `
-    <div class="longtext-block" data-longtext>
-      <p class="longtext-preview">${preview}…</p>
-      <p class="longtext-full" hidden>${safe}</p>
-      <button type="button" class="secondary tiny longtext-toggle" data-longtext-toggle="expand">展开全文</button>
+    <div class="longtext-block ${expanded ? "is-expanded" : ""}" data-longtext data-longtext-message-id="${normalizedMessageId}">
+      <p class="longtext-preview"${expanded ? " hidden" : ""}>${preview}…</p>
+      <p class="longtext-full"${expanded ? "" : " hidden"}>${safe}</p>
+      <button
+        type="button"
+        class="secondary tiny longtext-toggle"
+        data-longtext-toggle="${expanded ? "collapse" : "expand"}"
+        data-longtext-message-id="${normalizedMessageId}"
+        aria-expanded="${expanded ? "true" : "false"}"
+      >${expanded ? "收起" : "展开全文"}</button>
     </div>
   `;
 }
 
 function mapServerPlanCard(planCard, sessionId = null, messageId = null) {
-  return {
-    id: planCard.id || planCard.plan_id,
-    title: planCard.title || "AI计划卡",
-    status: planCard.status || "active",
-    side: planCard.side || "buy",
-    entryPrice: planCard.entryPrice ?? planCard.entry_price ?? null,
-    entryPriceLow: planCard.entryPriceLow ?? planCard.entry_price_low ?? null,
-    entryPriceHigh: planCard.entryPriceHigh ?? planCard.entry_price_high ?? null,
-    stopPrice: planCard.stopPrice ?? planCard.stop_price ?? null,
-    take_profits: Array.isArray(planCard.take_profits) ? planCard.take_profits : [],
-    summary: planCard.summary || planCard.notes || "结构化交易计划",
-    notes: planCard.notes || "",
-    confidence: planCard.confidence ?? null,
-    priority: planCard.priority ?? null,
-    message_id: messageId || planCard.message_id || null,
-    session_id: sessionId || planCard.session_id || null,
-    plan_id: planCard.plan_id || planCard.id || null,
-  };
+  return normalizeWorkbenchPlanCard(planCard, {
+    sessionId: sessionId || planCard.session_id || null,
+    messageId: messageId || planCard.message_id || null,
+  });
 }
 
 function mapServerMessage(message, planCardsByMessage = new Map()) {
   const messageId = message.message_id || message.id || createMessageId();
+  const attachments = normalizeAttachmentList(message.attachments);
   return {
     message_id: messageId,
     sessionId: message.session_id || message.sessionId || null,
@@ -106,6 +203,7 @@ function mapServerMessage(message, planCardsByMessage = new Map()) {
     meta: {
       model: message.model || null,
       replyTitle: message.reply_title || message.replyTitle || null,
+      attachments,
       planCards: planCardsByMessage.get(messageId) || [],
     },
     created_at: message.created_at || new Date().toISOString(),
@@ -145,8 +243,8 @@ function mapServerSessionToThread(serverSession, fallback = {}) {
     scrollOffset: Number.isFinite(serverSession.scroll_offset) ? serverSession.scroll_offset : (fallback.scrollOffset || 0),
     draftText: serverSession.draft_text ?? fallback.draftText ?? fallback.draft ?? "",
     draft: serverSession.draft_text ?? fallback.draft ?? fallback.draftText ?? "",
-    draftAttachments: Array.isArray(serverSession.draft_attachments) ? serverSession.draft_attachments : (fallback.draftAttachments || []),
-    attachments: Array.isArray(fallback.attachments) ? fallback.attachments : [],
+    draftAttachments: normalizeAttachmentList(Array.isArray(serverSession.draft_attachments) ? serverSession.draft_attachments : (fallback.draftAttachments || [])),
+    attachments: normalizeAttachmentList(Array.isArray(fallback.attachments) ? fallback.attachments : []),
     activeModel: serverSession.active_model || fallback.activeModel || "",
     createdAt: serverSession.created_at || fallback.createdAt || fallback.memory?.last_updated_at || new Date().toISOString(),
     updatedAt: serverSession.updated_at || fallback.updatedAt || fallback.memory?.last_updated_at || serverSession.created_at || new Date().toISOString(),
@@ -160,6 +258,53 @@ function mapServerSessionToThread(serverSession, fallback = {}) {
     },
     backendLoaded: !!fallback.backendLoaded,
   }, fallback);
+}
+
+function normalizeMessageShape(message) {
+  if (!message || typeof message !== "object") {
+    return message;
+  }
+  const meta = message.meta && typeof message.meta === "object" ? message.meta : {};
+  return {
+    ...message,
+    meta: {
+      ...meta,
+      attachments: normalizeAttachmentList(
+        Array.isArray(meta.attachments) ? meta.attachments : (Array.isArray(message.attachments) ? message.attachments : [])
+      ),
+    },
+  };
+}
+
+function normalizeRecapItem(item, session = {}, index = 0) {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const targetLabels = Array.isArray(item.targetLabels)
+    ? item.targetLabels.map((label) => String(label || "").trim()).filter(Boolean)
+    : [];
+  const structuredSummary = String(item.structuredSummary || item.summary || item.notes || "").trim();
+  return {
+    ...item,
+    id: item.id || `${session?.sessionId || session?.id || "session"}-recap-${index + 1}`,
+    title: item.title || "AI计划卡",
+    planId: item.planId || item.plan_id || null,
+    plan_id: item.plan_id || item.planId || null,
+    messageId: item.messageId || item.message_id || null,
+    message_id: item.message_id || item.messageId || null,
+    sessionId: item.sessionId || item.session_id || session?.sessionId || session?.id || null,
+    session_id: item.session_id || item.sessionId || session?.sessionId || session?.id || null,
+    side: item.side || "",
+    status: item.status || "",
+    entryLabel: item.entryLabel || "",
+    stopLabel: item.stopLabel || "",
+    targetLabels,
+    summary: item.summary || item.notes || "",
+    notes: item.notes || item.summary || "",
+    structuredSummary,
+    sourceModel: item.sourceModel || item.model || "",
+    addedAt: item.addedAt || item.created_at || item.updated_at || new Date().toISOString(),
+  };
 }
 
 function normalizeSessionShape(session, fallback = {}) {
@@ -186,15 +331,24 @@ function normalizeSessionShape(session, fallback = {}) {
   session.includeRecentMessages = !!session.includeRecentMessages;
   session.mountedReplyIds = Array.isArray(session.mountedReplyIds) ? session.mountedReplyIds : [];
   session.activePlanId = session.activePlanId || null;
+  session.recapItems = Array.isArray(session.recapItems)
+    ? session.recapItems.map((item, index) => normalizeRecapItem(item, session, index)).filter(Boolean)
+    : [];
   session.scrollOffset = Number.isFinite(session.scrollOffset) ? session.scrollOffset : 0;
   session.autoFollowChat = session.autoFollowChat ?? true;
   session.hasUnreadChatBelow = session.hasUnreadChatBelow ?? false;
-  session.messages = Array.isArray(session.messages) ? session.messages : [];
+  session.messages = Array.isArray(session.messages) ? session.messages.map((message) => normalizeMessageShape(message)).filter(Boolean) : [];
   session.turns = Array.isArray(session.turns) ? session.turns : [];
   session.draftText = session.draftText ?? session.draft ?? "";
   session.draft = session.draftText;
-  session.draftAttachments = Array.isArray(session.draftAttachments) ? session.draftAttachments : (Array.isArray(session.attachments) ? session.attachments : []);
-  session.attachments = Array.isArray(session.attachments) ? session.attachments : [...session.draftAttachments];
+  session.draftAttachments = normalizeAttachmentList(
+    Array.isArray(session.draftAttachments) ? session.draftAttachments : (Array.isArray(session.attachments) ? session.attachments : [])
+  );
+  session.attachments = normalizeAttachmentList(Array.isArray(session.attachments) ? session.attachments : [...session.draftAttachments]);
+  session.attachmentPreviewCollapsed = !!session.attachmentPreviewCollapsed;
+  session.expandedLongTextMessageIds = Array.isArray(session.expandedLongTextMessageIds)
+    ? Array.from(new Set(session.expandedLongTextMessageIds.map((item) => String(item || "").trim()).filter(Boolean)))
+    : [];
   session.analysisTemplate = session.analysisTemplate && typeof session.analysisTemplate === "object"
     ? {
         type: session.analysisTemplate.type || "recent_20_bars",
@@ -209,6 +363,17 @@ function normalizeSessionShape(session, fallback = {}) {
         sendMode: "current",
       };
   session.handoffMode = session.handoffMode || "summary_only";
+  session.handoffSummary = session.handoffSummary || "";
+  session.handoffPreviewSummary = session.handoffPreviewSummary || session.handoffSummary || "";
+  session.handoffPreviewPacket = session.handoffPreviewPacket || null;
+  session.handoffPreviewAt = session.handoffPreviewAt || null;
+  session.handoffPreviewTargetModel = session.handoffPreviewTargetModel || "";
+  session.handoffPreviewMode = session.handoffPreviewMode || session.handoffMode;
+  session.lastHandoffSummary = session.lastHandoffSummary || "";
+  session.lastHandoffPacket = session.lastHandoffPacket || null;
+  session.lastHandoffAt = session.lastHandoffAt || null;
+  session.lastHandoffTargetModel = session.lastHandoffTargetModel || "";
+  session.lastHandoffMode = session.lastHandoffMode || session.handoffMode;
   session.backendLoaded = !!session.backendLoaded;
   session.loadingFromServer = !!session.loadingFromServer;
   session.createdAt = session.createdAt || fallback.createdAt || session.memory?.last_updated_at || new Date().toISOString();
@@ -227,19 +392,29 @@ function getDraftAttachments(session) {
   if (!session) {
     return [];
   }
-  const attachments = Array.isArray(session.draftAttachments)
+  const attachments = normalizeAttachmentList(Array.isArray(session.draftAttachments)
     ? session.draftAttachments
-    : (Array.isArray(session.attachments) ? session.attachments : []);
+    : (Array.isArray(session.attachments) ? session.attachments : []));
   session.draftAttachments = [...attachments];
   session.attachments = [...attachments];
   return session.draftAttachments;
 }
 
 function setDraftAttachments(session, items = []) {
-  const nextItems = Array.isArray(items) ? [...items] : [];
+  const nextItems = normalizeAttachmentList(items);
   session.draftAttachments = nextItems;
   session.attachments = [...nextItems];
   return session.draftAttachments;
+}
+
+function getExpandedLongTextMessageIds(session) {
+  if (!session) {
+    return [];
+  }
+  session.expandedLongTextMessageIds = Array.isArray(session.expandedLongTextMessageIds)
+    ? Array.from(new Set(session.expandedLongTextMessageIds.map((item) => String(item || "").trim()).filter(Boolean)))
+    : [];
+  return session.expandedLongTextMessageIds;
 }
 
 function isTrulyBlankSession(thread) {
@@ -287,6 +462,7 @@ function ensureSession(state, sessionId, title = "01", overrides = {}) {
       promptBlocks: [],
       mountedReplyIds: [],
       activePlanId: null,
+      recapItems: [],
       scrollOffset: 0,
       autoFollowChat: true,
       hasUnreadChatBelow: false,
@@ -296,6 +472,8 @@ function ensureSession(state, sessionId, title = "01", overrides = {}) {
       draftText: "",
       attachments: [],
       draftAttachments: [],
+      attachmentPreviewCollapsed: false,
+      expandedLongTextMessageIds: [],
       analysisTemplate: {
         type: activeSession?.analysisTemplate?.type || "recent_20_bars",
         range: activeSession?.analysisTemplate?.range || "current_window",
@@ -338,19 +516,189 @@ function getSessionScope(session, state) {
   };
 }
 
+function collectSessionPlanCards(session) {
+  return (session?.messages || []).flatMap((message) => (
+    Array.isArray(message.meta?.planCards)
+      ? message.meta.planCards
+      : (Array.isArray(message.planCards) ? message.planCards : [])
+  ));
+}
+
+function findPlanInSession(session, planId = null) {
+  if (!session || !planId) {
+    return { plan: null, message: null };
+  }
+  const message = (session.messages || []).find((item) => {
+    const plans = Array.isArray(item.meta?.planCards)
+      ? item.meta.planCards
+      : (Array.isArray(item.planCards) ? item.planCards : []);
+    return plans.some((plan) => (plan.id || plan.plan_id) === planId);
+  }) || null;
+  const plans = Array.isArray(message?.meta?.planCards)
+    ? message.meta.planCards
+    : (Array.isArray(message?.planCards) ? message.planCards : []);
+  return {
+    plan: plans.find((item) => (item.id || item.plan_id) === planId) || null,
+    message,
+  };
+}
+
+function resolvePinnedPlanContext(session, state) {
+  const candidateIds = [];
+  if (session?.activePlanId) {
+    candidateIds.push(session.activePlanId);
+  }
+  if (state?.pinnedPlanId && state.pinnedPlanId !== session?.activePlanId) {
+    candidateIds.push(state.pinnedPlanId);
+  }
+  for (const planId of candidateIds) {
+    const context = findPlanInSession(session, planId);
+    if (context.plan) {
+      return { ...context, planId };
+    }
+  }
+  return { plan: null, message: null, planId: null };
+}
+
+function formatPlanSideLabel(side) {
+  const normalized = String(side || "").trim().toLowerCase();
+  if (normalized === "buy" || normalized === "long") {
+    return "做多";
+  }
+  if (normalized === "sell" || normalized === "short") {
+    return "做空";
+  }
+  if (!normalized) {
+    return "--";
+  }
+  return normalized;
+}
+
+function formatPlanStatusLabel(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  const statusLabels = {
+    active: "进行中",
+    pending: "待观察",
+    executed: "已执行",
+    completed: "已完成",
+    invalidated: "已失效",
+    cancelled: "已取消",
+  };
+  if (!normalized) {
+    return "--";
+  }
+  return statusLabels[normalized] || String(status || "");
+}
+
+function buildPlanEntryLabel(planCard) {
+  const entryPrice = planCard.entryPrice ?? planCard.entry_price ?? null;
+  const entryLow = planCard.entryPriceLow ?? planCard.entry_price_low ?? null;
+  const entryHigh = planCard.entryPriceHigh ?? planCard.entry_price_high ?? null;
+  if (entryLow != null && entryHigh != null) {
+    const lowLabel = formatPrice(entryLow);
+    const highLabel = formatPrice(entryHigh);
+    return lowLabel === highLabel ? lowLabel : `${lowLabel} ~ ${highLabel}`;
+  }
+  if (entryPrice != null) {
+    return formatPrice(entryPrice);
+  }
+  if (entryLow != null) {
+    return formatPrice(entryLow);
+  }
+  if (entryHigh != null) {
+    return formatPrice(entryHigh);
+  }
+  return "--";
+}
+
+function buildPlanTargetLabels(planCard) {
+  const explicitTargets = Array.isArray(planCard.take_profits)
+    ? planCard.take_profits
+    : (Array.isArray(planCard.takeProfits) ? planCard.takeProfits : []);
+  const targets = explicitTargets.length
+    ? explicitTargets
+    : [
+        planCard.targetPrice != null ? { target_price: planCard.targetPrice } : null,
+        planCard.targetPrice2 != null ? { target_price: planCard.targetPrice2 } : null,
+      ].filter(Boolean);
+  return targets.map((target, index) => {
+    const price = target?.target_price ?? target?.targetPrice ?? target?.price ?? null;
+    const baseLabel = String(target?.label || target?.name || `TP${index + 1}`).trim() || `TP${index + 1}`;
+    if (price == null) {
+      return baseLabel;
+    }
+    return `${baseLabel} ${formatPrice(price)}`;
+  }).filter(Boolean);
+}
+
+function buildPlanStructuredSummary(planCard) {
+  const summary = String(planCard?.summary || planCard?.notes || "").trim();
+  const notes = String(planCard?.notes || "").trim();
+  const targetLabels = buildPlanTargetLabels(planCard);
+  const lines = [
+    `计划：${planCard?.title || "AI计划卡"}`,
+    `方向：${formatPlanSideLabel(planCard?.side)}`,
+    `入场：${buildPlanEntryLabel(planCard)}`,
+    `止损：${formatPrice(planCard?.stopPrice ?? planCard?.stop_price ?? null)}`,
+    `止盈：${targetLabels.length ? targetLabels.join(" / ") : "--"}`,
+    `状态：${formatPlanStatusLabel(planCard?.status)}`,
+  ];
+  if (summary) {
+    lines.push(`摘要：${summary}`);
+  }
+  if (notes && notes !== summary) {
+    lines.push(`备注：${notes}`);
+  }
+  return lines.join("\n");
+}
+
+function buildPlanRecapItem(planCard, session) {
+  const targetLabels = buildPlanTargetLabels(planCard);
+  return normalizeRecapItem({
+    id: `recap-${createPlanId()}`,
+    title: planCard?.title || "AI计划卡",
+    planId: planCard?.id || planCard?.plan_id || null,
+    messageId: planCard?.message_id || null,
+    sessionId: session?.id || session?.sessionId || null,
+    side: planCard?.side || "",
+    status: planCard?.status || "",
+    entryLabel: buildPlanEntryLabel(planCard),
+    stopLabel: formatPrice(planCard?.stopPrice ?? planCard?.stop_price ?? null),
+    targetLabels,
+    summary: String(planCard?.summary || planCard?.notes || "").trim(),
+    notes: String(planCard?.notes || "").trim(),
+    structuredSummary: buildPlanStructuredSummary(planCard),
+    sourceModel: session?.activeModel || session?.memory?.active_model || "AI计划卡",
+    addedAt: new Date().toISOString(),
+  }, session);
+}
+
+function upsertSessionRecapItem(session, recapItem) {
+  const nextItem = normalizeRecapItem(recapItem, session, 0);
+  if (!nextItem) {
+    return null;
+  }
+  const currentItems = Array.isArray(session?.recapItems) ? session.recapItems : [];
+  const nextPlanId = nextItem.planId || nextItem.plan_id || null;
+  const filteredItems = currentItems.filter((item) => {
+    if (nextPlanId) {
+      return (item.planId || item.plan_id) !== nextPlanId;
+    }
+    return item.id !== nextItem.id;
+  });
+  session.recapItems = [nextItem, ...filteredItems].slice(0, 12);
+  return nextItem;
+}
+
 function buildPlanCardMarkup(planCard) {
   const metrics = [
     `方向 ${escapeHtml(planCard.side === "sell" ? "空" : planCard.side === "buy" ? "多" : "中性")}`,
-    `入场 ${escapeHtml(formatPrice(planCard.entryPrice ?? planCard.entry_price ?? planCard.entryPriceLow ?? planCard.entry_price_low))}`,
+    `入场 ${escapeHtml(buildPlanEntryLabel(planCard))}`,
     `止损 ${escapeHtml(formatPrice(planCard.stopPrice ?? planCard.stop_price))}`,
   ];
-  const targets = planCard.take_profits || planCard.takeProfits || [];
-  if (targets[0]?.target_price != null || planCard.targetPrice != null) {
-    metrics.push(`TP1 ${escapeHtml(formatPrice(targets[0]?.target_price ?? planCard.targetPrice))}`);
-  }
-  if (targets[1]?.target_price != null || planCard.targetPrice2 != null) {
-    metrics.push(`TP2 ${escapeHtml(formatPrice(targets[1]?.target_price ?? planCard.targetPrice2))}`);
-  }
+  buildPlanTargetLabels(planCard).slice(0, 2).forEach((label) => {
+    metrics.push(escapeHtml(label));
+  });
   return `
     <div class="chat-plan-card" data-plan-id="${escapeHtml(planCard.id || planCard.plan_id || "")}">
       <div class="chat-plan-card-head">
@@ -373,11 +721,11 @@ function buildPlanCardMarkup(planCard) {
 
 function renderAttachmentPreview(attachment) {
   const label = escapeHtml(attachment.name || "附件");
-  const kind = escapeHtml(attachment.kind || "file");
+  const kind = escapeHtml(attachment.kind || attachment.media_type || "file");
   return `<div class="attachment-chip">${buildAttachmentPreviewMarkup(attachment)}<div class="attachment-chip-meta"><span>${label}</span><span class="meta">${kind}</span></div></div>`;
 }
 
-function renderMessage(message) {
+function renderMessage(message, { expandedLongText = false } = {}) {
   const metaChips = [];
   if (message.status && message.role === "assistant") {
     metaChips.push(`<span class="chip ${escapeHtml(message.status)}">${escapeHtml(message.status)}</span>`);
@@ -435,7 +783,10 @@ function renderMessage(message) {
     <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}" data-message-id="${escapeHtml(message.message_id || "")}">
       <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}">
         <div class="chat-bubble-body">
-          ${buildLongTextMarkup(message.content || "")}
+          ${buildLongTextMarkup(message.content || "", {
+            expanded: expandedLongText,
+            messageId: message.message_id || "",
+          })}
           ${(message.parent_message_id || message.meta?.parent_message_id) ? `<div class="chat-regenerate-note">由上一条回复重新生成</div>` : ""}
           ${attachments.length ? `<div class="chat-attachment-list">${attachments.map((item) => renderAttachmentPreview(item)).join("")}</div>` : ""}
           ${metaChips.length ? `<div class="chat-meta">${metaChips.join("")}</div>` : ""}
@@ -448,14 +799,14 @@ function renderMessage(message) {
 }
 
 function buildPinnedPlanMarkup(planCard) {
-  const targets = planCard.take_profits || [];
+  const targetLabels = buildPlanTargetLabels(planCard);
   const lines = [
     `${escapeHtml(planCard.title || "AI计划卡")}`,
-    `方向：${escapeHtml(planCard.side === "sell" ? "做空" : "做多")}`,
-    `入场：${escapeHtml(formatPrice(planCard.entryPrice ?? planCard.entry_price ?? planCard.entryPriceLow ?? planCard.entry_price_low))}`,
+    `方向：${escapeHtml(formatPlanSideLabel(planCard.side))}`,
+    `入场：${escapeHtml(buildPlanEntryLabel(planCard))}`,
     `止损：${escapeHtml(formatPrice(planCard.stopPrice ?? planCard.stop_price))}`,
-    targets[0]?.target_price != null ? `TP1：${escapeHtml(formatPrice(targets[0]?.target_price))}` : "",
-    targets[1]?.target_price != null ? `TP2：${escapeHtml(formatPrice(targets[1]?.target_price))}` : "",
+    targetLabels.length ? `止盈：${escapeHtml(targetLabels.join(" / "))}` : "",
+    planCard.status ? `状态：${escapeHtml(formatPlanStatusLabel(planCard.status))}` : "",
     planCard.summary ? escapeHtml(planCard.summary) : "",
   ].filter(Boolean);
   return lines.join("<br>");
@@ -805,9 +1156,7 @@ function renderAuxiliaryStrips(session, els, state, onPlanAction = null, fetchJs
   }
 
   if (els.pinnedPlanCard && els.pinnedPlanCardBody && els.pinnedPlanCardActions) {
-    const pinnedPlanId = state?.pinnedPlanId || null;
-    const pinnedMessage = (session.messages || []).find((message) => Array.isArray(message.meta?.planCards) && message.meta.planCards.some((item) => (item.id || item.plan_id) === pinnedPlanId));
-    const pinnedPlan = pinnedMessage?.meta?.planCards?.find((item) => (item.id || item.plan_id) === pinnedPlanId) || null;
+    const { planId: pinnedPlanId, plan: pinnedPlan, message: pinnedMessage } = resolvePinnedPlanContext(session, state);
     const selectedAnnotation = state.aiAnnotations?.find((annotation) => annotation.id === state.selectedAnnotationId) || null;
     const pinnedPlanAnnotations = pinnedPlanId
       ? (state.aiAnnotations || []).filter((annotation) => annotation.plan_id === pinnedPlanId && annotation.session_id === session.id)
@@ -1461,14 +1810,44 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       return;
     }
     const attachments = getDraftAttachments(session);
+    if (!attachments.length) {
+      session.attachmentPreviewCollapsed = false;
+    }
+    const collapsed = !!session.attachmentPreviewCollapsed && attachments.length > 0;
+    const summaryText = buildAttachmentSummary(attachments);
     els.attachmentPreviewBar.hidden = attachments.length === 0;
+    els.attachmentPreviewBar.classList.toggle("is-collapsed", collapsed);
+    if (els.attachmentPreviewMeta) {
+      els.attachmentPreviewMeta.textContent = summaryText;
+    }
+    if (els.toggleAttachmentPreviewButton) {
+      els.toggleAttachmentPreviewButton.disabled = attachments.length === 0;
+      els.toggleAttachmentPreviewButton.textContent = collapsed ? "展开" : "折叠";
+      els.toggleAttachmentPreviewButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      els.toggleAttachmentPreviewButton.onclick = () => {
+        if (!attachments.length) {
+          return;
+        }
+        session.attachmentPreviewCollapsed = !session.attachmentPreviewCollapsed;
+        persistSessions(state);
+        renderAttachments(session);
+      };
+    }
+    if (els.clearAttachmentsButton) {
+      els.clearAttachmentsButton.disabled = attachments.length === 0;
+    }
+    if (els.attachmentPreviewCollapsedSummary) {
+      els.attachmentPreviewCollapsedSummary.hidden = !collapsed;
+      els.attachmentPreviewCollapsedSummary.innerHTML = collapsed ? buildAttachmentCollapsedSummaryMarkup(attachments) : "";
+    }
+    els.attachmentPreviewList.hidden = collapsed;
     els.attachmentPreviewList.innerHTML = attachments.map((item, index) => `
       <div class="attachment-row">
         ${buildAttachmentPreviewMarkup(item)}
         <div class="attachment-row-main">
-          <span>${escapeHtml(item.name || `附件${index + 1}`)}</span>
+          <span class="attachment-row-title">${escapeHtml(item.name || `附件${index + 1}`)}</span>
           <div class="button-row tight">
-            <span class="meta">${escapeHtml(item.kind || "file")}</span>
+            <span class="meta">${escapeHtml([item.kind || item.media_type || "file", formatAttachmentSize(item.size)].filter(Boolean).join(" · "))}</span>
             <button type="button" class="secondary tiny" data-attachment-remove="${index}">删除</button>
           </div>
         </div>
@@ -1533,7 +1912,21 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         const plans = Array.isArray(objects?.plan_cards) ? objects.plan_cards.map((item) => mapServerPlanCard(item, sessionId, messageId)) : [];
         planCardsByMessage.set(messageId, plans);
         if (Array.isArray(objects?.annotations)) {
-          annotations.push(...objects.annotations.map((item) => ({ ...item, id: item.annotation_id || item.id })));
+          annotations.push(...objects.annotations.map((item) => applyAnnotationPreferences({
+            ...item,
+            id: item.annotation_id || item.id,
+            annotation_id: item.annotation_id || item.id || null,
+            object_id: item.object_id || item.annotation_id || item.id || null,
+            session_id: item.session_id || sessionId,
+            message_id: item.message_id || messageId,
+            visible: item.visible !== false,
+            pinned: !!item.pinned,
+            deleted: !!item.deleted,
+          }, state.annotationPreferences || {}, {
+            sessionId: item.session_id || sessionId,
+            messageId: item.message_id || messageId,
+            planId: item.plan_id || null,
+          })));
         }
       } catch (error) {
         console.warn("加载会话对象失败:", error);
@@ -1941,7 +2334,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     const activeDraftAttachments = getDraftAttachments(session);
     const mergedMeta = {
       ...meta,
-      attachments: meta.attachments || (role === "user" ? [...activeDraftAttachments] : meta.attachments),
+      attachments: normalizeAttachmentList(meta.attachments || (role === "user" ? activeDraftAttachments : [])),
     };
     const message = {
       message_id: createMessageId(),
@@ -2001,6 +2394,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
   function renderAiChat() {
     const session = getActiveThread();
     const shouldAutoFollow = session.autoFollowChat !== false || isNearChatBottom();
+    const expandedLongTextMessageIds = new Set(getExpandedLongTextMessageIds(session));
     syncSessionMemorySummary(session);
     renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
     renderAttachments(session);
@@ -2029,6 +2423,8 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         annotationCount: (state.aiAnnotations || []).filter((annotation) => annotation.session_id === session.id && annotation.message_id === message.message_id).length,
         planCards: Array.isArray(message.planCards) && message.planCards.length ? message.planCards : message.meta?.planCards,
       },
+    }, {
+      expandedLongText: expandedLongTextMessageIds.has(String(message.message_id || "")),
     })).join("");
     els.aiChatThread.querySelectorAll("button[data-plan-action]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -2047,10 +2443,8 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
           return;
         }
         if (action === "copy") {
-          const plan = session.messages
-            .flatMap((item) => item.meta?.planCards || [])
-            .find((item) => (item.id || item.plan_id) === planId);
-          const summary = [plan?.title, plan?.summary].filter(Boolean).join(" | ");
+          const { plan } = findPlanInSession(session, planId);
+          const summary = plan ? buildPlanStructuredSummary(plan) : "";
           if (summary && navigator.clipboard?.writeText) {
             navigator.clipboard.writeText(summary)
               .then(() => {
@@ -2088,18 +2482,16 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
           return;
         }
         if (action === "recap") {
-          const plan = session.messages
-            .flatMap((item) => item.meta?.planCards || [])
-            .find((item) => (item.id || item.plan_id) === planId);
+          const { plan } = findPlanInSession(session, planId);
           if (plan) {
-            state.aiReview = {
-              model: session.activeModel || session.memory?.active_model || "AI计划卡",
-              review: `${plan.title}\n${plan.summary || ""}`.trim(),
-            };
+            const recapItem = upsertSessionRecapItem(session, buildPlanRecapItem(plan, session));
+            persistSessions(state);
             onPlanMetaAction?.({
               type: "recap",
               ok: true,
               plan,
+              summary: recapItem?.structuredSummary || "",
+              recapItem,
               planId,
               session,
             });
@@ -2130,11 +2522,25 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         if (!block) return;
         const preview = block.querySelector(".longtext-preview");
         const full = block.querySelector(".longtext-full");
-        const expanded = button.dataset.longtextToggle === "collapse";
-        if (preview) preview.hidden = !expanded;
-        if (full) full.hidden = expanded;
-        button.dataset.longtextToggle = expanded ? "expand" : "collapse";
-        button.textContent = expanded ? "展开全文" : "收起";
+        const currentlyExpanded = button.dataset.longtextToggle === "collapse";
+        const nextExpanded = !currentlyExpanded;
+        const messageId = String(button.dataset.longtextMessageId || block.dataset.longtextMessageId || "").trim();
+        if (preview) preview.hidden = nextExpanded;
+        if (full) full.hidden = !nextExpanded;
+        block.classList.toggle("is-expanded", nextExpanded);
+        button.dataset.longtextToggle = nextExpanded ? "collapse" : "expand";
+        button.textContent = nextExpanded ? "收起" : "展开全文";
+        button.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+        if (messageId) {
+          const nextIds = new Set(getExpandedLongTextMessageIds(session));
+          if (nextExpanded) {
+            nextIds.add(messageId);
+          } else {
+            nextIds.delete(messageId);
+          }
+          session.expandedLongTextMessageIds = Array.from(nextIds);
+          persistSessions(state);
+        }
       });
     });
     if (shouldAutoFollow) {
@@ -2147,18 +2553,13 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
 
   function upsertPlanCardToSession(planCard, sessionId = null, messageId = null) {
     const session = ensureSession(state, sessionId || state.activeAiThreadId, getActiveThread().title);
-    const normalized = {
+    const normalized = mapServerPlanCard({
+      ...planCard,
       id: planCard.id || planCard.plan_id || createPlanId(),
-      title: planCard.title || "AI计划卡",
-      status: planCard.status || "active",
-      side: planCard.side || "buy",
-      entryPrice: planCard.entryPrice ?? planCard.entry_price ?? null,
-      stopPrice: planCard.stopPrice ?? planCard.stop_price ?? null,
-      take_profits: planCard.take_profits || [],
-      summary: planCard.summary || planCard.notes || "结构化交易计划",
-      message_id: messageId,
+      plan_id: planCard.plan_id || planCard.id || null,
+      message_id: messageId || planCard.message_id || null,
       session_id: session.id,
-    };
+    }, session.id, messageId);
     session.memory.active_plans_summary = Array.from(new Set([...(session.memory.active_plans_summary || []), `${normalized.title} ${normalized.status}`]));
     persistSessions(state);
     return normalized;
@@ -2239,16 +2640,44 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
         },
       };
     });
+    const clonedRecapItems = (clonePlainData(sourceSession.recapItems, []) || [])
+      .map((item, index) => normalizeRecapItem({
+        ...item,
+        id: `${branchSession.id}-recap-${index + 1}`,
+        planId: item?.planId || item?.plan_id
+          ? (planIdMap.get(item.planId || item.plan_id) || null)
+          : null,
+        plan_id: item?.planId || item?.plan_id
+          ? (planIdMap.get(item.planId || item.plan_id) || null)
+          : null,
+        messageId: item?.messageId || item?.message_id
+          ? (messageIdMap.get(item.messageId || item.message_id) || null)
+          : null,
+        message_id: item?.messageId || item?.message_id
+          ? (messageIdMap.get(item.messageId || item.message_id) || null)
+          : null,
+        sessionId: branchSession.id,
+        session_id: branchSession.id,
+      }, { id: branchSession.id, sessionId: branchSession.id }, index))
+      .filter(Boolean);
 
-    const remappedAnnotations = sourceAnnotations.map((annotation, index) => ({
-      ...annotation,
-      id: `${branchSession.id}-ann-${index + 1}`,
-      session_id: branchSession.id,
-      message_id: annotation.message_id ? (messageIdMap.get(annotation.message_id) || annotation.message_id) : annotation.message_id,
-      plan_id: annotation.plan_id ? (planIdMap.get(annotation.plan_id) || annotation.plan_id) : null,
-      visible: annotation.visible !== false,
-      pinned: false,
-    }));
+    const remappedAnnotations = sourceAnnotations
+      .filter((annotation) => !isAnnotationDeleted(annotation))
+      .map((annotation, index) => applyAnnotationPreferences({
+        ...annotation,
+        id: `${branchSession.id}-ann-${index + 1}`,
+        preference_key: undefined,
+        session_id: branchSession.id,
+        message_id: annotation.message_id ? (messageIdMap.get(annotation.message_id) || annotation.message_id) : annotation.message_id,
+        plan_id: annotation.plan_id ? (planIdMap.get(annotation.plan_id) || annotation.plan_id) : null,
+        visible: annotation.visible !== false,
+        pinned: !!annotation.pinned,
+        deleted: false,
+      }, state.annotationPreferences || {}, {
+        sessionId: branchSession.id,
+        messageId: annotation.message_id ? (messageIdMap.get(annotation.message_id) || annotation.message_id) : annotation.message_id,
+        planId: annotation.plan_id ? (planIdMap.get(annotation.plan_id) || annotation.plan_id) : null,
+      }));
 
     branchSession = normalizeSessionShape({
       ...branchSession,
@@ -2266,6 +2695,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       promptBlocks: [],
       mountedReplyIds: [],
       activePlanId: sourceSession.activePlanId ? (planIdMap.get(sourceSession.activePlanId) || null) : null,
+      recapItems: clonedRecapItems,
       scrollOffset: 0,
       messages: clonedMessages,
       turns: clonedMessages.map((item) => ({ role: item.role, content: item.content, meta: item.meta || {} })),
@@ -2389,6 +2819,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
   function addAttachments(items = []) {
     const session = getActiveThread();
     setDraftAttachments(session, [...getDraftAttachments(session), ...items]);
+    session.attachmentPreviewCollapsed = false;
     renderAttachments(session);
     persistSessions(state);
     scheduleDraftStateSync(session);
@@ -2458,6 +2889,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
   function clearAttachments() {
     const session = getActiveThread();
     setDraftAttachments(session, []);
+    session.attachmentPreviewCollapsed = false;
     renderAttachments(session);
     persistSessions(state);
     scheduleDraftStateSync(session, { immediate: true });

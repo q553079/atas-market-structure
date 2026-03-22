@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
 import threading
@@ -147,7 +147,8 @@ class ClickHouseChartCandleRepository:
                     volume Int64,
                     tick_volume Int64,
                     delta Int64,
-                    updated_at DateTime64(3, 'UTC')
+                    updated_at DateTime64(3, 'UTC'),
+                    source_timezone String DEFAULT ''
                 )
                 ENGINE = ReplacingMergeTree(updated_at)
                 PARTITION BY (symbol, toYYYYMM(started_at))
@@ -206,6 +207,7 @@ class ClickHouseChartCandleRepository:
                 candle.tick_volume,
                 candle.delta,
                 _normalize_utc(candle.updated_at),
+                candle.source_timezone or "",
             ]
             for candle in candles
         ]
@@ -227,6 +229,7 @@ class ClickHouseChartCandleRepository:
                     "tick_volume",
                     "delta",
                     "updated_at",
+                    "source_timezone",
                 ],
             )
         )
@@ -255,7 +258,8 @@ class ClickHouseChartCandleRepository:
             toInt64(sum(volume)) AS volume,
             toInt64(sum(tick_volume)) AS tick_volume,
             toInt64(sum(delta)) AS delta,
-            max(updated_at) AS updated_at_max
+            max(updated_at) AS updated_at_max,
+            argMin(source_timezone, tuple(source_started_at, updated_at)) AS source_timezone
         FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
         WHERE symbol = {_quote_string(symbol)}
           AND timeframe = {_quote_string(tf_value)}
@@ -282,6 +286,7 @@ class ClickHouseChartCandleRepository:
                 tick_volume=int(row[10]),
                 delta=int(row[11]),
                 updated_at=_normalize_utc(row[12]),
+                source_timezone=row[13] or None,
             )
             for row in rows
         ]
@@ -458,6 +463,76 @@ class ClickHouseChartCandleRepository:
             }
             for row in result.result_rows
         ]
+
+    def get_latest_tick_quote(
+        self,
+        symbol: str,
+        *,
+        lookback_seconds: int = 300,
+        limit: int = 2000,
+    ) -> dict[str, Any] | None:
+        """Infer latest last/bid/ask quote from raw ticks.
+
+        The realtime persistence path writes ticks into ``ticks_raw`` with a
+        direction field ("Bid"/"Ask"). This query pulls recent rows and picks:
+        - latest traded price from the newest tick,
+        - latest Bid-side trade price,
+        - latest Ask-side trade price.
+
+        Returns ``None`` when no recent ticks are available.
+        """
+        safe_lookback = max(30, min(int(lookback_seconds), 24 * 60 * 60))
+        safe_limit = max(10, min(int(limit), 20000))
+        cutoff = datetime.now(tz=UTC) - timedelta(seconds=safe_lookback)
+
+        query = f"""
+        SELECT
+            event_time,
+            price,
+            direction
+        FROM {_quote_identifier(f"{self._database}.ticks_raw")}
+        WHERE symbol = {_quote_string(symbol)}
+          AND event_time >= toDateTime64('{_to_ch_datetime64_literal(cutoff)}', 3, 'UTC')
+        ORDER BY event_time DESC, ts_unix_ms DESC
+        LIMIT {safe_limit}
+        """
+        try:
+            result = self._execute(lambda client: client.query(query))
+        except Exception:
+            return None
+
+        rows = result.result_rows
+        if not rows:
+            return None
+
+        newest_row = rows[0]
+        observed_at = _normalize_utc(newest_row[0])
+        last_price = float(newest_row[1]) if newest_row[1] is not None else None
+        best_bid: float | None = None
+        best_ask: float | None = None
+
+        for row in rows:
+            price = row[1]
+            if price is None:
+                continue
+            direction = str(row[2])
+            if best_bid is None and direction == "Bid":
+                best_bid = float(price)
+            if best_ask is None and direction == "Ask":
+                best_ask = float(price)
+            if best_bid is not None and best_ask is not None:
+                break
+
+        if last_price is None and best_bid is None and best_ask is None:
+            return None
+
+        return {
+            "observed_at": observed_at,
+            "last_price": last_price,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "tick_count": len(rows),
+        }
 
     # --- Ingestions ----------------------------------------------------
 
@@ -902,6 +977,23 @@ class HybridAnalysisRepository:
                 limit=limit,
             )
         return []
+
+    def get_latest_tick_quote(
+        self,
+        symbol: str,
+        *,
+        lookback_seconds: int = 300,
+        limit: int = 2000,
+    ) -> dict[str, Any] | None:
+        """Query latest tick-derived quote from the secondary market-data repository."""
+        repo = self._chart_candle_repository
+        if hasattr(repo, "get_latest_tick_quote"):
+            return repo.get_latest_tick_quote(
+                symbol=symbol,
+                lookback_seconds=lookback_seconds,
+                limit=limit,
+            )
+        return None
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._metadata_repository, name)

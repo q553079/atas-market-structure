@@ -31,6 +31,41 @@ def _env_float(name: str, default: float) -> float:
     return float(_env(name, str(default)))
 
 
+def _ticks_to_chart_candles_mv_ddl(database: str, *, timeframe: str, interval_seconds: int) -> str:
+    interval_label = f"{interval_seconds}s"
+    return f"""
+    CREATE MATERIALIZED VIEW IF NOT EXISTS {database}.ticks_raw_to_chart_candles_{interval_label}_mv
+    TO {database}.chart_candles
+    AS
+    SELECT
+        symbol AS symbol,
+        '{timeframe}' AS timeframe,
+        bucket_start AS started_at,
+        bucket_start + toIntervalSecond({interval_seconds - 1}) AS ended_at,
+        min(event_time) AS source_started_at,
+        argMin(price, event_time) AS open,
+        max(price) AS high,
+        min(price) AS low,
+        argMax(price, event_time) AS close,
+        toInt64(sum(trade_volume)) AS volume,
+        toInt64(count()) AS tick_volume,
+        toInt64(sum(if(direction = 'Ask', toInt64(trade_volume), -toInt64(trade_volume)))) AS delta,
+        max(event_time) AS updated_at
+    FROM
+    (
+        SELECT
+            symbol,
+            event_time,
+            price,
+            volume AS trade_volume,
+            direction,
+            toStartOfInterval(event_time, INTERVAL {interval_seconds} second, 'UTC') AS bucket_start
+        FROM {database}.ticks_raw
+    )
+    GROUP BY symbol, bucket_start
+    """
+
+
 def build_ddl(database: str) -> list[str]:
     create_db_sql = f"CREATE DATABASE IF NOT EXISTS {database}"
 
@@ -51,6 +86,59 @@ def build_ddl(database: str) -> list[str]:
     ORDER BY (symbol, event_time)
     SETTINGS index_granularity = 8192
     """
+
+    chart_candles_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {database}.chart_candles
+    (
+        symbol LowCardinality(String),
+        timeframe LowCardinality(String),
+        started_at DateTime64(3, 'UTC'),
+        ended_at DateTime64(3, 'UTC'),
+        source_started_at DateTime64(3, 'UTC'),
+        open Float64,
+        high Float64,
+        low Float64,
+        close Float64,
+        volume Int64,
+        tick_volume Int64,
+        delta Int64,
+        updated_at DateTime64(3, 'UTC')
+    )
+    ENGINE = ReplacingMergeTree(updated_at)
+    PARTITION BY (symbol, toYYYYMM(started_at))
+    ORDER BY (symbol, timeframe, started_at, source_started_at)
+    """
+
+    ingestions_table_sql = f"""
+    CREATE TABLE IF NOT EXISTS {database}.ingestions
+    (
+        ingestion_id String,
+        ingestion_kind LowCardinality(String),
+        source_snapshot_id String,
+        instrument_symbol LowCardinality(String),
+        chart_instance_id Nullable(String),
+        message_id Nullable(String),
+        message_type Nullable(String),
+        observed_window_start Nullable(DateTime64(3, 'UTC')),
+        observed_window_end Nullable(DateTime64(3, 'UTC')),
+        emitted_at Nullable(DateTime64(3, 'UTC')),
+        observed_payload_json String,
+        stored_at DateTime64(3, 'UTC'),
+        version_at DateTime64(3, 'UTC')
+    )
+    ENGINE = ReplacingMergeTree(version_at)
+    PARTITION BY (ingestion_kind, toYYYYMM(stored_at))
+    ORDER BY (ingestion_kind, instrument_symbol, source_snapshot_id, stored_at, ingestion_id)
+    """
+
+    ticks_to_chart_candles_mv_ddls = [
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="1m", interval_seconds=60),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="5m", interval_seconds=300),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="15m", interval_seconds=900),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="30m", interval_seconds=1800),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="1h", interval_seconds=3600),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="4h", interval_seconds=14400),
+    ]
 
     # ─── Pre-aggregated continuous-state candle view ──────────────────────────
     # Aggregates adapter_continuous_state messages into 1-minute buckets.
@@ -160,10 +248,13 @@ def build_ddl(database: str) -> list[str]:
     return [
         create_db_sql,
         create_table_sql,
+        chart_candles_table_sql,
+        ingestions_table_sql,
         continuous_state_candles_ddl,
         continuous_state_mv_ddl,
         continuous_state_events_ddl,
         continuous_state_events_mv_ddl,
+        *ticks_to_chart_candles_mv_ddls,
     ]
 
 
@@ -226,6 +317,12 @@ def main() -> None:
     print(f"Materialized views created:")
     print(f"  {database}.continuous_state_candles_mv  →  {database}.continuous_state_candles")
     print(f"  {database}.continuous_state_events_mv  →  {database}.continuous_state_events")
+    print(f"  {database}.ticks_raw_to_chart_candles_60s_mv   →  {database}.chart_candles (1m)")
+    print(f"  {database}.ticks_raw_to_chart_candles_300s_mv  →  {database}.chart_candles (5m)")
+    print(f"  {database}.ticks_raw_to_chart_candles_900s_mv  →  {database}.chart_candles (15m)")
+    print(f"  {database}.ticks_raw_to_chart_candles_1800s_mv →  {database}.chart_candles (30m)")
+    print(f"  {database}.ticks_raw_to_chart_candles_3600s_mv →  {database}.chart_candles (1h)")
+    print(f"  {database}.ticks_raw_to_chart_candles_14400s_mv →  {database}.chart_candles (4h)")
 
 
 if __name__ == "__main__":

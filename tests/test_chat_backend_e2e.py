@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -173,6 +174,12 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     prompt_blocks_payload = json.loads(prompt_blocks_response.body)
     assert len(prompt_blocks_payload["blocks"]) == 3
 
+    screenshot_attachment = {
+        "name": "chart-snap.png",
+        "media_type": "image/png",
+        "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9K2X0NwAAAABJRU5ErkJggg==",
+    }
+
     reply_response = application.dispatch(
         "POST",
         f"/api/v1/workbench/chat/sessions/{session_id}/reply",
@@ -186,7 +193,7 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
                 "include_memory_summary": False,
                 "include_recent_messages": True,
                 "model": "fake-chat-e2e",
-                "attachments": [],
+                "attachments": [screenshot_attachment],
             }
         ).encode("utf-8"),
     )
@@ -196,6 +203,7 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert reply_payload["ok"] is True
     assert reply_payload["session"]["session_id"] == session_id
     assert reply_payload["user_message"]["role"] == "user"
+    assert reply_payload["user_message"]["attachments"] == [screenshot_attachment]
     assert reply_payload["assistant_message"]["role"] == "assistant"
     assert reply_payload["assistant_message"]["status"] == "completed"
     assert "做多" in reply_payload["reply_text"]
@@ -211,6 +219,7 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert messages_response.status_code == 200
     messages_payload = json.loads(messages_response.body)
     assert len(messages_payload["messages"]) == 2
+    assert messages_payload["messages"][0]["attachments"] == [screenshot_attachment]
 
     memory_response = application.dispatch(
         "GET",
@@ -309,6 +318,124 @@ def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
     assert len(stored_messages) == 2
     stored_memory = repository.get_session_memory(session_id)
     assert stored_memory is not None
+
+
+def test_chat_handoff_summary_plus_recent_three_returns_latest_three_rounds() -> None:
+    application, repository = build_application()
+
+    create_session_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "AI切换交接",
+                "symbol": "NQ",
+                "contract_id": "NQM2026",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "active_model": "fake-chat-e2e",
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    assert create_session_response.status_code == 201
+    session_id = json.loads(create_session_response.body)["session"]["session_id"]
+
+    prompts = [
+        "第一轮：先记录开盘后的主观判断。",
+        "第二轮：回踩支撑后还能继续做多吗？",
+        "第三轮：如果跌破防守位要怎么处理？",
+        "第四轮：现在只保留最新的执行结论。",
+    ]
+    for prompt in prompts:
+        reply_response = application.dispatch(
+            "POST",
+            f"/api/v1/workbench/chat/sessions/{session_id}/reply",
+            json.dumps(
+                {
+                    "replay_ingestion_id": None,
+                    "preset": ReplayAiChatPreset.GENERAL.value,
+                    "user_input": prompt,
+                    "selected_block_ids": [],
+                    "pinned_block_ids": [],
+                    "include_memory_summary": True,
+                    "include_recent_messages": True,
+                    "model": "fake-chat-e2e",
+                    "attachments": [],
+                }
+            ).encode("utf-8"),
+        )
+        assert reply_response.status_code == 200
+
+    now = datetime.now(tz=UTC)
+    repository.save_chat_message(
+        message_id=f"msg-{uuid4().hex}",
+        session_id=session_id,
+        parent_message_id=None,
+        role="system",
+        content="系统提示：仅用于验证交接 recent 过滤。",
+        status="completed",
+        reply_title=None,
+        stream_buffer="",
+        model="system",
+        annotations=[],
+        plan_cards=[],
+        mounted_to_chart=False,
+        mounted_object_ids=[],
+        is_key_conclusion=False,
+        request_payload={},
+        response_payload={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    handoff_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/handoff",
+        json.dumps(
+            {
+                "target_model": "fake-chat-handoff",
+                "mode": "summary_plus_recent_3",
+            }
+        ).encode("utf-8"),
+    )
+    assert handoff_response.status_code == 200
+    handoff_packet = json.loads(handoff_response.body)["handoff_packet"]
+
+    assert handoff_packet["session_meta"]["target_model"] == "fake-chat-handoff"
+    assert handoff_packet["memory_summary"]["session_id"] == session_id
+    assert [item["role"] for item in handoff_packet["recent_messages"]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+
+    expected_recent_contents: list[str] = []
+    for prompt in prompts[-3:]:
+        expected_recent_contents.extend([prompt, f"Session-only 回复：{prompt}"])
+    assert [item["content"] for item in handoff_packet["recent_messages"]] == expected_recent_contents
+
+    question_only_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/handoff",
+        json.dumps(
+            {
+                "target_model": "fake-chat-handoff",
+                "mode": "question_only",
+            }
+        ).encode("utf-8"),
+    )
+    assert question_only_response.status_code == 200
+    question_only_packet = json.loads(question_only_response.body)["handoff_packet"]
+    assert question_only_packet["memory_summary"] == {}
+    assert question_only_packet["recent_messages"] == []
 
 
 def test_chat_session_event_timeline_prefers_structured_annotations_without_replay_snapshot() -> None:
@@ -540,6 +667,12 @@ def test_chat_regenerate_creates_new_assistant_message() -> None:
     )
     session_id = json.loads(create_session_response.body)["session"]["session_id"]
 
+    screenshot_attachment = {
+        "name": "regenerate-chart.png",
+        "media_type": "image/png",
+        "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9K2X0NwAAAABJRU5ErkJggg==",
+    }
+
     initial_reply_response = application.dispatch(
         "POST",
         f"/api/v1/workbench/chat/sessions/{session_id}/reply",
@@ -553,7 +686,7 @@ def test_chat_regenerate_creates_new_assistant_message() -> None:
                 "include_memory_summary": False,
                 "include_recent_messages": True,
                 "model": "fake-chat-e2e",
-                "attachments": [],
+                "attachments": [screenshot_attachment],
             }
         ).encode("utf-8"),
     )
@@ -571,6 +704,7 @@ def test_chat_regenerate_creates_new_assistant_message() -> None:
     assert regenerate_payload["assistant_message"]["role"] == "assistant"
     assert regenerate_payload["assistant_message"]["message_id"] != original_assistant_message_id
     assert regenerate_payload["assistant_message"]["status"] == "completed"
+    assert regenerate_payload["user_message"]["attachments"] == [screenshot_attachment]
     assert "做多" in regenerate_payload["reply_text"]
 
     messages_response = application.dispatch(
@@ -579,6 +713,8 @@ def test_chat_regenerate_creates_new_assistant_message() -> None:
     )
     messages_payload = json.loads(messages_response.body)
     assert len(messages_payload["messages"]) == 4
+    assert messages_payload["messages"][0]["attachments"] == [screenshot_attachment]
+    assert messages_payload["messages"][2]["attachments"] == [screenshot_attachment]
 
     memory_response = application.dispatch(
         "GET",

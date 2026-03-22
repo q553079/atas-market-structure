@@ -22,6 +22,14 @@ internal sealed class InstrumentEnvelope
     [JsonPropertyName("symbol")]
     public string Symbol { get; init; } = string.Empty;
 
+    [JsonPropertyName("root_symbol")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RootSymbol { get; init; }
+
+    [JsonPropertyName("contract_symbol")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContractSymbol { get; init; }
+
     [JsonPropertyName("venue")]
     public string Venue { get; init; } = string.Empty;
 
@@ -30,6 +38,41 @@ internal sealed class InstrumentEnvelope
 
     [JsonPropertyName("currency")]
     public string Currency { get; init; } = "USD";
+}
+
+internal sealed class TimeContextPayload
+{
+    [JsonPropertyName("instrument_timezone_value")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InstrumentTimezoneValue { get; init; }
+
+    [JsonPropertyName("instrument_timezone_source")]
+    public string InstrumentTimezoneSource { get; init; } = "unavailable";
+
+    [JsonPropertyName("chart_display_timezone_mode")]
+    public string ChartDisplayTimezoneMode { get; init; } = "unknown";
+
+    [JsonPropertyName("chart_display_timezone_source")]
+    public string ChartDisplayTimezoneSource { get; init; } = "unavailable";
+
+    [JsonPropertyName("chart_display_utc_offset_minutes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ChartDisplayUtcOffsetMinutes { get; init; }
+
+    [JsonPropertyName("collector_local_timezone_name")]
+    public string CollectorLocalTimezoneName { get; init; } = string.Empty;
+
+    [JsonPropertyName("collector_local_utc_offset_minutes")]
+    public int CollectorLocalUtcOffsetMinutes { get; init; }
+
+    [JsonPropertyName("timestamp_basis")]
+    public string TimestampBasis { get; init; } = "collector_local_timezone";
+
+    [JsonPropertyName("started_at_output_timezone")]
+    public string StartedAtOutputTimezone { get; init; } = "UTC";
+
+    [JsonPropertyName("started_at_time_source")]
+    public string StartedAtTimeSource { get; init; } = "collector_local_timezone";
 }
 
 internal sealed class SessionContextPayload
@@ -560,6 +603,12 @@ internal sealed class ContinuousStatePayload
     [JsonPropertyName("instrument")]
     public InstrumentEnvelope Instrument { get; init; } = new();
 
+    [JsonPropertyName("display_timeframe")]
+    public string DisplayTimeframe { get; init; } = string.Empty;
+
+    [JsonPropertyName("time_context")]
+    public TimeContextPayload TimeContext { get; init; } = new();
+
     [JsonPropertyName("session_context")]
     public SessionContextPayload SessionContext { get; init; } = new();
 
@@ -706,6 +755,12 @@ internal sealed class HistoryBarsPayload
     [JsonPropertyName("instrument")]
     public InstrumentEnvelope Instrument { get; init; } = new();
 
+    [JsonPropertyName("display_timeframe")]
+    public string DisplayTimeframe { get; init; } = string.Empty;
+
+    [JsonPropertyName("time_context")]
+    public TimeContextPayload TimeContext { get; init; } = new();
+
     [JsonPropertyName("bar_timeframe")]
     public string BarTimeframe { get; init; } = string.Empty;
 
@@ -738,6 +793,12 @@ internal sealed class HistoryFootprintPayload
 
     [JsonPropertyName("instrument")]
     public InstrumentEnvelope Instrument { get; init; } = new();
+
+    [JsonPropertyName("display_timeframe")]
+    public string DisplayTimeframe { get; init; } = string.Empty;
+
+    [JsonPropertyName("time_context")]
+    public TimeContextPayload TimeContext { get; init; } = new();
 
     [JsonPropertyName("batch_id")]
     public string BatchId { get; init; } = string.Empty;
@@ -939,6 +1000,12 @@ internal sealed class TriggerBurstPayload
     [JsonPropertyName("instrument")]
     public InstrumentEnvelope Instrument { get; init; } = new();
 
+    [JsonPropertyName("display_timeframe")]
+    public string DisplayTimeframe { get; init; } = string.Empty;
+
+    [JsonPropertyName("time_context")]
+    public TimeContextPayload TimeContext { get; init; } = new();
+
     [JsonPropertyName("trigger")]
     public TriggerInfoPayload Trigger { get; init; } = new();
 
@@ -1045,12 +1112,12 @@ internal sealed class AdapterBackfillAcknowledgeRequestPayload
     [JsonPropertyName("request_id")]
     public string RequestId { get; init; } = string.Empty;
 
-    [JsonPropertyName("instrument_symbol")]
-    public string InstrumentSymbol { get; init; } = string.Empty;
-
     [JsonPropertyName("chart_instance_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ChartInstanceId { get; init; }
+
+    [JsonPropertyName("instrument_symbol")]
+    public string InstrumentSymbol { get; init; } = string.Empty;
 
     [JsonPropertyName("acknowledged_at")]
     public DateTime AcknowledgedAt { get; init; }
@@ -1064,6 +1131,33 @@ internal sealed class AdapterBackfillAcknowledgeRequestPayload
     [JsonPropertyName("latest_loaded_bar_started_at")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? LatestLoadedBarStartedAt { get; init; }
+
+    [JsonPropertyName("latest_loaded_bar_started_at_utc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? LatestLoadedBarStartedAtUtc { get; init; }
+
+    [JsonPropertyName("instrument_timezone_value")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InstrumentTimezoneValue { get; init; }
+
+    [JsonPropertyName("instrument_timezone_source")]
+    public string InstrumentTimezoneSource { get; init; } = "collector";
+
+    [JsonPropertyName("chart_display_timezone_mode")]
+    public string ChartDisplayTimezoneMode { get; init; } = "unknown";
+
+    [JsonPropertyName("chart_display_timezone_source")]
+    public string ChartDisplayTimezoneSource { get; init; } = "collector";
+
+    [JsonPropertyName("chart_display_utc_offset_minutes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ChartDisplayUtcOffsetMinutes { get; init; }
+
+    [JsonPropertyName("collector_local_timezone_name")]
+    public string CollectorLocalTimezoneName { get; init; } = string.Empty;
+
+    [JsonPropertyName("collector_local_utc_offset_minutes")]
+    public int CollectorLocalUtcOffsetMinutes { get; init; }
 
     [JsonPropertyName("note")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

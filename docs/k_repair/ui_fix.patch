@@ -1,0 +1,191 @@
+--- /mnt/data/atas_ui_orig/replay_workbench_replay_loader.js	2026-03-22 14:52:24.412959084 +0000
++++ /mnt/data/atas_ui/replay_workbench_replay_loader.js	2026-03-22 14:51:40.015013317 +0000
+@@ -88,6 +88,8 @@
+     state.selectedCandleIndex = shouldPreserveSelection ? previousSelectedCandleIndex : null;
+     state.selectedFootprintBar = shouldPreserveSelection ? previousSelectedFootprintBar : null;
+     state.chartView = shouldPreserveChartView ? previousChartView : null;
++    state.chartViewportResetPending = !shouldPreserveChartView;
++    state.chartAutoScalePending = !shouldPreserveChartView;
+     state.lastSnapshotLoadReason = reason;
+     state.fullHistoryLoaded = !snapshot?.raw_features?.deferred_history_available;
+     if (!state.aiThreads?.length) {
+--- /mnt/data/atas_ui_orig/replay_workbench_bootstrap.js	2026-03-22 14:52:26.403249699 +0000
++++ /mnt/data/atas_ui/replay_workbench_bootstrap.js	2026-03-22 14:51:40.019575411 +0000
+@@ -936,6 +936,33 @@
+     persistSessions,
+   } = threadController;
+ 
++  let buildProgressAnimationFrame = null;
++  let buildProgressVisualPercent = 0;
++
++  function animateBuildProgress(targetPercent = 0) {
++    const target = Math.max(0, Math.min(100, Number(targetPercent) || 0));
++    if (buildProgressAnimationFrame) {
++      cancelAnimationFrame(buildProgressAnimationFrame);
++      buildProgressAnimationFrame = null;
++    }
++    const step = () => {
++      const delta = target - buildProgressVisualPercent;
++      if (Math.abs(delta) < 0.35) {
++        buildProgressVisualPercent = target;
++      } else {
++        buildProgressVisualPercent += delta * 0.2;
++      }
++      els.buildProgressFill.style.width = `${buildProgressVisualPercent.toFixed(1)}%`;
++      els.buildProgressPercent.textContent = `${Math.round(buildProgressVisualPercent)}%`;
++      if (Math.abs(target - buildProgressVisualPercent) >= 0.35) {
++        buildProgressAnimationFrame = requestAnimationFrame(step);
++      } else {
++        buildProgressAnimationFrame = null;
++      }
++    };
++    buildProgressAnimationFrame = requestAnimationFrame(step);
++  }
++
+   const replayLoader = createReplayLoader({
+     state,
+     els,
+@@ -958,10 +985,21 @@
+     renderError: (error) => renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]),
+     renderAiError: (error) => renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]),
+     setBuildProgress: (active, percent, label) => {
+-      els.buildProgress.classList.toggle("active", !!active);
+-      els.buildProgressFill.style.width = `${percent || 0}%`;
+-      els.buildProgressPercent.textContent = `${percent || 0}%`;
++      const isActive = !!active;
++      els.buildProgress.classList.toggle("active", isActive);
++      els.buildProgress.classList.toggle("build-progress-complete", !isActive && (Number(percent) || 0) >= 100);
+       els.buildProgressLabel.textContent = label || "正在加载历史数据";
++      if (!isActive && (!Number.isFinite(Number(percent)) || Number(percent) <= 0)) {
++        buildProgressVisualPercent = 0;
++        if (buildProgressAnimationFrame) {
++          cancelAnimationFrame(buildProgressAnimationFrame);
++          buildProgressAnimationFrame = null;
++        }
++        els.buildProgressFill.style.width = "0%";
++        els.buildProgressPercent.textContent = "0%";
++        return;
++      }
++      animateBuildProgress(percent || 0);
+     },
+     buildRequestPayload: (...args) => getBuildRequestPayload()(...args),
+     buildStatusChips,
+--- /mnt/data/atas_ui_orig/replay_workbench.html	2026-03-22 14:52:28.672822337 +0000
++++ /mnt/data/atas_ui/replay_workbench.html	2026-03-22 14:52:57.807266648 +0000
+@@ -1395,6 +1395,38 @@
+       }
+     }
+ 
++    function syncLightweightChartViewportToState() {
++      const { state } = app;
++      const chart = window._lwChartState?.chartInstance;
++      const volumeChart = window._lwChartState?.volumeChartInstance;
++      if (!chart?.timeScale || !state?.chartView) {
++        return;
++      }
++      const range = {
++        from: Number(state.chartView.startIndex ?? 0),
++        to: Number(state.chartView.endIndex ?? 0),
++      };
++      try {
++        chart.timeScale().setVisibleLogicalRange(range);
++        const volumeScale = volumeChart?.timeScale ? volumeChart.timeScale() : null;
++        volumeScale?.setVisibleLogicalRange?.(range);
++      } catch (error) {
++        console.warn("同步图表视口失败:", error);
++      }
++      try {
++        chart.priceScale("right").applyOptions({ autoScale: true });
++      } catch (error) {
++        console.warn("重置价格轴失败:", error);
++      }
++      requestAnimationFrame(() => {
++        try {
++          chart.timeScale().setVisibleLogicalRange(range);
++        } catch (error) {
++          console.warn("二次同步图表视口失败:", error);
++        }
++      });
++    }
++
+     function renderChart() {
+       const { state, els, ensureChartView } = app;
+       syncChartViewportSize();
+@@ -1473,7 +1505,7 @@
+       const candles = snapshot.candles;
+       ensureChartView(snapshot);
+       const liveChart = window._lwChartState?.chartInstance;
+-      if (liveChart?.timeScale && state.chartView) {
++      if (!state.chartViewportResetPending && liveChart?.timeScale && state.chartView) {
+         const logicalRange = liveChart.timeScale().getVisibleLogicalRange?.();
+         if (logicalRange) {
+           const nextStart = Math.max(0, Math.floor(logicalRange.from ?? state.chartView.startIndex));
+@@ -1590,6 +1622,11 @@
+                 try {
+                   const updateType = state.lastChartUpdateType || "full_reset";
+                   updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
++                  if (state.chartViewportResetPending || state.chartAutoScalePending) {
++                    syncLightweightChartViewportToState();
++                    state.chartViewportResetPending = false;
++                    state.chartAutoScalePending = false;
++                  }
+                   state.lastChartUpdateType = null;
+                   const syncedViewChanged = view.startIndex !== initialViewRange.startIndex
+                     || view.endIndex !== initialViewRange.endIndex;
+@@ -1643,6 +1680,11 @@
+           try {
+             const updateType = state.lastChartUpdateType || "full_reset";
+             updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
++            if (state.chartViewportResetPending || state.chartAutoScalePending) {
++              syncLightweightChartViewportToState();
++              state.chartViewportResetPending = false;
++              state.chartAutoScalePending = false;
++            }
+             state.lastChartUpdateType = null;
+             const syncedViewChanged = view.startIndex !== initialViewRange.startIndex
+               || view.endIndex !== initialViewRange.endIndex;
+--- /mnt/data/atas_ui_orig/replay_workbench.css	2026-03-22 14:52:30.602573490 +0000
++++ /mnt/data/atas_ui/replay_workbench.css	2026-03-22 14:52:15.950207533 +0000
+@@ -1217,6 +1217,7 @@
+ }
+ 
+ .build-progress-track {
++  position: relative;
+   height: 10px;
+   border-radius: 999px;
+   background: rgba(255, 255, 255, 0.08);
+@@ -1224,9 +1225,34 @@
+ }
+ 
+ .build-progress-fill {
++  position: relative;
+   height: 100%;
+   width: 0;
+   background: linear-gradient(90deg, #2563eb, #60a5fa);
++  transition: width 280ms cubic-bezier(0.22, 1, 0.36, 1);
++  will-change: width;
++}
++
++.build-progress-fill::after {
++  content: "";
++  position: absolute;
++  inset: 0;
++  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.26), transparent);
++  transform: translateX(-100%);
++  animation: build-progress-shimmer 1.15s linear infinite;
++}
++
++.build-progress.build-progress-complete .build-progress-fill::after {
++  animation: none;
++}
++
++@keyframes build-progress-shimmer {
++  from {
++    transform: translateX(-100%);
++  }
++  to {
++    transform: translateX(100%);
++  }
+ }
+ 
+ .chart-frame {

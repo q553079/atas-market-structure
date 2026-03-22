@@ -36,6 +36,7 @@ from atas_market_structure.models import (
     AdapterTriggerBurstPayload,
     AnalysisEnvelope,
     ChartCandleEnvelope,
+    ContinuousBarsEnvelope,
     DepthSnapshotAcceptedResponse,
     DepthSnapshotPayload,
     EventSnapshotPayload,
@@ -44,6 +45,7 @@ from atas_market_structure.models import (
     LiquidityMemoryEnvelope,
     LiquidityMemoryRecord,
     MarketStructurePayload,
+    MirrorBarsEnvelope,
     ReplayFootprintBarDetail,
     ReplayManualRegionAnnotationAcceptedResponse,
     ReplayManualRegionAnnotationEnvelope,
@@ -63,6 +65,7 @@ from atas_market_structure.models import (
     ReplayWorkbenchRebuildLatestRequest,
     ReplayWorkbenchRebuildLatestResponse,
     ReplayWorkbenchSnapshotPayload,
+    RollMode,
     Timeframe,
 )
 from atas_market_structure.repository import AnalysisRepository
@@ -209,6 +212,8 @@ class MarketStructureApplication:
 
             if method == "GET" and route_path == "/api/v1/adapter/backfill-command":
                 instrument_symbol = query.get("instrument_symbol", [None])[0]
+                contract_symbol = query.get("contract_symbol", [None])[0]
+                root_symbol = query.get("root_symbol", [None])[0]
                 if instrument_symbol is None:
                     return self._json_response(
                         400,
@@ -218,6 +223,8 @@ class MarketStructureApplication:
                 response = self._replay_workbench_service.poll_atas_backfill(
                     instrument_symbol=instrument_symbol,
                     chart_instance_id=chart_instance_id,
+                    contract_symbol=contract_symbol,
+                    root_symbol=root_symbol,
                 )
                 return self._json_model_response(200, response)
 
@@ -362,6 +369,93 @@ class MarketStructureApplication:
                 )
                 return self._json_model_response(200, env)
 
+            # ── Chart Mirror (raw contract bars) ───────────────────────────────
+            # GET /api/v1/chart/mirror-bars
+            # Returns raw contract bars without continuous/roll adjustments.
+            if method == "GET" and route_path == "/api/v1/chart/mirror-bars":
+                chart_instance_id = query.get("chart_instance_id", [None])[0]
+                contract_symbol = query.get("contract_symbol", [None])[0]
+                tf_raw = query.get("timeframe", [None])[0]
+                ws_raw = query.get("window_start_utc", [None])[0]
+                we_raw = query.get("window_end_utc", [None])[0]
+                if not contract_symbol or not tf_raw or not ws_raw or not we_raw:
+                    return self._json_response(
+                        400,
+                        {
+                            "error": "missing_query_parameter",
+                            "detail": "contract_symbol, timeframe, window_start_utc, window_end_utc are required.",
+                        },
+                    )
+                try:
+                    tf = Timeframe(tf_raw)
+                    ws = self._parse_datetime_arg(ws_raw)
+                    we = self._parse_datetime_arg(we_raw)
+                except (ValueError, TypeError) as e:
+                    return self._json_response(400, {"error": "invalid_parameter", "detail": str(e)})
+                bars = self._replay_workbench_service.get_mirror_bars(
+                    chart_instance_id=chart_instance_id,
+                    contract_symbol=contract_symbol,
+                    timeframe=tf,
+                    window_start=ws,
+                    window_end=we,
+                )
+                return self._json_model_response(
+                    200,
+                    MirrorBarsEnvelope(
+                        chart_instance_id=chart_instance_id,
+                        contract_symbol=contract_symbol,
+                        timeframe=tf,
+                        window_start=ws,
+                        window_end=we,
+                        count=len(bars),
+                        bars=bars,
+                    ),
+                )
+
+            # ── Chart Continuous (roll-adjusted bars) ──────────────────────────
+            # GET /api/v1/chart/continuous-bars
+            # Returns continuous-series bars with roll adjustments applied.
+            if method == "GET" and route_path == "/api/v1/chart/continuous-bars":
+                root_symbol = query.get("root_symbol", [None])[0]
+                tf_raw = query.get("timeframe", [None])[0]
+                roll_mode_raw = query.get("roll_mode", [None])[0]
+                ws_raw = query.get("window_start_utc", [None])[0]
+                we_raw = query.get("window_end_utc", [None])[0]
+                if not root_symbol or not tf_raw or not roll_mode_raw or not ws_raw or not we_raw:
+                    return self._json_response(
+                        400,
+                        {
+                            "error": "missing_query_parameter",
+                            "detail": "root_symbol, timeframe, roll_mode, window_start_utc, window_end_utc are required.",
+                        },
+                    )
+                try:
+                    tf = Timeframe(tf_raw)
+                    roll_mode = RollMode(roll_mode_raw)
+                    ws = self._parse_datetime_arg(ws_raw)
+                    we = self._parse_datetime_arg(we_raw)
+                except (ValueError, TypeError) as e:
+                    return self._json_response(400, {"error": "invalid_parameter", "detail": str(e)})
+                bars = self._replay_workbench_service.get_continuous_bars(
+                    root_symbol=root_symbol,
+                    timeframe=tf,
+                    roll_mode=roll_mode,
+                    window_start=ws,
+                    window_end=we,
+                )
+                return self._json_model_response(
+                    200,
+                    ContinuousBarsEnvelope(
+                        root_symbol=root_symbol,
+                        timeframe=tf,
+                        roll_mode=roll_mode,
+                        window_start=ws,
+                        window_end=we,
+                        count=len(bars),
+                        bars=bars,
+                    ),
+                )
+
             # POST /api/v1/workbench/operator-entries
                 payload = ReplayOperatorEntryRequest.model_validate_json(body or b"{}")
                 response = self._replay_workbench_service.record_operator_entry(payload)
@@ -470,7 +564,7 @@ class MarketStructureApplication:
     @staticmethod
     def _json_model_response(
         status_code: int,
-        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope,
+        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope | ContinuousBarsEnvelope | MirrorBarsEnvelope,
     ) -> HttpResponse:
         payload = model.model_dump(mode="json")
         return MarketStructureApplication._json_response(status_code, payload)

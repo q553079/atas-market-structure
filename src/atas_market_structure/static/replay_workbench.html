@@ -77,10 +77,14 @@
             <div class="button-row tight header-actions-row">
               <button id="buildButton" type="button">加载图表</button>
               <button id="refreshAllButton" type="button" class="secondary">刷新</button>
-              <button id="headerMoreButton" type="button" class="secondary">更多▼</button>
+              <button id="headerMoreButton" type="button" class="secondary" aria-expanded="false" aria-controls="headerMoreMenu">更多▼</button>
               <button id="restoreLayoutButton" type="button" class="secondary">恢复布局</button>
             </div>
             <div id="headerMoreMenu" class="header-more-menu card-surface" hidden>
+              <div class="header-more-summary">
+                <div class="meta" id="headerMoreMenuStatus">NQ / 1m · 未加载</div>
+                <div class="meta" id="headerMoreMenuSync">最近同步：未同步</div>
+              </div>
               <button id="lookupCacheButton" type="button" class="secondary tiny">查看缓存</button>
               <button id="invalidateCacheButton" type="button" class="secondary tiny">重置缓存</button>
               <button id="exportSettingsButton" type="button" class="secondary tiny">导出当前设置</button>
@@ -165,6 +169,7 @@
             <span class="chart-info-symbol" id="chartInfoSymbol">-</span>
             <span class="chart-info-timeframe" id="chartInfoTimeframe">-</span>
             <span class="chart-info-time" id="chartInfoTime">UTC</span>
+            <span class="chart-info-quote" id="chartInfoQuote">L -- · Bid -- · Ask --</span>
           </div>
           <div class="chart-event-tooltip card-surface" id="chartEventTooltip" hidden>
             <div class="chart-event-tooltip-kicker">图上事件</div>
@@ -410,15 +415,30 @@
             <button type="button" class="secondary tiny" id="replyExtractionShowIgnoredButton">显示已忽略</button>
           </div>
           <div class="reply-extraction-list" id="replyExtractionList"></div>
+          <div class="reply-extraction-footer" id="replyExtractionFooter">
+            <div class="reply-extraction-footer-meta" id="replyExtractionFooterMeta">当前显示候选事件流。</div>
+            <div class="button-row tight">
+              <button type="button" class="secondary tiny" id="replyExtractionPendingOnlyButton">仅看未处理</button>
+              <button type="button" class="secondary tiny" id="replyExtractionShowHistoryButton">查看全部历史</button>
+              <button type="button" class="secondary tiny" id="replyExtractionExportButton">导出事件摘要</button>
+            </div>
+          </div>
         </section>
 
         <div id="aiChatResizeHandle" class="chat-resize-handle" title="拖动调整聊天窗口高度"></div>
 
         <div class="attachment-preview card-surface" id="attachmentPreviewBar" hidden>
           <div class="attachment-preview-head">
-            <strong>附件预览</strong>
-            <button id="clearAttachmentsButton" type="button" class="secondary">清空</button>
+            <div class="attachment-preview-head-main">
+              <strong>附件预览</strong>
+              <span id="attachmentPreviewMeta" class="meta">暂无附件</span>
+            </div>
+            <div class="attachment-preview-actions">
+              <button id="toggleAttachmentPreviewButton" type="button" class="secondary" aria-controls="attachmentPreviewList" aria-expanded="true">折叠</button>
+              <button id="clearAttachmentsButton" type="button" class="secondary">清空</button>
+            </div>
           </div>
+          <div id="attachmentPreviewCollapsedSummary" class="attachment-preview-collapsed-summary" hidden></div>
           <div id="attachmentPreviewList" class="attachment-preview-list"></div>
         </div>
 
@@ -545,11 +565,14 @@
             <button id="closeAnnotationPopoverButton" class="secondary" type="button">关闭</button>
           </div>
         </div>
-        <div id="annotationPopoverBody" class="summary-preview"></div>
-        <div class="button-row tight">
+        <div id="annotationPopoverBody" class="annotation-detail-shell"></div>
+        <div class="button-row tight annotation-popover-actions">
+          <button id="annotationPopoverLocateButton" type="button" class="secondary">定位图表</button>
           <button id="annotationPopoverSourceButton" type="button">查看原回复</button>
-          <button id="annotationPopoverOnlyButton" type="button" class="secondary">只显示此计划</button>
-          <button id="annotationPopoverHideButton" type="button" class="secondary">隐藏</button>
+          <button id="annotationPopoverOnlyButton" type="button" class="secondary">仅显示此对象</button>
+          <button id="annotationPopoverToggleButton" type="button" class="secondary">隐藏对象</button>
+          <button id="annotationPopoverPinButton" type="button" class="secondary">固定对象</button>
+          <button id="annotationPopoverDeleteButton" type="button" class="secondary">删除对象</button>
         </div>
       </div>
     </section>
@@ -566,6 +589,13 @@
           </div>
         </div>
         <div class="cache-info-content">
+          <div class="cache-status-grid">
+            <div class="status-chip" id="cacheViewerDataChip">数据状态：未加载</div>
+            <div class="status-chip" id="cacheViewerCacheChip">缓存：待构建</div>
+            <div class="status-chip" id="cacheViewerIntegrityChip">完整性：待评估</div>
+            <div class="status-chip" id="cacheViewerBackfillChip">补数：无需</div>
+            <div class="status-chip" id="cacheViewerSyncChip">最近同步：未同步</div>
+          </div>
           <div class="field">
             <label>缓存键</label>
             <div class="mono cache-value" id="cacheViewerKey">-</div>
@@ -1025,6 +1055,7 @@
       if (!els?.eventStreamList || !els?.eventStreamSummary) {
         return;
       }
+      const linkedSummaryMap = app.getReplyExtractionClusterSummaryMap?.() || {};
       const sourceItems = Array.isArray(model?.visibleClusters) && model.visibleClusters.length
         ? [...model.visibleClusters].sort((left, right) => Number(right.time) - Number(left.time))
         : (Array.isArray(model?.railClusters) && model.railClusters.length
@@ -1058,20 +1089,41 @@
       const filterLabel = activeFilter === "all"
         ? "全部类型"
         : (markerLayerStyles[activeFilter]?.label || activeFilter);
-      els.eventStreamSummary.textContent = `当前 ${streamItems.length} 个事件，筛选：${filterLabel}。`;
+      const linkedClusterCount = streamItems.filter((cluster) => !!linkedSummaryMap[cluster.key]).length;
+      els.eventStreamSummary.textContent = linkedClusterCount
+        ? `当前 ${streamItems.length} 个事件，筛选：${filterLabel}，已挂回 ${linkedClusterCount} 个整理事件。`
+        : `当前 ${streamItems.length} 个事件，筛选：${filterLabel}。`;
       els.eventStreamList.innerHTML = streamItems.map((cluster) => {
         const category = cluster.dominantCategory || cluster.items?.[0]?.category || "events";
+        const linkedSummary = linkedSummaryMap[cluster.key] || null;
         const active = state.eventStreamHoverItem?.id === cluster.key ? " active" : "";
+        const selected = state.selectedChartEventClusterKey === cluster.key ? " is-selected" : "";
         const hoverStyle = `--event-color:${markerLayerStyles[category]?.color || markerLayerStyles.events.color}`;
+        const summaryTitle = [
+          cluster.timeLabel || "--",
+          cluster.summaryText || "事件",
+          cluster.priceText || "价格未知",
+          linkedSummary ? `整理 ${linkedSummary.total} 条` : "",
+          linkedSummary?.labels?.length ? `重点 ${linkedSummary.labels.join(" / ")}` : "",
+        ].filter(Boolean).join(" · ");
         return `
-          <article class="event-stream-item${active}" data-event-stream-id="${escapeHtml(cluster.key)}" style="${escapeHtml(hoverStyle)}">
+          <article class="event-stream-item${active}${selected}" data-event-stream-id="${escapeHtml(cluster.key)}" style="${escapeHtml(hoverStyle)}" title="${escapeHtml(summaryTitle)}">
             <div class="event-stream-dot" aria-hidden="true"></div>
-            <div>
+            <div class="event-stream-item-body">
               <div class="event-stream-item-head">
                 <strong>${escapeHtml(cluster.summaryText || "事件")}</strong>
                 <span class="meta">${escapeHtml(cluster.timeLabel || "--")}</span>
               </div>
               <p>${escapeHtml(cluster.priceText || "价格未知")}</p>
+              ${linkedSummary ? `
+                <div class="event-stream-linked-row">
+                  <span class="event-stream-linked-chip total">整理 ${linkedSummary.total}</span>
+                  ${linkedSummary.plan ? `<span class="event-stream-linked-chip plan">行动 ${linkedSummary.plan}</span>` : ""}
+                  ${linkedSummary.zone ? `<span class="event-stream-linked-chip zone">区域 ${linkedSummary.zone}</span>` : ""}
+                  ${linkedSummary.risk ? `<span class="event-stream-linked-chip risk">风险 ${linkedSummary.risk}</span>` : ""}
+                  ${linkedSummary.pending ? `<span class="event-stream-linked-chip pending">待 ${linkedSummary.pending}</span>` : ""}
+                </div>
+              ` : ""}
             </div>
           </article>
         `;
@@ -1087,6 +1139,15 @@
           state.eventStreamHoverItem = null;
           node.classList.remove("active");
           window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
+        });
+        node.addEventListener("click", () => {
+          if (cluster?.key && app.selectChartEventCluster) {
+            app.selectChartEventCluster(cluster.key, {
+              centerChart: false,
+              openContext: true,
+              announce: true,
+            });
+          }
         });
       });
     }
@@ -1395,6 +1456,100 @@
       }
     }
 
+    function syncLightweightChartViewportToState() {
+      const { state } = app;
+      const chart = window._lwChartState?.chartInstance;
+      const volumeChart = window._lwChartState?.volumeChartInstance;
+      if (!chart?.timeScale || !state?.chartView) {
+        return;
+      }
+      const range = {
+        from: Number(state.chartView.startIndex ?? 0),
+        to: Number(state.chartView.endIndex ?? 0),
+      };
+      try {
+        chart.timeScale().setVisibleLogicalRange(range);
+        const volumeScale = volumeChart?.timeScale ? volumeChart.timeScale() : null;
+        volumeScale?.setVisibleLogicalRange?.(range);
+      } catch (error) {
+        console.warn("同步图表视口失败:", error);
+      }
+      try {
+        chart.priceScale("right").applyOptions({ autoScale: true });
+      } catch (error) {
+        console.warn("重置价格轴失败:", error);
+      }
+      requestAnimationFrame(() => {
+        try {
+          chart.timeScale().setVisibleLogicalRange(range);
+        } catch (error) {
+          console.warn("二次同步图表视口失败:", error);
+        }
+      });
+    }
+
+    function formatChartInfoPrice(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return "--";
+      }
+      return numeric.toFixed(2);
+    }
+
+    function getQuoteSourceMeta(source) {
+      const key = String(source || "").toLowerCase();
+      if (key === "continuous_state") {
+        return { short: "CS", className: "cs", title: "continuous_state" };
+      }
+      if (key === "ticks_raw") {
+        return { short: "TK", className: "tk", title: "ticks_raw" };
+      }
+      if (key === "candle_close") {
+        return { short: "CL", className: "cl", title: "candle_close" };
+      }
+      return null;
+    }
+
+    function renderChartInfoQuoteItem(label, value, source) {
+      const priceText = escapeHtml(formatChartInfoPrice(value));
+      const sourceMeta = getQuoteSourceMeta(source);
+      const sourceTag = sourceMeta
+        ? `<span class="quote-source-tag ${escapeHtml(sourceMeta.className)}" title="${escapeHtml(sourceMeta.title)}">${escapeHtml(sourceMeta.short)}</span>`
+        : "";
+      return `
+        <span class="chart-info-quote-item">
+          <span class="chart-info-quote-label">${escapeHtml(label)}</span>
+          <span class="chart-info-quote-value">${priceText}</span>
+          ${sourceTag}
+        </span>
+      `;
+    }
+
+    function updateChartInfoBadge({ symbol = "-", timeframe = "-", timestamp = null, liveTail = null } = {}) {
+      const { els } = app;
+      if (!els) {
+        return;
+      }
+      if (els.chartInfoSymbol) {
+        els.chartInfoSymbol.textContent = symbol;
+      }
+      if (els.chartInfoTimeframe) {
+        els.chartInfoTimeframe.textContent = `${timeframe}图`;
+      }
+      if (els.chartInfoTime) {
+        const validTime = timestamp instanceof Date && Number.isFinite(timestamp.getTime()) ? timestamp : new Date();
+        els.chartInfoTime.textContent = "UTC " + validTime.toISOString().slice(0, 19).replace("T", " ");
+      }
+      if (els.chartInfoQuote) {
+        const quote = liveTail && typeof liveTail === "object" ? liveTail : {};
+        els.chartInfoQuote.innerHTML = [
+          renderChartInfoQuoteItem("L", quote.latest_price, quote.latest_price_source),
+          renderChartInfoQuoteItem("Bid", quote.best_bid, quote.best_bid_source),
+          renderChartInfoQuoteItem("Ask", quote.best_ask, quote.best_ask_source),
+        ].join(" ");
+      }
+    }
+
     function renderChart() {
       const { state, els, ensureChartView } = app;
       syncChartViewportSize();
@@ -1413,15 +1568,12 @@
         renderChartEventRail(null, els);
         hideChartEventTooltip(els);
         
-        // 更新图表信息标签
-        const symbol = els.instrumentSymbol?.value?.trim() || "-";
-        const timeframe = els.displayTimeframe?.value || "-";
-        if (els.chartInfoSymbol) els.chartInfoSymbol.textContent = symbol;
-        if (els.chartInfoTimeframe) els.chartInfoTimeframe.textContent = timeframe + "图";
-        if (els.chartInfoTime) {
-          const now = new Date();
-          els.chartInfoTime.textContent = "UTC " + now.toISOString().slice(0, 19).replace("T", " ");
-        }
+        updateChartInfoBadge({
+          symbol: els.instrumentSymbol?.value?.trim() || "-",
+          timeframe: els.displayTimeframe?.value || "-",
+          timestamp: new Date(),
+          liveTail: snapshot?.live_tail || null,
+        });
         
         // 即使没有数据，也显示空板（空白图表框架）
         const useLightweightCharts = typeof LightweightCharts !== "undefined" 
@@ -1473,7 +1625,7 @@
       const candles = snapshot.candles;
       ensureChartView(snapshot);
       const liveChart = window._lwChartState?.chartInstance;
-      if (liveChart?.timeScale && state.chartView) {
+      if (!state.chartViewportResetPending && liveChart?.timeScale && state.chartView) {
         const logicalRange = liveChart.timeScale().getVisibleLogicalRange?.();
         if (logicalRange) {
           const nextStart = Math.max(0, Math.floor(logicalRange.from ?? state.chartView.startIndex));
@@ -1589,7 +1741,16 @@
                 // 初始化完成后立即设置数据
                 try {
                   const updateType = state.lastChartUpdateType || "full_reset";
-                  updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
+                  updateChartData(snapshot, view, els, {
+                    updateType,
+                    markers: eventModel.markers,
+                    syncStateFromLogicalRange: !state.chartViewportResetPending,
+                  });
+                  if (state.chartViewportResetPending || state.chartAutoScalePending) {
+                    syncLightweightChartViewportToState();
+                    state.chartViewportResetPending = false;
+                    state.chartAutoScalePending = false;
+                  }
                   state.lastChartUpdateType = null;
                   const syncedViewChanged = view.startIndex !== initialViewRange.startIndex
                     || view.endIndex !== initialViewRange.endIndex;
@@ -1609,14 +1770,12 @@
                   if (firstCandle && lastCandle) {
                     els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(firstCandle.started_at)} -> ${formatAxisTime(lastCandle.ended_at)}`;
                   }
-                  const symbol = els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-";
-                  const timeframe = els.displayTimeframe?.value || snapshot?.display_timeframe || "-";
-                  if (els.chartInfoSymbol) els.chartInfoSymbol.textContent = symbol;
-                  if (els.chartInfoTimeframe) els.chartInfoTimeframe.textContent = timeframe + "图";
-                  if (els.chartInfoTime) {
-                    const lastTime = lastCandle ? new Date(lastCandle.started_at) : new Date();
-                    els.chartInfoTime.textContent = "UTC " + lastTime.toISOString().slice(0, 19).replace("T", " ");
-                  }
+                  updateChartInfoBadge({
+                    symbol: els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-",
+                    timeframe: els.displayTimeframe?.value || snapshot?.display_timeframe || "-",
+                    timestamp: lastCandle ? new Date(lastCandle.started_at) : new Date(),
+                    liveTail: snapshot?.live_tail || null,
+                  });
                   renderEventHoverOverlay();
                 } catch (updateError) {
                   console.error("初始化后更新图表数据错误:", updateError);
@@ -1642,7 +1801,16 @@
         if (window._lwChartState && window._lwChartState.chartInstance) {
           try {
             const updateType = state.lastChartUpdateType || "full_reset";
-            updateChartData(snapshot, view, els, { updateType, markers: eventModel.markers });
+            updateChartData(snapshot, view, els, {
+              updateType,
+              markers: eventModel.markers,
+              syncStateFromLogicalRange: !state.chartViewportResetPending,
+            });
+            if (state.chartViewportResetPending || state.chartAutoScalePending) {
+              syncLightweightChartViewportToState();
+              state.chartViewportResetPending = false;
+              state.chartAutoScalePending = false;
+            }
             state.lastChartUpdateType = null;
             const syncedViewChanged = view.startIndex !== initialViewRange.startIndex
               || view.endIndex !== initialViewRange.endIndex;
@@ -1662,15 +1830,12 @@
             if (firstCandle && lastCandle) {
               els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(firstCandle.started_at)} -> ${formatAxisTime(lastCandle.ended_at)}`;
             }
-            // 更新图表信息标签
-            const symbol = els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-";
-            const timeframe = els.displayTimeframe?.value || snapshot?.display_timeframe || "-";
-            if (els.chartInfoSymbol) els.chartInfoSymbol.textContent = symbol;
-            if (els.chartInfoTimeframe) els.chartInfoTimeframe.textContent = timeframe + "图";
-            if (els.chartInfoTime) {
-              const lastTime = lastCandle ? new Date(lastCandle.started_at) : new Date();
-              els.chartInfoTime.textContent = "UTC " + lastTime.toISOString().slice(0, 19).replace("T", " ");
-            }
+            updateChartInfoBadge({
+              symbol: els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-",
+              timeframe: els.displayTimeframe?.value || snapshot?.display_timeframe || "-",
+              timestamp: lastCandle ? new Date(lastCandle.started_at) : new Date(),
+              liveTail: snapshot?.live_tail || null,
+            });
             renderEventHoverOverlay();
           } catch (error) {
             console.error("更新图表数据错误:", error);

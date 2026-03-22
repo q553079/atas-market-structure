@@ -290,6 +290,22 @@ $env:PYTHONPATH = "$PWD\src"
 python -m pytest
 ```
 
+Run replay workbench UI regression (Playwright):
+
+```powershell
+npm install --no-save @playwright/test
+npx playwright install chromium
+npx playwright test tests/playwright_replay_ui_fix.spec.js --reporter=line
+```
+
+CI command sequence (backend + replay UI):
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python -m pytest
+npx playwright test tests/playwright_replay_ui_fix.spec.js --reporter=line
+```
+
 ## Build The ATAS Collector
 
 ```powershell

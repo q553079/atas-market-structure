@@ -144,10 +144,11 @@ class AdapterIngestionService:
     def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> AdapterAcceptedResponse:
         self._purge_expired_history(payload.instrument.symbol)
         self._bridge.regime_monitor.ingest_history_bars(payload)
-        # Bulk-persist into chart_candles for all timeframes
         bars_dicts = [b.model_dump() for b in payload.bars]
-        self._bridge.regime_monitor.persist_history_bars(
-            payload.instrument.symbol.upper(), bars_dicts
+        self._bridge.regime_monitor.persist_history_bars_native(
+            symbol=payload.instrument.symbol.upper(),
+            bars=bars_dicts,
+            native_timeframe=payload.bar_timeframe,
         )
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,

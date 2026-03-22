@@ -1,157 +1,23 @@
 import { createPlanId, summarizeText, writeStorage } from "./replay_workbench_ui_utils.js";
-
-function normalizeLifecycleStatus(status, type = "") {
-  const raw = String(status || "").trim().toLowerCase();
-  const normalizedType = String(type || "").trim().toLowerCase();
-  const activeStatuses = new Set(["active", "triggered", "tp_hit"]);
-  const terminalSuccessStatuses = new Set(["completed"]);
-  const terminalFailureStatuses = new Set(["sl_hit", "invalidated", "expired", "archived"]);
-
-  if (activeStatuses.has(raw)) {
-    return {
-      status: raw,
-      lifecycle_stage: raw === "triggered" || raw === "tp_hit" ? "in_progress" : "active",
-      lifecycle_bucket: "active",
-      terminal: false,
-      outcome: raw === "tp_hit" ? "partial_profit" : null,
-      visual_state: raw === "tp_hit" ? "green_dot" : "blue_dot",
-    };
-  }
-  if (terminalSuccessStatuses.has(raw)) {
-    return {
-      status: raw,
-      lifecycle_stage: "closed",
-      lifecycle_bucket: "completed",
-      terminal: true,
-      outcome: "completed",
-      visual_state: "green_check",
-    };
-  }
-  if (raw === "sl_hit") {
-    return {
-      status: raw,
-      lifecycle_stage: "closed",
-      lifecycle_bucket: "invalidated",
-      terminal: true,
-      outcome: "stop_loss_hit",
-      visual_state: "red_cross",
-    };
-  }
-  if (terminalFailureStatuses.has(raw)) {
-    return {
-      status: raw,
-      lifecycle_stage: "closed",
-      lifecycle_bucket: raw === "archived" ? "archived" : "invalidated",
-      terminal: true,
-      outcome: raw,
-      visual_state: raw === "archived" ? "gray_cross" : "gray_dot",
-    };
-  }
-  if (raw === "inactive_waiting_entry") {
-    return {
-      status: raw,
-      lifecycle_stage: normalizedType === "stop_loss" || normalizedType === "take_profit" ? "pending_entry" : "draft",
-      lifecycle_bucket: "pending",
-      terminal: false,
-      outcome: null,
-      visual_state: "gray_dot",
-    };
-  }
-  return {
-    status: raw || "active",
-    lifecycle_stage: raw === "draft" ? "draft" : "active",
-    lifecycle_bucket: raw === "draft" ? "pending" : "active",
-    terminal: false,
-    outcome: null,
-    visual_state: raw === "draft" ? "gray_dot" : "blue_dot",
-  };
-}
+import {
+  normalizeWorkbenchAnnotation,
+  normalizeWorkbenchPlanCard,
+} from "./replay_workbench_annotation_utils.js";
 
 function normalizePlanCard(raw = {}) {
-  return {
+  return normalizeWorkbenchPlanCard({
+    ...raw,
     id: raw.id || raw.plan_id || createPlanId(),
-    title: raw.title || "AI计划卡",
-    status: raw.status || "active",
-    side: raw.side || "buy",
-    entryPrice: raw.entryPrice ?? raw.entry_price ?? raw.entry_price_low ?? null,
-    entryPriceLow: raw.entryPriceLow ?? raw.entry_price_low ?? null,
-    entryPriceHigh: raw.entryPriceHigh ?? raw.entry_price_high ?? null,
-    stopPrice: raw.stopPrice ?? raw.stop_price ?? null,
-    targetPrice: raw.targetPrice ?? raw.target_price ?? null,
-    targetPrice2: raw.targetPrice2 ?? raw.target_price_2 ?? null,
-    take_profits: Array.isArray(raw.take_profits)
-      ? raw.take_profits
-      : [raw.targetPrice ?? raw.target_price, raw.targetPrice2 ?? raw.target_price_2]
-          .filter((item) => item != null)
-          .map((target_price, index) => ({ id: `${index + 1}`, tp_level: index + 1, target_price })),
-    supporting_zones: raw.supporting_zones || raw.zones || [],
-    invalidations: raw.invalidations || [],
-    summary: raw.summary || raw.notes || "结构化交易计划",
-    notes: raw.notes || "",
-    confidence: raw.confidence ?? null,
-    priority: raw.priority ?? null,
-    time_validity: raw.time_validity || raw.expires_at || null,
-  };
+  });
 }
 
 function normalizeAnnotation(raw = {}, { session, messageId, state, planId = null }) {
-  const latestCandle = state.snapshot?.candles?.[state.snapshot.candles.length - 1];
-  const startTime = raw.start_time || latestCandle?.started_at || state.snapshot?.window_start || new Date().toISOString();
-  const endTime = raw.end_time || latestCandle?.ended_at || state.snapshot?.window_end || new Date().toISOString();
-  const type = raw.type || raw.annotation_type || raw.subtype || "entry_line";
-  const eventKind = raw.event_kind
-    || (planId || raw.plan_id
-      ? "plan"
-      : ["support_zone", "resistance_zone", "zone"].includes(type)
-        ? "zone"
-        : ["no_trade_zone", "stop_loss"].includes(type)
-          ? "risk"
-          : "price");
-  const isPendingPlanChild = ["stop_loss", "take_profit"].includes(type) && raw.status == null;
-  const createdAt = raw.created_at || raw.createdAt || startTime;
-  const updatedAt = raw.updated_at || raw.updatedAt || endTime || createdAt;
-  const normalizedLifecycle = normalizeLifecycleStatus(raw.status || (isPendingPlanChild ? "inactive_waiting_entry" : "active"), type);
-  return {
-    id: raw.id || `${planId || session.id}-${messageId}-${type}-${Math.random().toString(36).slice(2, 8)}`,
-    annotation_id: raw.annotation_id || raw.id || null,
-    object_id: raw.object_id || raw.annotation_id || raw.id || null,
-    session_id: raw.session_id || session.id,
-    message_id: raw.message_id || messageId,
-    source_message_id: raw.source_message_id || raw.message_id || messageId,
-    plan_id: raw.plan_id || planId || null,
-    symbol: raw.symbol || state.topBar?.symbol || state.snapshot?.instrument_symbol || "",
-    timeframe: raw.timeframe || state.topBar?.timeframe || state.snapshot?.display_timeframe || "",
-    type,
-    subtype: raw.subtype || null,
-    label: raw.label || raw.title || "AI标记",
-    reason: raw.reason || "",
-    start_time: startTime,
-    end_time: endTime,
-    expires_at: raw.expires_at || null,
-    status: normalizedLifecycle.status,
-    lifecycle_stage: raw.lifecycle_stage || normalizedLifecycle.lifecycle_stage,
-    lifecycle_bucket: raw.lifecycle_bucket || normalizedLifecycle.lifecycle_bucket,
-    lifecycle_terminal: raw.lifecycle_terminal ?? normalizedLifecycle.terminal,
-    lifecycle_outcome: raw.lifecycle_outcome || normalizedLifecycle.outcome,
-    visual_state: raw.visual_state || normalizedLifecycle.visual_state,
-    priority: raw.priority ?? null,
-    confidence: raw.confidence ?? null,
-    visible: raw.visible !== false,
-    pinned: !!raw.pinned,
-    source_kind: raw.source_kind || "replay_analysis",
-    event_kind: eventKind,
-    source_reply_title: raw.source_reply_title || raw.reply_title || raw.replyTitle || null,
-    side: raw.side || null,
-    entry_price: raw.entry_price ?? raw.entryPrice ?? null,
-    stop_price: raw.stop_price ?? raw.stopPrice ?? null,
-    target_price: raw.target_price ?? raw.targetPrice ?? null,
-    tp_level: raw.tp_level ?? null,
-    price_low: raw.price_low ?? raw.low ?? null,
-    price_high: raw.price_high ?? raw.high ?? null,
-    path_points: raw.path_points || [],
-    created_at: createdAt,
-    updated_at: updatedAt,
-  };
+  return normalizeWorkbenchAnnotation(raw, {
+    session,
+    messageId,
+    state,
+    planId,
+  });
 }
 
 function parsePlanCardsFromReply(replyText) {
@@ -370,14 +236,19 @@ function buildAnnotationBundle({ session, messageId, planCards = [], state, expl
   });
 
   planCards.forEach((plan) => {
+    const planExpiresAt = plan.expires_at || plan.time_validity?.expires_at || null;
+    const planReason = plan.summary || plan.notes || "";
+    const planSourceKind = plan.source_kind || "replay_analysis";
     if (plan.entryPrice != null || (plan.entryPriceLow != null && plan.entryPriceHigh != null)) {
       annotations.push(normalizeAnnotation({
         id: `${plan.id}-entry`,
         plan_id: plan.id,
         type: "entry_line",
         label: plan.title,
+        reason: planReason,
         start_time: startTime,
         end_time: endTime,
+        expires_at: planExpiresAt,
         entry_price: plan.entryPrice,
         price_low: plan.entryPriceLow,
         price_high: plan.entryPriceHigh,
@@ -386,6 +257,7 @@ function buildAnnotationBundle({ session, messageId, planCards = [], state, expl
         visible: true,
         confidence: plan.confidence,
         priority: plan.priority,
+        source_kind: planSourceKind,
       }, { session, messageId, state, planId: plan.id }));
     }
     if (plan.stopPrice != null) {
@@ -394,11 +266,17 @@ function buildAnnotationBundle({ session, messageId, planCards = [], state, expl
         plan_id: plan.id,
         type: "stop_loss",
         label: `SL ${plan.stopPrice}`,
+        reason: planReason,
         start_time: startTime,
         end_time: endTime,
+        expires_at: planExpiresAt,
         stop_price: plan.stopPrice,
+        side: plan.side,
         status: "inactive_waiting_entry",
         visible: true,
+        confidence: plan.confidence,
+        priority: plan.priority,
+        source_kind: planSourceKind,
       }, { session, messageId, state, planId: plan.id }));
     }
     (plan.take_profits || []).forEach((tp) => {
@@ -407,12 +285,17 @@ function buildAnnotationBundle({ session, messageId, planCards = [], state, expl
         plan_id: plan.id,
         type: "take_profit",
         label: `TP${tp.tp_level} ${tp.target_price}`,
+        reason: planReason,
         start_time: startTime,
         end_time: endTime,
+        expires_at: planExpiresAt,
         target_price: tp.target_price,
         tp_level: tp.tp_level,
         status: "inactive_waiting_entry",
         visible: true,
+        confidence: plan.confidence,
+        priority: plan.priority,
+        source_kind: planSourceKind,
       }, { session, messageId, state, planId: plan.id }));
     });
     (plan.supporting_zones || []).forEach((zone, index) => {
@@ -423,11 +306,15 @@ function buildAnnotationBundle({ session, messageId, planCards = [], state, expl
         label: zone.label || `${zone.type === "resistance_zone" ? "阻力区" : zone.type === "no_trade_zone" ? "无交易区" : "支撑区"} ${zone.price_low}-${zone.price_high}`,
         start_time: zone.start_time || startTime,
         end_time: zone.end_time || endTime,
+        expires_at: zone.expires_at || planExpiresAt,
         price_low: zone.price_low,
         price_high: zone.price_high,
         status: zone.status || "active",
         visible: zone.visible !== false,
         reason: zone.reason || "",
+        confidence: zone.confidence ?? plan.confidence,
+        priority: zone.priority ?? plan.priority,
+        source_kind: zone.source_kind || planSourceKind,
       }, { session, messageId, state, planId: plan.id }));
     });
   });
@@ -946,6 +833,7 @@ export function createAiChatController({
       const pinnedBlockIds = getServerBackedPromptBlockIds(session, session.pinnedContextBlockIds);
       const includeMemorySummary = !!session.includeMemorySummary;
       const includeRecentMessages = !!session.includeRecentMessages;
+      const resolvedModel = session.activeModel || els.aiModelOverride.value.trim() || null;
       const requestPayload = {
         replay_ingestion_id: state.currentReplayIngestionId || null,
         preset,
@@ -957,9 +845,18 @@ export function createAiChatController({
         analysis_type: session.analysisTemplate?.type || preset || "general",
         analysis_range: session.analysisTemplate?.range || "current_window",
         analysis_style: session.analysisTemplate?.style || "standard",
-        model: session.activeModel || els.aiModelOverride.value.trim() || null,
+        model: resolvedModel,
         attachments: buildOutgoingAttachments(session),
       };
+      const handoffContext = sessionMemoryEngine?.buildOutgoingHandoffContext
+        ? sessionMemoryEngine.buildOutgoingHandoffContext(session, { targetModel: resolvedModel })
+        : null;
+      if (handoffContext && Object.keys(handoffContext).length) {
+        requestPayload.extra_context = {
+          ...(requestPayload.extra_context || {}),
+          ...handoffContext,
+        };
+      }
       let result;
       try {
         await openChatStream(session, requestPayload, pendingAssistant?.message_id);
@@ -1096,9 +993,14 @@ export function createAiChatController({
         session.memory.timeframe = session.timeframe || state.topBar?.timeframe || session.memory.timeframe || "1m";
         session.memory.key_zones_summary = Array.from(new Set([
           ...(session.memory.key_zones_summary || []),
-          ...state.aiAnnotations.filter((item) => item.session_id === session.id && ["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type)).map((item) => item.label),
+          ...state.aiAnnotations
+            .filter((item) => item.session_id === session.id && !item.deleted && ["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type))
+            .map((item) => item.label),
         ])).slice(-8);
-        session.memory.selected_annotations = (state.aiAnnotations || []).filter((item) => item.session_id === session.id && item.status !== "archived").map((item) => item.id).slice(-12);
+        session.memory.selected_annotations = (state.aiAnnotations || [])
+          .filter((item) => item.session_id === session.id && item.status !== "archived" && !item.deleted)
+          .map((item) => item.id)
+          .slice(-12);
         session.memory.last_updated_at = new Date().toISOString();
       }
       renderStatusStrip([
