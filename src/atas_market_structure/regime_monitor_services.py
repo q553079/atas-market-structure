@@ -19,7 +19,7 @@ Consumers:
 from __future__ import annotations
 
 import logging
-from collections import defaultdict, deque
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -138,8 +138,6 @@ class RegimeMonitor:
         self._rolling_bars: dict[str, deque[_InstrumentRollingBar]] = {}
         self._dynamic_threshold_cache: dict[tuple[str, datetime], DynamicThresholds] = {}
         self._max_cached_bars = 512
-        self._persist_buf: dict[str, list[ChartCandle]] = defaultdict(list)
-        self._persist_buf_size = 50  # flush every N candles
 
     def assess(
         self,
@@ -295,8 +293,10 @@ class RegimeMonitor:
                 high=bar.high,
                 low=bar.low,
                 close=bar.close,
-                volume=bar.volume,
-                delta=bar.delta,
+                # Repeated writes for the same timeframe bucket rely on the repository
+                # to merge OHLC state while summing only the newly observed flow.
+                volume=volume,
+                delta=delta,
             )
 
     def get_dynamic_thresholds(
@@ -411,15 +411,21 @@ class RegimeMonitor:
         volume: int,
         delta: int,
     ) -> None:
-        """Aggregate one raw bar into all timeframes and flush when buffer is full."""
+        """Project one raw bar into all timeframes and write to chart_candles immediately.
+
+        ON CONFLICT(symbol, timeframe, started_at) handles deduplication, so repeated
+        updates to the same bucket safely aggregate latest OHLC state while summing
+        incremental volume/delta from each observation.
+        """
         if self._repository is None:
             return
 
         now = datetime.now(tz=UTC)
+        candles: list[ChartCandle] = []
         for tf in ALL_TFS:
             bucket = _floor(started_at, tf)
             bucket_end = bucket + timedelta(seconds=_TF_SECONDS[tf])
-            self._persist_buf[symbol].append(
+            candles.append(
                 ChartCandle(
                     symbol=symbol,
                     timeframe=tf,
@@ -436,23 +442,10 @@ class RegimeMonitor:
                     updated_at=now,
                 )
             )
-
-        # Flush each symbol independently when its buffer reaches the threshold
-        for sym, candles in list(self._persist_buf.items()):
-            if len(candles) >= self._persist_buf_size:
-                self._repository.upsert_chart_candles(candles)
-                LOGGER.debug("[ChartCandle] flushed %d candles for %s", len(candles), sym)
-                self._persist_buf[sym] = []
-
-    def flush_persist_buf(self) -> None:
-        """Force-flush all pending chart candles. Call on shutdown or idle."""
-        if self._repository is None:
-            return
-        for sym, candles in self._persist_buf.items():
-            if candles:
-                self._repository.upsert_chart_candles(candles)
-                LOGGER.info("[ChartCandle] flushed %d remaining candles for %s", len(candles), sym)
-        self._persist_buf.clear()
+        # Write to DB immediately — ON CONFLICT handles deduplication.
+        # This mirrors ingest_history_bars → persist_history_bars and ensures
+        # chart_candles are always current even when the buffer never fills.
+        self._repository.upsert_chart_candles(candles)
 
     def persist_history_bars(self, symbol: str, bars: list[dict]) -> int:
         """Bulk-persist a list of raw bars. Used for batch history ingestion."""

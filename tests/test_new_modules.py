@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from atas_market_structure.app import MarketStructureApplication
 from atas_market_structure.models import (
+    AdapterContinuousStatePayload,
+    ChartCandle,
     ReplayChartBar,
     ReplayEventAnnotation,
     ReplayFocusRegion,
@@ -15,6 +17,7 @@ from atas_market_structure.models import (
     ReplayStrategyCandidate,
     ReplayWorkbenchSnapshotPayload,
     StructureSide,
+    Timeframe,
 )
 from atas_market_structure.position_health_services import PositionHealthEvaluator
 from atas_market_structure.regime_monitor_services import RegimeMonitor
@@ -38,6 +41,15 @@ def load_json_fixture(name: str) -> dict:
 def _build_snapshot() -> ReplayWorkbenchSnapshotPayload:
     raw = load_json_fixture("replay_workbench.snapshot.sample.json")
     return ReplayWorkbenchSnapshotPayload.model_validate(raw)
+
+
+class _FakeChartCandleRepository:
+    def __init__(self) -> None:
+        self.calls: list[list[ChartCandle]] = []
+
+    def upsert_chart_candles(self, candles: list[ChartCandle]) -> int:
+        self.calls.append(list(candles))
+        return len(candles)
 
 
 # --- StrategySelectionEngine tests ---
@@ -240,6 +252,50 @@ def test_regime_monitor_returns_details() -> None:
     result = monitor.assess(snapshot)
     assert "sample_bar_count" in result.details
     assert result.atr_estimate >= 0
+
+
+def test_regime_monitor_persists_incremental_flow_for_same_minute_updates() -> None:
+    repository = _FakeChartCandleRepository()
+    monitor = RegimeMonitor(repository=repository)
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    observed_at = datetime(2026, 3, 16, 14, 30, 0, tzinfo=UTC)
+
+    first_payload = json.loads(json.dumps(continuous_payload))
+    first_payload["message_id"] = "adapter-msg-flow-01"
+    first_payload["emitted_at"] = observed_at.isoformat().replace("+00:00", "Z")
+    first_payload["observed_window_start"] = observed_at.isoformat().replace("+00:00", "Z")
+    first_payload["observed_window_end"] = (observed_at + timedelta(seconds=5)).isoformat().replace("+00:00", "Z")
+    first_payload["instrument"]["symbol"] = "NQ"
+    first_payload["price_state"]["last_price"] = 21520.0
+    first_payload["price_state"]["local_range_low"] = 21518.0
+    first_payload["price_state"]["local_range_high"] = 21522.0
+    first_payload["trade_summary"]["volume"] = 100
+    first_payload["trade_summary"]["net_delta"] = 20
+    monitor.ingest_continuous_state(AdapterContinuousStatePayload.model_validate(first_payload))
+
+    second_payload = json.loads(json.dumps(first_payload))
+    second_payload["message_id"] = "adapter-msg-flow-02"
+    second_payload["emitted_at"] = (observed_at + timedelta(seconds=20)).isoformat().replace("+00:00", "Z")
+    second_payload["observed_window_start"] = (observed_at + timedelta(seconds=20)).isoformat().replace("+00:00", "Z")
+    second_payload["observed_window_end"] = (observed_at + timedelta(seconds=35)).isoformat().replace("+00:00", "Z")
+    second_payload["price_state"]["last_price"] = 21525.0
+    second_payload["price_state"]["local_range_low"] = 21517.0
+    second_payload["price_state"]["local_range_high"] = 21526.0
+    second_payload["trade_summary"]["volume"] = 40
+    second_payload["trade_summary"]["net_delta"] = -5
+    monitor.ingest_continuous_state(AdapterContinuousStatePayload.model_validate(second_payload))
+
+    assert len(repository.calls) == 2
+
+    latest_one_minute = next(
+        candle for candle in repository.calls[-1] if candle.timeframe == Timeframe.MIN_1
+    )
+    assert latest_one_minute.started_at == observed_at
+    assert latest_one_minute.high == 21526.0
+    assert latest_one_minute.low == 21517.0
+    assert latest_one_minute.close == 21525.0
+    assert latest_one_minute.volume == 40
+    assert latest_one_minute.delta == -5
 
 
 # --- Analysis Orchestration tests ---

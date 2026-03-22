@@ -384,7 +384,36 @@ def test_clickhouse_repository_list_chart_candles_uses_clickhouse_safe_aggregati
     assert len(candles) == 1
     assert candles[0].symbol == "GC"
     assert candles[0].source_started_at == datetime(2026, 3, 21, 15, 0, tzinfo=UTC)
+    assert "FINAL" not in captured_query["sql"]
     assert "min(source_started_at) AS source_started_at_min" in captured_query["sql"]
     assert "max(updated_at) AS updated_at_max" in captured_query["sql"]
     assert "argMin(open, tuple(source_started_at, updated_at))" in captured_query["sql"]
     assert "argMax(close, tuple(updated_at, source_started_at))" in captured_query["sql"]
+
+
+def test_clickhouse_repository_count_chart_candles_counts_distinct_buckets_without_final(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured_query: dict[str, str] = {}
+
+    class _FakeClient:
+        def query(self, sql: str):
+            captured_query["sql"] = sql
+            return SimpleNamespace(result_rows=[[2]])
+
+    repository = ClickHouseChartCandleRepository(
+        host="127.0.0.1",
+        port=8123,
+        username="default",
+        password="",
+        database="market_data",
+        table="chart_candles",
+        workspace_root=tmp_path,
+    )
+    monkeypatch.setattr(repository, "_execute", lambda operation: operation(_FakeClient()))
+
+    count = repository.count_chart_candles("GC", Timeframe.MIN_1.value)
+
+    assert count == 2
+    assert "FINAL" not in captured_query["sql"]
+    assert "GROUP BY started_at" in captured_query["sql"]

@@ -256,7 +256,7 @@ class ClickHouseChartCandleRepository:
             toInt64(sum(tick_volume)) AS tick_volume,
             toInt64(sum(delta)) AS delta,
             max(updated_at) AS updated_at_max
-        FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")} FINAL
+        FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
         WHERE symbol = {_quote_string(symbol)}
           AND timeframe = {_quote_string(tf_value)}
           AND started_at >= toDateTime64('{_to_ch_datetime64_literal(window_start)}', 3, 'UTC')
@@ -293,7 +293,7 @@ class ClickHouseChartCandleRepository:
         FROM
         (
             SELECT started_at
-            FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")} FINAL
+            FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
             WHERE symbol = {_quote_string(symbol)}
               AND timeframe = {_quote_string(tf_value)}
             GROUP BY started_at
@@ -310,7 +310,7 @@ class ClickHouseChartCandleRepository:
 
         count_query = f"""
         SELECT count()
-        FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")} FINAL
+        FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
         WHERE {where_sql}
         """
         result = self._execute(lambda client: client.query(count_query))
