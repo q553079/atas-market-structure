@@ -814,7 +814,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             var payload = BuildHistoryBarsPayload(chunkBars, emittedAtUtc, chartIdentity, timeContext, sequence++);
             if (!_transport.TryEnqueueHistoryBars(payload))
             {
-                return enqueuedAny;
+                return false;
             }
 
             enqueuedAny = true;
@@ -1364,6 +1364,157 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         return levels;
     }
 
+    private static DateTime EnsureUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
+
+    private static List<(DateTime StartUtc, DateTime EndUtc)> ResolveBackfillRanges(AdapterBackfillCommandPayload command)
+    {
+        var windowStartUtc = EnsureUtc(command.WindowStart);
+        var windowEndUtc = EnsureUtc(command.WindowEnd);
+        if (windowEndUtc < windowStartUtc)
+        {
+            (windowStartUtc, windowEndUtc) = (windowEndUtc, windowStartUtc);
+        }
+
+        var rawRanges = new List<(DateTime StartUtc, DateTime EndUtc)>();
+        if (command.RequestedRanges.Count > 0)
+        {
+            rawRanges.AddRange(command.RequestedRanges.Select(item =>
+            {
+                var rangeStartUtc = EnsureUtc(item.RangeStart);
+                var rangeEndUtc = EnsureUtc(item.RangeEnd);
+                return rangeEndUtc < rangeStartUtc
+                    ? (rangeEndUtc, rangeStartUtc)
+                    : (rangeStartUtc, rangeEndUtc);
+            }));
+        }
+        else if (command.MissingSegments.Count > 0)
+        {
+            rawRanges.AddRange(command.MissingSegments.Select(segment =>
+            {
+                var rangeStartUtc = EnsureUtc(segment.PrevEndedAt?.AddSeconds(1) ?? command.WindowStart);
+                var rangeEndUtc = EnsureUtc(segment.NextStartedAt).AddSeconds(-1);
+                return rangeEndUtc < rangeStartUtc
+                    ? (rangeEndUtc, rangeStartUtc)
+                    : (rangeStartUtc, rangeEndUtc);
+            }));
+        }
+
+        if (rawRanges.Count == 0)
+        {
+            rawRanges.Add((windowStartUtc, windowEndUtc));
+        }
+
+        var clampedRanges = new List<(DateTime StartUtc, DateTime EndUtc)>(rawRanges.Count);
+        foreach (var (rangeStartUtc, rangeEndUtc) in rawRanges)
+        {
+            var clampedStartUtc = rangeStartUtc < windowStartUtc ? windowStartUtc : rangeStartUtc;
+            var clampedEndUtc = rangeEndUtc > windowEndUtc ? windowEndUtc : rangeEndUtc;
+            if (clampedEndUtc < clampedStartUtc)
+            {
+                continue;
+            }
+
+            clampedRanges.Add((clampedStartUtc, clampedEndUtc));
+        }
+
+        if (clampedRanges.Count == 0)
+        {
+            return clampedRanges;
+        }
+
+        clampedRanges.Sort((left, right) =>
+        {
+            var startCompare = left.StartUtc.CompareTo(right.StartUtc);
+            return startCompare != 0 ? startCompare : left.EndUtc.CompareTo(right.EndUtc);
+        });
+
+        var mergedRanges = new List<(DateTime StartUtc, DateTime EndUtc)> { clampedRanges[0] };
+        for (var index = 1; index < clampedRanges.Count; index++)
+        {
+            var current = mergedRanges[^1];
+            var next = clampedRanges[index];
+            if (next.StartUtc <= current.EndUtc + TimeSpan.FromSeconds(1))
+            {
+                mergedRanges[^1] = (
+                    current.StartUtc,
+                    next.EndUtc > current.EndUtc ? next.EndUtc : current.EndUtc);
+                continue;
+            }
+
+            mergedRanges.Add(next);
+        }
+
+        return mergedRanges;
+    }
+
+    private static bool OverlapsAnyRange(
+        DateTime itemStartUtc,
+        DateTime itemEndUtc,
+        IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> rangesUtc)
+    {
+        foreach (var (rangeStartUtc, rangeEndUtc) in rangesUtc)
+        {
+            if (itemEndUtc < rangeStartUtc)
+            {
+                return false;
+            }
+
+            if (itemStartUtc <= rangeEndUtc && itemEndUtc >= rangeStartUtc)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static List<HistoryBarPayload> FilterHistoryBarsByRanges(
+        IReadOnlyList<HistoryBarPayload> loadedBars,
+        IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> rangesUtc)
+    {
+        if (loadedBars.Count == 0 || rangesUtc.Count == 0)
+        {
+            return new List<HistoryBarPayload>();
+        }
+
+        var filteredBars = new List<HistoryBarPayload>(loadedBars.Count);
+        foreach (var bar in loadedBars)
+        {
+            if (OverlapsAnyRange(bar.StartedAt, bar.EndedAt, rangesUtc))
+            {
+                filteredBars.Add(bar);
+            }
+        }
+
+        return filteredBars;
+    }
+
+    private static List<HistoryFootprintBarPayload> FilterHistoryFootprintBarsByRanges(
+        IReadOnlyList<HistoryFootprintBarPayload> loadedBars,
+        IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> rangesUtc)
+    {
+        if (loadedBars.Count == 0 || rangesUtc.Count == 0)
+        {
+            return new List<HistoryFootprintBarPayload>();
+        }
+
+        var filteredBars = new List<HistoryFootprintBarPayload>(loadedBars.Count);
+        foreach (var bar in loadedBars)
+        {
+            if (OverlapsAnyRange(bar.StartedAt, bar.EndedAt, rangesUtc))
+            {
+                filteredBars.Add(bar);
+            }
+        }
+
+        return filteredBars;
+    }
+
     private DateTime ToUtc(DateTime value) => CollectorMetadataResolver.ToUtc(value, ResolveTimeContext());
 
     private static int DecimalToInt(decimal value) => Math.Max(0, decimal.ToInt32(decimal.Round(value, MidpointRounding.AwayFromZero)));
@@ -1508,145 +1659,139 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
 
         LogInfoLocal($"Processing backfill {command.RequestId}: {command.RequestedRanges.Count} ranges, bars={command.RequestHistoryBars}, footprint={command.RequestHistoryFootprint}.");
 
-        var success = await ExecuteBackfillRangesAsync(command, chartIdentity, ct).ConfigureAwait(false);
+        var (historyBarsSucceeded, historyFootprintSucceeded) = await ExecuteBackfillRangesAsync(command, chartIdentity, ct).ConfigureAwait(false);
 
         lock (_inProgressBackfills)
         {
             _inProgressBackfills.Remove(command.RequestId);
         }
 
-        await SendBackfillAckAsync(command, chartIdentity, success, ct).ConfigureAwait(false);
+        await SendBackfillAckAsync(
+            command,
+            chartIdentity,
+            historyBarsSucceeded,
+            historyFootprintSucceeded,
+            ct).ConfigureAwait(false);
     }
 
-    private async Task<bool> ExecuteBackfillRangesAsync(
+    private async Task<(bool HistoryBarsSucceeded, bool HistoryFootprintSucceeded)> ExecuteBackfillRangesAsync(
         AdapterBackfillCommandPayload command,
         ChartIdentity chartIdentity,
         CancellationToken ct)
     {
-        if (_transport is null || command.RequestedRanges.Count == 0)
+        if (_transport is null)
         {
-            return true;
+            return (!command.RequestHistoryBars, !command.RequestHistoryFootprint);
         }
 
+        ct.ThrowIfCancellationRequested();
         var timeContext = ResolveTimeContext();
-        var allChunksSuccessful = true;
-
-        foreach (var range in command.RequestedRanges)
+        var resolvedRangesUtc = ResolveBackfillRanges(command);
+        if (resolvedRangesUtc.Count == 0)
         {
-            if (command.RequestHistoryBars)
-            {
-                if (!await ExportHistoryBarsChunkAsync(command, range, chartIdentity, timeContext, ct).ConfigureAwait(false))
-                {
-                    allChunksSuccessful = false;
-                }
-            }
-
-            if (command.RequestHistoryFootprint)
-            {
-                if (!await ExportHistoryFootprintChunkAsync(command, range, chartIdentity, timeContext, ct).ConfigureAwait(false))
-                {
-                    allChunksSuccessful = false;
-                }
-            }
+            LogWarnLocal($"ExecuteBackfillRangesAsync: no usable ranges resolved for {command.RequestId}.");
+            return (!command.RequestHistoryBars, !command.RequestHistoryFootprint);
         }
 
-        return allChunksSuccessful;
+        var historyBarsSucceeded = !command.RequestHistoryBars;
+        if (command.RequestHistoryBars)
+        {
+            historyBarsSucceeded = await ExportHistoryBarsChunkAsync(command, resolvedRangesUtc, chartIdentity, timeContext, ct).ConfigureAwait(false);
+        }
+
+        var historyFootprintSucceeded = !command.RequestHistoryFootprint;
+        if (command.RequestHistoryFootprint)
+        {
+            historyFootprintSucceeded = await ExportHistoryFootprintChunkAsync(command, resolvedRangesUtc, chartIdentity, timeContext, ct).ConfigureAwait(false);
+        }
+
+        return (historyBarsSucceeded, historyFootprintSucceeded);
     }
 
-    private async Task<bool> ExportHistoryBarsChunkAsync(
+    private Task<bool> ExportHistoryBarsChunkAsync(
         AdapterBackfillCommandPayload command,
-        BackfillRangePayload range,
+        IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> targetRangesUtc,
         ChartIdentity chartIdentity,
         ResolvedTimeContext timeContext,
         CancellationToken ct)
     {
         if (_transport is null)
         {
-            return false;
+            return Task.FromResult(false);
         }
 
-        var bars = new List<HistoryBarPayload>();
-        var localNow = DateTime.Now;
-
-        for (var i = 0; i < 500 && ct.IsCancellationRequested == false; i++)
+        ct.ThrowIfCancellationRequested();
+        List<HistoryBarPayload> loadedBars;
+        lock (_sync)
         {
-            await Task.Delay(10, ct).ConfigureAwait(false);
+            loadedBars = ExportLoadedHistoryBarsSnapshot();
         }
 
-        var payload = new HistoryBarsPayload
+        var filteredBars = FilterHistoryBarsByRanges(loadedBars, targetRangesUtc);
+        if (filteredBars.Count == 0)
         {
-            MessageId = $"bars-{command.RequestId}-{range.RangeStart:yyyyMMddHHmmss}",
-            EmittedAt = DateTime.UtcNow,
-            ObservedWindowStart = range.RangeStart,
-            ObservedWindowEnd = range.RangeEnd,
-            Source = new SourceEnvelope
-            {
-                System = "ATAS",
-                InstanceId = Environment.MachineName,
-                ChartInstanceId = chartIdentity.ChartInstanceId,
-                AdapterVersion = CollectorVersion,
-            },
-            Instrument = BuildInstrumentEnvelope(chartIdentity),
-            DisplayTimeframe = chartIdentity.DisplayTimeframe,
-            TimeContext = timeContext.ToPayload(),
-            BarTimeframe = chartIdentity.DisplayTimeframe,
-            Bars = bars,
-        };
+            LogWarnLocal($"ExportHistoryBarsChunkAsync: no loaded bars matched backfill {command.RequestId}.");
+            return Task.FromResult(false);
+        }
 
-        LogInfoLocal($"ExportHistoryBarsChunkAsync: sending {bars.Count} bars for range {range.RangeStart} to {range.RangeEnd}.");
-        return _transport.TryEnqueueHistoryBars(payload);
+        var emittedAtUtc = DateTime.UtcNow;
+        var sent = TrySendHistoryBarsChunks(filteredBars, emittedAtUtc, chartIdentity, timeContext);
+        LogInfoLocal(
+            $"ExportHistoryBarsChunkAsync: matched {filteredBars.Count} bars across {targetRangesUtc.Count} ranges for {command.RequestId}; observed_window_start_utc={filteredBars[0].StartedAt:O} observed_window_end_utc={filteredBars[^1].EndedAt:O}.");
+        return Task.FromResult(sent);
     }
 
-    private async Task<bool> ExportHistoryFootprintChunkAsync(
+    private Task<bool> ExportHistoryFootprintChunkAsync(
         AdapterBackfillCommandPayload command,
-        BackfillRangePayload range,
+        IReadOnlyList<(DateTime StartUtc, DateTime EndUtc)> targetRangesUtc,
         ChartIdentity chartIdentity,
         ResolvedTimeContext timeContext,
         CancellationToken ct)
     {
         if (_transport is null)
         {
-            return false;
+            return Task.FromResult(false);
         }
 
-        for (var i = 0; i < 500 && ct.IsCancellationRequested == false; i++)
+        ct.ThrowIfCancellationRequested();
+        List<HistoryFootprintBarPayload> loadedBars;
+        lock (_sync)
         {
-            await Task.Delay(10, ct).ConfigureAwait(false);
+            loadedBars = ExportLoadedHistoryFootprintSnapshot();
         }
 
-        var footprintBars = new List<HistoryFootprintBarPayload>();
-
-        var payload = new HistoryFootprintPayload
+        var filteredBars = FilterHistoryFootprintBarsByRanges(loadedBars, targetRangesUtc);
+        if (filteredBars.Count == 0)
         {
-            MessageId = $"fp-{command.RequestId}-{range.RangeStart:yyyyMMddHHmmss}",
-            EmittedAt = DateTime.UtcNow,
-            ObservedWindowStart = range.RangeStart,
-            ObservedWindowEnd = range.RangeEnd,
-            Source = new SourceEnvelope
+            LogWarnLocal($"ExportHistoryFootprintChunkAsync: no loaded footprint bars matched backfill {command.RequestId}.");
+            return Task.FromResult(false);
+        }
+
+        LogResolvedContext(chartIdentity, timeContext);
+        var emittedAtUtc = DateTime.UtcNow;
+        var payloads = BuildHistoryFootprintChunks(filteredBars, emittedAtUtc, chartIdentity, timeContext);
+        var enqueuedAny = false;
+        foreach (var payload in payloads)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!_transport.TryEnqueueHistoryFootprint(payload))
             {
-                System = "ATAS",
-                InstanceId = Environment.MachineName,
-                ChartInstanceId = chartIdentity.ChartInstanceId,
-                AdapterVersion = CollectorVersion,
-            },
-            Instrument = BuildInstrumentEnvelope(chartIdentity),
-            DisplayTimeframe = chartIdentity.DisplayTimeframe,
-            TimeContext = timeContext.ToPayload(),
-            BatchId = command.RequestId,
-            BarTimeframe = chartIdentity.DisplayTimeframe,
-            ChunkIndex = 0,
-            ChunkCount = 1,
-            Bars = footprintBars,
-        };
+                return Task.FromResult(false);
+            }
 
-        LogInfoLocal($"ExportHistoryFootprintChunkAsync: sending {footprintBars.Count} footprint bars for range {range.RangeStart} to {range.RangeEnd}.");
-        return _transport.TryEnqueueHistoryFootprint(payload);
+            enqueuedAny = true;
+        }
+
+        LogInfoLocal(
+            $"ExportHistoryFootprintChunkAsync: matched {filteredBars.Count} footprint bars across {targetRangesUtc.Count} ranges for {command.RequestId}; observed_window_start_utc={filteredBars[0].StartedAt:O} observed_window_end_utc={filteredBars[^1].EndedAt:O}.");
+        return Task.FromResult(enqueuedAny);
     }
 
     private async Task SendBackfillAckAsync(
         AdapterBackfillCommandPayload command,
         ChartIdentity chartIdentity,
-        bool success,
+        bool historyBarsSucceeded,
+        bool historyFootprintSucceeded,
         CancellationToken ct)
     {
         if (_transport is null)
@@ -1662,8 +1807,8 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             ChartInstanceId = chartIdentity.ChartInstanceId,
             InstrumentSymbol = chartIdentity.ContractSymbol,
             AcknowledgedAt = DateTime.UtcNow,
-            AcknowledgedHistoryBars = command.RequestHistoryBars,
-            AcknowledgedHistoryFootprint = command.RequestHistoryFootprint,
+            AcknowledgedHistoryBars = historyBarsSucceeded,
+            AcknowledgedHistoryFootprint = historyFootprintSucceeded,
             LatestLoadedBarStartedAt = _lastObservedBarStartedAtUtc.HasValue && timeContext.InstrumentTimeZone is not null
                 ? TimeZoneInfo.ConvertTimeFromUtc(_lastObservedBarStartedAtUtc.Value, timeContext.InstrumentTimeZone)
                 : (DateTime?)null,
@@ -1675,13 +1820,17 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             ChartDisplayUtcOffsetMinutes = timeContext.ChartDisplayUtcOffsetMinutes,
             CollectorLocalTimezoneName = timeContext.CollectorLocalTimezoneName,
             CollectorLocalUtcOffsetMinutes = timeContext.CollectorLocalUtcOffsetMinutes,
-            Note = success ? "backfill_complete" : "backfill_partial_failure",
+            Note = (!command.RequestHistoryBars || historyBarsSucceeded)
+                && (!command.RequestHistoryFootprint || historyFootprintSucceeded)
+                ? "backfill_complete"
+                : "backfill_partial_failure",
         };
 
         var sent = await _transport.SendBackfillAckAsync(ack, ct).ConfigureAwait(false);
         if (sent)
         {
-            LogInfoLocal($"SendBackfillAckAsync: acknowledged {command.RequestId} (success={success}).");
+            LogInfoLocal(
+                $"SendBackfillAckAsync: acknowledged {command.RequestId} (history_bars={historyBarsSucceeded}, history_footprint={historyFootprintSucceeded}).");
         }
         else
         {

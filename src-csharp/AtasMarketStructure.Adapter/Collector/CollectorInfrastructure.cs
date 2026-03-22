@@ -121,7 +121,7 @@ internal interface IHistoryTransport : IDisposable
 
 #region Transport Status Models
 
-internal sealed class TransportStatus
+internal class TransportStatus
 {
     public int TotalQueueLength { get; init; }
     public int TotalDroppedCount { get; init; }
@@ -687,7 +687,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
             {
                 Interlocked.Decrement(ref _barsQueueLength);
 
-                await ApplyRateLimitAsync(_barsRateLimit, _rateLimitBarsPerSecond, ref _lastBarsSentTime).ConfigureAwait(false);
+                _lastBarsSentTime = await ApplyRateLimitAsync(_barsRateLimit, _rateLimitBarsPerSecond, _lastBarsSentTime).ConfigureAwait(false);
 
                 try
                 {
@@ -722,7 +722,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
             {
                 Interlocked.Decrement(ref _footprintQueueLength);
 
-                await ApplyRateLimitAsync(_footprintRateLimit, _rateLimitFootprintPerSecond, ref _lastFootprintSentTime).ConfigureAwait(false);
+                _lastFootprintSentTime = await ApplyRateLimitAsync(_footprintRateLimit, _rateLimitFootprintPerSecond, _lastFootprintSentTime).ConfigureAwait(false);
 
                 try
                 {
@@ -740,9 +740,12 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
         }
     }
 
-    private async Task ApplyRateLimitAsync(SemaphoreSlim rateLimit, int itemsPerSecond, ref DateTime lastSentTime)
+    private async Task<DateTime> ApplyRateLimitAsync(SemaphoreSlim rateLimit, int itemsPerSecond, DateTime lastSentTime)
     {
-        if (itemsPerSecond <= 0) return;
+        if (itemsPerSecond <= 0)
+        {
+            return lastSentTime;
+        }
 
         var minInterval = TimeSpan.FromSeconds(1.0 / itemsPerSecond);
         var now = DateTime.UtcNow;
@@ -753,7 +756,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
             await Task.Delay(minInterval - elapsed, _cts.Token).ConfigureAwait(false);
         }
 
-        lastSentTime = DateTime.UtcNow;
+        return DateTime.UtcNow;
     }
 
     private async Task PostBarsAsync(HistoryBarsMessage message, CancellationToken cancellationToken)
@@ -959,275 +962,6 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
 }
 
 #endregion
-
-internal static class PayloadJson
-{
-    private readonly HttpClient _httpClient;
-    private readonly string _continuousEndpoint;
-    private readonly string _historyBarsEndpoint;
-    private readonly string _historyFootprintEndpoint;
-    private readonly string _triggerEndpoint;
-    private readonly int _maxQueueLength;
-    private readonly Action<string> _infoLogger;
-    private readonly Action<string> _warnLogger;
-    private readonly ConcurrentQueue<OutboundMessage> _queue = new();
-    private readonly CancellationTokenSource _cts = new();
-    private readonly Task _pumpTask;
-    private readonly SemaphoreSlim _signal = new(0);
-    private int _queueLength;
-    private int _droppedMessageCount;
-    private int _consecutiveSendFailures;
-    private DateTime? _lastAttemptUtc;
-    private DateTime? _lastSuccessfulPostUtc;
-    private DateTime? _lastFailureUtc;
-    private string _lastTransportError = string.Empty;
-
-    public BufferedHttpAdapterTransport(
-        Uri baseUri,
-        string continuousEndpoint,
-        string historyBarsEndpoint,
-        string historyFootprintEndpoint,
-        string triggerEndpoint,
-        int maxQueueLength,
-        Action<string> infoLogger,
-        Action<string> warnLogger)
-    {
-        _continuousEndpoint = continuousEndpoint;
-        _historyBarsEndpoint = historyBarsEndpoint;
-        _historyFootprintEndpoint = historyFootprintEndpoint;
-        _triggerEndpoint = triggerEndpoint;
-        _maxQueueLength = Math.Max(16, maxQueueLength);
-        _infoLogger = infoLogger;
-        _warnLogger = warnLogger;
-
-        _httpClient = new HttpClient
-        {
-            BaseAddress = baseUri,
-            Timeout = TimeSpan.FromSeconds(5),
-        };
-        _httpClient.DefaultRequestHeaders.Accept.Clear();
-        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        _pumpTask = Task.Run(PumpAsync);
-    }
-
-    public async Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
-        string instrumentSymbol,
-        string? chartInstanceId,
-        CancellationToken ct)
-    {
-        var endpoint = $"/api/v1/adapter/backfill-command?instrument_symbol={Uri.EscapeDataString(instrumentSymbol)}";
-        if (!string.IsNullOrEmpty(chartInstanceId))
-        {
-            endpoint += $"&chart_instance_id={Uri.EscapeDataString(chartInstanceId)}";
-        }
-
-        try
-        {
-            using var response = await _httpClient.GetAsync(endpoint, ct).ConfigureAwait(false);
-            if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
-            {
-                _infoLogger("PollBackfillCommandAsync: no pending backfill command.");
-                return null;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                _warnLogger($"PollBackfillCommandAsync: HTTP {(int)response.StatusCode} - {body}");
-                return null;
-            }
-
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            var result = JsonSerializer.Deserialize<AdapterBackfillDispatchResponsePayload>(json, PayloadJson.Options);
-            _infoLogger($"PollBackfillCommandAsync: received command {result?.Request?.RequestId ?? "null"}.");
-            return result;
-        }
-        catch (OperationCanceledException)
-        {
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _warnLogger($"PollBackfillCommandAsync failed: {ex.Message}");
-            return null;
-        }
-    }
-
-    public async Task<bool> SendBackfillAckAsync(
-        AdapterBackfillAcknowledgeRequestPayload ack,
-        CancellationToken ct)
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(ack, PayloadJson.Options);
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var response = await _httpClient.PostAsync("/api/v1/adapter/backfill-ack", content, ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                _warnLogger($"SendBackfillAckAsync: HTTP {(int)response.StatusCode} - {body}");
-                return false;
-            }
-
-            _infoLogger($"SendBackfillAckAsync: acknowledged request {ack.RequestId}.");
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _warnLogger($"SendBackfillAckAsync failed: {ex.Message}");
-            return false;
-        }
-    }
-
-    public bool TryEnqueueContinuousState(ContinuousStatePayload payload)
-        => TryEnqueue(new OutboundMessage(_continuousEndpoint, payload, true));
-
-    public bool TryEnqueueHistoryBars(HistoryBarsPayload payload)
-        => TryEnqueue(new OutboundMessage(_historyBarsEndpoint, payload, false));
-
-    public bool TryEnqueueHistoryFootprint(HistoryFootprintPayload payload)
-        => TryEnqueue(new OutboundMessage(_historyFootprintEndpoint, payload, false));
-
-    public bool TryEnqueueTriggerBurst(TriggerBurstPayload payload)
-        => TryEnqueue(new OutboundMessage(_triggerEndpoint, payload, true));
-
-    public int QueueLength => Volatile.Read(ref _queueLength);
-
-    public int DroppedMessageCount => Volatile.Read(ref _droppedMessageCount);
-
-    public int ConsecutiveSendFailures => Volatile.Read(ref _consecutiveSendFailures);
-
-    public DateTime? LastAttemptUtc => _lastAttemptUtc;
-
-    public DateTime? LastSuccessfulPostUtc => _lastSuccessfulPostUtc;
-
-    public DateTime? LastFailureUtc => _lastFailureUtc;
-
-    public string LastTransportError => _lastTransportError;
-
-    public void Dispose()
-    {
-        _cts.Cancel();
-        _signal.Release();
-        try
-        {
-            _pumpTask.Wait(TimeSpan.FromSeconds(2));
-        }
-        catch (AggregateException)
-        {
-            // Best-effort shutdown only.
-        }
-        finally
-        {
-            _signal.Dispose();
-            _cts.Dispose();
-            _httpClient.Dispose();
-        }
-    }
-
-    private bool TryEnqueue(OutboundMessage message)
-    {
-        if (!message.HighPriority && Volatile.Read(ref _queueLength) >= _maxQueueLength)
-        {
-            Interlocked.Increment(ref _droppedMessageCount);
-            _lastFailureUtc = DateTime.UtcNow;
-            _lastTransportError = $"Queue full ({_maxQueueLength}); dropped low-priority payload for {message.Endpoint}.";
-            _warnLogger(_lastTransportError);
-            return false;
-        }
-
-        _queue.Enqueue(message);
-        Interlocked.Increment(ref _queueLength);
-        _signal.Release();
-        return true;
-    }
-
-    private async Task PumpAsync()
-    {
-        while (!_cts.IsCancellationRequested)
-        {
-            try
-            {
-                await _signal.WaitAsync(_cts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-
-            while (_queue.TryDequeue(out var message))
-            {
-                Interlocked.Decrement(ref _queueLength);
-
-                try
-                {
-                    await PostAsync(message, _cts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    _warnLogger($"Adapter send failed for '{message.Endpoint}': {ex.Message}");
-                }
-            }
-        }
-    }
-
-    private async Task PostAsync(OutboundMessage message, CancellationToken cancellationToken)
-    {
-        var json = JsonSerializer.Serialize(message.Payload, PayloadJson.Options);
-        Exception? lastException = null;
-        var maxAttempts = message.HighPriority ? 3 : 2;
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            _lastAttemptUtc = DateTime.UtcNow;
-            try
-            {
-                using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                using var response = await _httpClient.PostAsync(message.Endpoint, content, cancellationToken).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-                    var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    throw new InvalidOperationException(
-                        $"HTTP {(int)response.StatusCode} for {message.Endpoint}: {responseBody}");
-                }
-
-                Interlocked.Exchange(ref _consecutiveSendFailures, 0);
-                _lastSuccessfulPostUtc = DateTime.UtcNow;
-                _lastTransportError = string.Empty;
-                _infoLogger($"Adapter payload delivered to {message.Endpoint}.");
-                return;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                lastException = ex;
-                if (attempt < maxAttempts)
-                {
-                    await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-            }
-        }
-
-        Interlocked.Increment(ref _consecutiveSendFailures);
-        _lastFailureUtc = DateTime.UtcNow;
-        _lastTransportError = lastException?.Message ?? $"Unknown transport error for {message.Endpoint}.";
-        throw lastException ?? new InvalidOperationException(_lastTransportError);
-    }
-
-    private sealed record OutboundMessage(string Endpoint, object Payload, bool HighPriority);
-}
 
 internal static class PayloadJson
 {

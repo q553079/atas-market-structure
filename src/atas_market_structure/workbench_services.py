@@ -2643,7 +2643,7 @@ class ReplayWorkbenchService:
         if chart_instance_id is not None:
             ingestions = [
                 i for i in ingestions
-                if i.metadata.get("chart_instance_id") == chart_instance_id
+                if i.observed_payload.get("source", {}).get("chart_instance_id") == chart_instance_id
             ]
         bars: list[ReplayChartBar] = []
         for st in ingestions:
