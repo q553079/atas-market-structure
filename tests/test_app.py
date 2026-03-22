@@ -1039,6 +1039,9 @@ def test_replay_live_tail_returns_latest_price_and_recent_candles() -> None:
     assert payload["latest_price"] == 24843.25
     assert payload["best_bid"] == 24843.0
     assert payload["best_ask"] == 24843.25
+    assert payload["latest_price_source"] == "continuous_state"
+    assert payload["best_bid_source"] == "continuous_state"
+    assert payload["best_ask_source"] == "continuous_state"
     assert payload["latest_observed_at"].startswith("2026-03-17T09:00:02")
     assert payload["source_message_count"] >= 2
     assert len(payload["candles"]) >= 1
@@ -1089,6 +1092,40 @@ def test_replay_live_tail_ignores_zero_activity_heartbeats_for_candles() -> None
     payload = json.loads(live_tail_response.body)
     assert payload["latest_price"] == 24843.0
     assert payload["source_message_count"] >= 2
+    assert payload["candles"] == []
+
+
+def test_replay_live_tail_falls_back_to_tick_quote_when_continuous_missing(monkeypatch) -> None:
+    application = build_application()
+    monkeypatch.setattr(
+        application._repository,
+        "get_latest_tick_quote",
+        lambda **kwargs: {
+            "observed_at": "2026-03-17T09:00:03Z",
+            "last_price": 24843.5,
+            "best_bid": 24843.25,
+            "best_ask": 24843.5,
+            "tick_count": 24,
+        },
+        raising=False,
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=NQ&display_timeframe=1m&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["instrument_symbol"] == "NQ"
+    assert payload["latest_price"] == 24843.5
+    assert payload["best_bid"] == 24843.25
+    assert payload["best_ask"] == 24843.5
+    assert payload["latest_price_source"] == "ticks_raw"
+    assert payload["best_bid_source"] == "ticks_raw"
+    assert payload["best_ask_source"] == "ticks_raw"
+    assert payload["latest_observed_at"].startswith("2026-03-17T09:00:03")
+    assert payload["source_message_count"] == 0
     assert payload["candles"] == []
 
 

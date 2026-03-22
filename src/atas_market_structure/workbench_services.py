@@ -57,6 +57,7 @@ from atas_market_structure.models import (
     UpdateChatSessionRequest,
     UpdateMountedMessageRequest,
     ReplayAcquisitionMode,
+    ReplayAiChatAttachment,
     ReplayAiBriefing,
     ReplayCachePolicy,
     ReplayFootprintBarDetail,
@@ -370,7 +371,7 @@ class ReplayWorkbenchChatService:
             analysis_range=request_payload.get("analysis_range"),
             analysis_style=request_payload.get("analysis_style"),
             extra_context=request_payload.get("extra_context") if isinstance(request_payload.get("extra_context"), dict) else None,
-            attachments=[],
+            attachments=self._attachments_from_payload(request_payload),
             replay_ingestion_id=message.response_payload.get("replay_ingestion_id") or request_payload.get("replay_ingestion_id"),
         )
         prepared = self._prepare_reply_turn(session_id, request, parent_message_id=message.message_id)
@@ -778,7 +779,12 @@ class ReplayWorkbenchChatService:
 
     def refresh_memory(self, session_id: str, request: ChatHandoffRequest) -> SessionMemoryEnvelope:
         self._require_stored_session(session_id)
-        messages = self._repository.list_chat_messages(session_id=session_id, limit=6)
+        messages = self._list_recent_chat_messages(
+            session_id,
+            limit=6,
+            roles={"user", "assistant"},
+            require_content=True,
+        )
         latest_user_message = next((item for item in reversed(messages) if item.role == "user"), None)
         latest_assistant_message = next((item for item in reversed(messages) if item.role == "assistant"), None)
         annotations = self._repository.list_chat_annotations(session_id=session_id, limit=500)
@@ -796,7 +802,16 @@ class ReplayWorkbenchChatService:
     def build_handoff(self, session_id: str, request: ChatHandoffRequest) -> ChatHandoffResponse:
         session = self._require_stored_session(session_id)
         memory = self._repository.get_session_memory(session_id)
-        recent_messages = self._repository.list_chat_messages(session_id=session_id, limit=3 if request.mode == "summary_plus_recent_3" else 1)
+        recent_messages = (
+            self._list_recent_chat_messages(
+                session_id,
+                limit=6,
+                roles={"user", "assistant"},
+                require_content=True,
+            )
+            if request.mode == "summary_plus_recent_3"
+            else []
+        )
         active_annotations = self._repository.list_chat_annotations(session_id=session_id, status="active", visible_only=True, limit=200)
         active_plans = self._repository.list_chat_plan_cards(session_id=session_id, status="active", limit=100)
         packet = ChatHandoffPacket(
@@ -894,9 +909,14 @@ class ReplayWorkbenchChatService:
             full_payload = {"regions": [item.model_dump(mode="json") for item in regions[-10:]]}
             title = "手工区域"
         elif kind == "recent_messages":
-            messages = self._repository.list_chat_messages(session_id=session.session_id, limit=6)
+            messages = self._list_recent_chat_messages(
+                session.session_id,
+                limit=6,
+                roles={"user", "assistant"},
+                require_content=True,
+            )
             preview = f"最近消息 {len(messages)} 条"
-            full_payload = {"messages": [self._message_model(item).model_dump(mode="json") for item in messages[-6:]]}
+            full_payload = {"messages": [self._message_model(item).model_dump(mode="json") for item in messages]}
             title = "最近消息"
         elif kind == "session_summary" and latest_memory is not None:
             preview = latest_memory.latest_answer_summary or latest_memory.market_context_summary or "会话摘要"
@@ -944,7 +964,15 @@ class ReplayWorkbenchChatService:
             key_zones_summary=list(dict.fromkeys([*(previous.key_zones_summary if previous is not None else []), *key_zones]))[-8:],
             active_plans_summary=active_plans_summary[-8:],
             invalidated_plans_summary=previous.invalidated_plans_summary if previous is not None else [],
-            important_messages=[item.message_id for item in self._repository.list_chat_messages(session_id=session_id, limit=6) if item.role == "assistant"][-6:],
+            important_messages=[
+                item.message_id
+                for item in self._list_recent_chat_messages(
+                    session_id,
+                    limit=6,
+                    roles={"assistant"},
+                    require_content=True,
+                )
+            ],
             current_user_intent=latest_question[:120],
             latest_question=latest_question,
             latest_answer_summary=reply_text[:180],
@@ -1395,7 +1423,12 @@ class ReplayWorkbenchChatService:
                 if summary_parts:
                     history.append(ReplayAiChatMessage(role="assistant", content="[memory]\n" + "\n".join(summary_parts)))
         if include_recent_messages:
-            for item in self._repository.list_chat_messages(session_id=session_id, limit=10)[-10:]:
+            for item in self._list_recent_chat_messages(
+                session_id,
+                limit=10,
+                roles={"user", "assistant"},
+                require_content=True,
+            ):
                 if item.role in {"user", "assistant"} and item.content:
                     history.append(ReplayAiChatMessage(role=item.role, content=item.content))
         return history
@@ -1506,11 +1539,41 @@ class ReplayWorkbenchChatService:
         return item.ingestion_id if item is not None else None
 
     def _get_latest_message(self, session_id: str, role: str | None = None) -> StoredChatMessage | None:
-        messages = self._repository.list_chat_messages(session_id=session_id, limit=50)
+        messages = self._repository.list_chat_messages(session_id=session_id, limit=50, latest=True)
         for item in reversed(messages):
             if role is None or item.role == role:
                 return item
         return None
+
+    def _list_recent_chat_messages(
+        self,
+        session_id: str,
+        *,
+        limit: int,
+        roles: set[str] | None = None,
+        include_pending: bool = False,
+        require_content: bool = False,
+    ) -> list[StoredChatMessage]:
+        if limit <= 0:
+            return []
+        messages = self._repository.list_chat_messages(
+            session_id=session_id,
+            limit=max(limit * 10, 100),
+            latest=True,
+        )
+        filtered: list[StoredChatMessage] = []
+        for item in messages:
+            if roles is not None and item.role not in roles:
+                continue
+            if not include_pending and item.status == "pending":
+                continue
+            content = (item.content or "").strip()
+            if content == "正在思考中…":
+                continue
+            if require_content and not content:
+                continue
+            filtered.append(item)
+        return filtered[-limit:]
 
     def _require_stored_session(self, session_id: str) -> StoredChatSession:
         session = self._repository.get_chat_session(session_id)
@@ -1548,6 +1611,21 @@ class ReplayWorkbenchChatService:
             updated_at=stored.updated_at,
         )
 
+    @staticmethod
+    def _attachments_from_payload(payload: dict[str, Any] | None) -> list[ReplayAiChatAttachment]:
+        if not isinstance(payload, dict):
+            return []
+        raw_items = payload.get("attachments")
+        if not isinstance(raw_items, list):
+            return []
+        attachments: list[ReplayAiChatAttachment] = []
+        for item in raw_items:
+            try:
+                attachments.append(ReplayAiChatAttachment.model_validate(item))
+            except Exception:
+                continue
+        return attachments
+
     def _message_model(self, stored: StoredChatMessage) -> ChatMessage:
         return ChatMessage(
             message_id=stored.message_id,
@@ -1559,6 +1637,7 @@ class ReplayWorkbenchChatService:
             reply_title=stored.reply_title,
             stream_buffer=stored.stream_buffer,
             model=stored.model,
+            attachments=self._attachments_from_payload(stored.request_payload),
             annotations=stored.annotations,
             plan_cards=stored.plan_cards,
             mounted_to_chart=stored.mounted_to_chart,
@@ -2079,17 +2158,74 @@ class ReplayWorkbenchService:
         chart_instance_id: str | None = None,
         lookback_bars: int = 4,
     ) -> ReplayWorkbenchLiveTailResponse:
-        # Pull enough recent continuous-state messages to build `lookback_bars` candles.
-        # Repository only supports "latest N" so we oversample and filter by time cutoff.
+        symbol = instrument_symbol.upper()
+
+        # Fast path: query pre-aggregated bars from chart_candles first.
         timeframe_minutes = self._TIMEFRAME_MINUTES.get(display_timeframe, 1)
         required_minutes = (timeframe_minutes * max(lookback_bars, 2)) + 3
+        now_utc = datetime.now(tz=UTC)
+        preaggregated_candles: list[ReplayChartBar] = []
+        preaggregated_window_start = now_utc - timedelta(days=7)
+        try:
+            chart_rows = self._repository.list_chart_candles(
+                symbol=symbol,
+                timeframe=display_timeframe.value,
+                window_start=preaggregated_window_start,
+                window_end=now_utc,
+                limit=max(500, lookback_bars * 20),
+            )
+            preaggregated_candles = [
+                ReplayChartBar(
+                    started_at=row.started_at,
+                    ended_at=row.ended_at,
+                    open=row.open,
+                    high=row.high,
+                    low=row.low,
+                    close=row.close,
+                    volume=row.volume,
+                    delta=row.delta,
+                    bid_volume=None,
+                    ask_volume=None,
+                )
+                for row in chart_rows
+                # Keep the legacy behavior: pure zero-activity heartbeat bars should
+                # not be surfaced as live candles.
+                if (
+                    (row.volume or 0) > 0
+                    or abs(float(row.close) - float(row.open)) > 1e-9
+                )
+            ]
+        except Exception:
+            preaggregated_candles = []
+
+        tick_quote = self._try_get_latest_tick_quote(symbol)
+        tick_observed_at = tick_quote.get("observed_at") if tick_quote is not None else None
+        if isinstance(tick_observed_at, str):
+            try:
+                tick_observed_at = _parse_utc(tick_observed_at)
+            except Exception:
+                tick_observed_at = None
+        if not isinstance(tick_observed_at, datetime):
+            tick_observed_at = None
+
+        tick_latest_price = self._to_float_or_none(
+            tick_quote.get("last_price") if tick_quote is not None else None
+        )
+        tick_best_bid = self._to_float_or_none(
+            tick_quote.get("best_bid") if tick_quote is not None else None
+        )
+        tick_best_ask = self._to_float_or_none(
+            tick_quote.get("best_ask") if tick_quote is not None else None
+        )
+
+        # Pull enough recent continuous-state messages for overlays and rich state.
         estimated_messages_per_minute = 6  # ~10s cadence (tune if adapter cadence changes)
         candidates_limit = int(required_minutes * estimated_messages_per_minute * 3)
         candidates_limit = max(5000, min(50000, candidates_limit))
 
         candidates = self._repository.list_ingestions(
             ingestion_kind="adapter_continuous_state",
-            instrument_symbol=instrument_symbol,
+            instrument_symbol=symbol,
             limit=candidates_limit,
         )
         matched: list[tuple[datetime, StoredIngestion]] = []
@@ -2105,7 +2241,13 @@ class ReplayWorkbenchService:
                 latest_observed_at = observed_at
                 latest_payload = payload
 
-        if latest_observed_at is None or latest_payload is None:
+        if tick_observed_at is not None and (latest_observed_at is None or tick_observed_at > latest_observed_at):
+            latest_observed_at = tick_observed_at
+
+        if latest_observed_at is None and preaggregated_candles:
+            latest_observed_at = preaggregated_candles[-1].ended_at
+
+        if latest_observed_at is None and latest_payload is None and not preaggregated_candles and tick_quote is None:
             return ReplayWorkbenchLiveTailResponse(
                 instrument_symbol=instrument_symbol,
                 display_timeframe=display_timeframe,
@@ -2137,25 +2279,32 @@ class ReplayWorkbenchService:
                 latest_backfill_request=None,
             )
 
-        recent_cutoff = latest_observed_at - timedelta(
-            minutes=(self._TIMEFRAME_MINUTES.get(display_timeframe, 1) * max(lookback_bars, 2)) + 1
-        )
-        recent_messages = [stored for observed_at, stored in matched if observed_at >= recent_cutoff]
-        recent_messages.sort(key=lambda item: self._payload_observed_at(item.observed_payload))
-        candle_messages = self._select_trade_active_continuous_messages(recent_messages)
-        live_candles = self._build_candles(display_timeframe, candle_messages)[-max(lookback_bars, 1):]
+        recent_messages: list[StoredIngestion] = []
+        if latest_observed_at is not None:
+            recent_cutoff = latest_observed_at - timedelta(
+                minutes=(self._TIMEFRAME_MINUTES.get(display_timeframe, 1) * max(lookback_bars, 2)) + 1
+            )
+            recent_messages = [stored for observed_at, stored in matched if observed_at >= recent_cutoff]
+            recent_messages.sort(key=lambda item: self._payload_observed_at(item.observed_payload))
+
+        if preaggregated_candles:
+            live_candles = preaggregated_candles[-max(lookback_bars, 1):]
+        else:
+            candle_messages = self._select_trade_active_continuous_messages(recent_messages)
+            live_candles = self._build_candles(display_timeframe, candle_messages)[-max(lookback_bars, 1):]
+
         event_annotations = self._build_event_annotations(recent_messages) if recent_messages else []
         focus_regions = self._build_focus_regions(recent_messages, event_annotations) if recent_messages else []
 
-        # --- auto gap-fill: patch holes in live candles using history-bars ---
+        # Auto gap-fill: patch holes in live candles using history-bars.
         live_candles = self._patch_live_candle_gaps(
-            instrument_symbol=instrument_symbol,
+            instrument_symbol=symbol,
             display_timeframe=display_timeframe,
             chart_instance_id=chart_instance_id,
             candles=live_candles,
         )
 
-        # --- still expose remaining gaps as explicit synthetic bars (so UI can see missing time) ---
+        # Still expose remaining gaps as explicit synthetic bars (so UI can see missing time).
         live_candles, candle_gaps, _ = self._fill_candle_time_gaps(live_candles, display_timeframe)
 
         cache_key = None
@@ -2176,8 +2325,8 @@ class ReplayWorkbenchService:
             else None
         )
         integrity = self._build_integrity(
-            window_start=live_candles[0].started_at if live_candles else latest_observed_at - timedelta(days=7),
-            window_end=live_candles[-1].ended_at if live_candles else latest_observed_at,
+            window_start=live_candles[0].started_at if live_candles else (latest_observed_at or now_utc) - timedelta(days=7),
+            window_end=live_candles[-1].ended_at if live_candles else (latest_observed_at or now_utc),
             candle_gaps=candle_gaps,
             latest_backfill_request=latest_backfill_request,
         )
@@ -2187,43 +2336,91 @@ class ReplayWorkbenchService:
             and integrity.status == "complete"
         )
 
-        price_state = latest_payload.get("price_state", {})
-        return ReplayWorkbenchLiveTailResponse(
-            instrument_symbol=instrument_symbol,
-            display_timeframe=display_timeframe,
-            latest_observed_at=latest_observed_at,
-            latest_price=price_state.get("last_price"),
-            best_bid=price_state.get("best_bid"),
-            best_ask=price_state.get("best_ask"),
-            source_message_count=len(recent_messages),
-            candles=live_candles,
-            event_annotations=event_annotations,
-            focus_regions=focus_regions,
-            trade_summary=payload_to_model(latest_payload.get("trade_summary"), AdapterTradeSummary),
-            significant_liquidity=[
+        if latest_payload is not None:
+            price_state = latest_payload.get("price_state", {})
+            latest_price = price_state.get("last_price")
+            best_bid = price_state.get("best_bid")
+            best_ask = price_state.get("best_ask")
+            latest_price = self._to_float_or_none(latest_price)
+            best_bid = self._to_float_or_none(best_bid)
+            best_ask = self._to_float_or_none(best_ask)
+            latest_price_source = "continuous_state" if latest_price is not None else None
+            best_bid_source = "continuous_state" if best_bid is not None else None
+            best_ask_source = "continuous_state" if best_ask is not None else None
+
+            if latest_price is None and tick_latest_price is not None:
+                latest_price = tick_latest_price
+                latest_price_source = "ticks_raw"
+            if latest_price is None and live_candles:
+                latest_price = live_candles[-1].close
+                latest_price_source = "candle_close"
+            if best_bid is None and tick_best_bid is not None:
+                best_bid = tick_best_bid
+                best_bid_source = "ticks_raw"
+            if best_ask is None and tick_best_ask is not None:
+                best_ask = tick_best_ask
+                best_ask_source = "ticks_raw"
+
+            trade_summary = payload_to_model(latest_payload.get("trade_summary"), AdapterTradeSummary)
+            significant_liquidity = [
                 model
                 for model in (
                     payload_to_model(item, AdapterSignificantLiquidityLevel)
                     for item in latest_payload.get("significant_liquidity", [])
                 )
                 if model is not None
-            ],
-            same_price_replenishment=[
+            ]
+            same_price_replenishment = [
                 model
                 for model in (
                     payload_to_model(item, AdapterSamePriceReplenishmentState)
                     for item in latest_payload.get("same_price_replenishment", [])
                 )
                 if model is not None
-            ],
-            active_initiative_drive=payload_to_model(
+            ]
+            active_initiative_drive = payload_to_model(
                 latest_payload.get("active_initiative_drive"),
                 AdapterInitiativeDriveState,
-            ),
-            active_post_harvest_response=payload_to_model(
+            )
+            active_post_harvest_response = payload_to_model(
                 latest_payload.get("active_post_harvest_response"),
                 AdapterPostHarvestResponseState,
-            ),
+            )
+        else:
+            latest_price = tick_latest_price
+            latest_price_source = "ticks_raw" if latest_price is not None else None
+            if latest_price is None:
+                latest_price = live_candles[-1].close if live_candles else None
+                latest_price_source = "candle_close" if latest_price is not None else None
+            best_bid = tick_best_bid
+            best_ask = tick_best_ask
+            best_bid_source = "ticks_raw" if best_bid is not None else None
+            best_ask_source = "ticks_raw" if best_ask is not None else None
+            trade_summary = None
+            significant_liquidity = []
+            same_price_replenishment = []
+            active_initiative_drive = None
+            active_post_harvest_response = None
+
+        return ReplayWorkbenchLiveTailResponse(
+            instrument_symbol=instrument_symbol,
+            display_timeframe=display_timeframe,
+            latest_observed_at=latest_observed_at,
+            latest_price=latest_price,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            latest_price_source=latest_price_source,
+            best_bid_source=best_bid_source,
+            best_ask_source=best_ask_source,
+            source_message_count=len(recent_messages),
+            candles=live_candles,
+            event_annotations=event_annotations,
+            focus_regions=focus_regions,
+            trade_summary=trade_summary,
+            significant_liquidity=significant_liquidity,
+            same_price_replenishment=same_price_replenishment,
+            active_initiative_drive=active_initiative_drive,
+            active_post_harvest_response=active_post_harvest_response,
             integrity=integrity,
             snapshot_refresh_required=snapshot_refresh_required,
             latest_backfill_request=latest_backfill_request,
@@ -2899,6 +3096,8 @@ class ReplayWorkbenchService:
         first_payload = ingestions[0].observed_payload if ingestions else None
         last_payload = ingestions[-1].observed_payload if ingestions else None
         replay_snapshot_id = f"replay-{request.instrument_symbol.lower()}-{created_at.strftime('%Y%m%dT%H%M%SZ')}"
+        trade_active_messages = self._select_trade_active_continuous_messages(ingestions)
+        preaggregate_fallback_used = False
 
         # ─── Fast path: try pre-aggregated ClickHouse materialized view ───────
         # Queries return sub-100ms regardless of raw message count (109k+ rows).
@@ -2909,6 +3108,13 @@ class ReplayWorkbenchService:
             window_start=request.window_start,
             window_end=request.window_end,
         )
+        if pre_bars and self._preaggregated_bars_missing_coverage(
+            pre_bars=pre_bars,
+            trade_active_messages=trade_active_messages,
+            timeframe=request.display_timeframe,
+        ):
+            pre_bars = []
+            preaggregate_fallback_used = True
         if pre_bars:
             candles = [
                 ReplayChartBar(
@@ -2936,7 +3142,7 @@ class ReplayWorkbenchService:
             history_source = "continuous_state_preaggregate"
         else:
             # ─── Slow path: aggregate from raw continuous_state messages ────────
-            candle_ingestions = self._select_trade_active_continuous_messages(ingestions)
+            candle_ingestions = trade_active_messages
             candles = self._build_candles(request.display_timeframe, candle_ingestions)
             event_annotations = self._build_event_annotations(ingestions) if ingestions else []
             focus_regions = self._build_focus_regions(ingestions, event_annotations) if ingestions else []
@@ -3032,6 +3238,7 @@ class ReplayWorkbenchService:
                 "initial_window_bar_limit": initial_window_bar_limit,
                 "total_candle_count": total_candle_count,
                 "deferred_history_available": total_candle_count > len(candles),
+                "preaggregate_fallback_used": preaggregate_fallback_used,
             },
         )
 
@@ -3089,6 +3296,33 @@ class ReplayWorkbenchService:
             ]
         except Exception:
             return []
+
+    def _preaggregated_bars_missing_coverage(
+        self,
+        *,
+        pre_bars: list[dict[str, Any]],
+        trade_active_messages: list[StoredIngestion],
+        timeframe: Timeframe,
+    ) -> bool:
+        if not pre_bars or not trade_active_messages:
+            return False
+        timeframe_minutes = max(1, self._TIMEFRAME_MINUTES.get(timeframe, 1))
+        tolerance = timedelta(minutes=timeframe_minutes * 2)
+        first_pre_started_at = self._ensure_utc(pre_bars[0]["started_at"])
+        last_pre_started_at = self._ensure_utc(pre_bars[-1]["started_at"])
+        activity_bucket_starts = [
+            self._bucket_start(self._payload_observed_at(item.observed_payload), timeframe)
+            for item in trade_active_messages
+        ]
+        if not activity_bucket_starts:
+            return False
+        expected_first_started_at = min(activity_bucket_starts)
+        expected_last_started_at = max(activity_bucket_starts)
+        if first_pre_started_at > expected_first_started_at + tolerance:
+            return True
+        if last_pre_started_at + tolerance < expected_last_started_at:
+            return True
+        return False
 
     def _try_get_preaggregated_events(
         self,
@@ -3602,6 +3836,29 @@ class ReplayWorkbenchService:
             if last_price is not None:
                 previous_last_price = last_price
         return selected
+
+    def _try_get_latest_tick_quote(self, symbol: str) -> dict[str, Any] | None:
+        repository = self._repository
+        if not hasattr(repository, "get_latest_tick_quote"):
+            return None
+        try:
+            quote = repository.get_latest_tick_quote(
+                symbol=symbol,
+                lookback_seconds=300,
+                limit=3000,
+            )
+        except Exception:
+            return None
+        return quote if isinstance(quote, dict) else None
+
+    @staticmethod
+    def _to_float_or_none(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _payload_observed_at(payload: dict[str, Any]) -> datetime:

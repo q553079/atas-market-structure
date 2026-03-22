@@ -205,8 +205,21 @@ textarea {
   flex-direction: column;
   gap: 6px;
   padding: 10px;
-  min-width: 140px;
+  min-width: 220px;
   z-index: 12;
+}
+
+.header-more-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-bottom: 8px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.header-more-summary .meta {
+  line-height: 1.4;
 }
 
 .header-more-menu button {
@@ -1217,6 +1230,7 @@ label {
 }
 
 .build-progress-track {
+  position: relative;
   height: 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
@@ -1224,9 +1238,34 @@ label {
 }
 
 .build-progress-fill {
+  position: relative;
   height: 100%;
   width: 0;
   background: linear-gradient(90deg, #2563eb, #60a5fa);
+  transition: width 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width;
+}
+
+.build-progress-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.26), transparent);
+  transform: translateX(-100%);
+  animation: build-progress-shimmer 1.15s linear infinite;
+}
+
+.build-progress.build-progress-complete .build-progress-fill::after {
+  animation: none;
+}
+
+@keyframes build-progress-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .chart-frame {
@@ -1298,6 +1337,7 @@ label {
   top: 12px;
   left: 12px;
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 8px 14px;
   background: rgba(16, 24, 39, 0.9);
@@ -1321,6 +1361,62 @@ label {
 
 .chart-info-time {
   color: var(--text-soft);
+}
+
+.chart-info-quote {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+.chart-info-quote-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chart-info-quote-label {
+  color: rgba(203, 213, 225, 0.75);
+}
+
+.chart-info-quote-value {
+  color: rgba(226, 232, 240, 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+.quote-source-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 13px;
+  padding: 0 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(30, 41, 59, 0.7);
+  color: rgba(226, 232, 240, 0.78);
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.quote-source-tag.cs {
+  border-color: rgba(56, 189, 248, 0.45);
+  color: rgba(125, 211, 252, 0.95);
+}
+
+.quote-source-tag.tk {
+  border-color: rgba(16, 185, 129, 0.45);
+  color: rgba(110, 231, 183, 0.95);
+}
+
+.quote-source-tag.cl {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: rgba(253, 186, 116, 0.95);
 }
 
 .volume-chart-container {
@@ -1686,6 +1782,25 @@ button.chart-event-pill.selected {
   align-items: center;
 }
 
+.attachment-preview-head {
+  flex-wrap: wrap;
+}
+
+.attachment-preview-head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.attachment-preview-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+}
+
 .chat-memory-summary,
 .meta,
 .empty-note {
@@ -1739,6 +1854,21 @@ button.chart-event-pill.selected {
 
 .reply-extraction-batch-actions {
   margin-left: auto;
+}
+
+.reply-extraction-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.reply-extraction-footer-meta {
+  color: var(--text-soft);
+  font-size: 12px;
 }
 
 .secondary-ai-panel-head {
@@ -2182,6 +2312,37 @@ button.chart-event-pill.selected {
   font-size: 13px;
 }
 
+.attachment-preview-collapsed-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 2px;
+}
+
+.attachment-mini-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attachment-mini-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.attachment-row-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
 .attachment-row-main,
 .attachment-chip-meta {
   display: flex;
@@ -2250,14 +2411,30 @@ button.chart-event-pill.selected {
 
 .annotation-object-row {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
   font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.annotation-object-row:hover {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.annotation-object-row.is-hidden {
+  border-style: dashed;
+  opacity: 0.82;
+}
+
+.annotation-object-row.is-pinned {
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.18);
 }
 
 .annotation-object-row.active {
@@ -2265,8 +2442,68 @@ button.chart-event-pill.selected {
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.18);
 }
 
+.annotation-object-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.annotation-object-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.annotation-object-title {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.annotation-object-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.annotation-object-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.annotation-object-chip.good {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: rgba(34, 197, 94, 0.12);
+  color: #bbf7d0;
+}
+
+.annotation-object-chip.warn {
+  border-color: rgba(245, 158, 11, 0.24);
+  background: rgba(245, 158, 11, 0.14);
+  color: #fde68a;
+}
+
+.annotation-object-meta,
+.annotation-object-summary {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.annotation-object-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .annotation-popover-card {
-  width: min(560px, 100%);
+  width: min(680px, 100%);
 }
 
 .modal-surface {
@@ -2306,11 +2543,74 @@ button.chart-event-pill.selected {
   line-height: 1.6;
 }
 
+.annotation-detail-shell {
+  margin-top: 14px;
+}
+
+.annotation-detail-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.annotation-detail-card {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 14px;
+}
+
+.annotation-detail-card h4 {
+  margin: 0 0 10px;
+}
+
+.annotation-detail-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.annotation-detail-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.annotation-detail-item span {
+  color: var(--text-soft);
+}
+
+.annotation-detail-item strong {
+  color: var(--text);
+  text-align: right;
+  line-height: 1.45;
+}
+
+.annotation-detail-note {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-soft);
+  line-height: 1.6;
+  padding: 10px 12px;
+}
+
+.annotation-popover-actions {
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
 .cache-info-content {
   display: flex;
   flex-direction: column;
   gap: 16px;
   margin: 16px 0;
+}
+
+.cache-status-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .cache-value {
@@ -2511,6 +2811,27 @@ button.chart-event-pill.selected {
   gap: 6px;
 }
 
+@media (max-width: 1180px) {
+  .annotation-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .annotation-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .annotation-object-head,
+  .annotation-detail-item {
+    flex-direction: column;
+  }
+
+  .annotation-object-actions {
+    justify-content: flex-start;
+  }
+}
+
 .plan-chip {
   display: inline-flex;
   padding: 6px 10px;
@@ -2600,6 +2921,14 @@ button.chart-event-pill.selected {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.longtext-preview {
+  color: rgba(226, 232, 240, 0.88);
+}
+
+.longtext-full {
+  color: rgba(226, 232, 240, 0.96);
 }
 
 .longtext-block p {

@@ -16,6 +16,7 @@ export function createWorkbenchActions({
   loadSnapshotByIngestionId,
   applySnapshotToState,
   loadSidebarDataInBackground,
+  loadHistoryDepthInBackground,
   loadDeferredEnhancements,
 }) {
   async function saveDraftRegion() {
@@ -45,6 +46,28 @@ export function createWorkbenchActions({
     state.chartInteraction.regionMode = false;
     renderStatusStrip([{ label: "手工区域已保存", variant: "good" }]);
     renderSnapshot();
+  }
+
+  function resetReplaySurfaceState({ preserveBuildResponse = true } = {}) {
+    if (!preserveBuildResponse) {
+      state.buildResponse = null;
+    }
+    state.snapshot = null;
+    state.operatorEntries = [];
+    state.manualRegions = [];
+    state.aiReview = null;
+    state.currentReplayIngestionId = null;
+    state.integrity = null;
+    state.pendingBackfill = null;
+    state.lastLiveTailIntegrityHash = null;
+    state.lastChartUpdateType = null;
+    state.chartEventModel = null;
+    state.historyBackfillLoading = false;
+    state.fullHistoryLoaded = false;
+    state.selectedChartEventClusterKey = null;
+    state.selectedCandleIndex = null;
+    state.selectedFootprintBar = null;
+    state.chartView = null;
   }
 
   async function handleBuild() {
@@ -79,6 +102,9 @@ export function createWorkbenchActions({
         applySnapshotToState(result.ingestion_id, result.core_snapshot, { reason: "build-inline-core" });
         renderCoreSnapshot();
         void loadSidebarDataInBackground(result.ingestion_id);
+        if (typeof loadHistoryDepthInBackground === "function") {
+          void loadHistoryDepthInBackground(result.ingestion_id);
+        }
         loadDeferredEnhancements();
         setBuildProgress(true, 94, "后台补齐侧栏与增强信息");
       } else if (result.ingestion_id) {
@@ -129,10 +155,11 @@ export function createWorkbenchActions({
         cache_record: result.record,
         atas_fetch_request: result.record ? null : { cache_key: result.cache_key, instrument_symbol: els.instrumentSymbol.value.trim() },
         atas_backfill_request: null,
-        integrity: result.record?.integrity || state.integrity || null,
+        integrity: result.record?.integrity || null,
       };
       state.integrity = state.buildResponse.integrity;
       state.pendingBackfill = state.buildResponse.atas_backfill_request;
+      state.lastLiveTailIntegrityHash = state.integrity ? JSON.stringify(state.integrity) : null;
       state.aiReview = null;
       state.currentReplayIngestionId = result.record?.ingestion_id || null;
       renderStatusStrip([
@@ -143,11 +170,13 @@ export function createWorkbenchActions({
       if (result.record?.ingestion_id) {
         await loadSnapshotByIngestionId(result.record.ingestion_id);
       } else {
-        state.snapshot = null;
+        resetReplaySurfaceState({ preserveBuildResponse: true });
         renderSnapshot();
       }
+      return result;
     } catch (error) {
       renderError(error);
+      return null;
     }
   }
 
@@ -168,10 +197,7 @@ export function createWorkbenchActions({
         { label: "缓存已作废", variant: "warn" },
         { label: translateVerificationStatus(result.verification_status), variant: "warn" },
       ]);
-      state.snapshot = null;
-      state.operatorEntries = [];
-      state.aiReview = null;
-      state.currentReplayIngestionId = null;
+      resetReplaySurfaceState({ preserveBuildResponse: true });
       state.buildResponse = {
         action: "atas_fetch_required",
         cache_key: result.cache_key,
@@ -182,10 +208,14 @@ export function createWorkbenchActions({
         summary: null,
         cache_record: null,
         atas_fetch_request: { cache_key: result.cache_key, manual_reimport_required: true },
+        atas_backfill_request: null,
+        integrity: null,
       };
       renderSnapshot();
+      return result;
     } catch (error) {
       renderError(error);
+      return null;
     }
   }
 

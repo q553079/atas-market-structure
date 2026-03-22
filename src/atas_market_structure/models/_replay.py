@@ -998,6 +998,18 @@ class ReplayWorkbenchLiveTailResponse(BaseModel):
         None,
         description="Most recent best ask from the adapter stream when available.",
     )
+    latest_price_source: str | None = Field(
+        None,
+        description="Source used for latest_price (for example: continuous_state, ticks_raw, candle_close).",
+    )
+    best_bid_source: str | None = Field(
+        None,
+        description="Source used for best_bid (for example: continuous_state, ticks_raw).",
+    )
+    best_ask_source: str | None = Field(
+        None,
+        description="Source used for best_ask (for example: continuous_state, ticks_raw).",
+    )
     source_message_count: int = Field(
         ...,
         ge=0,

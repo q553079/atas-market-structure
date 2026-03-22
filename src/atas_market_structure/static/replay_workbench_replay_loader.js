@@ -88,6 +88,8 @@ export function createReplayLoader({
     state.selectedCandleIndex = shouldPreserveSelection ? previousSelectedCandleIndex : null;
     state.selectedFootprintBar = shouldPreserveSelection ? previousSelectedFootprintBar : null;
     state.chartView = shouldPreserveChartView ? previousChartView : null;
+    state.chartViewportResetPending = !shouldPreserveChartView;
+    state.chartAutoScalePending = !shouldPreserveChartView;
     state.lastSnapshotLoadReason = reason;
     state.fullHistoryLoaded = !snapshot?.raw_features?.deferred_history_available;
     if (!state.aiThreads?.length) {
