@@ -24,6 +24,98 @@ export function clampNumber(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+export function buildChartViewportKey(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return "";
+  }
+  const source = snapshot.source && typeof snapshot.source === "object" ? snapshot.source : {};
+  const instrument = snapshot.instrument && typeof snapshot.instrument === "object" ? snapshot.instrument : {};
+  const chartInstanceId = String(source.chart_instance_id || snapshot.chart_instance_id || "").trim();
+  const contractSymbol = String(instrument.contract_symbol || snapshot.contract_symbol || "").trim().toUpperCase();
+  const instrumentSymbol = String(snapshot.instrument_symbol || instrument.symbol || "").trim().toUpperCase();
+  const timeframe = String(snapshot.display_timeframe || snapshot.timeframe || "").trim();
+  return [
+    chartInstanceId || "no-chart",
+    contractSymbol || "no-contract",
+    instrumentSymbol || "no-symbol",
+    timeframe || "no-timeframe",
+  ].join("|");
+}
+
+export function snapshotChartViewForRegistry(totalCount, chartView, options = {}) {
+  if (!totalCount || !chartView) {
+    return null;
+  }
+  const clampedView = clampChartView(totalCount, chartView.startIndex, chartView.endIndex, chartView);
+  const spanBars = Math.max(1, clampedView.endIndex - clampedView.startIndex + 1);
+  const rightPadding = Math.max(0, Math.max(0, totalCount - 1) - clampedView.endIndex);
+  return {
+    startIndex: clampedView.startIndex,
+    endIndex: clampedView.endIndex,
+    yMin: clampedView.yMin ?? null,
+    yMax: clampedView.yMax ?? null,
+    totalCount,
+    spanBars,
+    rightPadding,
+    followLatest: rightPadding <= Math.max(6, Math.ceil(spanBars * 0.12)),
+    lastVisibleEndedAt: options.lastVisibleEndedAt || null,
+    savedAt: new Date().toISOString(),
+  };
+}
+
+export function restoreChartViewFromRegistry(totalCount, savedView, options = {}) {
+  if (!totalCount || !savedView) {
+    return null;
+  }
+  const safeTotalCount = Math.max(1, Number(totalCount) || 0);
+  const savedTotalCount = Math.max(1, Number(savedView.totalCount) || safeTotalCount);
+  const requestedSpan = Math.max(
+    12,
+    Math.min(
+      safeTotalCount,
+      Number(savedView.spanBars)
+      || (Number(savedView.endIndex) - Number(savedView.startIndex) + 1)
+      || Math.min(180, safeTotalCount),
+    ),
+  );
+  const followLatest = options.forceFollowLatest === true || savedView.followLatest !== false;
+  if (followLatest) {
+    const rightPadding = clampNumber(Number(savedView.rightPadding) || 4, 2, 12);
+    const targetEnd = Math.max(requestedSpan - 1, Math.max(0, safeTotalCount - 1 - rightPadding));
+    return clampChartView(
+      safeTotalCount,
+      targetEnd - requestedSpan + 1,
+      targetEnd,
+      savedView,
+    );
+  }
+  const growth = safeTotalCount - savedTotalCount;
+  return clampChartView(
+    safeTotalCount,
+    Number(savedView.startIndex ?? 0) + growth,
+    Number(savedView.endIndex ?? (requestedSpan - 1)) + growth,
+    savedView,
+  );
+}
+
+function toFiniteNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function appendBoundedOverlayPrices(target, values, candleMin, candleMax, maxDistance) {
+  (Array.isArray(values) ? values : [values]).forEach((value) => {
+    const numeric = toFiniteNumber(value);
+    if (numeric == null) {
+      return;
+    }
+    if (numeric < candleMin - maxDistance || numeric > candleMax + maxDistance) {
+      return;
+    }
+    target.push(numeric);
+  });
+}
+
 export function derivePriceEnvelope(visibleCandles, events = [], focusRegions = [], manualRegions = [], operatorEntries = [], bubbleMarks = []) {
   if (!visibleCandles.length) {
     return { min: 0, max: 1 };
@@ -35,43 +127,63 @@ export function derivePriceEnvelope(visibleCandles, events = [], focusRegions = 
     return timestamp >= visibleStartTime && timestamp <= visibleEndTime;
   };
 
-  const prices = [];
-  visibleCandles.forEach((bar) => prices.push(bar.high, bar.low));
+  const candlePrices = [];
+  visibleCandles.forEach((bar) => {
+    const high = toFiniteNumber(bar.high);
+    const low = toFiniteNumber(bar.low);
+    if (high != null) candlePrices.push(high);
+    if (low != null) candlePrices.push(low);
+  });
+  if (!candlePrices.length) {
+    return { min: 0, max: 1 };
+  }
+
+  const candleMin = Math.min(...candlePrices);
+  const candleMax = Math.max(...candlePrices);
+  const candleSpan = Math.max(candleMax - candleMin, Math.max(Math.abs(candleMax) * 0.002, 2));
+  const maxDistance = Math.max(candleSpan * 4, Math.max(Math.abs(candleMax) * 0.002, 8));
+  const overlayPrices = [];
+
   events.filter((event) => withinVisibleWindow(event.observed_at)).forEach((event) => {
-    if (event.price != null) prices.push(event.price);
-    if (event.price_low != null) prices.push(event.price_low);
-    if (event.price_high != null) prices.push(event.price_high);
+    appendBoundedOverlayPrices(overlayPrices, [event.price, event.price_low, event.price_high], candleMin, candleMax, maxDistance);
   });
   focusRegions.forEach((region) => {
     if (withinVisibleWindow(region.started_at) || withinVisibleWindow(region.ended_at || visibleCandles[visibleCandles.length - 1].ended_at)) {
-      prices.push(region.price_low, region.price_high);
+      appendBoundedOverlayPrices(overlayPrices, [region.price_low, region.price_high], candleMin, candleMax, maxDistance);
     }
   });
   manualRegions.forEach((region) => {
     if (withinVisibleWindow(region.started_at) || withinVisibleWindow(region.ended_at)) {
-      prices.push(region.price_low, region.price_high);
+      appendBoundedOverlayPrices(overlayPrices, [region.price_low, region.price_high], candleMin, candleMax, maxDistance);
     }
   });
   operatorEntries.forEach((entry) => {
     if (withinVisibleWindow(entry.executed_at)) {
-      prices.push(entry.entry_price, entry.stop_price ?? entry.entry_price, entry.target_price ?? entry.entry_price);
+      appendBoundedOverlayPrices(
+        overlayPrices,
+        [entry.entry_price, entry.stop_price ?? entry.entry_price, entry.target_price ?? entry.entry_price],
+        candleMin,
+        candleMax,
+        maxDistance,
+      );
     }
   });
   bubbleMarks.forEach((bubble) => {
-    if (bubble.topVolumeLevel?.price != null) {
-      prices.push(Number(bubble.topVolumeLevel.price));
-    }
-    if (bubble.topDeltaLevel?.price != null) {
-      prices.push(Number(bubble.topDeltaLevel.price));
-    }
-    if (bubble.candleLow != null) {
-      prices.push(Number(bubble.candleLow));
-    }
-    if (bubble.candleHigh != null) {
-      prices.push(Number(bubble.candleHigh));
-    }
+    appendBoundedOverlayPrices(
+      overlayPrices,
+      [
+        bubble.topVolumeLevel?.price,
+        bubble.topDeltaLevel?.price,
+        bubble.candleLow,
+        bubble.candleHigh,
+      ],
+      candleMin,
+      candleMax,
+      maxDistance,
+    );
   });
 
+  const prices = [...candlePrices, ...overlayPrices];
   const minPrice = Math.min(...prices);
   const maxPrice = Math.max(...prices);
   const paddingPrice = Math.max((maxPrice - minPrice) * 0.08, 1);
@@ -143,7 +255,9 @@ export function createChartViewHelpers({ state }) {
       return null;
     }
     if (!state.chartView) {
-      state.chartView = createDefaultChartView(totalCount);
+      const restoredView = restoreChartViewFromRegistry(totalCount, state.pendingChartViewRestore);
+      state.chartView = restoredView || createDefaultChartView(totalCount);
+      state.pendingChartViewRestore = null;
     }
     state.chartView = clampChartView(totalCount, state.chartView.startIndex, state.chartView.endIndex, state.chartView);
     const visibleCandles = snapshot.candles.slice(state.chartView.startIndex, state.chartView.endIndex + 1);

@@ -48,6 +48,8 @@ def _temp_repo():
 def _build_minimal_history_payload(
     *,
     symbol: str = "NQH6",
+    root_symbol: str | None = None,
+    contract_symbol: str | None = None,
     timeframe: str = "1m",
     bars: list[dict] | None = None,
     chart_instance_id: str | None = "chart-abc",
@@ -92,8 +94,8 @@ def _build_minimal_history_payload(
         },
         "instrument": {
             "symbol": symbol,
-            "root_symbol": symbol[:2] if len(symbol) >= 2 else symbol,
-            "contract_symbol": symbol,
+            "root_symbol": root_symbol if root_symbol is not None else (symbol[:2] if len(symbol) >= 2 else symbol),
+            "contract_symbol": contract_symbol if contract_symbol is not None else symbol,
             "venue": "CME",
             "tick_size": 0.25,
             "currency": "USD",
@@ -198,6 +200,33 @@ def test_history_bars_timezone_source_reflects_atlas_payload() -> None:
         assert obs["source"]["chart_display_timezone_name"] == "Europe/London"
         assert obs["time_context"]["chart_display_timezone_source"] == "atlas_payload"
         assert obs["time_context"]["timezone_capture_confidence"] == "high"
+
+
+def test_history_bars_repairs_truncated_root_symbol() -> None:
+    """Bad single-letter root_symbol values should be repaired from contract metadata."""
+    with _temp_repo() as repo:
+        service = AdapterIngestionService(repository=repo)
+
+        payload_dict = _build_minimal_history_payload(
+            symbol="NQ1!",
+            root_symbol="N",
+            contract_symbol="NQH6",
+        )
+        payload = AdapterHistoryBarsPayload.model_validate(payload_dict)
+
+        result = service.ingest_history_bars(payload)
+
+        stored = repo.get_ingestion(result.ingestion_id)
+        assert stored is not None
+        assert stored.observed_payload["instrument"]["root_symbol"] == "NQ"
+
+        raw_rows = repo.list_atas_chart_bars_raw(
+            chart_instance_id="chart-abc",
+            contract_symbol="NQH6",
+            timeframe="1m",
+        )
+        assert raw_rows
+        assert raw_rows[0].root_symbol == "NQ"
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +444,59 @@ def test_history_bars_duplicate_bar_candle_aggregation_takes_first() -> None:
         assert len(ingestions) == 2
 
 
+def test_history_bars_drop_forming_bar_before_storage() -> None:
+    """A history payload must not persist the still-forming tail bar."""
+    with _temp_repo() as repo:
+        service = AdapterIngestionService(repository=repo)
+
+        t0 = datetime(2026, 3, 22, 9, 30, tzinfo=UTC)
+        bars = [
+            {
+                "started_at": t0.isoformat(),
+                "ended_at": (t0 + timedelta(minutes=1) - timedelta(seconds=1)).isoformat(),
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 25,
+                "delta": 5,
+                "bar_timestamp_utc": t0.isoformat(),
+                "original_bar_time_text": "2026-03-22 09:30:00 ET",
+            },
+            {
+                "started_at": (t0 + timedelta(minutes=1)).isoformat(),
+                "ended_at": (t0 + timedelta(minutes=2) - timedelta(seconds=1)).isoformat(),
+                "open": 101.0,
+                "high": 101.5,
+                "low": 100.5,
+                "close": 101.25,
+                "volume": 6,
+                "delta": 1,
+                "bar_timestamp_utc": (t0 + timedelta(minutes=1)).isoformat(),
+                "original_bar_time_text": "2026-03-22 09:31:00 ET",
+            },
+        ]
+        payload_dict = _build_minimal_history_payload(
+            symbol="NQH6",
+            timeframe="1m",
+            bars=bars,
+        )
+        payload_dict["emitted_at"] = (t0 + timedelta(minutes=1, seconds=2)).isoformat()
+        payload_dict["observed_window_start"] = bars[0]["started_at"]
+        payload_dict["observed_window_end"] = bars[-1]["ended_at"]
+
+        result = service.ingest_history_bars(AdapterHistoryBarsPayload.model_validate(payload_dict))
+
+        stored = repo.get_ingestion(result.ingestion_id)
+        assert stored is not None
+        assert len(stored.observed_payload["bars"]) == 1
+        assert stored.observed_payload["bars"][0]["started_at"].startswith("2026-03-22T09:30:00")
+
+        raw_rows = repo.list_atas_chart_bars_raw(contract_symbol="NQH6", timeframe="1m")
+        assert len(raw_rows) == 1
+        assert raw_rows[0].started_at_utc == t0
+
+
 # ---------------------------------------------------------------------------
 # Test 5: Full backfill-command → history-bars → backfill-ack chain
 # ---------------------------------------------------------------------------
@@ -542,3 +624,151 @@ def test_backfill_request_reused_on_identical_repeat() -> None:
 
         assert second.reused_existing_request is True
         assert second.request.request_id == first.request.request_id
+
+
+def test_replace_existing_history_request_purges_target_window_before_dispatch() -> None:
+    """Manual repair requests clear the targeted raw-mirror and continuous windows before ATAS resends bars."""
+    with _temp_repo() as repo:
+        from atas_market_structure.models import (
+            AtasChartBarRaw,
+            ChartCandle,
+            ReplayWorkbenchAtasBackfillRequest,
+        )
+
+        t0 = datetime(2026, 3, 22, 9, 30, tzinfo=UTC)
+
+        def make_raw_bar(
+            *,
+            chart_instance_id: str,
+            contract_symbol: str,
+            root_symbol: str,
+            started_at: datetime,
+        ) -> AtasChartBarRaw:
+            return AtasChartBarRaw(
+                chart_instance_id=chart_instance_id,
+                root_symbol=root_symbol,
+                contract_symbol=contract_symbol,
+                symbol=contract_symbol,
+                venue="CME",
+                timeframe="1m",
+                started_at_utc=started_at,
+                ended_at_utc=started_at + timedelta(minutes=1) - timedelta(seconds=1),
+                source_started_at=started_at,
+                original_bar_time_text=started_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                timestamp_basis="utc_direct",
+                chart_display_timezone_mode="exchange",
+                chart_display_timezone_name="America/New_York",
+                chart_display_utc_offset_minutes=-240,
+                instrument_timezone_value="36",
+                instrument_timezone_source="exchange_metadata",
+                collector_local_timezone_name="Asia/Shanghai",
+                collector_local_utc_offset_minutes=480,
+                timezone_capture_confidence="high",
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.5,
+                volume=25,
+                bid_volume=10,
+                ask_volume=15,
+                delta=5,
+                trade_count=4,
+                updated_at=started_at,
+            )
+
+        def make_candle(symbol: str, started_at: datetime) -> ChartCandle:
+            return ChartCandle(
+                symbol=symbol,
+                timeframe="1m",
+                started_at=started_at,
+                ended_at=started_at + timedelta(minutes=1) - timedelta(seconds=1),
+                source_started_at=started_at,
+                open=100.0,
+                high=101.0,
+                low=99.0,
+                close=100.5,
+                volume=25,
+                tick_volume=4,
+                delta=5,
+                updated_at=started_at,
+                source_timezone="UTC",
+            )
+
+        repo.upsert_atas_chart_bars_raw(
+            [
+                make_raw_bar(chart_instance_id="chart-abc", contract_symbol="NQH6", root_symbol="NQ", started_at=t0),
+                make_raw_bar(chart_instance_id="chart-abc", contract_symbol="NQH6", root_symbol="NQ", started_at=t0 + timedelta(minutes=1)),
+                make_raw_bar(chart_instance_id="chart-abc", contract_symbol="NQH6", root_symbol="NQ", started_at=t0 + timedelta(minutes=3)),
+                make_raw_bar(chart_instance_id="chart-other", contract_symbol="NQH6", root_symbol="NQ", started_at=t0),
+                make_raw_bar(chart_instance_id="chart-abc", contract_symbol="NQM6", root_symbol="NQ", started_at=t0),
+            ]
+        )
+        repo.replace_chart_candles(
+            [
+                make_candle("NQ", t0),
+                make_candle("NQ", t0 + timedelta(minutes=1)),
+                make_candle("NQ", t0 + timedelta(minutes=3)),
+                make_candle("ES", t0),
+            ]
+        )
+
+        workbench = ReplayWorkbenchService(repository=repo)
+        response = workbench.request_atas_backfill(
+            ReplayWorkbenchAtasBackfillRequest(
+                cache_key="repair-nq-1m-20260322",
+                instrument_symbol="NQ",
+                contract_symbol="NQH6",
+                root_symbol="NQ",
+                display_timeframe="1m",
+                window_start=t0,
+                window_end=t0 + timedelta(minutes=1, seconds=59),
+                chart_instance_id="chart-abc",
+                reason="manual_chart_repair",
+                request_history_bars=True,
+                request_history_footprint=False,
+                replace_existing_history=True,
+            )
+        )
+
+        assert response.reused_existing_request is False
+        assert response.request.replace_existing_history is True
+
+        remaining_scoped_raw = repo.list_atas_chart_bars_raw(
+            chart_instance_id="chart-abc",
+            contract_symbol="NQH6",
+            timeframe="1m",
+            window_start=t0,
+            window_end=t0 + timedelta(minutes=5),
+            limit=10,
+        )
+        assert [row.started_at_utc for row in remaining_scoped_raw] == [t0 + timedelta(minutes=3)]
+
+        untouched_other_chart = repo.list_atas_chart_bars_raw(
+            chart_instance_id="chart-other",
+            contract_symbol="NQH6",
+            timeframe="1m",
+            window_start=t0,
+            window_end=t0 + timedelta(minutes=5),
+            limit=10,
+        )
+        assert [row.started_at_utc for row in untouched_other_chart] == [t0]
+
+        untouched_other_contract = repo.list_atas_chart_bars_raw(
+            chart_instance_id="chart-abc",
+            contract_symbol="NQM6",
+            timeframe="1m",
+            window_start=t0,
+            window_end=t0 + timedelta(minutes=5),
+            limit=10,
+        )
+        assert [row.started_at_utc for row in untouched_other_contract] == [t0]
+
+        remaining_candles = repo.list_chart_candles(
+            "NQ",
+            "1m",
+            t0,
+            t0 + timedelta(minutes=5),
+            limit=10,
+        )
+        assert [candle.started_at for candle in remaining_candles] == [t0 + timedelta(minutes=3)]
+        assert repo.count_chart_candles("ES", "1m") == 1

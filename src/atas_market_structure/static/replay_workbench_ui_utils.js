@@ -142,6 +142,91 @@ export function summarizeText(text, maxLength = 180) {
   return `${normalized.slice(0, maxLength)}…`;
 }
 
+export function sanitizeReplayCandles(candles = [], options = {}) {
+  const {
+    context = "replay",
+    log = true,
+  } = options || {};
+  if (!Array.isArray(candles) || !candles.length) {
+    return [];
+  }
+  const deduped = new Map();
+  let droppedCount = 0;
+  let duplicateCount = 0;
+  let correctedCount = 0;
+  let unsortedCount = 0;
+  let previousTimeMs = null;
+
+  candles.forEach((raw) => {
+    if (!raw || typeof raw !== "object" || !raw.started_at) {
+      droppedCount += 1;
+      return;
+    }
+    const startedAtMs = Date.parse(raw.started_at);
+    if (!Number.isFinite(startedAtMs)) {
+      droppedCount += 1;
+      return;
+    }
+    const open = Number(raw.open);
+    const high = Number(raw.high);
+    const low = Number(raw.low);
+    const close = Number(raw.close);
+    if (![open, high, low, close].every((value) => Number.isFinite(value))) {
+      droppedCount += 1;
+      return;
+    }
+    if (previousTimeMs != null && startedAtMs < previousTimeMs) {
+      unsortedCount += 1;
+    }
+    previousTimeMs = startedAtMs;
+    const normalizedHigh = Math.max(open, high, low, close);
+    const normalizedLow = Math.min(open, high, low, close);
+    if (normalizedHigh !== high || normalizedLow !== low) {
+      correctedCount += 1;
+    }
+    const endedAtMs = Date.parse(raw.ended_at || raw.started_at);
+    const safeEndedAt = Number.isFinite(endedAtMs) && endedAtMs >= startedAtMs
+      ? raw.ended_at || raw.started_at
+      : raw.started_at;
+    if (deduped.has(raw.started_at)) {
+      duplicateCount += 1;
+    }
+    deduped.set(raw.started_at, {
+      ...raw,
+      started_at: raw.started_at,
+      ended_at: safeEndedAt,
+      open,
+      high: normalizedHigh,
+      low: normalizedLow,
+      close,
+      volume: raw.volume == null ? raw.volume : Number(raw.volume),
+      delta: raw.delta == null ? raw.delta : Number(raw.delta),
+      bid_volume: raw.bid_volume == null ? raw.bid_volume : Number(raw.bid_volume),
+      ask_volume: raw.ask_volume == null ? raw.ask_volume : Number(raw.ask_volume),
+    });
+  });
+
+  const normalized = Array.from(deduped.values()).sort((left, right) => (
+    Date.parse(left.started_at) - Date.parse(right.started_at)
+  ));
+  if (log && (droppedCount > 0 || duplicateCount > 0 || correctedCount > 0 || unsortedCount > 0)) {
+    console.warn(
+      `sanitizeReplayCandles[${context}]: input=${candles.length} output=${normalized.length} dropped=${droppedCount} deduped=${duplicateCount} corrected=${correctedCount} unsorted=${unsortedCount}`,
+    );
+  }
+  return normalized;
+}
+
+export function normalizeReplaySnapshot(snapshot, options = {}) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    candles: sanitizeReplayCandles(snapshot.candles, options),
+  };
+}
+
 export function normalizeParagraphs(text) {
   return String(text || "")
     .split(/\n{2,}/)

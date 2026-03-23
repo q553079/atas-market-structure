@@ -203,6 +203,7 @@ class IngestionReliabilityService:
                 detail={"message": str(exc)},
             )
 
+        payload = self._adapter_ingestion_service.normalize_payload(payload)
         metadata = self._adapter_ingestion_service.describe_payload(payload)
         return self._process_validated_payload(
             payload=payload,

@@ -40,6 +40,7 @@ export function createWorkbenchElements(doc = document) {
     headerMoreMenuSync: doc.getElementById("headerMoreMenuSync"),
     lookupCacheButton: doc.getElementById("lookupCacheButton"),
     invalidateCacheButton: doc.getElementById("invalidateCacheButton"),
+    repairChartButton: doc.getElementById("repairChartButton"),
     exportSettingsButton: doc.getElementById("exportSettingsButton"),
     restoreLayoutButton: doc.getElementById("restoreLayoutButton"),
 

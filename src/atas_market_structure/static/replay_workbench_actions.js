@@ -92,6 +92,11 @@ export function createWorkbenchActions({
       state.buildResponse = result;
       state.integrity = result.integrity || null;
       state.pendingBackfill = result.atas_backfill_request || null;
+      if (els.chartInstanceId) {
+        els.chartInstanceId.value = String(
+          result.core_snapshot?.source?.chart_instance_id || result.atas_backfill_request?.chart_instance_id || "",
+        ).trim();
+      }
       state.lastLiveTailIntegrityHash = state.integrity ? JSON.stringify(state.integrity) : null;
       state.snapshot = null;
       state.aiReview = null;
@@ -99,7 +104,11 @@ export function createWorkbenchActions({
       renderStatusStrip(buildStatusChips(result));
       if (result.core_snapshot && result.ingestion_id) {
         setBuildProgress(true, 72, "渲染首图");
-        applySnapshotToState(result.ingestion_id, result.core_snapshot, { reason: "build-inline-core" });
+        applySnapshotToState(result.ingestion_id, result.core_snapshot, {
+          preserveChartView: true,
+          preserveSelection: true,
+          reason: "build-inline-core",
+        });
         renderCoreSnapshot();
         void loadSidebarDataInBackground(result.ingestion_id);
         if (typeof loadHistoryDepthInBackground === "function") {
@@ -109,7 +118,11 @@ export function createWorkbenchActions({
         setBuildProgress(true, 94, "后台补齐侧栏与增强信息");
       } else if (result.ingestion_id) {
         setBuildProgress(true, 72, "载入回放快照");
-        await loadSnapshotByIngestionId(result.ingestion_id, { reason: "build-fetch-core" });
+        await loadSnapshotByIngestionId(result.ingestion_id, {
+          preserveChartView: true,
+          preserveSelection: true,
+          reason: "build-fetch-core",
+        });
         setBuildProgress(true, 94, "后台补齐侧栏与增强信息");
       } else {
         renderCoreSnapshot();
@@ -159,6 +172,11 @@ export function createWorkbenchActions({
       };
       state.integrity = state.buildResponse.integrity;
       state.pendingBackfill = state.buildResponse.atas_backfill_request;
+      if (els.chartInstanceId) {
+        els.chartInstanceId.value = String(
+          state.buildResponse?.record?.source?.chart_instance_id || state.buildResponse?.atas_backfill_request?.chart_instance_id || "",
+        ).trim();
+      }
       state.lastLiveTailIntegrityHash = state.integrity ? JSON.stringify(state.integrity) : null;
       state.aiReview = null;
       state.currentReplayIngestionId = result.record?.ingestion_id || null;
@@ -168,7 +186,11 @@ export function createWorkbenchActions({
         { label: result.verification_due_now ? "当前需要核对" : "当前无需核对", variant: result.verification_due_now ? "emphasis" : "" },
       ]);
       if (result.record?.ingestion_id) {
-        await loadSnapshotByIngestionId(result.record.ingestion_id);
+        await loadSnapshotByIngestionId(result.record.ingestion_id, {
+          preserveChartView: true,
+          preserveSelection: true,
+          reason: "lookup-cache-hit",
+        });
       } else {
         resetReplaySurfaceState({ preserveBuildResponse: true });
         renderSnapshot();
@@ -217,6 +239,76 @@ export function createWorkbenchActions({
       renderError(error);
       return null;
     }
+  }
+
+  async function handleRepairCurrentWindow() {
+    syncCacheKey();
+    const cacheKey = (els.cacheKey?.value || "").trim();
+    const windowStart = toUtcString(els.windowStart?.value);
+    const windowEnd = toUtcString(els.windowEnd?.value);
+    if (!cacheKey) {
+      throw new Error("当前窗口还没有可修复的缓存键。");
+    }
+    if (!windowStart || !windowEnd) {
+      throw new Error("修复当前图表前需要完整的开始和结束时间。");
+    }
+
+    const snapshotInstrument = state.snapshot?.instrument || {};
+    const pending = state.pendingBackfill || {};
+    const instrumentSymbol = String(
+      snapshotInstrument.symbol || state.snapshot?.instrument_symbol || els.instrumentSymbol?.value || "",
+    ).trim().toUpperCase();
+    if (!instrumentSymbol) {
+      throw new Error("当前没有可修复的品种标识。");
+    }
+
+    const contractSymbol = String(
+      snapshotInstrument.contract_symbol || pending.contract_symbol || pending.target_contract_symbol || "",
+    ).trim().toUpperCase() || null;
+    const rootSymbol = String(
+      snapshotInstrument.root_symbol || pending.root_symbol || pending.target_root_symbol || els.instrumentSymbol?.value || "",
+    ).trim().toUpperCase() || null;
+    const chartInstanceId = String(
+      els.chartInstanceId?.value || state.snapshot?.source?.chart_instance_id || pending.chart_instance_id || "",
+    ).trim() || null;
+
+    const result = await fetchJson("/api/v1/workbench/atas-backfill-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cache_key: cacheKey,
+        instrument_symbol: instrumentSymbol,
+        contract_symbol: contractSymbol,
+        root_symbol: rootSymbol,
+        target_contract_symbol: contractSymbol,
+        target_root_symbol: rootSymbol,
+        display_timeframe: els.displayTimeframe?.value || state.topBar?.timeframe || "1m",
+        window_start: windowStart,
+        window_end: windowEnd,
+        chart_instance_id: chartInstanceId,
+        reason: "manual_chart_repair",
+        request_history_bars: true,
+        request_history_footprint: false,
+        replace_existing_history: true,
+      }),
+    });
+
+    state.pendingBackfill = result?.request || null;
+    if (els.chartInstanceId) {
+      els.chartInstanceId.value = result?.request?.chart_instance_id || chartInstanceId || "";
+    }
+    renderStatusStrip([
+      {
+        label: result?.reused_existing_request ? "已有修复任务，继续等待 ATAS 重发" : "已清空目标窗口，等待 ATAS 重发",
+        variant: result?.reused_existing_request ? "emphasis" : "warn",
+      },
+      {
+        label: chartInstanceId ? `chart_instance_id=${chartInstanceId}` : "未绑定图表实例，按当前品种窗口修复",
+        variant: chartInstanceId ? "good" : "warn",
+      },
+    ]);
+    renderSnapshot();
+    return result;
   }
 
   async function handleRecordEntry() {
@@ -292,6 +384,7 @@ export function createWorkbenchActions({
     handleBuild,
     handleLookup,
     handleInvalidate,
+    handleRepairCurrentWindow,
     handleRecordEntry,
     handleAiReview,
     handleSaveRegion,

@@ -22,7 +22,7 @@ internal static class TriggerKinds
 [Category("Order Flow")]
 public abstract class AtasMarketStructureCollectorFull : Indicator
 {
-    private const string CollectorVersion = "0.5.0-alpha";
+    private const string CollectorVersion = "0.5.1-alpha";
     private const int DefaultHistoryBarsChunkBars = 512;
     private const int DefaultHistoryFootprintChunkBars = 50;
     private readonly object _sync = new();
@@ -60,10 +60,14 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
     private CancellationTokenSource? _backfillCts;
     private Task? _backfillPollerTask;
     private readonly HashSet<string> _inProgressBackfills = new(StringComparer.Ordinal);
+    private int _latestObservedBarCount;
     private int _latestObservedBarIndex = -1;
     private int _lastHistoryBarsExportedBarIndex = -1;
+    private int _lastHistoryBarsExportedCount;
+    private DateTime? _lastHistoryBarsExportedFirstStartedAtUtc;
     private DateTime? _lastHistoryBarsExportedLatestStartedAtUtc;
     private DateTime _lastHistoryBarsMutationObservedUtc = DateTime.MinValue;
+    private DateTime _lastHistoryBarsFullSnapshotExportedAtUtc = DateTime.MinValue;
     private bool _historyBarsInitialSnapshotPending = true;
 
     protected AtasMarketStructureCollectorFull()
@@ -194,10 +198,14 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
             _timeContextResolvedAtUtc = DateTime.MinValue;
             _lastObservedBarStartedAtUtc = null;
             _lastLoggedContextSignature = string.Empty;
+            _latestObservedBarCount = 0;
             _latestObservedBarIndex = -1;
             _lastHistoryBarsExportedBarIndex = -1;
+            _lastHistoryBarsExportedCount = 0;
+            _lastHistoryBarsExportedFirstStartedAtUtc = null;
             _lastHistoryBarsExportedLatestStartedAtUtc = null;
             _lastHistoryBarsMutationObservedUtc = DateTime.MinValue;
+            _lastHistoryBarsFullSnapshotExportedAtUtc = DateTime.MinValue;
             _historyBarsInitialSnapshotPending = true;
         }
 
@@ -237,6 +245,13 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         {
             _collectorHeartbeat[bar] = candle.Close;
             var timeUtc = ToUtc(candle.Time);
+            var observedBarCount = Math.Max(CurrentBar, bar + 1);
+            if (observedBarCount > _latestObservedBarCount)
+            {
+                _latestObservedBarCount = observedBarCount;
+                _lastHistoryBarsMutationObservedUtc = DateTime.UtcNow;
+            }
+
             if (bar > _latestObservedBarIndex)
             {
                 _latestObservedBarIndex = bar;
@@ -659,21 +674,32 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
 
     private void MaybeExportLoadedHistoryBars(DateTime nowUtc)
     {
+        SyncLoadedHistoryIndex(nowUtc);
         if (_transport is null || _latestObservedBarIndex < 0)
         {
             return;
         }
 
+        if (!TryGetLoadedHistoryWindow(
+                nowUtc,
+                out var loadedLatestBarIndex,
+                out var loadedBarCount,
+                out var loadedFirstStartedAtUtc,
+                out var loadedLatestStartedAtUtc))
+        {
+            return;
+        }
+
+        var stabilizationWindow = TimeSpan.FromMilliseconds(Math.Max(500, ContinuousCadenceMilliseconds));
         if (_historyBarsInitialSnapshotPending)
         {
-            var stabilizationWindow = TimeSpan.FromMilliseconds(Math.Max(500, ContinuousCadenceMilliseconds));
             if (_lastHistoryBarsMutationObservedUtc != DateTime.MinValue
                 && nowUtc - _lastHistoryBarsMutationObservedUtc < stabilizationWindow)
             {
                 return;
             }
 
-            var snapshotBars = ExportLoadedHistoryBarsSnapshot();
+            var snapshotBars = ExportLoadedHistoryBarsSnapshot(0, loadedLatestBarIndex);
             if (snapshotBars.Count == 0)
             {
                 return;
@@ -684,22 +710,48 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
             if (TrySendHistoryBarsChunks(snapshotBars, nowUtc, chartIdentity, timeContext))
             {
                 _historyBarsInitialSnapshotPending = false;
-                _lastHistoryBarsExportedBarIndex = _latestObservedBarIndex;
-                _lastHistoryBarsExportedLatestStartedAtUtc = snapshotBars[^1].StartedAt;
+                RecordHistoryBarsExport(snapshotBars, loadedBarCount, loadedLatestBarIndex, fullSnapshot: true, exportedAtUtc: nowUtc);
                 LogInfoLocal(
-                    $"MaybeExportLoadedHistoryBars: exported initial snapshot bars={snapshotBars.Count} latest_started_at_utc={snapshotBars[^1].StartedAt:O}.");
+                    $"MaybeExportLoadedHistoryBars: exported initial snapshot bars={snapshotBars.Count} loaded_count={loadedBarCount} first_started_at_utc={snapshotBars[0].StartedAt:O} latest_started_at_utc={snapshotBars[^1].StartedAt:O}.");
             }
 
             return;
         }
 
-        if (_latestObservedBarIndex <= _lastHistoryBarsExportedBarIndex)
+        if (ShouldReexportExpandedHistory(
+                nowUtc,
+                loadedBarCount,
+                loadedFirstStartedAtUtc,
+                loadedLatestStartedAtUtc,
+                stabilizationWindow))
+        {
+            var expandedSnapshotBars = ExportLoadedHistoryBarsSnapshot(0, loadedLatestBarIndex);
+            if (expandedSnapshotBars.Count == 0)
+            {
+                return;
+            }
+
+            LogInfoLocal(
+                $"MaybeExportLoadedHistoryBars: detected earlier loaded history expansion loaded_count={loadedBarCount} exported_count={_lastHistoryBarsExportedCount} loaded_first_started_at_utc={loadedFirstStartedAtUtc:O} exported_first_started_at_utc={_lastHistoryBarsExportedFirstStartedAtUtc:O}; re-exporting full snapshot.");
+            var expandedChartIdentity = ResolveChartIdentity();
+            var expandedTimeContext = ResolveTimeContext();
+            if (TrySendHistoryBarsChunks(expandedSnapshotBars, nowUtc, expandedChartIdentity, expandedTimeContext))
+            {
+                RecordHistoryBarsExport(expandedSnapshotBars, loadedBarCount, loadedLatestBarIndex, fullSnapshot: true, exportedAtUtc: nowUtc);
+                LogInfoLocal(
+                    $"MaybeExportLoadedHistoryBars: re-exported expanded snapshot bars={expandedSnapshotBars.Count} loaded_count={loadedBarCount} first_started_at_utc={expandedSnapshotBars[0].StartedAt:O} latest_started_at_utc={expandedSnapshotBars[^1].StartedAt:O}.");
+            }
+
+            return;
+        }
+
+        if (loadedLatestBarIndex <= _lastHistoryBarsExportedBarIndex)
         {
             return;
         }
 
-        var incrementalStartIndex = Math.Max(0, _lastHistoryBarsExportedBarIndex);
-        var incrementalBars = ExportLoadedHistoryBarsSnapshot(incrementalStartIndex);
+        var incrementalStartIndex = Math.Max(0, _lastHistoryBarsExportedBarIndex + 1);
+        var incrementalBars = ExportLoadedHistoryBarsSnapshot(incrementalStartIndex, loadedLatestBarIndex);
         if (incrementalBars.Count == 0)
         {
             return;
@@ -709,28 +761,177 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         var incrementalTimeContext = ResolveTimeContext();
         if (TrySendHistoryBarsChunks(incrementalBars, nowUtc, incrementalChartIdentity, incrementalTimeContext))
         {
-            _lastHistoryBarsExportedBarIndex = _latestObservedBarIndex;
-            _lastHistoryBarsExportedLatestStartedAtUtc = incrementalBars[^1].StartedAt;
+            RecordHistoryBarsExport(incrementalBars, loadedBarCount, loadedLatestBarIndex, fullSnapshot: false, exportedAtUtc: nowUtc);
             LogInfoLocal(
-                $"MaybeExportLoadedHistoryBars: exported incremental bars={incrementalBars.Count} latest_started_at_utc={incrementalBars[^1].StartedAt:O}.");
+                $"MaybeExportLoadedHistoryBars: exported incremental bars={incrementalBars.Count} loaded_count={loadedBarCount} latest_started_at_utc={incrementalBars[^1].StartedAt:O}.");
         }
     }
 
-    private List<HistoryBarPayload> ExportLoadedHistoryBarsSnapshot(int startIndex = 0)
+    private void SyncLoadedHistoryIndex(DateTime nowUtc)
     {
-        var lastIndex = _latestObservedBarIndex;
+        var currentBarCount = Math.Max(0, CurrentBar);
+        if (currentBarCount > _latestObservedBarCount)
+        {
+            _latestObservedBarCount = currentBarCount;
+            _lastHistoryBarsMutationObservedUtc = nowUtc;
+            LogInfoLocal(
+                $"history_bars_window count_updated loaded_bar_count={_latestObservedBarCount} latest_index={Math.Max(_latestObservedBarCount - 1, _latestObservedBarIndex)}.");
+        }
+
+        var currentLatestBarIndex = currentBarCount - 1;
+        if (currentLatestBarIndex > _latestObservedBarIndex)
+        {
+            _latestObservedBarIndex = currentLatestBarIndex;
+            _lastHistoryBarsMutationObservedUtc = nowUtc;
+            LogInfoLocal(
+                $"history_bars_window latest_index_updated loaded_bar_count={_latestObservedBarCount} latest_index={_latestObservedBarIndex}.");
+        }
+    }
+
+    private int GetLatestCompletedHistoryBarIndex(DateTime nowUtc)
+    {
+        var lastIndex = GetLatestLoadedHistoryBarIndex();
+        if (lastIndex < 0)
+        {
+            return -1;
+        }
+
+        if (!TryGetCandleSafe(lastIndex, out var lastCandle))
+        {
+            LogWarnLocal($"GetLatestCompletedHistoryBarIndex: unable to read last loaded candle at index={lastIndex}.");
+            return -1;
+        }
+
+        var barSpan = EstimateLoadedBarSpan();
+        var lastStartedAtUtc = ToUtc(lastCandle.Time);
+        var lastEndedAtUtc = lastStartedAtUtc + barSpan - TimeSpan.FromSeconds(1);
+        return lastEndedAtUtc < nowUtc ? lastIndex : lastIndex - 1;
+    }
+
+    private bool TryGetLatestCompletedBarStartedAtUtc(DateTime nowUtc, out DateTime latestCompletedBarStartedAtUtc)
+    {
+        latestCompletedBarStartedAtUtc = DateTime.MinValue;
+        var completedLastIndex = GetLatestCompletedHistoryBarIndex(nowUtc);
+        if (completedLastIndex < 0)
+        {
+            return false;
+        }
+
+        if (!TryGetCandleSafe(completedLastIndex, out var completedCandle))
+        {
+            return false;
+        }
+
+        latestCompletedBarStartedAtUtc = ToUtc(completedCandle.Time);
+        return true;
+    }
+
+    private bool TryGetLoadedHistoryWindow(
+        DateTime nowUtc,
+        out int loadedLatestBarIndex,
+        out int loadedBarCount,
+        out DateTime loadedFirstStartedAtUtc,
+        out DateTime loadedLatestStartedAtUtc)
+    {
+        loadedLatestBarIndex = -1;
+        loadedBarCount = 0;
+        loadedFirstStartedAtUtc = DateTime.MinValue;
+        loadedLatestStartedAtUtc = DateTime.MinValue;
+
+        var completedLastIndex = GetLatestCompletedHistoryBarIndex(nowUtc);
+        if (completedLastIndex < 0)
+        {
+            return false;
+        }
+
+        if (!TryGetCandleSafe(0, out var firstCandle) || !TryGetCandleSafe(completedLastIndex, out var lastCandle))
+        {
+            return false;
+        }
+
+        loadedLatestBarIndex = completedLastIndex;
+        loadedBarCount = completedLastIndex + 1;
+        loadedFirstStartedAtUtc = ToUtc(firstCandle.Time);
+        loadedLatestStartedAtUtc = ToUtc(lastCandle.Time);
+        return true;
+    }
+
+    private bool ShouldReexportExpandedHistory(
+        DateTime nowUtc,
+        int loadedBarCount,
+        DateTime loadedFirstStartedAtUtc,
+        DateTime loadedLatestStartedAtUtc,
+        TimeSpan stabilizationWindow)
+    {
+        if (_lastHistoryBarsExportedFirstStartedAtUtc is null || _lastHistoryBarsExportedCount <= 0)
+        {
+            return false;
+        }
+
+        if (loadedBarCount <= _lastHistoryBarsExportedCount || loadedLatestStartedAtUtc < _lastHistoryBarsExportedLatestStartedAtUtc)
+        {
+            return false;
+        }
+
+        var barSpan = EstimateLoadedBarSpan();
+        var expandedEarlier = loadedFirstStartedAtUtc + barSpan <= _lastHistoryBarsExportedFirstStartedAtUtc.Value;
+        if (!expandedEarlier)
+        {
+            return false;
+        }
+
+        if (_lastHistoryBarsMutationObservedUtc != DateTime.MinValue
+            && nowUtc - _lastHistoryBarsMutationObservedUtc < stabilizationWindow)
+        {
+            return false;
+        }
+
+        return _lastHistoryBarsFullSnapshotExportedAtUtc == DateTime.MinValue
+            || nowUtc - _lastHistoryBarsFullSnapshotExportedAtUtc >= TimeSpan.FromSeconds(10);
+    }
+
+    private void RecordHistoryBarsExport(
+        IReadOnlyList<HistoryBarPayload> exportedBars,
+        int loadedBarCount,
+        int latestExportedBarIndex,
+        bool fullSnapshot,
+        DateTime exportedAtUtc)
+    {
+        _lastHistoryBarsExportedBarIndex = latestExportedBarIndex;
+        _lastHistoryBarsExportedCount = Math.Max(loadedBarCount, exportedBars.Count);
+        _lastHistoryBarsExportedFirstStartedAtUtc = exportedBars[0].StartedAt;
+        _lastHistoryBarsExportedLatestStartedAtUtc = exportedBars[^1].StartedAt;
+        if (fullSnapshot)
+        {
+            _lastHistoryBarsFullSnapshotExportedAtUtc = exportedAtUtc;
+        }
+    }
+
+    private List<HistoryBarPayload> ExportLoadedHistoryBarsSnapshot(int startIndex = 0, int? endIndexInclusive = null)
+    {
+        var lastIndex = endIndexInclusive ?? GetLatestCompletedHistoryBarIndex(DateTime.UtcNow);
         if (lastIndex < 0)
         {
             return new List<HistoryBarPayload>();
         }
 
         var firstIndex = Math.Max(0, Math.Min(startIndex, lastIndex));
+        if (firstIndex > lastIndex)
+        {
+            return new List<HistoryBarPayload>();
+        }
+
         var barCount = lastIndex - firstIndex + 1;
         var bars = new List<HistoryBarPayload>(barCount);
         var barSpan = EstimateLoadedBarSpan();
         for (var index = firstIndex; index <= lastIndex; index++)
         {
-            var candle = GetCandle(index);
+            if (!TryGetCandleSafe(index, out var candle))
+            {
+                LogWarnLocal($"ExportLoadedHistoryBarsSnapshot: skipped unreadable candle at index={index}.");
+                continue;
+            }
+
             var originalBarTime = candle.Time;
             var startedAtUtc = ToUtc(candle.Time);
             bars.Add(new HistoryBarPayload
@@ -812,21 +1013,31 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         return enqueuedAny;
     }
 
-    private List<HistoryFootprintBarPayload> ExportLoadedHistoryFootprintSnapshot(int startIndex = 0)
+    private List<HistoryFootprintBarPayload> ExportLoadedHistoryFootprintSnapshot(int startIndex = 0, int? endIndexInclusive = null)
     {
-        var lastIndex = _latestObservedBarIndex;
+        var lastIndex = endIndexInclusive ?? GetLatestCompletedHistoryBarIndex(DateTime.UtcNow);
         if (lastIndex < 0)
         {
             return new List<HistoryFootprintBarPayload>();
         }
 
         var firstIndex = Math.Max(0, Math.Min(startIndex, lastIndex));
+        if (firstIndex > lastIndex)
+        {
+            return new List<HistoryFootprintBarPayload>();
+        }
+
         var barCount = lastIndex - firstIndex + 1;
         var bars = new List<HistoryFootprintBarPayload>(barCount);
         var barSpan = EstimateLoadedBarSpan();
         for (var index = firstIndex; index <= lastIndex; index++)
         {
-            var candle = GetCandle(index);
+            if (!TryGetCandleSafe(index, out var candle))
+            {
+                LogWarnLocal($"ExportLoadedHistoryFootprintSnapshot: skipped unreadable candle at index={index}.");
+                continue;
+            }
+
             var originalBarTime = candle.Time;
             var startedAtUtc = ToUtc(candle.Time);
             bars.Add(new HistoryFootprintBarPayload
@@ -1353,15 +1564,22 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
 
     private TimeSpan EstimateLoadedBarSpan()
     {
-        if (CurrentBar < 1)
+        var lastIndex = GetLatestLoadedHistoryBarIndex();
+        if (lastIndex < 1)
         {
             return TimeSpan.FromMinutes(1);
         }
 
-        for (var index = CurrentBar; index >= 1; index--)
+        for (var index = lastIndex; index >= 1; index--)
         {
-            var currentStart = GetCandle(index).Time;
-            var previousStart = GetCandle(index - 1).Time;
+            if (!TryGetCandleSafe(index, out var currentCandle)
+                || !TryGetCandleSafe(index - 1, out var previousCandle))
+            {
+                continue;
+            }
+
+            var currentStart = currentCandle.Time;
+            var previousStart = previousCandle.Time;
             var span = currentStart - previousStart;
             if (span > TimeSpan.Zero)
             {
@@ -1370,6 +1588,40 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         }
 
         return TimeSpan.FromMinutes(1);
+    }
+
+    private int GetLatestLoadedHistoryBarIndex()
+    {
+        var observedBarCount = Math.Max(_latestObservedBarCount, Math.Max(CurrentBar, _latestObservedBarIndex + 1));
+        return observedBarCount - 1;
+    }
+
+    private bool TryGetCandleSafe(int index, out IndicatorCandle candle)
+    {
+        candle = null!;
+        var latestLoadedBarIndex = GetLatestLoadedHistoryBarIndex();
+        if (index < 0 || index > latestLoadedBarIndex)
+        {
+            return false;
+        }
+
+        try
+        {
+            var loadedCandle = GetCandle(index);
+            if (loadedCandle is null)
+            {
+                return false;
+            }
+
+            candle = loadedCandle;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogWarnLocal(
+                $"TryGetCandleSafe: failed to read candle index={index} latest_loaded_index={latestLoadedBarIndex} current_bar_count={CurrentBar} error={ex.Message}");
+            return false;
+        }
     }
 
     private string ResolveNativeBarTimeframe(ChartIdentity chartIdentity, IReadOnlyList<DateTime> barStartsUtc)
@@ -1886,6 +2138,14 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         }
 
         var timeContext = ResolveTimeContext();
+        DateTime? latestLoadedBarStartedAtUtc = null;
+        lock (_sync)
+        {
+            if (TryGetLatestCompletedBarStartedAtUtc(DateTime.UtcNow, out var completedBarStartedAtUtc))
+            {
+                latestLoadedBarStartedAtUtc = completedBarStartedAtUtc;
+            }
+        }
 
         var ack = new AdapterBackfillAcknowledgeRequestPayload
         {
@@ -1896,10 +2156,10 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
             AcknowledgedAt = DateTime.UtcNow,
             AcknowledgedHistoryBars = historyBarsSucceeded,
             AcknowledgedHistoryFootprint = historyFootprintSucceeded,
-            LatestLoadedBarStartedAt = _lastObservedBarStartedAtUtc.HasValue
-                ? CollectorMetadataResolver.ToReferenceTime(_lastObservedBarStartedAtUtc.Value, timeContext).DateTime
+            LatestLoadedBarStartedAt = latestLoadedBarStartedAtUtc.HasValue
+                ? CollectorMetadataResolver.ToReferenceTime(latestLoadedBarStartedAtUtc.Value, timeContext).DateTime
                 : (DateTime?)null,
-            LatestLoadedBarStartedAtUtc = _lastObservedBarStartedAtUtc,
+            LatestLoadedBarStartedAtUtc = latestLoadedBarStartedAtUtc,
             InstrumentTimezoneValue = timeContext.InstrumentTimezoneValue,
             InstrumentTimezoneSource = timeContext.InstrumentTimezoneSource,
             ChartDisplayTimezoneMode = timeContext.ChartDisplayTimezoneMode,

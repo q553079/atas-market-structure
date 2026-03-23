@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
+from uuid import uuid4
 
 from pydantic import BaseModel, ValidationError
 
@@ -305,6 +306,59 @@ class MarketStructureApplication:
                 payload = AdapterHistoryFootprintPayload.model_validate_json(body or b"{}")
                 response = self._adapter_ingestion_service.ingest_history_footprint(payload)
                 return self._json_model_response(201, response)
+
+            if method == "POST" and route_path == "/api/v1/adapter/history-inventory":
+                raw_payload = json.loads(body.decode("utf-8") if body else "{}")
+                if not isinstance(raw_payload, dict):
+                    raw_payload = {"payload": raw_payload}
+                instrument_payload = raw_payload.get("instrument") if isinstance(raw_payload.get("instrument"), dict) else {}
+                source_payload = raw_payload.get("source") if isinstance(raw_payload.get("source"), dict) else {}
+                instrument_symbol = str(
+                    raw_payload.get("instrument_symbol")
+                    or instrument_payload.get("symbol")
+                    or raw_payload.get("symbol")
+                    or "unknown"
+                ).strip() or "unknown"
+                chart_instance_id = (
+                    raw_payload.get("chart_instance_id")
+                    or source_payload.get("chart_instance_id")
+                )
+                timeframe = raw_payload.get("timeframe") or raw_payload.get("bar_timeframe")
+                stored_at = datetime.now(tz=UTC)
+                source_snapshot_id = str(
+                    raw_payload.get("message_id")
+                    or raw_payload.get("request_id")
+                    or raw_payload.get("cache_key")
+                    or f"history-inventory-{stored_at.isoformat()}"
+                ).strip()
+                ingestion_id = f"ing-{uuid4().hex}"
+                self._repository.save_ingestion(
+                    ingestion_id=ingestion_id,
+                    ingestion_kind="adapter_history_inventory",
+                    source_snapshot_id=source_snapshot_id,
+                    instrument_symbol=instrument_symbol,
+                    observed_payload=raw_payload,
+                    stored_at=stored_at,
+                )
+                LOGGER.info(
+                    "ingest_history_inventory: instrument_symbol=%s chart_instance_id=%s timeframe=%s keys=%s",
+                    instrument_symbol,
+                    chart_instance_id,
+                    timeframe,
+                    sorted(raw_payload.keys()),
+                )
+                return self._json_response(
+                    202,
+                    {
+                        "accepted": True,
+                        "status": "captured",
+                        "endpoint": route_path,
+                        "ingestion_id": ingestion_id,
+                        "source_snapshot_id": source_snapshot_id,
+                        "instrument_symbol": instrument_symbol,
+                        "chart_instance_id": chart_instance_id,
+                    },
+                )
 
             if method == "POST" and route_path == "/api/v1/adapter/trigger-burst":
                 payload = AdapterTriggerBurstPayload.model_validate_json(body or b"{}")

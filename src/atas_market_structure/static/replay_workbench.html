@@ -87,6 +87,7 @@
               </div>
               <button id="lookupCacheButton" type="button" class="secondary tiny">查看缓存</button>
               <button id="invalidateCacheButton" type="button" class="secondary tiny">重置缓存</button>
+              <button id="repairChartButton" type="button" class="secondary tiny">修复当前图表</button>
               <button id="exportSettingsButton" type="button" class="secondary tiny">导出当前设置</button>
             </div>
             <div class="status-cluster">
@@ -768,6 +769,8 @@
     import {
       initLightweightCharts,
       updateChartData,
+      startLiveQuotePreview,
+      setLiveQuotePreviewListener,
       getChartInstance,
       subscribeCrosshairMove,
       subscribeClick,
@@ -775,6 +778,12 @@
     } from "/static/init_lightweight_chart.js";
 
     const app = {};
+    let chartInfoBadgeState = {
+      symbol: "-",
+      timeframe: "-",
+      timestamp: null,
+      liveTail: null,
+    };
 
     function buildRequestPayload() {
       const { els, syncCacheKey } = app;
@@ -819,6 +828,126 @@
       live_tail: 6,
     };
     const chartEventTopVisibleLimit = 8;
+
+    function inferVisibleBarSeconds(candles, view) {
+      if (!Array.isArray(candles) || !candles.length || !view) {
+        return 60;
+      }
+      const startIndex = Math.max(0, Number(view.startIndex ?? 0));
+      const endIndex = Math.min(candles.length - 1, Number(view.endIndex ?? (candles.length - 1)));
+      const deltas = [];
+      let previous = null;
+      for (let index = startIndex; index <= endIndex && deltas.length < 12; index += 1) {
+        const current = toMarkerSeconds(candles[index]?.started_at);
+        if (!Number.isFinite(current)) {
+          continue;
+        }
+        if (Number.isFinite(previous)) {
+          const delta = current - previous;
+          if (delta > 0) {
+            deltas.push(delta);
+          }
+        }
+        previous = current;
+      }
+      if (!deltas.length) {
+        return 60;
+      }
+      deltas.sort((left, right) => left - right);
+      return deltas[Math.floor(deltas.length / 2)] || 60;
+    }
+
+    function getChartMarkerPolicy(visibleBarCount, barSeconds) {
+      const safeBarSeconds = Math.max(1, Number(barSeconds) || 60);
+      if (visibleBarCount >= 220) {
+        return {
+          maxMarkers: 4,
+          minGapSeconds: Math.max(safeBarSeconds * 24, 60),
+          showText: false,
+          showClusterCountText: false,
+        };
+      }
+      if (visibleBarCount >= 120) {
+        return {
+          maxMarkers: 5,
+          minGapSeconds: Math.max(safeBarSeconds * 16, 60),
+          showText: false,
+          showClusterCountText: false,
+        };
+      }
+      if (visibleBarCount >= 72) {
+        return {
+          maxMarkers: 6,
+          minGapSeconds: Math.max(safeBarSeconds * 10, 60),
+          showText: false,
+          showClusterCountText: false,
+        };
+      }
+      if (visibleBarCount >= 36) {
+        return {
+          maxMarkers: 7,
+          minGapSeconds: Math.max(safeBarSeconds * 6, 60),
+          showText: true,
+          showClusterCountText: false,
+        };
+      }
+      return {
+        maxMarkers: chartEventTopVisibleLimit,
+        minGapSeconds: Math.max(safeBarSeconds * 3, 60),
+        showText: true,
+        showClusterCountText: true,
+      };
+    }
+
+    function compactVisibleClustersForMarkers(clusters, selectedClusterKey, markerPolicy) {
+      const prioritized = [...(Array.isArray(clusters) ? clusters : [])].sort((left, right) => {
+        const leftSelected = left.key === selectedClusterKey ? 1 : 0;
+        const rightSelected = right.key === selectedClusterKey ? 1 : 0;
+        if (rightSelected !== leftSelected) {
+          return rightSelected - leftSelected;
+        }
+        return right.score - left.score || Number(right.time) - Number(left.time);
+      });
+      const kept = [];
+      prioritized.forEach((cluster) => {
+        const isSelected = cluster.key === selectedClusterKey;
+        const overlappingIndex = kept.findIndex((item) => (
+          Math.abs(Number(item.time) - Number(cluster.time)) < markerPolicy.minGapSeconds
+        ));
+        if (overlappingIndex >= 0) {
+          const overlapping = kept[overlappingIndex];
+          if (isSelected && overlapping.key !== selectedClusterKey) {
+            kept.splice(overlappingIndex, 1, cluster);
+          }
+          return;
+        }
+        const nonSelectedCount = kept.filter((item) => item.key !== selectedClusterKey).length;
+        if (!isSelected && nonSelectedCount >= markerPolicy.maxMarkers) {
+          return;
+        }
+        kept.push(cluster);
+      });
+      return kept;
+    }
+
+    function formatClusterMarkerLabel(cluster, markerPolicy, isSelected = false) {
+      if (!cluster) {
+        return "";
+      }
+      const baseText = cluster.itemCount > 1
+        ? String(cluster.itemCount)
+        : (cluster.items[0]?.shortLabel || markerLayerStyles[cluster.dominantCategory]?.label || "事件");
+      if (isSelected) {
+        return baseText;
+      }
+      if (!markerPolicy.showText) {
+        return "";
+      }
+      if (cluster.itemCount > 1 && !markerPolicy.showClusterCountText) {
+        return "";
+      }
+      return baseText;
+    }
 
     function toMarkerSeconds(value) {
       if (typeof value === "number") {
@@ -1362,21 +1491,24 @@
         return cluster.time >= visibleStartTime && cluster.time <= visibleEndTime;
       });
 
-      const topVisibleClusters = [...visibleClusters]
-        .sort((left, right) => right.score - left.score || Number(right.time) - Number(left.time))
-        .slice(0, chartEventTopVisibleLimit);
+      const visibleBarCount = Math.max(0, view.endIndex - view.startIndex + 1);
+      const markerPolicy = getChartMarkerPolicy(visibleBarCount, inferVisibleBarSeconds(candles, view));
       const selectedClusterKey = app.state?.selectedChartEventClusterKey || null;
       const selectedVisibleCluster = selectedClusterKey
         ? visibleClusters.find((cluster) => cluster.key === selectedClusterKey)
         : null;
-      if (selectedVisibleCluster && !topVisibleClusters.some((cluster) => cluster.key === selectedVisibleCluster.key)) {
-        if (topVisibleClusters.length >= chartEventTopVisibleLimit) {
-          topVisibleClusters.pop();
+      const candidateVisibleClusters = [...visibleClusters]
+        .sort((left, right) => right.score - left.score || Number(right.time) - Number(left.time))
+        .slice(0, Math.max(chartEventTopVisibleLimit * 4, markerPolicy.maxMarkers * 4));
+      if (selectedVisibleCluster && !candidateVisibleClusters.some((cluster) => cluster.key === selectedVisibleCluster.key)) {
+        if (candidateVisibleClusters.length >= Math.max(chartEventTopVisibleLimit * 4, markerPolicy.maxMarkers * 4)) {
+          candidateVisibleClusters.pop();
         }
-        topVisibleClusters.push(selectedVisibleCluster);
+        candidateVisibleClusters.push(selectedVisibleCluster);
       }
 
-      const shownClusters = [...topVisibleClusters].sort((left, right) => Number(left.time) - Number(right.time));
+      const shownClusters = compactVisibleClustersForMarkers(candidateVisibleClusters, selectedClusterKey, markerPolicy)
+        .sort((left, right) => Number(left.time) - Number(right.time));
       const railClusters = [...shownClusters];
       const selectedCluster = selectedClusterKey ? (clusterIndex[selectedClusterKey] || null) : null;
       if (selectedCluster && !railClusters.some((cluster) => cluster.key === selectedCluster.key)) {
@@ -1393,7 +1525,7 @@
           position: cluster.itemCount > 1 ? chartEventClusterStyle.position : style.position,
           color: cluster.itemCount > 1 ? style.color : style.color,
           shape: cluster.itemCount > 1 ? chartEventClusterStyle.shape : style.shape,
-          text: cluster.itemCount > 1 ? String(cluster.itemCount) : (cluster.items[0]?.shortLabel || style.label || "事件"),
+          text: formatClusterMarkerLabel(cluster, markerPolicy, cluster.key === selectedClusterKey),
         };
       });
 
@@ -1403,14 +1535,14 @@
         clusterIndex,
         clusterByTime,
         visibleClusters,
-        topVisibleClusters: [...topVisibleClusters].sort((left, right) => Number(left.time) - Number(right.time)),
+        topVisibleClusters: [...shownClusters],
         shownClusters,
         railClusters,
         visibleClusterCount: visibleClusters.length,
         shownClusterCount: shownClusters.length,
         hiddenVisibleClusterCount: Math.max(0, visibleClusters.length - shownClusters.length),
-        visibleBarCount: Math.max(0, view.endIndex - view.startIndex + 1),
-        viewportSummary: `可见 ${Math.max(0, view.endIndex - view.startIndex + 1)} 根 / 关键 ${shownClusters.length}/${visibleClusters.length} / 折叠 ${Math.max(0, visibleClusters.length - shownClusters.length)}`,
+        visibleBarCount,
+        viewportSummary: `可见 ${visibleBarCount} 根 / 关键 ${shownClusters.length}/${visibleClusters.length} / 折叠 ${Math.max(0, visibleClusters.length - shownClusters.length)}`,
         selectedCluster,
       };
     }
@@ -1456,7 +1588,7 @@
       }
     }
 
-    function syncLightweightChartViewportToState() {
+    function syncLightweightChartViewportToState({ autoScalePrice = false } = {}) {
       const { state } = app;
       const chart = window._lwChartState?.chartInstance;
       const volumeChart = window._lwChartState?.volumeChartInstance;
@@ -1474,11 +1606,6 @@
       } catch (error) {
         console.warn("同步图表视口失败:", error);
       }
-      try {
-        chart.priceScale("right").applyOptions({ autoScale: true });
-      } catch (error) {
-        console.warn("重置价格轴失败:", error);
-      }
       requestAnimationFrame(() => {
         try {
           chart.timeScale().setVisibleLogicalRange(range);
@@ -1486,6 +1613,14 @@
           console.warn("二次同步图表视口失败:", error);
         }
       });
+      if (!autoScalePrice) {
+        return;
+      }
+      try {
+        chart.priceScale("right").applyOptions({ autoScale: true });
+      } catch (error) {
+        console.warn("重置价格轴失败:", error);
+      }
     }
 
     function formatChartInfoPrice(value) {
@@ -1525,11 +1660,24 @@
       `;
     }
 
-    function updateChartInfoBadge({ symbol = "-", timeframe = "-", timestamp = null, liveTail = null } = {}) {
+    function renderChartInfoBadge({ symbol = "-", timeframe = "-", timestamp = null, liveTail = null } = {}, liveQuotePreview = null) {
       const { els } = app;
       if (!els) {
         return;
       }
+      const preview = liveQuotePreview && typeof liveQuotePreview === "object" ? liveQuotePreview : {};
+      const quote = liveTail && typeof liveTail === "object"
+        ? {
+          ...liveTail,
+          latest_price: preview.latest_price ?? liveTail.latest_price,
+          best_bid: preview.best_bid ?? liveTail.best_bid,
+          best_ask: preview.best_ask ?? liveTail.best_ask,
+          latest_observed_at: preview.latest_observed_at ?? liveTail.latest_observed_at,
+          latest_price_source: preview.latest_price_source ?? liveTail.latest_price_source,
+          best_bid_source: preview.best_bid_source ?? liveTail.best_bid_source,
+          best_ask_source: preview.best_ask_source ?? liveTail.best_ask_source,
+        }
+        : preview;
       if (els.chartInfoSymbol) {
         els.chartInfoSymbol.textContent = symbol;
       }
@@ -1537,11 +1685,13 @@
         els.chartInfoTimeframe.textContent = `${timeframe}图`;
       }
       if (els.chartInfoTime) {
-        const validTime = timestamp instanceof Date && Number.isFinite(timestamp.getTime()) ? timestamp : new Date();
+        const previewTime = quote?.latest_observed_at ? new Date(quote.latest_observed_at) : null;
+        const validTime = previewTime instanceof Date && Number.isFinite(previewTime.getTime())
+          ? previewTime
+          : (timestamp instanceof Date && Number.isFinite(timestamp.getTime()) ? timestamp : new Date());
         els.chartInfoTime.textContent = "UTC " + validTime.toISOString().slice(0, 19).replace("T", " ");
       }
       if (els.chartInfoQuote) {
-        const quote = liveTail && typeof liveTail === "object" ? liveTail : {};
         els.chartInfoQuote.innerHTML = [
           renderChartInfoQuoteItem("L", quote.latest_price, quote.latest_price_source),
           renderChartInfoQuoteItem("Bid", quote.best_bid, quote.best_bid_source),
@@ -1550,11 +1700,17 @@
       }
     }
 
+    function updateChartInfoBadge({ symbol = "-", timeframe = "-", timestamp = null, liveTail = null } = {}) {
+      chartInfoBadgeState = { symbol, timeframe, timestamp, liveTail };
+      renderChartInfoBadge(chartInfoBadgeState, app.state?.liveQuotePreview || null);
+    }
+
     function renderChart() {
       const { state, els, ensureChartView } = app;
       syncChartViewportSize();
       const snapshot = state?.snapshot;
       if (!snapshot || !snapshot.candles || !snapshot.candles.length) {
+        startLiveQuotePreview(null, null);
         els.chartPlaceholder.style.display = "flex";
         els.chartViewportMeta.textContent = "视图未初始化";
         state.chartMetrics = null;
@@ -1747,7 +1903,9 @@
                     syncStateFromLogicalRange: !state.chartViewportResetPending,
                   });
                   if (state.chartViewportResetPending || state.chartAutoScalePending) {
-                    syncLightweightChartViewportToState();
+                    syncLightweightChartViewportToState({
+                      autoScalePrice: !!state.chartAutoScalePending,
+                    });
                     state.chartViewportResetPending = false;
                     state.chartAutoScalePending = false;
                   }
@@ -1776,6 +1934,8 @@
                     timestamp: lastCandle ? new Date(lastCandle.started_at) : new Date(),
                     liveTail: snapshot?.live_tail || null,
                   });
+                  app.rememberCurrentChartView?.(snapshot);
+                  startLiveQuotePreview(snapshot, snapshot?.live_tail || null);
                   renderEventHoverOverlay();
                 } catch (updateError) {
                   console.error("初始化后更新图表数据错误:", updateError);
@@ -1807,7 +1967,9 @@
               syncStateFromLogicalRange: !state.chartViewportResetPending,
             });
             if (state.chartViewportResetPending || state.chartAutoScalePending) {
-              syncLightweightChartViewportToState();
+              syncLightweightChartViewportToState({
+                autoScalePrice: !!state.chartAutoScalePending,
+              });
               state.chartViewportResetPending = false;
               state.chartAutoScalePending = false;
             }
@@ -1836,6 +1998,8 @@
               timestamp: lastCandle ? new Date(lastCandle.started_at) : new Date(),
               liveTail: snapshot?.live_tail || null,
             });
+            app.rememberCurrentChartView?.(snapshot);
+            startLiveQuotePreview(snapshot, snapshot?.live_tail || null);
             renderEventHoverOverlay();
           } catch (error) {
             console.error("更新图表数据错误:", error);
@@ -2128,6 +2292,12 @@
       getRenderSnapshot: () => app.renderSnapshot,
       getBuildRequestPayload: () => buildRequestPayload,
     }));
+    setLiveQuotePreviewListener((previewQuote) => {
+      if (app.state) {
+        app.state.liveQuotePreview = previewQuote || null;
+      }
+      renderChartInfoBadge(chartInfoBadgeState, previewQuote || null);
+    });
     app.renderEventHoverOverlay = renderEventHoverOverlay;
     window.addEventListener("replay-workbench:hover-item-changed", () => {
       renderEventHoverOverlay();

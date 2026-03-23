@@ -376,6 +376,16 @@ class ChartCandleRepository(Protocol):
     def purge_chart_candles(self, *, symbol: str | None, older_than: datetime) -> int:
         ...
 
+    def delete_chart_candles_window(
+        self,
+        *,
+        symbol: str,
+        timeframe: str | None,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> int:
+        ...
+
     def upsert_atas_chart_bars_raw(self, bars: list["AtasChartBarRaw"]) -> int:
         ...
 
@@ -409,6 +419,18 @@ class ChartCandleRepository(Protocol):
         chart_instance_id: str | None = None,
         contract_symbol: str | None = None,
         root_symbol: str | None = None,
+    ) -> int:
+        ...
+
+    def delete_atas_chart_bars_raw_window(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+        window_start: datetime,
+        window_end: datetime,
     ) -> int:
         ...
 
@@ -3709,6 +3731,37 @@ class SQLiteAnalysisRepository:
             conn.commit()
         return cur.rowcount
 
+    def delete_chart_candles_window(
+        self,
+        *,
+        symbol: str,
+        timeframe: str | None,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> int:
+        """Delete chart candles overlapping one UTC window for exact repair/reload flows."""
+        from atas_market_structure.models._enums import Timeframe
+
+        where_parts = [
+            "symbol = ?",
+            "started_at <= ?",
+            "ended_at >= ?",
+        ]
+        params: list[Any] = [
+            symbol,
+            self._serialize_datetime(window_end),
+            self._serialize_datetime(window_start),
+        ]
+        if timeframe is not None:
+            where_parts.append("timeframe = ?")
+            params.append(Timeframe(timeframe).value)
+
+        where_clause = "WHERE " + " AND ".join(where_parts)
+        with self._connect() as conn:
+            cur = conn.execute(f"DELETE FROM chart_candles {where_clause}", tuple(params))
+            conn.commit()
+        return cur.rowcount
+
     def upsert_atas_chart_bars_raw(self, bars: list["AtasChartBarRaw"]) -> int:
         """Upsert raw mirrored ATAS chart bars without duplicating repeated UTC bars."""
         if not bars:
@@ -3895,6 +3948,46 @@ class SQLiteAnalysisRepository:
         if root_symbol is not None:
             where_parts.insert(0, "root_symbol = ?")
             params.insert(0, root_symbol)
+
+        where_clause = "WHERE " + " AND ".join(where_parts)
+        with self._connect() as conn:
+            cur = conn.execute(f"DELETE FROM atas_chart_bars_raw {where_clause}", tuple(params))
+            conn.commit()
+        return cur.rowcount
+
+    def delete_atas_chart_bars_raw_window(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> int:
+        """Delete raw mirrored chart bars overlapping one UTC window for manual repair flows."""
+        from atas_market_structure.models._enums import Timeframe
+
+        where_parts = [
+            "started_at_utc <= ?",
+            "ended_at_utc >= ?",
+        ]
+        params: list[Any] = [
+            self._serialize_datetime(window_end),
+            self._serialize_datetime(window_start),
+        ]
+        if chart_instance_id is not None:
+            where_parts.insert(0, "chart_instance_id = ?")
+            params.insert(0, chart_instance_id)
+        if contract_symbol is not None:
+            where_parts.insert(0, "contract_symbol = ?")
+            params.insert(0, contract_symbol)
+        if root_symbol is not None:
+            where_parts.insert(0, "root_symbol = ?")
+            params.insert(0, root_symbol)
+        if timeframe is not None:
+            where_parts.append("timeframe = ?")
+            params.append(Timeframe(timeframe).value)
 
         where_clause = "WHERE " + " AND ".join(where_parts)
         with self._connect() as conn:

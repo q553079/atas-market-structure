@@ -1,3 +1,5 @@
+import { sanitizeReplayCandles } from "./replay_workbench_ui_utils.js";
+
 let chartInstance = null;
 let volumeChartInstance = null;
 let candleSeries = null;
@@ -10,6 +12,16 @@ let syncingVisibleRange = false;
 let lastDataSignature = "";
 let lastChartDataset = null;
 let lastUpdateType = "initial";
+let livePreviewAnimationFrame = null;
+let livePreviewState = null;
+let livePreviewListener = null;
+
+function getRenderableCandles(snapshot) {
+  return sanitizeReplayCandles(snapshot?.candles || [], {
+    context: "chart-render",
+    log: false,
+  });
+}
 
 function toChartTime(value) {
   if (typeof value === "string") {
@@ -60,45 +72,65 @@ function getBarVolume(bar) {
   ) || 0;
 }
 
-function buildChartData(snapshot) {
-  const candles = snapshot?.candles || [];
-  const candleData = candles.map((bar) => ({
-    time: toChartTime(bar.started_at),
-    open: Number(bar.open) || 0,
-    high: Number(bar.high) || 0,
-    low: Number(bar.low) || 0,
-    close: Number(bar.close) || 0,
-  }));
+function isSyntheticGapBar(bar) {
+  return !!bar && (
+    bar.is_synthetic === true
+    || String(bar.source_kind || "").toLowerCase() === "synthetic_gap_fill"
+  );
+}
 
-  const volumeData = candles.map((bar) => ({
-    time: toChartTime(bar.started_at),
-    value: getBarVolume(bar),
-    color: Number(bar.close) >= Number(bar.open)
-      ? "rgba(34, 171, 148, 0.58)"
-      : "rgba(242, 54, 69, 0.58)",
-  }));
+function buildChartData(snapshot) {
+  const candles = getRenderableCandles(snapshot);
+  const candleData = candles.map((bar) => {
+    const time = toChartTime(bar.started_at);
+    if (isSyntheticGapBar(bar)) {
+      return { time };
+    }
+    return {
+      time,
+      open: Number(bar.open) || 0,
+      high: Number(bar.high) || 0,
+      low: Number(bar.low) || 0,
+      close: Number(bar.close) || 0,
+    };
+  });
+
+  const volumeData = candles.map((bar) => {
+    const time = toChartTime(bar.started_at);
+    if (isSyntheticGapBar(bar)) {
+      return { time };
+    }
+    return {
+      time,
+      value: getBarVolume(bar),
+      color: Number(bar.close) >= Number(bar.open)
+        ? "rgba(34, 171, 148, 0.58)"
+        : "rgba(242, 54, 69, 0.58)",
+    };
+  });
 
   const emaPeriod = 20;
   const emaData = [];
   const multiplier = 2 / (emaPeriod + 1);
   let ema = null;
+  const observedCandles = candles.filter((bar) => !isSyntheticGapBar(bar));
 
-  for (let i = 0; i < candles.length; i++) {
+  for (let i = 0; i < observedCandles.length; i++) {
     if (i < emaPeriod - 1) {
       continue;
     }
-    const close = Number(candles[i].close) || 0;
+    const close = Number(observedCandles[i].close) || 0;
     if (ema === null) {
       let sum = 0;
       for (let j = 0; j < emaPeriod; j++) {
-        sum += Number(candles[i - emaPeriod + 1 + j].close) || 0;
+        sum += Number(observedCandles[i - emaPeriod + 1 + j].close) || 0;
       }
       ema = sum / emaPeriod;
     } else {
       ema = (close - ema) * multiplier + ema;
     }
     emaData.push({
-      time: toChartTime(candles[i].started_at),
+      time: toChartTime(observedCandles[i].started_at),
       value: ema,
     });
   }
@@ -107,7 +139,7 @@ function buildChartData(snapshot) {
 }
 
 function buildSnapshotSignature(snapshot) {
-  const candles = snapshot?.candles || [];
+  const candles = getRenderableCandles(snapshot);
   if (!candles.length) {
     return "empty";
   }
@@ -130,7 +162,7 @@ function canApplyTailUpdate(snapshot, updateType) {
   if (!lastChartDataset || updateType === "initial") {
     return false;
   }
-  const candles = snapshot?.candles || [];
+  const candles = getRenderableCandles(snapshot);
   const previousCandles = lastChartDataset.candles || [];
   if (!candles.length || !previousCandles.length) {
     return false;
@@ -157,7 +189,7 @@ function canApplyPrependHistory(snapshot, updateType) {
   if (!lastChartDataset || updateType !== "prepend_history") {
     return false;
   }
-  const candles = snapshot?.candles || [];
+  const candles = getRenderableCandles(snapshot);
   const previousCandles = lastChartDataset.candles || [];
   if (!candles.length || !previousCandles.length || candles.length <= previousCandles.length) {
     return false;
@@ -167,20 +199,26 @@ function canApplyPrependHistory(snapshot, updateType) {
 }
 
 function applyTailUpdate(snapshot) {
-  const candles = snapshot?.candles || [];
+  const candles = getRenderableCandles(snapshot);
   if (!candles.length) {
     return;
   }
   const latestBar = candles[candles.length - 1];
+  const latestTime = toChartTime(latestBar.started_at);
+  if (isSyntheticGapBar(latestBar)) {
+    candleSeries.update({ time: latestTime });
+    volumeSeries.update({ time: latestTime });
+    return;
+  }
   const latestCandle = {
-    time: toChartTime(latestBar.started_at),
+    time: latestTime,
     open: Number(latestBar.open) || 0,
     high: Number(latestBar.high) || 0,
     low: Number(latestBar.low) || 0,
     close: Number(latestBar.close) || 0,
   };
   const latestVolume = {
-    time: toChartTime(latestBar.started_at),
+    time: latestTime,
     value: getBarVolume(latestBar),
     color: Number(latestBar.close) >= Number(latestBar.open)
       ? "rgba(34, 171, 148, 0.58)"
@@ -195,6 +233,159 @@ function applyPrependHistory(snapshot) {
   candleSeries.setData(candleData);
   volumeSeries.setData(volumeData);
   emaSeries.setData(emaData);
+}
+
+function emitLivePreview(quote) {
+  if (typeof livePreviewListener !== "function") {
+    return;
+  }
+  try {
+    livePreviewListener(quote);
+  } catch (error) {
+    console.warn("live preview listener failed:", error);
+  }
+}
+
+function cancelLivePreviewAnimation({ emitNull = false } = {}) {
+  if (livePreviewAnimationFrame) {
+    cancelAnimationFrame(livePreviewAnimationFrame);
+    livePreviewAnimationFrame = null;
+  }
+  if (emitNull) {
+    emitLivePreview(null);
+  }
+}
+
+function buildPreviewCandle(lastBar, price) {
+  const open = Number(lastBar?.open) || 0;
+  const high = Math.max(Number(lastBar?.high) || open, price, open);
+  const low = Math.min(Number(lastBar?.low) || open, price, open);
+  return {
+    time: toChartTime(lastBar?.started_at),
+    open,
+    high,
+    low,
+    close: price,
+  };
+}
+
+function interpolateQuoteValue(startValue, targetValue, progress) {
+  const startNumeric = Number(startValue);
+  const targetNumeric = Number(targetValue);
+  if (!Number.isFinite(targetNumeric)) {
+    return null;
+  }
+  if (!Number.isFinite(startNumeric)) {
+    return targetNumeric;
+  }
+  return startNumeric + ((targetNumeric - startNumeric) * progress);
+}
+
+export function setLiveQuotePreviewListener(listener) {
+  livePreviewListener = typeof listener === "function" ? listener : null;
+  if (!livePreviewListener) {
+    emitLivePreview(null);
+  }
+}
+
+export function startLiveQuotePreview(snapshot, liveTail, options = {}) {
+  const candles = getRenderableCandles(snapshot);
+  const latestPrice = Number(liveTail?.latest_price);
+  if (!candleSeries || !candles.length || !Number.isFinite(latestPrice)) {
+    cancelLivePreviewAnimation({ emitNull: true });
+    livePreviewState = null;
+    return false;
+  }
+
+  const lastBar = candles[candles.length - 1];
+  const barTime = toChartTime(lastBar?.started_at);
+  const actualClose = Number(lastBar?.close) || Number(lastBar?.open) || latestPrice;
+  const startPrice = livePreviewState?.barTime === barTime
+    ? Number(livePreviewState.currentPrice)
+    : actualClose;
+  const targetPrice = latestPrice;
+  const observedAt = liveTail?.latest_observed_at || null;
+  if (
+    livePreviewState?.barTime === barTime
+    && livePreviewState?.latestObservedAt === observedAt
+    && Math.abs(Number(livePreviewState.targetPrice) - targetPrice) < 1e-9
+  ) {
+    emitLivePreview({
+      latest_price: livePreviewState.currentPrice,
+      best_bid: livePreviewState.bestBid,
+      best_ask: livePreviewState.bestAsk,
+      latest_observed_at: livePreviewState.latestObservedAt,
+      latest_price_source: liveTail?.latest_price_source || null,
+      best_bid_source: liveTail?.best_bid_source || null,
+      best_ask_source: liveTail?.best_ask_source || null,
+    });
+    return true;
+  }
+  const durationMs = Math.max(
+    600,
+    Math.min(
+      2200,
+      Number(options.durationMs)
+      || (String(liveTail?.latest_price_source || "").toLowerCase() === "ticks_raw" ? 900 : 1400),
+    ),
+  );
+  const startBid = livePreviewState?.barTime === barTime ? livePreviewState.bestBid : Number(liveTail?.best_bid);
+  const startAsk = livePreviewState?.barTime === barTime ? livePreviewState.bestAsk : Number(liveTail?.best_ask);
+  cancelLivePreviewAnimation();
+
+  if (Math.abs(targetPrice - startPrice) < 1e-9) {
+    candleSeries.update(buildPreviewCandle(lastBar, targetPrice));
+    livePreviewState = {
+      barTime,
+      currentPrice: targetPrice,
+      targetPrice,
+      bestBid: Number.isFinite(Number(liveTail?.best_bid)) ? Number(liveTail.best_bid) : null,
+      bestAsk: Number.isFinite(Number(liveTail?.best_ask)) ? Number(liveTail.best_ask) : null,
+      latestObservedAt: observedAt,
+    };
+    emitLivePreview({
+      latest_price: livePreviewState.currentPrice,
+      best_bid: livePreviewState.bestBid,
+      best_ask: livePreviewState.bestAsk,
+      latest_observed_at: livePreviewState.latestObservedAt,
+      latest_price_source: liveTail?.latest_price_source || null,
+      best_bid_source: liveTail?.best_bid_source || null,
+      best_ask_source: liveTail?.best_ask_source || null,
+    });
+    return true;
+  }
+
+  const startedAt = performance.now();
+  const step = (frameNow) => {
+    const progress = Math.max(0, Math.min(1, (frameNow - startedAt) / durationMs));
+    const eased = 1 - ((1 - progress) ** 3);
+    const currentPrice = startPrice + ((targetPrice - startPrice) * eased);
+    candleSeries.update(buildPreviewCandle(lastBar, currentPrice));
+    livePreviewState = {
+      barTime,
+      currentPrice,
+      targetPrice,
+      bestBid: interpolateQuoteValue(startBid, liveTail?.best_bid, eased),
+      bestAsk: interpolateQuoteValue(startAsk, liveTail?.best_ask, eased),
+      latestObservedAt: observedAt,
+    };
+    emitLivePreview({
+      latest_price: currentPrice,
+      best_bid: livePreviewState.bestBid,
+      best_ask: livePreviewState.bestAsk,
+      latest_observed_at: livePreviewState.latestObservedAt,
+      latest_price_source: liveTail?.latest_price_source || null,
+      best_bid_source: liveTail?.best_bid_source || null,
+      best_ask_source: liveTail?.best_ask_source || null,
+    });
+    if (progress >= 1) {
+      livePreviewAnimationFrame = null;
+      return;
+    }
+    livePreviewAnimationFrame = requestAnimationFrame(step);
+  };
+  livePreviewAnimationFrame = requestAnimationFrame(step);
+  return true;
 }
 
 export function initLightweightCharts(els) {
@@ -213,6 +404,8 @@ export function initLightweightCharts(els) {
   }
 
   if (chartInstance) {
+    cancelLivePreviewAnimation({ emitNull: true });
+    livePreviewState = null;
     chartInstance.remove();
     chartInstance = null;
     volumeChartInstance = null;
@@ -398,7 +591,8 @@ export function initLightweightCharts(els) {
 
 export function updateChartData(snapshot, chartView, els, options = {}) {
   const startedAt = performance.now();
-  if (!candleSeries || !volumeSeries || !emaSeries || !snapshot?.candles?.length) {
+  const candles = getRenderableCandles(snapshot);
+  if (!candleSeries || !volumeSeries || !emaSeries || !candles.length) {
     return;
   }
 
@@ -426,7 +620,7 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
 
   if (dataChanged && chartInstance) {
     lastDataSignature = signature;
-    lastChartDataset = { candles: snapshot.candles.map((bar) => ({ started_at: bar.started_at })) };
+    lastChartDataset = { candles: candles.map((bar) => ({ started_at: bar.started_at })) };
     if (shouldFitInitially) {
       try {
         chartInstance.timeScale().fitContent();
@@ -441,10 +635,10 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
     candleSeries.setMarkers(Array.isArray(options.markers) ? options.markers : []);
   }
 
-  if (syncStateFromLogicalRange && chartInstance && snapshot?.candles?.length && chartView) {
+  if (syncStateFromLogicalRange && chartInstance && candles.length && chartView) {
     const logicalRange = chartInstance.timeScale().getVisibleLogicalRange?.();
     if (logicalRange) {
-      syncStateChartViewFromLogicalRange(logicalRange, snapshot, chartView);
+      syncStateChartViewFromLogicalRange(logicalRange, { ...snapshot, candles }, chartView);
     }
   }
 
@@ -560,6 +754,8 @@ export function resizeCharts(els) {
 }
 
 export function destroyCharts() {
+  cancelLivePreviewAnimation({ emitNull: true });
+  livePreviewState = null;
   if (resizeObserver) {
     try {
       resizeObserver.disconnect();

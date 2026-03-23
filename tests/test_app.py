@@ -4,7 +4,7 @@ import copy
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Thread
 from uuid import uuid4
@@ -12,6 +12,7 @@ from uuid import uuid4
 from atas_market_structure.ai_review_services import ReplayAiChatService, ReplayAiReviewService
 from atas_market_structure.app import MarketStructureApplication
 from atas_market_structure.models import (
+    ChartCandle,
     ReplayAiChatContent,
     ReplayAiChatPreset,
     ReplayAiChatRequest,
@@ -21,6 +22,8 @@ from atas_market_structure.models import (
     ReplayAiReviewRequest,
     ReplayAiScriptReview,
     ReplayAiZoneReview,
+    ReplayWorkbenchBuildRequest,
+    Timeframe,
 )
 from atas_market_structure.repository import SQLiteAnalysisRepository
 from atas_market_structure.server import ApplicationRequestHandler
@@ -439,6 +442,47 @@ def test_adapter_history_bars_ingestion_and_replay_builder_prefers_atas_history(
     assert replay_ingestion_body["observed_payload"]["candles"][0]["open"] == 21498.0
 
 
+def test_history_payload_matching_accepts_legacy_generic_chart_instance_id_for_canonical_request() -> None:
+    application = build_application()
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    history_payload["instrument"]["symbol"] = "NQ"
+    history_payload["instrument"]["root_symbol"] = "NQ"
+    history_payload["instrument"]["contract_symbol"] = "NQH6"
+    history_payload["instrument"]["venue"] = "CME"
+    history_payload["instrument"]["currency"] = "USD"
+    history_payload["display_timeframe"] = "1m"
+    history_payload["bar_timeframe"] = "1m"
+    history_payload["source"]["chart_instance_id"] = "Chart"
+    history_payload["observed_window_start"] = "2026-03-17T08:55:00Z"
+    history_payload["observed_window_end"] = "2026-03-17T09:00:59Z"
+    history_payload["emitted_at"] = "2026-03-17T09:02:00Z"
+
+    application._repository.save_ingestion(
+        ingestion_id=f"ing-{uuid4().hex}",
+        ingestion_kind="adapter_history_bars",
+        source_snapshot_id=history_payload["message_id"],
+        instrument_symbol="NQ",
+        observed_payload=history_payload,
+        stored_at=datetime(2026, 3, 17, 9, 2, tzinfo=UTC),
+    )
+
+    matched_payloads = application._replay_workbench_service._collect_matching_history_payloads(
+        ReplayWorkbenchBuildRequest(
+            cache_key="NQ|5m|2026-03-17T08:55:00Z|2026-03-17T09:00:59Z",
+            instrument_symbol="NQ",
+            display_timeframe="5m",
+            window_start="2026-03-17T08:55:00Z",
+            window_end="2026-03-17T09:00:59Z",
+            chart_instance_id="chart-NQH6-1m-CME-USD",
+            force_rebuild=True,
+            min_continuous_messages=10,
+        )
+    )
+
+    assert len(matched_payloads) == 1
+    assert matched_payloads[0].source.chart_instance_id == "Chart"
+
+
 def test_replay_builder_merges_history_payloads_across_chart_instances() -> None:
     application = build_application()
     history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
@@ -675,7 +719,7 @@ def test_replay_builder_ignores_zero_activity_heartbeat_overlay() -> None:
     assert build_body["core_snapshot"]["raw_features"]["candle_gap_fill_bar_count"] == 0
 
 
-def test_replay_builder_trims_initial_core_snapshot_window_for_large_local_history() -> None:
+def test_replay_builder_preserves_full_core_snapshot_window_for_large_local_history() -> None:
     application = build_application()
     continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
     base_time = datetime.fromisoformat("2026-03-17T00:00:00+00:00")
@@ -719,11 +763,11 @@ def test_replay_builder_trims_initial_core_snapshot_window_for_large_local_histo
     payload = json.loads(build_response.body)
     assert payload["action"] == "built_from_local_history"
     assert payload["core_snapshot"] is not None
-    assert len(payload["core_snapshot"]["candles"]) == 180
-    assert payload["core_snapshot"]["raw_features"]["initial_window_applied"] is True
+    assert len(payload["core_snapshot"]["candles"]) >= 650
+    assert payload["core_snapshot"]["raw_features"]["initial_window_applied"] is False
     assert payload["core_snapshot"]["raw_features"]["initial_window_bar_limit"] == 180
     assert payload["core_snapshot"]["raw_features"]["total_candle_count"] >= 650
-    assert payload["core_snapshot"]["raw_features"]["deferred_history_available"] is True
+    assert payload["core_snapshot"]["raw_features"]["deferred_history_available"] is False
 
 
     application = build_application()
@@ -1050,6 +1094,72 @@ def test_replay_live_tail_returns_latest_price_and_recent_candles() -> None:
     assert isinstance(payload["same_price_replenishment"], list)
 
 
+def test_adapter_continuous_state_generic_chart_instance_id_is_canonicalized_on_ingest() -> None:
+    application = build_application()
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "NQ"
+    continuous_payload["instrument"]["root_symbol"] = "NQ"
+    continuous_payload["instrument"]["contract_symbol"] = "NQH6"
+    continuous_payload["instrument"]["venue"] = "CME"
+    continuous_payload["instrument"]["currency"] = "USD"
+    continuous_payload["display_timeframe"] = "1m"
+    continuous_payload["source"]["chart_instance_id"] = "Chart"
+    continuous_payload["observed_window_start"] = "2026-03-17T09:00:00Z"
+    continuous_payload["observed_window_end"] = "2026-03-17T09:00:01Z"
+    continuous_payload["emitted_at"] = "2026-03-17T09:00:01Z"
+
+    response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/continuous-state",
+        json.dumps(continuous_payload).encode("utf-8"),
+    )
+
+    assert response.status_code == 201
+    body = json.loads(response.body)
+    stored = application._repository.get_ingestion(body["ingestion_id"])
+    assert stored is not None
+    assert stored.observed_payload["source"]["chart_instance_id"] == "chart-NQH6-1m-CME-USD"
+
+
+def test_replay_live_tail_matches_legacy_generic_chart_instance_id_with_canonical_request() -> None:
+    application = build_application()
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "NQ"
+    continuous_payload["instrument"]["root_symbol"] = "NQ"
+    continuous_payload["instrument"]["contract_symbol"] = "NQH6"
+    continuous_payload["instrument"]["venue"] = "CME"
+    continuous_payload["instrument"]["currency"] = "USD"
+    continuous_payload["display_timeframe"] = "1m"
+    continuous_payload["source"]["chart_instance_id"] = "Chart"
+    continuous_payload["observed_window_start"] = "2026-03-17T09:00:00Z"
+    continuous_payload["observed_window_end"] = "2026-03-17T09:00:01Z"
+    continuous_payload["emitted_at"] = "2026-03-17T09:00:01Z"
+    continuous_payload["price_state"]["last_price"] = 24843.0
+    continuous_payload["price_state"]["best_bid"] = 24842.75
+    continuous_payload["price_state"]["best_ask"] = 24843.0
+
+    application._repository.save_ingestion(
+        ingestion_id=f"ing-{uuid4().hex}",
+        ingestion_kind="adapter_continuous_state",
+        source_snapshot_id=continuous_payload["message_id"],
+        instrument_symbol="NQ",
+        observed_payload=continuous_payload,
+        stored_at=datetime(2026, 3, 17, 9, 0, 1, tzinfo=UTC),
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=NQ&display_timeframe=1m&chart_instance_id=chart-NQH6-1m-CME-USD&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["latest_price"] == 24843.0
+    assert payload["source_message_count"] >= 1
+
+
 def test_replay_live_tail_ignores_zero_activity_heartbeats_for_candles() -> None:
     application = build_application()
 
@@ -1127,6 +1237,144 @@ def test_replay_live_tail_falls_back_to_tick_quote_when_continuous_missing(monke
     assert payload["latest_observed_at"].startswith("2026-03-17T09:00:03")
     assert payload["source_message_count"] == 0
     assert payload["candles"] == []
+
+
+def test_replay_live_tail_overlays_recent_continuous_updates_on_chart_candle_base() -> None:
+    application = build_application()
+
+    now = datetime.now(tz=UTC).replace(second=0, microsecond=0)
+    chart_start = now - timedelta(minutes=160)
+    chart_bars = [
+        ChartCandle(
+            symbol="NQ",
+            timeframe=Timeframe.MIN_1,
+            started_at=chart_start + timedelta(minutes=index),
+            ended_at=chart_start + timedelta(minutes=index + 1),
+            source_started_at=chart_start + timedelta(minutes=index),
+            open=24000.0 + index,
+            high=24001.0 + index,
+            low=23999.0 + index,
+            close=24000.5 + index,
+            volume=20,
+            tick_volume=20,
+            delta=2,
+            updated_at=chart_start + timedelta(minutes=index + 1),
+            source_timezone="UTC",
+        )
+        for index in range(151)
+    ]
+    application._repository.replace_chart_candles(chart_bars)
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "NQ"
+    continuous_payload["source"]["instrument_symbol"] = "NQ"
+    continuous_payload["source"]["chart_instance_id"] = "NQ-live-tail-overlay"
+
+    for index in range(9):
+        observed_at = now - timedelta(minutes=9 - index) + timedelta(seconds=1)
+        payload = copy.deepcopy(continuous_payload)
+        payload["message_id"] = f"adapter-msg-overlay-{index}"
+        payload["observed_window_start"] = (observed_at - timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        payload["observed_window_end"] = observed_at.isoformat().replace("+00:00", "Z")
+        payload["emitted_at"] = observed_at.isoformat().replace("+00:00", "Z")
+        payload["price_state"]["last_price"] = 26000.0 + index
+        payload["price_state"]["best_bid"] = 25999.75 + index
+        payload["price_state"]["best_ask"] = 26000.25 + index
+        payload["trade_summary"]["trade_count"] = 1
+        payload["trade_summary"]["volume"] = 3
+        payload["trade_summary"]["aggressive_buy_volume"] = 2
+        payload["trade_summary"]["aggressive_sell_volume"] = 1
+        payload["trade_summary"]["net_delta"] = 1
+        application.dispatch(
+            "POST",
+            "/api/v1/adapter/continuous-state",
+            json.dumps(payload).encode("utf-8"),
+        )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=NQ&display_timeframe=1m&chart_instance_id=NQ-live-tail-overlay&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["latest_price"] == 26008.0
+    assert payload["latest_price_source"] == "continuous_state"
+    assert len(payload["candles"]) == 4
+    assert payload["candles"][-1]["started_at"] == (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+    assert payload["candles"][-1]["close"] == 26008.0
+    assert payload["candles"][0]["started_at"] == (now - timedelta(minutes=4)).isoformat().replace("+00:00", "Z")
+
+
+def test_replay_live_tail_ignores_unrelated_backfill_ack_for_refresh_flags() -> None:
+    application = build_application()
+
+    now = datetime.now(tz=UTC).replace(second=0, microsecond=0)
+    chart_start = now - timedelta(minutes=12)
+    application._repository.replace_chart_candles(
+        [
+            ChartCandle(
+                symbol="NQ",
+                timeframe=Timeframe.MIN_1,
+                started_at=chart_start + timedelta(minutes=index),
+                ended_at=chart_start + timedelta(minutes=index + 1),
+                source_started_at=chart_start + timedelta(minutes=index),
+                open=24500.0 + index,
+                high=24501.0 + index,
+                low=24499.0 + index,
+                close=24500.5 + index,
+                volume=12,
+                tick_volume=12,
+                delta=1,
+                updated_at=chart_start + timedelta(minutes=index + 1),
+                source_timezone="UTC",
+            )
+            for index in range(8)
+        ]
+    )
+
+    from atas_market_structure.models import (
+        AdapterBackfillAcknowledgeRequest,
+        ReplayWorkbenchAtasBackfillRequest,
+    )
+
+    backfill_request = ReplayWorkbenchAtasBackfillRequest(
+        cache_key="NQ|1m|older-window",
+        instrument_symbol="NQ",
+        contract_symbol="NQ",
+        root_symbol="NQ",
+        display_timeframe="1m",
+        window_start=now - timedelta(days=1, hours=1),
+        window_end=now - timedelta(days=1),
+        chart_instance_id="NQ-live-tail-refresh",
+        missing_segments=[],
+        requested_ranges=[],
+        reason="test_unrelated_backfill",
+        request_history_bars=True,
+        request_history_footprint=False,
+    )
+    accepted = application._replay_workbench_service.request_atas_backfill(backfill_request)
+    application._replay_workbench_service.acknowledge_atas_backfill(
+        AdapterBackfillAcknowledgeRequest(
+            request_id=accepted.request.request_id,
+            cache_key=accepted.request.cache_key,
+            instrument_symbol="NQ",
+            chart_instance_id="NQ-live-tail-refresh",
+            acknowledged_at=now,
+            acknowledged_history_bars=True,
+            acknowledged_history_footprint=False,
+        )
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=NQ&display_timeframe=1m&chart_instance_id=NQ-live-tail-refresh&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["latest_backfill_request"] is None
+    assert payload["snapshot_refresh_required"] is False
 
 
 def test_replay_ai_review_endpoint_returns_structured_review() -> None:

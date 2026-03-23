@@ -166,6 +166,10 @@ class AdapterBackfillCommand(BaseModel):
     reason: str = Field(..., description="Why the request was created.")
     request_history_bars: bool = Field(..., description="Whether history bars should be resent.")
     request_history_footprint: bool = Field(..., description="Whether history footprint should be resent.")
+    replace_existing_history: bool = Field(
+        False,
+        description="Whether the server already cleared the targeted history window before this dispatch.",
+    )
     dispatch_count: int = Field(..., ge=1, description="Current dispatch attempt number.")
     requested_at: datetime = Field(..., description="When the request was first created.")
     dispatched_at: datetime = Field(..., description="When this dispatch lease was granted.")

@@ -13,12 +13,18 @@ import {
   summarizeText,
   escapeHtml,
   createPlanId,
+  sanitizeReplayCandles,
 } from "./replay_workbench_ui_utils.js";
 import { createAiThreadController } from "./replay_workbench_ai_threads.js";
 import { createAiChatController } from "./replay_workbench_ai_chat.js";
 import { createReplayLoader } from "./replay_workbench_replay_loader.js";
 import { createWorkbenchActions } from "./replay_workbench_actions.js";
-import { createChartViewHelpers, clampChartView } from "./replay_workbench_chart_utils.js";
+import {
+  createChartViewHelpers,
+  clampChartView,
+  buildChartViewportKey,
+  snapshotChartViewForRegistry,
+} from "./replay_workbench_chart_utils.js";
 import { createPlanLifecycleEngine } from "./replay_workbench_plan_lifecycle.js";
 import { createSessionMemoryEngine } from "./replay_workbench_session_memory.js";
 import { createAnnotationPanelController } from "./replay_workbench_annotation_panel.js";
@@ -535,6 +541,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   const MOBILE_AI_BREAKPOINT = 1000;
   const DESKTOP_SIDEBAR_MIN = 520;
   const DESKTOP_SIDEBAR_MAX = 820;
+  let chartViewportPersistTimer = null;
 
   function collectLayerStateFromInputs() {
     return {
@@ -588,7 +595,63 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         collapsed: false,
         bySymbol: {},
       },
+      chartViewportRegistry: state.chartViewportRegistry || {},
     });
+  }
+
+  function sameChartViewportRecord(left, right) {
+    if (!left && !right) {
+      return true;
+    }
+    if (!left || !right) {
+      return false;
+    }
+    return left.startIndex === right.startIndex
+      && left.endIndex === right.endIndex
+      && left.totalCount === right.totalCount
+      && left.rightPadding === right.rightPadding
+      && left.followLatest === right.followLatest
+      && left.yMin === right.yMin
+      && left.yMax === right.yMax;
+  }
+
+  function schedulePersistChartViewportRegistry() {
+    if (chartViewportPersistTimer) {
+      window.clearTimeout(chartViewportPersistTimer);
+    }
+    chartViewportPersistTimer = window.setTimeout(() => {
+      chartViewportPersistTimer = null;
+      persistWorkbenchState();
+    }, 140);
+  }
+
+  function rememberCurrentChartView(snapshot = state.snapshot, { persist = true } = {}) {
+    if (!snapshot?.candles?.length || !state.chartView) {
+      return null;
+    }
+    const chartViewportKey = buildChartViewportKey(snapshot);
+    if (!chartViewportKey) {
+      return null;
+    }
+    const lastVisibleBar = snapshot.candles[Math.min(snapshot.candles.length - 1, state.chartView.endIndex)] || null;
+    const nextRecord = snapshotChartViewForRegistry(snapshot.candles.length, state.chartView, {
+      lastVisibleEndedAt: lastVisibleBar?.ended_at || lastVisibleBar?.started_at || null,
+    });
+    if (!nextRecord) {
+      return null;
+    }
+    const previousRecord = state.chartViewportRegistry?.[chartViewportKey] || null;
+    if (!sameChartViewportRecord(previousRecord, nextRecord)) {
+      state.chartViewportRegistry = {
+        ...(state.chartViewportRegistry || {}),
+        [chartViewportKey]: nextRecord,
+      };
+      if (persist) {
+        schedulePersistChartViewportRegistry();
+      }
+    }
+    state.lastChartViewportKey = chartViewportKey;
+    return nextRecord;
   }
 
   function formatExactLocalDateTime(value) {
@@ -771,6 +834,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const isOpen = !!els.headerMoreMenu && !els.headerMoreMenu.hidden;
     const hasCacheKey = !!String(els.cacheKey?.value || "").trim();
     const cacheActionBusy = state.buildInFlight || state.snapshotLoading;
+    const hasRepairWindow = !!String(els.windowStart?.value || "").trim() && !!String(els.windowEnd?.value || "").trim();
+    const repairChartInstanceId = String(
+      els.chartInstanceId?.value || state.snapshot?.source?.chart_instance_id || state.pendingBackfill?.chart_instance_id || "",
+    ).trim();
     if (els.headerMoreButton) {
       els.headerMoreButton.classList.toggle("is-active", isOpen);
       els.headerMoreButton.textContent = isOpen ? "更多▲" : "更多▼";
@@ -804,6 +871,20 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       els.invalidateCacheButton.title = !hasCacheKey
         ? "当前参数还没有可重置的缓存键。"
         : (cacheActionBusy ? "当前正在刷新或加载数据，请稍后再试。" : "作废当前参数对应的缓存记录。");
+    }
+    if (els.repairChartButton) {
+      els.repairChartButton.disabled = cacheActionBusy || !hasCacheKey || !hasRepairWindow;
+      if (!hasCacheKey) {
+        els.repairChartButton.title = "当前参数还没有可修复的缓存键。";
+      } else if (!hasRepairWindow) {
+        els.repairChartButton.title = "修复当前图表前需要完整的开始和结束时间。";
+      } else if (cacheActionBusy) {
+        els.repairChartButton.title = "当前正在刷新或加载数据，请稍后再试。";
+      } else if (repairChartInstanceId) {
+        els.repairChartButton.title = `清空当前窗口并要求 ATAS 图表 ${repairChartInstanceId} 重新回传已加载 K 线。`;
+      } else {
+        els.repairChartButton.title = "清空当前窗口并重新发起修复，但当前未绑定 chart_instance_id，将由同品种匹配图表领取任务。";
+      }
     }
     if (els.refreshCacheViewerButton) {
       els.refreshCacheViewerButton.disabled = cacheActionBusy || !hasCacheKey;
@@ -1236,12 +1317,29 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   function buildVisiblePriceEnvelope(visibleCandles = [], focusPrices = []) {
+    const candleValues = visibleCandles.flatMap((candle) => [
+      toFocusNumber(candle?.low),
+      toFocusNumber(candle?.high),
+    ]).filter((item) => item != null);
+    let annotationValues = focusPrices.map((item) => toFocusNumber(item)).filter((item) => item != null);
+    if (candleValues.length && annotationValues.length) {
+      const candleMin = Math.min(...candleValues);
+      const candleMax = Math.max(...candleValues);
+      const candleSpan = Math.max(candleMax - candleMin, Math.max(Math.abs(candleMax) * 0.002, 2));
+      const maxDistance = Math.max(candleSpan * 4, Math.max(Math.abs(candleMax) * 0.002, 8));
+      const boundedAnnotationValues = annotationValues.filter((price) => (
+        price >= candleMin - maxDistance && price <= candleMax + maxDistance
+      ));
+      if (boundedAnnotationValues.length !== annotationValues.length) {
+        console.warn(
+          `buildVisiblePriceEnvelope: dropped ${annotationValues.length - boundedAnnotationValues.length} outlier annotation prices outside visible candle range`,
+        );
+      }
+      annotationValues = boundedAnnotationValues;
+    }
     const values = [
-      ...focusPrices.map((item) => toFocusNumber(item)).filter((item) => item != null),
-      ...visibleCandles.flatMap((candle) => [
-        toFocusNumber(candle?.low),
-        toFocusNumber(candle?.high),
-      ]).filter((item) => item != null),
+      ...annotationValues,
+      ...candleValues,
     ];
     if (!values.length) {
       return { min: null, max: null };
@@ -2690,11 +2788,6 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     return minutesByTimeframe[timeframe] || 1;
   }
 
-  function getMaxBarsForTimeframe(timeframe) {
-    const timeframeMinutes = getTimeframeMinutes(timeframe);
-    return Math.max(1, Math.ceil((7 * 24 * 60) / timeframeMinutes));
-  }
-
   function buildCandleSignature(candle) {
     if (!candle) {
       return "";
@@ -2772,10 +2865,46 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (!existingCandles.length || !incomingCandles.length) {
       return { merged: false, requiresReload: false, updateType: "full_reset" };
     }
+    const maxTemporalDriftMs = getTimeframeMinutes(timeframe) * 10 * 60 * 1000;
+    const incomingLast = incomingCandles[incomingCandles.length - 1];
+    const incomingLastEndedAtMs = new Date(incomingLast?.ended_at || incomingLast?.started_at || 0).getTime();
+    const latestObservedAtMs = new Date(response.latest_observed_at || 0).getTime();
+    if (
+      Number.isFinite(incomingLastEndedAtMs)
+      && Number.isFinite(latestObservedAtMs)
+      && latestObservedAtMs - incomingLastEndedAtMs > maxTemporalDriftMs
+    ) {
+      console.warn("Ignoring stale live-tail candles that lag latest_observed_at", {
+        timeframe,
+        latest_observed_at: response.latest_observed_at,
+        incoming_last_started_at: incomingLast?.started_at || null,
+        incoming_last_ended_at: incomingLast?.ended_at || null,
+      });
+      state.snapshot = {
+        ...state.snapshot,
+        live_tail: nextLiveTail,
+      };
+      return { merged: true, requiresReload: false, updateType: "quote_only" };
+    }
     const alignedIndex = existingCandles.findIndex((bar) => bar.started_at === incomingCandles[0].started_at);
     if (alignedIndex < 0) {
       const lastExisting = existingCandles[existingCandles.length - 1];
       if (!lastExisting || new Date(incomingCandles[0].started_at) <= new Date(lastExisting.started_at)) {
+        const reverseDriftMs = lastExisting
+          ? new Date(lastExisting.started_at).getTime() - new Date(incomingCandles[0].started_at).getTime()
+          : NaN;
+        if (Number.isFinite(reverseDriftMs) && reverseDriftMs > maxTemporalDriftMs) {
+          console.warn("Ignoring stale live-tail candles that would rewind the current snapshot", {
+            timeframe,
+            snapshot_last_started_at: lastExisting?.started_at || null,
+            incoming_first_started_at: incomingCandles[0]?.started_at || null,
+          });
+          state.snapshot = {
+            ...state.snapshot,
+            live_tail: nextLiveTail,
+          };
+          return { merged: true, requiresReload: false, updateType: "quote_only" };
+        }
         return { merged: false, requiresReload: true, updateType: "full_reset" };
       }
       const seamGapMs = new Date(incomingCandles[0].started_at).getTime() - new Date(lastExisting.ended_at || lastExisting.started_at).getTime();
@@ -2800,7 +2929,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const previousCandles = state.snapshot.candles;
     const previousLength = previousCandles.length;
     const previousLastSignature = buildCandleSignature(previousCandles[previousCandles.length - 1]);
-    const nextCandles = deduped.slice(-getMaxBarsForTimeframe(timeframe));
+    const nextCandles = sanitizeReplayCandles(
+      deduped,
+      { context: "live-tail-merge" },
+    );
     state.snapshot = {
       ...state.snapshot,
       live_tail: nextLiveTail,
@@ -2838,9 +2970,21 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       try {
         const symbol = els.instrumentSymbol?.value?.trim();
         const timeframe = els.displayTimeframe?.value;
+        const chartInstanceId = String(
+          els.chartInstanceId?.value || state.snapshot?.source?.chart_instance_id || state.pendingBackfill?.chart_instance_id || "",
+        ).trim();
         if (!symbol || !timeframe) return;
 
-        const response = await fetchJson(`/api/v1/workbench/live-tail?instrument_symbol=${encodeURIComponent(symbol)}&display_timeframe=${encodeURIComponent(timeframe)}&lookback_bars=4`);
+        const liveTailQuery = new URLSearchParams({
+          instrument_symbol: symbol,
+          display_timeframe: timeframe,
+          lookback_bars: "4",
+        });
+        if (chartInstanceId) {
+          liveTailQuery.set("chart_instance_id", chartInstanceId);
+        }
+
+        const response = await fetchJson(`/api/v1/workbench/live-tail?${liveTailQuery.toString()}`);
         const { integrityChanged } = applyLiveResponseMeta(response);
         const mergeResult = mergeLiveTailIntoSnapshot(response, timeframe);
         const needsReload = shouldReloadSnapshotForLiveResponse(response, mergeResult.merged) || mergeResult.requiresReload;
@@ -5031,6 +5175,15 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       closeHeaderMoreMenu();
       await invalidateCacheFromHeader({ button: els.invalidateCacheButton });
     });
+    els.repairChartButton?.addEventListener("click", async () => {
+      closeHeaderMoreMenu();
+      await runButtonAction(els.repairChartButton, async () => {
+        const result = await actions.handleRepairCurrentWindow();
+        if (result) {
+          markWorkbenchSynced();
+        }
+      }, { silentError: true });
+    });
     els.exportSettingsButton?.addEventListener("click", () => {
       exportCurrentSettings();
       renderStatusStrip([{ label: "当前工作台设置已导出。", variant: "good" }]);
@@ -5621,6 +5774,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     state,
     els,
     ensureChartView,
+    rememberCurrentChartView,
     buildCacheKey,
     syncCacheKey,
     renderSnapshot,

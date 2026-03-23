@@ -1141,6 +1141,9 @@ internal sealed class AdapterBackfillCommandPayload
     [JsonPropertyName("request_history_footprint")]
     public bool RequestHistoryFootprint { get; init; }
 
+    [JsonPropertyName("replace_existing_history")]
+    public bool ReplaceExistingHistory { get; init; }
+
     [JsonPropertyName("dispatch_count")]
     public int DispatchCount { get; init; }
 
@@ -1192,6 +1195,9 @@ internal sealed class AdapterBackfillAcknowledgeRequestPayload
 
     [JsonPropertyName("acknowledged_history_footprint")]
     public bool AcknowledgedHistoryFootprint { get; init; }
+
+    [JsonPropertyName("replace_existing_history")]
+    public bool ReplaceExistingHistory { get; init; }
 
     [JsonPropertyName("latest_loaded_bar_started_at")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

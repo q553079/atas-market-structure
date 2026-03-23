@@ -145,7 +145,11 @@ export function createWorkbenchState() {
     selectedChartEventClusterKey: null,
     // chartView 保存当前视口；lastChartUpdateType 用于区分 initial / tail_update / full_reset。
     chartView: null,
+    chartViewportRegistry: persistedWorkbench.chartViewportRegistry || {},
+    pendingChartViewRestore: null,
+    lastChartViewportKey: null,
     lastChartUpdateType: null,
+    liveQuotePreview: null,
     chartMetrics: null,
     chartEventModel: null,
     buildInFlight: false,

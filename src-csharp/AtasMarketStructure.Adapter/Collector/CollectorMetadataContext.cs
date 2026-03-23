@@ -299,6 +299,13 @@ internal static class CollectorMetadataResolver
         ["MCL"] = 0.01m,
     };
 
+    private static readonly HashSet<string> GenericChartInstanceIdCandidates = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CHART",
+        "PANEL",
+        "CONTAINER",
+    };
+
     private static readonly char[] IdentifierUnsafeChars = { ' ', ':', '/', '\\', '\t', '\r', '\n' };
 
     public static ChartIdentity ResolveChartIdentity(
@@ -339,7 +346,7 @@ internal static class CollectorMetadataResolver
             ?? NormalizeDisplayTimeframe(FormatTimeframe(inferBarSpan()))
             ?? "unknown";
         var detectedChartInstanceId = ResolveFirstString(indicator, ChartInstanceIdCandidatePaths, NormalizeIdentifier);
-        var chartInstanceId = !string.IsNullOrWhiteSpace(detectedChartInstanceId)
+        var chartInstanceId = IsUsableChartInstanceId(detectedChartInstanceId)
             ? detectedChartInstanceId
             : BuildFallbackChartInstanceId(contractSymbol, displayTimeframe, venue, currency);
 
@@ -863,6 +870,17 @@ internal static class CollectorMetadataResolver
         return candidate;
     }
 
+    private static bool IsUsableChartInstanceId(string? raw)
+    {
+        var normalized = NormalizeIdentifier(raw);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return !GenericChartInstanceIdCandidates.Contains(normalized);
+    }
+
     private static string? NormalizeTimeZoneMode(object? raw)
     {
         var candidate = raw?.ToString()?.Trim();
@@ -986,20 +1004,30 @@ internal static class CollectorMetadataResolver
         }
 
         var monthCodeIndex = symbol.Length - 1;
-        var trailingDigitCount = 0;
         while (monthCodeIndex >= 0 && char.IsDigit(symbol[monthCodeIndex]))
         {
             monthCodeIndex--;
-            trailingDigitCount++;
         }
 
-        if (trailingDigitCount > 0 && monthCodeIndex > 0 && "FGHJKMNQUVXZ".IndexOf(symbol[monthCodeIndex]) >= 0)
+        var hasContractDigits = monthCodeIndex >= 0 && monthCodeIndex < symbol.Length - 1;
+        if (hasContractDigits && monthCodeIndex > 0 && "FGHJKMNQUVXZ".IndexOf(symbol[monthCodeIndex]) >= 0)
         {
             var root = symbol[..monthCodeIndex];
-            if (!string.IsNullOrWhiteSpace(root))
+            if (!string.IsNullOrWhiteSpace(root) && root.Length >= 2)
             {
                 return root;
             }
+        }
+
+        var suffixStart = symbol.Length;
+        while (suffixStart > 0 && char.IsDigit(symbol[suffixStart - 1]))
+        {
+            suffixStart--;
+        }
+
+        if (suffixStart >= 2 && suffixStart < symbol.Length)
+        {
+            return symbol[..suffixStart];
         }
 
         return symbol;

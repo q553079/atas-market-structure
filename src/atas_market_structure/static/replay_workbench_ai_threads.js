@@ -1231,6 +1231,7 @@ function persistSessions(state) {
     topBar: state.topBar,
     pinnedPlanId: state.pinnedPlanId || null,
     layerState: state.layerState || null,
+    chartViewportRegistry: state.chartViewportRegistry || {},
   });
 }
 

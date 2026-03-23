@@ -7,6 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from atas_market_structure.adapter_bridge import AdapterPayloadBridge
+from atas_market_structure.chart_identity import canonical_chart_instance_id, derive_root_symbol, normalize_symbol
 from atas_market_structure.models import (
     AtasChartBarRaw,
     AdapterAcceptedResponse,
@@ -55,7 +56,17 @@ class AdapterIngestionService:
         self._unresolved_tick_size_logged_at: dict[str, datetime] = {}
         self._unresolved_tick_size_lock = Lock()
 
+    def normalize_payload(self, payload: AdapterPayloadType) -> AdapterPayloadType:
+        normalized = self._normalize_payload_instrument_identity(payload)
+        normalized = self._normalize_payload_chart_identity(normalized)
+        if isinstance(normalized, AdapterHistoryBarsPayload):
+            return self._drop_forming_history_bars(normalized)
+        if isinstance(normalized, AdapterHistoryFootprintPayload):
+            return self._drop_forming_history_footprint_bars(normalized)
+        return normalized
+
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> AdapterAcceptedResponse:
+        payload = self.normalize_payload(payload)
         self._warn_on_unresolved_tick_size("ingest_continuous_state", payload)
         summary = self.build_summary(payload)
         accepted = self._store(
@@ -108,6 +119,7 @@ class AdapterIngestionService:
         )
 
     def ingest_trigger_burst(self, payload: AdapterTriggerBurstPayload) -> AdapterAcceptedResponse:
+        payload = self.normalize_payload(payload)
         self._warn_on_unresolved_tick_size("ingest_trigger_burst", payload)
         summary = self.build_summary(payload)
         accepted = self._store(
@@ -153,6 +165,7 @@ class AdapterIngestionService:
         )
 
     def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> AdapterAcceptedResponse:
+        payload = self.normalize_payload(payload)
         summary = self.build_summary(payload)
         accepted = self._store(
             ingestion_kind="adapter_history_bars",
@@ -213,6 +226,7 @@ class AdapterIngestionService:
         )
 
     def ingest_history_footprint(self, payload: AdapterHistoryFootprintPayload) -> AdapterAcceptedResponse:
+        payload = self.normalize_payload(payload)
         summary = self.build_summary(payload)
         accepted = self._store(
             ingestion_kind="adapter_history_footprint",
@@ -340,6 +354,7 @@ class AdapterIngestionService:
         )
 
     def describe_payload(self, payload: AdapterPayloadType) -> dict[str, Any]:
+        payload = self.normalize_payload(payload)
         if isinstance(payload, AdapterContinuousStatePayload):
             return {
                 "ingestion_kind": "adapter_continuous_state",
@@ -378,6 +393,7 @@ class AdapterIngestionService:
         *,
         accepted: AdapterAcceptedResponse,
     ) -> AdapterAcceptedResponse:
+        payload = self.normalize_payload(payload)
         if isinstance(payload, AdapterContinuousStatePayload):
             return self.ingest_continuous_state_after_store(payload, accepted=accepted)
         if isinstance(payload, AdapterTriggerBurstPayload):
@@ -416,6 +432,160 @@ class AdapterIngestionService:
             contract_symbol,
             retention_days,
             cutoff.isoformat(),
+        )
+
+    def _normalize_payload_chart_identity(self, payload: AdapterPayloadType) -> AdapterPayloadType:
+        normalized_chart_instance_id = canonical_chart_instance_id(
+            payload.source.chart_instance_id,
+            instrument_symbol=payload.instrument.symbol,
+            contract_symbol=payload.instrument.contract_symbol or payload.instrument.symbol,
+            display_timeframe=getattr(payload, "bar_timeframe", None) or payload.display_timeframe,
+            venue=payload.instrument.venue,
+            currency=payload.instrument.currency,
+        )
+        if normalized_chart_instance_id == payload.source.chart_instance_id:
+            return payload
+        LOGGER.info(
+            "normalize_payload_chart_identity: message_id=%s chart_instance_id=%s -> %s symbol=%s contract_symbol=%s timeframe=%s",
+            payload.message_id,
+            payload.source.chart_instance_id,
+            normalized_chart_instance_id,
+            payload.instrument.symbol,
+            payload.instrument.contract_symbol,
+            getattr(getattr(payload, "bar_timeframe", None), "value", getattr(payload, "bar_timeframe", None))
+            or payload.display_timeframe,
+        )
+        return payload.model_copy(
+            update={
+                "source": payload.source.model_copy(
+                    update={"chart_instance_id": normalized_chart_instance_id}
+                )
+            }
+        )
+
+    def _normalize_payload_instrument_identity(self, payload: AdapterPayloadType) -> AdapterPayloadType:
+        instrument = payload.instrument
+        normalized_symbol = normalize_symbol(instrument.symbol) or instrument.symbol
+        normalized_contract_symbol = normalize_symbol(instrument.contract_symbol) or normalized_symbol
+        normalized_root_symbol = normalize_symbol(instrument.root_symbol)
+        derived_root_symbol = (
+            derive_root_symbol(normalized_contract_symbol)
+            or derive_root_symbol(normalized_symbol)
+        )
+
+        next_root_symbol = normalized_root_symbol
+        if next_root_symbol is None:
+            next_root_symbol = derived_root_symbol
+        elif (
+            derived_root_symbol is not None
+            and (
+                len(next_root_symbol) < 2
+                or next_root_symbol == normalized_contract_symbol
+            )
+            and derived_root_symbol != next_root_symbol
+        ):
+            next_root_symbol = derived_root_symbol
+
+        if (
+            normalized_symbol == instrument.symbol
+            and normalized_contract_symbol == (instrument.contract_symbol or normalized_symbol)
+            and next_root_symbol == instrument.root_symbol
+        ):
+            return payload
+
+        LOGGER.info(
+            "normalize_payload_instrument_identity: message_id=%s symbol=%s->%s contract_symbol=%s->%s root_symbol=%s->%s",
+            payload.message_id,
+            instrument.symbol,
+            normalized_symbol,
+            instrument.contract_symbol,
+            normalized_contract_symbol,
+            instrument.root_symbol,
+            next_root_symbol,
+        )
+        return payload.model_copy(
+            update={
+                "instrument": instrument.model_copy(
+                    update={
+                        "symbol": normalized_symbol,
+                        "contract_symbol": normalized_contract_symbol,
+                        "root_symbol": next_root_symbol,
+                    }
+                )
+            }
+        )
+
+    def _drop_forming_history_bars(self, payload: AdapterHistoryBarsPayload) -> AdapterHistoryBarsPayload:
+        if not payload.bars:
+            return payload
+        emitted_at_utc = payload.emitted_at.astimezone(UTC)
+        completed_bars = [
+            bar for bar in payload.bars
+            if bar.ended_at.astimezone(UTC) < emitted_at_utc
+        ]
+        dropped_count = len(payload.bars) - len(completed_bars)
+        if dropped_count <= 0:
+            return payload
+        LOGGER.warning(
+            "drop_forming_history_bars: message_id=%s dropped=%s emitted_at=%s latest_source_bar=%s chart_instance_id=%s",
+            payload.message_id,
+            dropped_count,
+            emitted_at_utc.isoformat(),
+            payload.bars[-1].started_at.astimezone(UTC).isoformat(),
+            payload.source.chart_instance_id,
+        )
+        if completed_bars:
+            return payload.model_copy(
+                update={
+                    "bars": completed_bars,
+                    "observed_window_start": completed_bars[0].started_at,
+                    "observed_window_end": completed_bars[-1].ended_at,
+                }
+            )
+        return payload.model_copy(
+            update={
+                "bars": [],
+                "observed_window_start": emitted_at_utc,
+                "observed_window_end": emitted_at_utc,
+            }
+        )
+
+    def _drop_forming_history_footprint_bars(
+        self,
+        payload: AdapterHistoryFootprintPayload,
+    ) -> AdapterHistoryFootprintPayload:
+        if not payload.bars:
+            return payload
+        emitted_at_utc = payload.emitted_at.astimezone(UTC)
+        completed_bars = [
+            bar for bar in payload.bars
+            if bar.ended_at.astimezone(UTC) < emitted_at_utc
+        ]
+        dropped_count = len(payload.bars) - len(completed_bars)
+        if dropped_count <= 0:
+            return payload
+        LOGGER.warning(
+            "drop_forming_history_footprint_bars: message_id=%s dropped=%s emitted_at=%s latest_source_bar=%s chart_instance_id=%s",
+            payload.message_id,
+            dropped_count,
+            emitted_at_utc.isoformat(),
+            payload.bars[-1].started_at.astimezone(UTC).isoformat(),
+            payload.source.chart_instance_id,
+        )
+        if completed_bars:
+            return payload.model_copy(
+                update={
+                    "bars": completed_bars,
+                    "observed_window_start": completed_bars[0].started_at,
+                    "observed_window_end": completed_bars[-1].ended_at,
+                }
+            )
+        return payload.model_copy(
+            update={
+                "bars": [],
+                "observed_window_start": emitted_at_utc,
+                "observed_window_end": emitted_at_utc,
+            }
         )
 
     def _build_raw_mirror_bars(self, payload: AdapterHistoryBarsPayload) -> list[AtasChartBarRaw]:

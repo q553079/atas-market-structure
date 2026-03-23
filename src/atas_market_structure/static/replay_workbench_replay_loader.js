@@ -1,3 +1,6 @@
+import { buildChartViewportKey } from "./replay_workbench_chart_utils.js";
+import { normalizeReplaySnapshot, sanitizeReplayCandles } from "./replay_workbench_ui_utils.js";
+
 export function createReplayLoader({
   state,
   els,
@@ -82,23 +85,35 @@ export function createReplayLoader({
       preserveSelection = false,
       reason = "default",
     } = options || {};
+    const normalizedSnapshot = normalizeReplaySnapshot(snapshot, {
+      context: `snapshot:${ingestionId}`,
+    });
     const previousSnapshot = state.snapshot;
     const previousChartView = state.chartView ? { ...state.chartView } : null;
     const previousSelectedCandleIndex = state.selectedCandleIndex;
     const previousSelectedFootprintBar = state.selectedFootprintBar;
-    const nextSymbol = snapshot?.instrument_symbol || snapshot?.instrument?.symbol || "";
-    const nextTimeframe = snapshot?.display_timeframe || "";
+    const nextSymbol = normalizedSnapshot?.instrument_symbol || normalizedSnapshot?.instrument?.symbol || "";
+    const nextTimeframe = normalizedSnapshot?.display_timeframe || "";
     const previousSymbol = previousSnapshot?.instrument_symbol || previousSnapshot?.instrument?.symbol || "";
     const previousTimeframe = previousSnapshot?.display_timeframe || "";
+    const previousChartKey = buildChartViewportKey(previousSnapshot);
+    const nextChartKey = buildChartViewportKey(normalizedSnapshot);
     const sameSymbol = previousSymbol === nextSymbol;
     const sameTimeframe = previousTimeframe === nextTimeframe;
-    const shouldPreserveChartView = !!preserveChartView && sameSymbol && sameTimeframe;
-    const shouldPreserveSelection = !!preserveSelection && sameSymbol && sameTimeframe;
+    const sameChartIdentity = !!nextChartKey && nextChartKey === previousChartKey;
+    const shouldPreserveChartView = !!preserveChartView && sameChartIdentity;
+    const shouldPreserveSelection = !!preserveSelection && (sameChartIdentity || (sameSymbol && sameTimeframe));
+    const savedChartView = nextChartKey ? state.chartViewportRegistry?.[nextChartKey] || null : null;
 
     state.currentReplayIngestionId = ingestionId;
-    state.snapshot = snapshot;
-    state.integrity = snapshot?.integrity || null;
-    state.pendingBackfill = snapshot?.latest_backfill_request || state.buildResponse?.atas_backfill_request || null;
+    state.snapshot = normalizedSnapshot;
+    state.integrity = normalizedSnapshot?.integrity || null;
+    state.pendingBackfill = normalizedSnapshot?.latest_backfill_request || state.buildResponse?.atas_backfill_request || null;
+    if (els.chartInstanceId) {
+      els.chartInstanceId.value = String(
+        normalizedSnapshot?.source?.chart_instance_id || state.pendingBackfill?.chart_instance_id || "",
+      ).trim();
+    }
     state.lastLiveTailIntegrityHash = state.integrity ? JSON.stringify(state.integrity) : null;
     state.reviewProjection = null;
     state.operatorEntries = [];
@@ -109,10 +124,12 @@ export function createReplayLoader({
     state.selectedCandleIndex = shouldPreserveSelection ? previousSelectedCandleIndex : null;
     state.selectedFootprintBar = shouldPreserveSelection ? previousSelectedFootprintBar : null;
     state.chartView = shouldPreserveChartView ? previousChartView : null;
+    state.pendingChartViewRestore = shouldPreserveChartView ? null : (savedChartView ? { ...savedChartView } : null);
+    state.lastChartViewportKey = nextChartKey || null;
     state.chartViewportResetPending = !shouldPreserveChartView;
-    state.chartAutoScalePending = !shouldPreserveChartView;
+    state.chartAutoScalePending = !(shouldPreserveChartView || savedChartView);
     state.lastSnapshotLoadReason = reason;
-    state.fullHistoryLoaded = !snapshot?.raw_features?.deferred_history_available;
+    state.fullHistoryLoaded = !normalizedSnapshot?.raw_features?.deferred_history_available;
     if (!state.aiThreads?.length) {
       ensureThread("session-01", "01");
       state.activeAiThreadId = "session-01";
@@ -124,8 +141,14 @@ export function createReplayLoader({
     if (!state.snapshot || !snapshot?.candles?.length) {
       return false;
     }
-    const currentCandles = Array.isArray(state.snapshot.candles) ? state.snapshot.candles : [];
-    const nextCandles = Array.isArray(snapshot.candles) ? snapshot.candles : [];
+    const currentCandles = sanitizeReplayCandles(state.snapshot.candles, {
+      context: "full-history-current",
+      log: false,
+    });
+    const nextCandles = sanitizeReplayCandles(snapshot.candles, {
+      context: "full-history-next",
+      log: false,
+    });
     const currentFirstStartedAt = currentCandles[0]?.started_at;
     const mergedEarlierCandles = nextCandles.filter((bar) => bar?.started_at && (!currentFirstStartedAt || bar.started_at < currentFirstStartedAt));
     const nextTotal = Number(snapshot?.raw_features?.total_candle_count || nextCandles.length || 0);
@@ -133,7 +156,7 @@ export function createReplayLoader({
     if (!mergedEarlierCandles.length && nextTotal <= currentTotal) {
       return false;
     }
-    state.snapshot = {
+    state.snapshot = normalizeReplaySnapshot({
       ...state.snapshot,
       candles: [...mergedEarlierCandles, ...currentCandles],
       window_start: snapshot.window_start,
@@ -143,7 +166,9 @@ export function createReplayLoader({
         ...(snapshot.raw_features || {}),
         deferred_history_available: false,
       },
-    };
+    }, {
+      context: "full-history-merged",
+    });
     state.fullHistoryLoaded = true;
     return mergedEarlierCandles.length > 0;
   }

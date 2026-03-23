@@ -878,6 +878,10 @@ class ReplayWorkbenchAtasBackfillRecord(BaseModel):
     reason: str = Field(..., description="Why the request exists.")
     request_history_bars: bool = Field(..., description="Whether history bars should be resent.")
     request_history_footprint: bool = Field(..., description="Whether history footprint should be resent.")
+    replace_existing_history: bool = Field(
+        False,
+        description="Whether the targeted history window was cleared before waiting for resent bars.",
+    )
     status: ReplayWorkbenchAtasBackfillStatus = Field(..., description="Current lifecycle state of the request.")
     requested_at: datetime = Field(..., description="When the request was created.")
     expires_at: datetime = Field(..., description="When the request should no longer be dispatched.")
@@ -956,6 +960,10 @@ class ReplayWorkbenchAtasBackfillRequest(BaseModel):
     request_history_footprint: bool = Field(
         True,
         description="Whether the adapter should resend loaded footprint history.",
+    )
+    replace_existing_history: bool = Field(
+        False,
+        description="Whether the server should clear the targeted history window before waiting for resent bars.",
     )
 
     @model_validator(mode="after")
