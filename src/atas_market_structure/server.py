@@ -74,7 +74,7 @@ def build_repository(config: AppConfig) -> AnalysisRepository:
     return HybridAnalysisRepository(
         metadata_repository=sqlite_repository,
         chart_candle_repository=market_data_repository,
-        ingestion_repository=sqlite_repository,
+        ingestion_repository=market_data_repository,
     )
 
 
