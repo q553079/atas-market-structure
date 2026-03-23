@@ -563,6 +563,19 @@ class MarketStructureApplication:
 
             return self._json_response(404, {"error": "not_found", "detail": f"No route for {method} {route_path}"})
         except ValidationError as exc:
+            body_preview = ""
+            if body:
+                try:
+                    body_preview = body.decode("utf-8", errors="replace")[:4000]
+                except Exception:  # pragma: no cover
+                    body_preview = "<unable_to_decode_body>"
+            self._logger.warning(
+                "Validation error for %s %s: %s | body=%s",
+                method,
+                route_path,
+                exc.json(),
+                body_preview,
+            )
             return self._json_response(422, {"error": "validation_error", "detail": json.loads(exc.json())})
         except (NotFoundError, ReplayWorkbenchNotFoundError, ReplayAiReviewNotFoundError) as exc:
             return self._json_response(404, {"error": "not_found", "detail": str(exc)})

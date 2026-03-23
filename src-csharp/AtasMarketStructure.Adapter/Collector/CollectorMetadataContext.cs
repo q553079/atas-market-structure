@@ -111,12 +111,47 @@ internal static class CollectorMetadataResolver
     private static readonly string[][] TickSizeCandidatePaths =
     {
         new[] { "TickSize" },
+        new[] { "PriceStep" },
+        new[] { "Step" },
+        new[] { "MinStep" },
+        new[] { "PriceIncrement" },
+        new[] { "Increment" },
         new[] { "InstrumentInfo", "TickSize" },
+        new[] { "InstrumentInfo", "PriceStep" },
+        new[] { "InstrumentInfo", "Step" },
+        new[] { "InstrumentInfo", "MinStep" },
+        new[] { "InstrumentInfo", "PriceIncrement" },
+        new[] { "InstrumentInfo", "Increment" },
         new[] { "InstrumentInfo", "Instrument", "TickSize" },
+        new[] { "InstrumentInfo", "Instrument", "PriceStep" },
+        new[] { "InstrumentInfo", "Instrument", "Step" },
+        new[] { "InstrumentInfo", "Instrument", "MinStep" },
+        new[] { "InstrumentInfo", "Instrument", "PriceIncrement" },
+        new[] { "InstrumentInfo", "Instrument", "Increment" },
         new[] { "Instrument", "TickSize" },
+        new[] { "Instrument", "PriceStep" },
+        new[] { "Instrument", "Step" },
+        new[] { "Instrument", "MinStep" },
+        new[] { "Instrument", "PriceIncrement" },
+        new[] { "Instrument", "Increment" },
         new[] { "Security", "TickSize" },
+        new[] { "Security", "PriceStep" },
+        new[] { "Security", "Step" },
+        new[] { "Security", "MinStep" },
+        new[] { "Security", "PriceIncrement" },
+        new[] { "Security", "Increment" },
         new[] { "SourceDataSeries", "TickSize" },
+        new[] { "SourceDataSeries", "PriceStep" },
+        new[] { "SourceDataSeries", "Step" },
+        new[] { "SourceDataSeries", "MinStep" },
+        new[] { "SourceDataSeries", "PriceIncrement" },
+        new[] { "SourceDataSeries", "Increment" },
         new[] { "DataProvider", "Instrument", "TickSize" },
+        new[] { "DataProvider", "Instrument", "PriceStep" },
+        new[] { "DataProvider", "Instrument", "Step" },
+        new[] { "DataProvider", "Instrument", "MinStep" },
+        new[] { "DataProvider", "Instrument", "PriceIncrement" },
+        new[] { "DataProvider", "Instrument", "Increment" },
     };
 
     private static readonly string[][] VenueCandidatePaths =
@@ -248,6 +283,22 @@ internal static class CollectorMetadataResolver
         "FALSE",
     };
 
+    private static readonly Dictionary<string, decimal> KnownTickSizesBySymbol = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["GC"] = 0.1m,
+        ["MGC"] = 0.1m,
+        ["NQ"] = 0.25m,
+        ["MNQ"] = 0.25m,
+        ["ES"] = 0.25m,
+        ["MES"] = 0.25m,
+        ["YM"] = 1m,
+        ["MYM"] = 1m,
+        ["RTY"] = 0.1m,
+        ["M2K"] = 0.1m,
+        ["CL"] = 0.01m,
+        ["MCL"] = 0.01m,
+    };
+
     private static readonly char[] IdentifierUnsafeChars = { ' ', ':', '/', '\\', '\t', '\r', '\n' };
 
     public static ChartIdentity ResolveChartIdentity(
@@ -280,6 +331,10 @@ internal static class CollectorMetadataResolver
         var tickSize = tickSizeOverride > 0m
             ? tickSizeOverride
             : ResolveFirstDecimal(indicator, TickSizeCandidatePaths);
+        if (tickSize <= 0m)
+        {
+            tickSize = ResolveFallbackTickSize(contractSymbol, displaySymbol, rootSymbol);
+        }
         var displayTimeframe = ResolveFirstString(indicator, DisplayTimeframeCandidatePaths, NormalizeDisplayTimeframe)
             ?? NormalizeDisplayTimeframe(FormatTimeframe(inferBarSpan()))
             ?? "unknown";
@@ -931,12 +986,14 @@ internal static class CollectorMetadataResolver
         }
 
         var monthCodeIndex = symbol.Length - 1;
+        var trailingDigitCount = 0;
         while (monthCodeIndex >= 0 && char.IsDigit(symbol[monthCodeIndex]))
         {
             monthCodeIndex--;
+            trailingDigitCount++;
         }
 
-        if (monthCodeIndex > 0 && "FGHJKMNQUVXZ".IndexOf(symbol[monthCodeIndex]) >= 0)
+        if (trailingDigitCount > 0 && monthCodeIndex > 0 && "FGHJKMNQUVXZ".IndexOf(symbol[monthCodeIndex]) >= 0)
         {
             var root = symbol[..monthCodeIndex];
             if (!string.IsNullOrWhiteSpace(root))
@@ -946,6 +1003,33 @@ internal static class CollectorMetadataResolver
         }
 
         return symbol;
+    }
+
+    private static decimal ResolveFallbackTickSize(params string?[] symbolCandidates)
+    {
+        foreach (var candidate in symbolCandidates)
+        {
+            var normalized = NormalizeSymbolCandidate(candidate);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            if (KnownTickSizesBySymbol.TryGetValue(normalized, out var directMatch) && directMatch > 0m)
+            {
+                return directMatch;
+            }
+
+            var parsedRoot = ParseRootSymbol(normalized);
+            if (!string.IsNullOrWhiteSpace(parsedRoot)
+                && KnownTickSizesBySymbol.TryGetValue(parsedRoot, out var rootMatch)
+                && rootMatch > 0m)
+            {
+                return rootMatch;
+            }
+        }
+
+        return 0m;
     }
 
     private static string? DescribeTimeZoneValue(object? raw)

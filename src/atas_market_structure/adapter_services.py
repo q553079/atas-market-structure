@@ -42,6 +42,14 @@ class AdapterIngestionService:
         self._bridge = bridge or AdapterPayloadBridge(regime_monitor=RegimeMonitor(repository=repository))
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> AdapterAcceptedResponse:
+        if payload.instrument.tick_size <= 0:
+            LOGGER.warning(
+                "ingest_continuous_state: unresolved tick_size for symbol=%s root_symbol=%s contract_symbol=%s chart_instance_id=%s",
+                payload.instrument.symbol,
+                payload.instrument.root_symbol,
+                payload.instrument.contract_symbol,
+                payload.source.chart_instance_id,
+            )
         self._bridge.regime_monitor.ingest_continuous_state(payload)
         LOGGER.info(
             "ingest_continuous_state: symbol=%s root_symbol=%s chart_instance_id=%s",
@@ -95,6 +103,14 @@ class AdapterIngestionService:
         )
 
     def ingest_trigger_burst(self, payload: AdapterTriggerBurstPayload) -> AdapterAcceptedResponse:
+        if payload.instrument.tick_size <= 0:
+            LOGGER.warning(
+                "ingest_trigger_burst: unresolved tick_size for symbol=%s root_symbol=%s contract_symbol=%s chart_instance_id=%s",
+                payload.instrument.symbol,
+                payload.instrument.root_symbol,
+                payload.instrument.contract_symbol,
+                payload.source.chart_instance_id,
+            )
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
             observed_window_start=payload.observed_window_start,

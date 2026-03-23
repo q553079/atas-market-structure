@@ -12,7 +12,12 @@ class InstrumentRef(BaseModel):
     root_symbol: str | None = Field(None, description="Root or continuous symbol when known.", examples=["NQ"])
     contract_symbol: str | None = Field(None, description="Resolved contract symbol when known.", examples=["NQH6"])
     venue: str = Field(..., description="Execution or quote venue.", examples=["CME"])
-    tick_size: float = Field(..., gt=0, description="Minimum price increment.", examples=[0.25])
+    tick_size: float = Field(
+        ...,
+        ge=0,
+        description="Minimum price increment. A value of 0 means the collector could not resolve tick size and the payload is degraded.",
+        examples=[0.25],
+    )
     currency: str = Field(..., description="PnL currency.", examples=["USD"])
 
 
