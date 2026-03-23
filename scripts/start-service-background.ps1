@@ -1,7 +1,8 @@
-$ForceRestart = $false
-if ($args -contains "-ForceRestart") {
-    $ForceRestart = $true
-}
+param(
+    [switch]$ForceRestart,
+    [switch]$SkipCollectorDeploy,
+    [switch]$WaitForAtasExitBeforeDeploy
+)
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $logsDir = Join-Path $repoRoot "logs"
@@ -64,6 +65,20 @@ else {
     Write-Host "AI provider: $($env:ATAS_MS_AI_PROVIDER) / model: $($env:ATAS_MS_AI_MODEL)"
 }
 Write-Host "Server bind: $serverHost`:$serverPort"
+
+if (-not $SkipCollectorDeploy) {
+    $deployScript = Join-Path $PSScriptRoot "deploy-collector.ps1"
+    if (-not (Test-Path -LiteralPath $deployScript)) {
+        throw "Collector deploy script not found: $deployScript"
+    }
+
+    if ($WaitForAtasExitBeforeDeploy) {
+        & $deployScript -Build -WaitForAtasExit
+    }
+    else {
+        & $deployScript -Build -SkipIfAtasRunning
+    }
+}
 
 function Test-WorkbenchRoute {
     try {

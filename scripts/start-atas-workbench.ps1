@@ -92,7 +92,7 @@ print(json.dumps({
 }
 
 if (-not $SkipDeploy) {
-    & (Join-Path $PSScriptRoot "deploy-collector.ps1") -WaitForAtasExit
+    & (Join-Path $PSScriptRoot "deploy-collector.ps1") -Build -WaitForAtasExit
 }
 
 & (Join-Path $PSScriptRoot "stop-service.ps1")

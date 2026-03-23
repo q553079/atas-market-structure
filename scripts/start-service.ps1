@@ -1,6 +1,7 @@
 param(
     [switch]$ValidateOnly,
-    [switch]$Background
+    [switch]$Background,
+    [switch]$SkipCollectorDeploy
 )
 
 Set-StrictMode -Version Latest
@@ -71,12 +72,21 @@ if ($ValidateOnly) {
     return
 }
 
+if (-not $SkipCollectorDeploy -and -not $Background) {
+    $deployScript = Join-Path $PSScriptRoot 'deploy-collector.ps1'
+    if (-not (Test-Path -LiteralPath $deployScript)) {
+        throw "Collector deploy script not found: $deployScript"
+    }
+
+    & $deployScript -Build -SkipIfAtasRunning
+}
+
 if ($Background) {
     $backgroundScript = Join-Path $PSScriptRoot 'start-service-background.ps1'
     if (-not (Test-Path -LiteralPath $backgroundScript)) {
         throw "Background script not found: $backgroundScript"
     }
-    & $backgroundScript
+    & $backgroundScript -SkipCollectorDeploy:$SkipCollectorDeploy
     Write-Host 'Server start requested in background.'
     return
 }
