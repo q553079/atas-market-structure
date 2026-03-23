@@ -18,9 +18,9 @@ internal static class TriggerKinds
 }
 
 [DisplayName("ZZ ATAS Collector Full Internal")]
-[Description("Streams compact continuous state and trigger bursts to the local ATAS market structure service.")]
+[Description("Streams compact continuous state, mirror history, and backfill control to the local ATAS market structure service.")]
 [Category("Order Flow")]
-internal sealed class AtasMarketStructureCollectorFull : Indicator
+public abstract class AtasMarketStructureCollectorFull : Indicator
 {
     private const string CollectorVersion = "0.5.0-alpha";
     private const int DefaultHistoryBarsChunkBars = 512;
@@ -66,7 +66,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
     private DateTime _lastHistoryBarsMutationObservedUtc = DateTime.MinValue;
     private bool _historyBarsInitialSnapshotPending = true;
 
-    public AtasMarketStructureCollectorFull()
+    protected AtasMarketStructureCollectorFull()
         : base(true)
     {
         DataSeries.Add(_collectorHeartbeat);
@@ -571,10 +571,12 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         var insideGap = currentPrice >= gapLow && currentPrice <= gapHigh;
         var fillTicks = insideGap ? PriceMath.ToTicks(Math.Abs(_sessionOpenPrice.Value - currentPrice), EffectiveTickSize) : currentPrice > gapHigh ? gapSizeTicks : 0;
         var fillRatio = Math.Round((double)fillTicks / gapSizeTicks, 4);
+        var chartIdentity = ResolveChartIdentity();
+        var timeContext = ResolveTimeContext();
 
         _gapReference = new GapReferencePayload
         {
-            GapId = $"gap-{DetermineTradingDate(observedAtUtc)}",
+            GapId = $"gap-{DetermineTradingDate(observedAtUtc, chartIdentity, timeContext)}",
             Direction = _sessionOpenPrice.Value >= PriorRthClose ? "up" : "down",
             OpenedAt = _sessionStartUtc ?? observedAtUtc,
             GapLow = (double)gapLow,
@@ -607,9 +609,10 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         var chartIdentity = ResolveChartIdentity();
         var timeContext = ResolveTimeContext();
         var barTimestampUtc = _lastObservedBarStartedAtUtc ?? nowUtc;
+        var sessionContext = BuildSessionContext(chartIdentity, timeContext, nowUtc);
         LogResolvedContext(chartIdentity, timeContext);
 
-        _transport.TryEnqueueContinuousState(new ContinuousStatePayload
+        var payload = new ContinuousStatePayload
         {
             MessageId = CollectorMetadataResolver.BuildMessageId(
                 "continuous_state",
@@ -619,31 +622,11 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             EmittedAt = nowUtc,
             ObservedWindowStart = _tradeAccumulator.WindowStartedAtUtc,
             ObservedWindowEnd = nowUtc,
-            Source = new SourceEnvelope
-            {
-                System = "ATAS",
-                InstanceId = Environment.MachineName,
-                ChartInstanceId = chartIdentity.ChartInstanceId,
-                AdapterVersion = CollectorVersion,
-            },
+            Source = BuildSourceEnvelope(chartIdentity, timeContext),
             Instrument = BuildInstrumentEnvelope(chartIdentity),
             DisplayTimeframe = chartIdentity.DisplayTimeframe,
             TimeContext = timeContext.ToPayload(),
-            SessionContext = new SessionContextPayload
-            {
-                SessionCode = DetermineSessionCode(nowUtc),
-                TradingDate = DetermineTradingDate(nowUtc),
-                IsRthOpen = IsRegularSession(nowUtc),
-                PriorRthClose = (double)PriorRthClose,
-                PriorRthHigh = (double)PriorRthHigh,
-                PriorRthLow = (double)PriorRthLow,
-                PriorValueAreaLow = NullIfZero(PriorValueAreaLow),
-                PriorValueAreaHigh = NullIfZero(PriorValueAreaHigh),
-                PriorPointOfControl = NullIfZero(PriorPointOfControl),
-                OvernightHigh = NullIfZero(OvernightHigh),
-                OvernightLow = NullIfZero(OvernightLow),
-                OvernightMid = OvernightHigh > 0m && OvernightLow > 0m ? (double)((OvernightHigh + OvernightLow) / 2m) : null,
-            },
+            SessionContext = sessionContext,
             PriceState = new PriceStatePayload
             {
                 LastPrice = (double)lastPrice,
@@ -665,7 +648,11 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             ActiveZoneInteraction = BuildZoneInteractionPayload(),
             EmaContext = BuildEmaContextPayload(lastPrice),
             ReferenceLevels = BuildReferenceLevels(),
-        });
+        };
+        if (!_transport.TryEnqueueContinuousState(payload))
+        {
+            LogWarnLocal($"MaybeEmitContinuousState: realtime queue rejected {payload.MessageId}.");
+        }
 
         _tradeAccumulator.Reset(nowUtc);
     }
@@ -699,6 +686,8 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
                 _historyBarsInitialSnapshotPending = false;
                 _lastHistoryBarsExportedBarIndex = _latestObservedBarIndex;
                 _lastHistoryBarsExportedLatestStartedAtUtc = snapshotBars[^1].StartedAt;
+                LogInfoLocal(
+                    $"MaybeExportLoadedHistoryBars: exported initial snapshot bars={snapshotBars.Count} latest_started_at_utc={snapshotBars[^1].StartedAt:O}.");
             }
 
             return;
@@ -722,6 +711,8 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         {
             _lastHistoryBarsExportedBarIndex = _latestObservedBarIndex;
             _lastHistoryBarsExportedLatestStartedAtUtc = incrementalBars[^1].StartedAt;
+            LogInfoLocal(
+                $"MaybeExportLoadedHistoryBars: exported incremental bars={incrementalBars.Count} latest_started_at_utc={incrementalBars[^1].StartedAt:O}.");
         }
     }
 
@@ -740,6 +731,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         for (var index = firstIndex; index <= lastIndex; index++)
         {
             var candle = GetCandle(index);
+            var originalBarTime = candle.Time;
             var startedAtUtc = ToUtc(candle.Time);
             bars.Add(new HistoryBarPayload
             {
@@ -753,6 +745,8 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
                 Delta = AtasReflection.ReadInt(candle, "Delta"),
                 BidVolume = AtasReflection.ReadInt(candle, "Bid"),
                 AskVolume = AtasReflection.ReadInt(candle, "Ask"),
+                BarTimestampUtc = startedAtUtc,
+                OriginalBarTimeText = originalBarTime.ToString("O"),
             });
         }
 
@@ -773,13 +767,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             EmittedAt = emittedAtUtc,
             ObservedWindowStart = bars[0].StartedAt,
             ObservedWindowEnd = bars[^1].EndedAt,
-            Source = new SourceEnvelope
-            {
-                System = "ATAS",
-                InstanceId = Environment.MachineName,
-                ChartInstanceId = chartIdentity.ChartInstanceId,
-                AdapterVersion = CollectorVersion,
-            },
+            Source = BuildSourceEnvelope(chartIdentity, timeContext),
             Instrument = BuildInstrumentEnvelope(chartIdentity),
             DisplayTimeframe = chartIdentity.DisplayTimeframe,
             TimeContext = timeContext.ToPayload(),
@@ -814,6 +802,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             var payload = BuildHistoryBarsPayload(chunkBars, emittedAtUtc, chartIdentity, timeContext, sequence++);
             if (!_transport.TryEnqueueHistoryBars(payload))
             {
+                LogWarnLocal($"TrySendHistoryBarsChunks: history queue rejected {payload.MessageId}.");
                 return false;
             }
 
@@ -838,6 +827,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         for (var index = firstIndex; index <= lastIndex; index++)
         {
             var candle = GetCandle(index);
+            var originalBarTime = candle.Time;
             var startedAtUtc = ToUtc(candle.Time);
             bars.Add(new HistoryFootprintBarPayload
             {
@@ -851,6 +841,8 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
                 Delta = AtasReflection.ReadInt(candle, "Delta"),
                 BidVolume = AtasReflection.ReadInt(candle, "Bid"),
                 AskVolume = AtasReflection.ReadInt(candle, "Ask"),
+                BarTimestampUtc = startedAtUtc,
+                OriginalBarTimeText = originalBarTime.ToString("O"),
                 PriceLevels = ExtractHistoryFootprintLevels(candle),
             });
         }
@@ -888,13 +880,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
                 EmittedAt = emittedAtUtc,
                 ObservedWindowStart = chunkBars[0].StartedAt,
                 ObservedWindowEnd = chunkBars[^1].EndedAt,
-                Source = new SourceEnvelope
-                {
-                    System = "ATAS",
-                    InstanceId = Environment.MachineName,
-                    ChartInstanceId = chartIdentity.ChartInstanceId,
-                    AdapterVersion = CollectorVersion,
-                },
+                Source = BuildSourceEnvelope(chartIdentity, timeContext),
                 Instrument = BuildInstrumentEnvelope(chartIdentity),
                 DisplayTimeframe = chartIdentity.DisplayTimeframe,
                 TimeContext = timeContext.ToPayload(),
@@ -1091,19 +1077,13 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         var chartIdentity = ResolveChartIdentity();
         var timeContext = ResolveTimeContext();
         LogResolvedContext(chartIdentity, timeContext);
-        _transport.TryEnqueueTriggerBurst(new TriggerBurstPayload
+        var payload = new TriggerBurstPayload
         {
             MessageId = CollectorMetadataResolver.BuildMessageId("trigger_burst", chartIdentity, triggeredAtUtc, 0),
             EmittedAt = DateTime.UtcNow,
             ObservedWindowStart = triggeredAtUtc.AddSeconds(-Math.Max(1, BurstLookbackSeconds)),
             ObservedWindowEnd = DateTime.UtcNow,
-            Source = new SourceEnvelope
-            {
-                System = "ATAS",
-                InstanceId = Environment.MachineName,
-                ChartInstanceId = chartIdentity.ChartInstanceId,
-                AdapterVersion = CollectorVersion,
-            },
+            Source = BuildSourceEnvelope(chartIdentity, timeContext),
             Instrument = BuildInstrumentEnvelope(chartIdentity),
             DisplayTimeframe = chartIdentity.DisplayTimeframe,
             TimeContext = timeContext.ToPayload(),
@@ -1118,7 +1098,11 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             PreWindow = BuildBurstWindow(triggeredAtUtc.AddSeconds(-Math.Max(1, BurstLookbackSeconds)), triggeredAtUtc.AddTicks(-1)),
             EventWindow = BuildBurstWindow(triggeredAtUtc.AddSeconds(-1), triggeredAtUtc.AddSeconds(1)),
             PostWindow = new BurstWindowPayload(),
-        });
+        };
+        if (!_transport.TryEnqueueTriggerBurst(payload))
+        {
+            LogWarnLocal($"TryEmitTriggerBurst: realtime queue rejected {payload.MessageId}.");
+        }
     }
 
     private BurstWindowPayload BuildBurstWindow(DateTime startUtc, DateTime endUtc) => new()
@@ -1190,26 +1174,52 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         _lastEmaBar = bar;
     }
 
-    private string DetermineSessionCode(DateTime nowUtc)
+    private string DetermineSessionCode(DateTime observedAtUtc, ChartIdentity chartIdentity, ResolvedTimeContext timeContext)
     {
         if (!string.IsNullOrWhiteSpace(SessionCodeOverride))
         {
             return SessionCodeOverride.Trim().ToLowerInvariant();
         }
 
-        return nowUtc.Hour switch
+        var marketNow = CollectorMetadataResolver.ToReferenceTime(observedAtUtc, timeContext);
+        var profile = ResolveSessionProfile(chartIdentity, timeContext, observedAtUtc);
+        var minutes = marketNow.Hour * 60 + marketNow.Minute;
+        if (minutes < 7 * 60)
         {
-            < 7 => "asia",
-            < 13 => "europe",
-            < 14 => "us_premarket",
-            < 21 => "us_regular",
-            _ => "us_after_hours",
-        };
+            return "asia";
+        }
+
+        if (minutes < Math.Max(7 * 60, profile.RegularSessionOpenLocalMinutes - 60))
+        {
+            return "europe";
+        }
+
+        if (minutes < profile.RegularSessionOpenLocalMinutes)
+        {
+            return "us_premarket";
+        }
+
+        return minutes < profile.RegularSessionCloseLocalMinutes ? "us_regular" : "us_after_hours";
     }
 
-    private static bool IsRegularSession(DateTime nowUtc) => nowUtc.Hour >= 14 && nowUtc.Hour < 21;
+    private static bool IsRegularSession(DateTime observedAtUtc, ChartIdentity chartIdentity, ResolvedTimeContext timeContext)
+    {
+        var marketNow = CollectorMetadataResolver.ToReferenceTime(observedAtUtc, timeContext);
+        var minutes = marketNow.Hour * 60 + marketNow.Minute;
+        var profile = ResolveSessionProfile(chartIdentity, timeContext, observedAtUtc);
+        return minutes >= profile.RegularSessionOpenLocalMinutes && minutes < profile.RegularSessionCloseLocalMinutes;
+    }
 
-    private static string DetermineTradingDate(DateTime nowUtc) => nowUtc.ToString("yyyy-MM-dd");
+    private static string DetermineTradingDate(DateTime observedAtUtc, ChartIdentity chartIdentity, ResolvedTimeContext timeContext)
+    {
+        var marketNow = CollectorMetadataResolver.ToReferenceTime(observedAtUtc, timeContext);
+        var profile = ResolveSessionProfile(chartIdentity, timeContext, observedAtUtc);
+        var minutes = marketNow.Hour * 60 + marketNow.Minute;
+        var tradingDate = minutes >= profile.TradingDayRollLocalMinutes
+            ? marketNow.Date.AddDays(1)
+            : marketNow.Date;
+        return tradingDate.ToString("yyyy-MM-dd");
+    }
 
     private decimal EffectiveTickSize => ResolveChartIdentity().TickSize;
 
@@ -1245,15 +1255,82 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         return _timeContextCache;
     }
 
+    private SourceEnvelope BuildSourceEnvelope(ChartIdentity chartIdentity, ResolvedTimeContext timeContext) => new()
+    {
+        System = "ATAS",
+        InstanceId = Environment.MachineName,
+        ChartInstanceId = chartIdentity.ChartInstanceId,
+        AdapterVersion = CollectorVersion,
+        ChartDisplayTimezoneMode = timeContext.ChartDisplayTimezoneMode,
+        ChartDisplayTimezoneName = timeContext.ChartDisplayTimezoneName,
+        ChartDisplayUtcOffsetMinutes = timeContext.ChartDisplayUtcOffsetMinutes,
+        InstrumentTimezoneValue = timeContext.InstrumentTimezoneValue,
+        InstrumentTimezoneSource = timeContext.InstrumentTimezoneSource,
+        CollectorLocalTimezoneName = timeContext.CollectorLocalTimezoneName,
+        CollectorLocalUtcOffsetMinutes = timeContext.CollectorLocalUtcOffsetMinutes,
+        TimestampBasis = timeContext.TimestampBasis,
+        TimezoneCaptureConfidence = timeContext.TimezoneCaptureConfidence,
+    };
+
+    private SessionContextPayload BuildSessionContext(ChartIdentity chartIdentity, ResolvedTimeContext timeContext, DateTime observedAtUtc)
+    {
+        return new SessionContextPayload
+        {
+            SessionCode = DetermineSessionCode(observedAtUtc, chartIdentity, timeContext),
+            TradingDate = DetermineTradingDate(observedAtUtc, chartIdentity, timeContext),
+            IsRthOpen = IsRegularSession(observedAtUtc, chartIdentity, timeContext),
+            PriorRthClose = (double)PriorRthClose,
+            PriorRthHigh = (double)PriorRthHigh,
+            PriorRthLow = (double)PriorRthLow,
+            PriorValueAreaLow = NullIfZero(PriorValueAreaLow),
+            PriorValueAreaHigh = NullIfZero(PriorValueAreaHigh),
+            PriorPointOfControl = NullIfZero(PriorPointOfControl),
+            OvernightHigh = NullIfZero(OvernightHigh),
+            OvernightLow = NullIfZero(OvernightLow),
+            OvernightMid = OvernightHigh > 0m && OvernightLow > 0m ? (double)((OvernightHigh + OvernightLow) / 2m) : null,
+        };
+    }
+
     private InstrumentEnvelope BuildInstrumentEnvelope(ChartIdentity chartIdentity) => new()
     {
-        Symbol = chartIdentity.ContractSymbol,
+        Symbol = chartIdentity.DisplaySymbol,
         RootSymbol = chartIdentity.RootSymbol,
         ContractSymbol = chartIdentity.ContractSymbol,
         Venue = chartIdentity.Venue,
         TickSize = (double)chartIdentity.TickSize,
         Currency = chartIdentity.Currency,
     };
+
+    private static SessionProfile ResolveSessionProfile(ChartIdentity chartIdentity, ResolvedTimeContext timeContext, DateTime observedAtUtc)
+    {
+        var venue = chartIdentity.Venue ?? string.Empty;
+        var referenceName = (timeContext.ChartDisplayTimezoneName
+            ?? timeContext.InstrumentTimezoneValue
+            ?? timeContext.CollectorLocalTimezoneName
+            ?? string.Empty).ToLowerInvariant();
+
+        var looksEastern = referenceName.Contains("new_york", StringComparison.Ordinal)
+            || referenceName.Contains("eastern", StringComparison.Ordinal);
+        var looksCentral = referenceName.Contains("chicago", StringComparison.Ordinal)
+            || referenceName.Contains("central", StringComparison.Ordinal);
+
+        if (venue.Contains("CME", StringComparison.OrdinalIgnoreCase))
+        {
+            if (looksEastern)
+            {
+                return new SessionProfile(9 * 60 + 30, 16 * 60, 18 * 60, "cme_equity_index_eastern");
+            }
+
+            if (looksCentral || timeContext.ChartDisplayTimezoneSource.Contains("instrument", StringComparison.OrdinalIgnoreCase))
+            {
+                return new SessionProfile(8 * 60 + 30, 15 * 60, 17 * 60, "cme_equity_index_central");
+            }
+        }
+
+        var marketNow = CollectorMetadataResolver.ToReferenceTime(observedAtUtc, timeContext);
+        var inferredRegularOpen = marketNow.Offset == TimeSpan.Zero ? 8 * 60 + 30 : 9 * 60 + 30;
+        return new SessionProfile(inferredRegularOpen, inferredRegularOpen + (6 * 60 + 30), 17 * 60, "generic_fallback");
+    }
 
     private int ComputeContinuousSequence(DateTime barTimestampUtc, DateTime observedAtUtc)
     {
@@ -1616,7 +1693,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
 
             try
             {
-                await PollAndProcessBackfillAsync(ct).ConfigureAwait(false);
+                await PollBackfillCommandAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1625,7 +1702,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         }
     }
 
-    private async Task PollAndProcessBackfillAsync(CancellationToken ct)
+    private async Task PollBackfillCommandAsync(CancellationToken ct)
     {
         if (_transport is null)
         {
@@ -1633,11 +1710,13 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         }
 
         var chartIdentity = ResolveChartIdentity();
-        var instrumentSymbol = chartIdentity.ContractSymbol;
+        var instrumentSymbol = chartIdentity.DisplaySymbol;
 
         var dispatchResponse = await _transport.PollBackfillCommandAsync(
             instrumentSymbol,
             chartIdentity.ChartInstanceId,
+            chartIdentity.ContractSymbol,
+            chartIdentity.RootSymbol,
             ct).ConfigureAwait(false);
 
         if (dispatchResponse?.Request is null)
@@ -1645,8 +1724,14 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             return;
         }
 
-        var command = dispatchResponse.Request;
+        await HandleBackfillCommandAsync(dispatchResponse.Request, chartIdentity, ct).ConfigureAwait(false);
+    }
 
+    private async Task HandleBackfillCommandAsync(
+        AdapterBackfillCommandPayload command,
+        ChartIdentity chartIdentity,
+        CancellationToken ct)
+    {
         lock (_inProgressBackfills)
         {
             if (_inProgressBackfills.Contains(command.RequestId))
@@ -1666,7 +1751,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             _inProgressBackfills.Remove(command.RequestId);
         }
 
-        await SendBackfillAckAsync(
+        await AcknowledgeBackfillAsync(
             command,
             chartIdentity,
             historyBarsSucceeded,
@@ -1776,6 +1861,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
             ct.ThrowIfCancellationRequested();
             if (!_transport.TryEnqueueHistoryFootprint(payload))
             {
+                LogWarnLocal($"ExportHistoryFootprintChunkAsync: history footprint queue rejected {payload.MessageId}.");
                 return Task.FromResult(false);
             }
 
@@ -1787,7 +1873,7 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         return Task.FromResult(enqueuedAny);
     }
 
-    private async Task SendBackfillAckAsync(
+    private async Task AcknowledgeBackfillAsync(
         AdapterBackfillCommandPayload command,
         ChartIdentity chartIdentity,
         bool historyBarsSucceeded,
@@ -1804,22 +1890,26 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         var ack = new AdapterBackfillAcknowledgeRequestPayload
         {
             RequestId = command.RequestId,
+            CacheKey = command.CacheKey,
             ChartInstanceId = chartIdentity.ChartInstanceId,
-            InstrumentSymbol = chartIdentity.ContractSymbol,
+            InstrumentSymbol = command.InstrumentSymbol,
             AcknowledgedAt = DateTime.UtcNow,
             AcknowledgedHistoryBars = historyBarsSucceeded,
             AcknowledgedHistoryFootprint = historyFootprintSucceeded,
-            LatestLoadedBarStartedAt = _lastObservedBarStartedAtUtc.HasValue && timeContext.InstrumentTimeZone is not null
-                ? TimeZoneInfo.ConvertTimeFromUtc(_lastObservedBarStartedAtUtc.Value, timeContext.InstrumentTimeZone)
+            LatestLoadedBarStartedAt = _lastObservedBarStartedAtUtc.HasValue
+                ? CollectorMetadataResolver.ToReferenceTime(_lastObservedBarStartedAtUtc.Value, timeContext).DateTime
                 : (DateTime?)null,
             LatestLoadedBarStartedAtUtc = _lastObservedBarStartedAtUtc,
             InstrumentTimezoneValue = timeContext.InstrumentTimezoneValue,
             InstrumentTimezoneSource = timeContext.InstrumentTimezoneSource,
             ChartDisplayTimezoneMode = timeContext.ChartDisplayTimezoneMode,
             ChartDisplayTimezoneSource = timeContext.ChartDisplayTimezoneSource,
+            ChartDisplayTimezoneName = timeContext.ChartDisplayTimezoneName,
             ChartDisplayUtcOffsetMinutes = timeContext.ChartDisplayUtcOffsetMinutes,
             CollectorLocalTimezoneName = timeContext.CollectorLocalTimezoneName,
             CollectorLocalUtcOffsetMinutes = timeContext.CollectorLocalUtcOffsetMinutes,
+            TimestampBasis = timeContext.TimestampBasis,
+            TimezoneCaptureConfidence = timeContext.TimezoneCaptureConfidence,
             Note = (!command.RequestHistoryBars || historyBarsSucceeded)
                 && (!command.RequestHistoryFootprint || historyFootprintSucceeded)
                 ? "backfill_complete"
@@ -1830,13 +1920,19 @@ internal sealed class AtasMarketStructureCollectorFull : Indicator
         if (sent)
         {
             LogInfoLocal(
-                $"SendBackfillAckAsync: acknowledged {command.RequestId} (history_bars={historyBarsSucceeded}, history_footprint={historyFootprintSucceeded}).");
+                $"AcknowledgeBackfillAsync: acknowledged {command.RequestId} cache_key={command.CacheKey} (history_bars={historyBarsSucceeded}, history_footprint={historyFootprintSucceeded}).");
         }
         else
         {
-            LogWarnLocal($"SendBackfillAckAsync: failed to acknowledge {command.RequestId}.");
+            LogWarnLocal($"AcknowledgeBackfillAsync: failed to acknowledge {command.RequestId}.");
         }
     }
+
+    private sealed record SessionProfile(
+        int RegularSessionOpenLocalMinutes,
+        int RegularSessionCloseLocalMinutes,
+        int TradingDayRollLocalMinutes,
+        string Source);
 
     private sealed class DriveState
     {

@@ -5,7 +5,8 @@
 Build a standalone review UI that can:
 
 - load a 3-7 day historical window from ATAS-oriented data,
-- rebuild an independent candle chart without relying on the ATAS viewport,
+- query raw mirrored contract bars without relying on the ATAS viewport,
+- query continuous analysis bars separately from raw mirror bars,
 - render event annotations and focus regions on top of that chart,
 - attach strategy-library candidates,
 - assemble a structured AI briefing from the event set,
@@ -28,15 +29,37 @@ This workbench is a **review and context-compression tool**, not an execution te
 
 ```mermaid
 flowchart LR
-    A["ATAS Collector"] --> B["Raw Adapter Messages"]
-    B --> C["Replay Packet Builder"]
-    C --> D["Replay Workbench Snapshot"]
-    D --> E["Standalone UI Chart"]
-    D --> F["Strategy Library Matcher"]
-    F --> G["AI Briefing Packet"]
-    G --> H["AI Zone Review"]
-    H --> E
+    A["ATAS Collector"] --> B["Realtime: continuous_state + trigger_burst"]
+    A --> C["Mirror: history_bars + history_footprint"]
+    D["Backfill Control"] --> A
+    C --> E["atas_chart_bars_raw"]
+    B --> F["chart_candles (root symbol)"]
+    E --> G["mirror-bars API"]
+    F --> H["continuous-bars API"]
+    G --> I["Replay Packet Builder"]
+    H --> I
+    I --> J["Replay Workbench Snapshot"]
+    J --> K["Standalone UI Chart"]
+    J --> L["Strategy Library Matcher"]
+    L --> M["AI Briefing Packet"]
+    M --> K
 ```
+
+## Current Runtime Architecture
+
+The system now uses a dual-layer chart architecture:
+
+- `atas_chart_bars_raw`
+  - raw ATAS chart mirror
+  - keyed by `chart_instance_id + contract_symbol + timeframe + started_at_utc`
+  - preserves timezone-capture metadata and original bar time text
+- `chart_candles`
+  - continuous-analysis storage
+  - keyed by `root_symbol + timeframe + started_at`
+  - only native timeframe history is written directly
+  - higher timeframes should be aggregated from reliable lower timeframes later
+
+This separation prevents contract-specific mirror data from overwriting the continuous analysis layer.
 
 ## Recommended Split
 
@@ -55,6 +78,7 @@ Historical acquisition should be cache-first:
 It should consume a structured historical window containing:
 
 - reconstructed candles,
+- raw mirror bars when contract-accurate view is required,
 - event annotations,
 - focus regions,
 - strategy-library candidates,
@@ -177,11 +201,19 @@ Relevant files:
 
 - [workbench_services.py](D:/docker/atas-market-structure/src/atas_market_structure/workbench_services.py)
 - [models.py](D:/docker/atas-market-structure/src/atas_market_structure/models.py)
+- [repository.py](D:/docker/atas-market-structure/src/atas_market_structure/repository.py)
 - [replay_workbench.snapshot.sample.json](D:/docker/atas-market-structure/samples/replay_workbench.snapshot.sample.json)
+
+Additional runtime APIs:
+
+- `GET /api/v1/chart/mirror-bars`
+- `GET /api/v1/chart/continuous-bars`
+- `GET /api/v1/adapter/backfill-command`
+- `POST /api/v1/adapter/backfill-ack`
 
 ## Next Implementation Steps
 
-1. Build a replay-packet builder from adapter history and strategy-library matches.
-2. Add a minimal browser UI that renders candles plus event and focus overlays.
-3. Add an AI review action that consumes one stored replay packet and writes back focus-zone commentary.
-4. Add saved operator annotations so the workbench becomes a reusable review surface, not a one-shot prompt tool.
+1. Add contract-roll logic on top of the continuous layer instead of treating root-symbol candles as already fully rolled.
+2. Aggregate higher timeframes from reliable lower-timeframe continuous data instead of writing synthetic fanout during history ingestion.
+3. Add footprint-aware replay packet rebuild so raw mirror bars and footprint chunks can be stitched into one review packet.
+4. Extend replay verification to compare requested backfill ranges with actual mirror coverage before rebuilding.

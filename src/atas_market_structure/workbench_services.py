@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+import logging
 import re
 from threading import Lock
 from typing import Any, Sequence
@@ -33,6 +34,7 @@ from atas_market_structure.models import (
     AdapterSamePriceReplenishmentState,
     AdapterSignificantLiquidityLevel,
     AdapterTradeSummary,
+    BeliefDataStatus,
     BuildPromptBlocksRequest,
     ChatAnnotation,
     ChatHandoffPacket,
@@ -101,6 +103,8 @@ from atas_market_structure.models import (
     ReplayFocusRegion,
     ReplayLiveStreamState,
     ReplayStrategyCandidate,
+    RecognitionMode,
+    DegradedMode,
     RollMode,
     StructureSide,
     Timeframe,
@@ -116,6 +120,8 @@ from atas_market_structure.repository import (
     StoredSessionMemory,
 )
 from atas_market_structure.strategy_selection_engine import StrategySelectionEngine
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ReplayWorkbenchChatError(RuntimeError):
@@ -1756,6 +1762,9 @@ class ReplayWorkbenchChatService:
 
 
 class ReplayWorkbenchService:
+    _SCHEMA_VERSION = "1.2.0"
+    _PROFILE_VERSION = "instrument_profile_v1"
+    _ENGINE_VERSION = "recognizer_build_v1"
     """Stores replay-workbench packets and builds replay snapshots from local adapter history."""
 
     _TIMEFRAME_MINUTES: dict[Timeframe, int] = {
@@ -1815,6 +1824,7 @@ class ReplayWorkbenchService:
         latest_backfill_request: ReplayWorkbenchAtasBackfillRecord | None = None,
         status_override: str | None = None,
         window_days: int = 7,
+        latest_adapter_sync_at: datetime | None = None,
     ) -> ReplayWorkbenchIntegrity:
         missing_segments = self._gap_segments_from_gap_dicts(candle_gaps or [])
         missing_bar_count = sum(segment.missing_bar_count for segment in missing_segments)
@@ -1824,6 +1834,9 @@ class ReplayWorkbenchService:
             status = "gaps_detected"
         else:
             status = "complete"
+        freshness = self._classify_freshness(latest_adapter_sync_at)
+        completeness = self._classify_completeness(status=status, missing_bar_count=missing_bar_count)
+        latest_data_status = "degraded" if status != "complete" else "complete"
         return ReplayWorkbenchIntegrity(
             status=status,
             window_start=window_start,
@@ -1831,13 +1844,84 @@ class ReplayWorkbenchService:
             window_days=window_days,
             gap_count=len(missing_segments),
             missing_bar_count=missing_bar_count,
+            completeness=completeness,
+            freshness=freshness,
+            latest_data_status=latest_data_status,
             missing_segments=missing_segments,
             latest_backfill_request_id=latest_backfill_request.request_id if latest_backfill_request is not None else None,
             latest_backfill_status=latest_backfill_request.status if latest_backfill_request is not None else None,
         )
 
     @staticmethod
-    def _gap_segments_from_gap_dicts(candle_gaps: list[dict[str, Any]]) -> list[ReplayWorkbenchGapSegment]:
+    def _classify_freshness(latest_adapter_sync_at: datetime | None) -> str:
+        if latest_adapter_sync_at is None:
+            return "offline"
+        lag_seconds = max(0, int((datetime.now(tz=UTC) - latest_adapter_sync_at).total_seconds()))
+        if lag_seconds <= 10:
+            return "fresh"
+        if lag_seconds <= 60:
+            return "delayed"
+        return "stale"
+
+    @staticmethod
+    def _classify_completeness(*, status: str, missing_bar_count: int) -> str:
+        if status in {"complete"} and missing_bar_count == 0:
+            return "complete"
+        if status in {"no_live_data", "missing_local_history"}:
+            return "partial"
+        if missing_bar_count > 0:
+            return "gapped"
+        return "partial"
+
+    def _build_data_status(
+        self,
+        *,
+        latest_adapter_sync_at: datetime | None,
+        integrity: ReplayWorkbenchIntegrity | None,
+        ai_available: bool = False,
+    ) -> BeliefDataStatus:
+        freshness = self._classify_freshness(latest_adapter_sync_at)
+        completeness = "partial"
+        degraded_modes: list[DegradedMode] = [DegradedMode.NO_DEPTH, DegradedMode.NO_DOM]
+        recognition_mode = RecognitionMode.DEGRADED_NO_DEPTH
+        if integrity is not None:
+            completeness = integrity.completeness or self._classify_completeness(
+                status=integrity.status,
+                missing_bar_count=integrity.missing_bar_count,
+            )
+            if integrity.status in {"missing_local_history", "gaps_detected", "no_live_data"}:
+                degraded_modes.append(DegradedMode.REPLAY_REBUILD)
+                recognition_mode = RecognitionMode.REPLAY_REBUILD_MODE
+        if ai_available:
+            ai_flag = True
+        else:
+            ai_flag = False
+            degraded_modes.append(DegradedMode.NO_AI)
+        deduped_modes: list[DegradedMode] = []
+        for item in degraded_modes:
+            if item not in deduped_modes:
+                deduped_modes.append(item)
+        feature_completeness = 1.0
+        if completeness == "gapped":
+            feature_completeness = 0.6
+        elif completeness == "partial":
+            feature_completeness = 0.8
+        elif freshness in {"delayed", "stale", "offline"}:
+            feature_completeness = 0.85
+        freshness_ms = 0
+        if latest_adapter_sync_at is not None:
+            freshness_ms = max(0, int((datetime.now(tz=UTC) - latest_adapter_sync_at).total_seconds() * 1000))
+        return BeliefDataStatus(
+            data_freshness_ms=freshness_ms,
+            feature_completeness=feature_completeness,
+            depth_available=False,
+            dom_available=False,
+            ai_available=ai_flag,
+            degraded_modes=deduped_modes,
+            freshness=freshness,
+            completeness=completeness,
+        )
+
         segments: list[ReplayWorkbenchGapSegment] = []
         for item in candle_gaps:
             next_started_at = item.get("next_started_at")
@@ -2139,6 +2223,20 @@ class ReplayWorkbenchService:
         )
 
         return ReplayWorkbenchLiveStatusResponse(
+            schema_version=self._SCHEMA_VERSION,
+            profile_version=self._PROFILE_VERSION,
+            engine_version=self._ENGINE_VERSION,
+            data_status=self._build_data_status(
+                latest_adapter_sync_at=latest_adapter_sync_at,
+                integrity=self._build_integrity(
+                    window_start=now - timedelta(days=7),
+                    window_end=now,
+                    candle_gaps=[],
+                    status_override="complete" if latest_adapter_sync_at is not None else "no_live_data",
+                    latest_adapter_sync_at=latest_adapter_sync_at,
+                ),
+                ai_available=self._replay_ai_chat_service is not None,
+            ),
             instrument_symbol=instrument_symbol,
             replay_ingestion_id=replay_ingestion_id,
             replay_snapshot_stored_at=replay_snapshot_stored_at,
@@ -2187,6 +2285,8 @@ class ReplayWorkbenchService:
                     delta=row.delta,
                     bid_volume=None,
                     ask_volume=None,
+                    source_kind="chart_candles",
+                    is_synthetic=False,
                 )
                 for row in chart_rows
                 # Keep the legacy behavior: pure zero-activity heartbeat bars should
@@ -2250,6 +2350,25 @@ class ReplayWorkbenchService:
 
         if latest_observed_at is None and latest_payload is None and not preaggregated_candles and tick_quote is None:
             return ReplayWorkbenchLiveTailResponse(
+                schema_version=self._SCHEMA_VERSION,
+                profile_version=self._PROFILE_VERSION,
+                engine_version=self._ENGINE_VERSION,
+                data_status=self._build_data_status(
+                    latest_adapter_sync_at=None,
+                    integrity=self._build_integrity(
+                        window_start=datetime.now(tz=UTC) - timedelta(days=7),
+                        window_end=datetime.now(tz=UTC),
+                        candle_gaps=[],
+                        latest_backfill_request=self._find_latest_backfill_request(
+                            cache_key=f"{instrument_symbol}|{display_timeframe}|empty|empty",
+                            instrument_symbol=instrument_symbol,
+                            display_timeframe=display_timeframe,
+                        ),
+                        status_override="no_live_data",
+                        latest_adapter_sync_at=None,
+                    ),
+                    ai_available=self._replay_ai_chat_service is not None,
+                ),
                 instrument_symbol=instrument_symbol,
                 display_timeframe=display_timeframe,
                 latest_observed_at=None,
@@ -2275,6 +2394,7 @@ class ReplayWorkbenchService:
                         display_timeframe=display_timeframe,
                     ),
                     status_override="no_live_data",
+                    latest_adapter_sync_at=None,
                 ),
                 snapshot_refresh_required=False,
                 latest_backfill_request=None,
@@ -2404,6 +2524,14 @@ class ReplayWorkbenchService:
             active_post_harvest_response = None
 
         return ReplayWorkbenchLiveTailResponse(
+            schema_version=self._SCHEMA_VERSION,
+            profile_version=self._PROFILE_VERSION,
+            engine_version=self._ENGINE_VERSION,
+            data_status=self._build_data_status(
+                latest_adapter_sync_at=latest_observed_at,
+                integrity=integrity,
+                ai_available=self._replay_ai_chat_service is not None,
+            ),
             instrument_symbol=instrument_symbol,
             display_timeframe=display_timeframe,
             latest_observed_at=latest_observed_at,
@@ -2471,6 +2599,8 @@ class ReplayWorkbenchService:
             update={
                 "window_start": self._ensure_utc(request.window_start),
                 "window_end": self._ensure_utc(request.window_end),
+                "target_contract_symbol": request.target_contract_symbol or request.contract_symbol,
+                "target_root_symbol": request.target_root_symbol or request.root_symbol,
                 "requested_ranges": self._build_requested_backfill_ranges(
                     display_timeframe=request.display_timeframe,
                     window_start=request.window_start,
@@ -2484,6 +2614,12 @@ class ReplayWorkbenchService:
             self._expire_backfill_requests_locked(now)
             reusable = self._find_reusable_backfill_request_locked(normalized_request, now)
             if reusable is not None:
+                LOGGER.info(
+                    "request_atas_backfill: reused request_id=%s instrument_symbol=%s chart_instance_id=%s",
+                    reusable.request_id,
+                    reusable.instrument_symbol,
+                    reusable.chart_instance_id,
+                )
                 return ReplayWorkbenchAtasBackfillAcceptedResponse(
                     request=reusable,
                     reused_existing_request=True,
@@ -2495,6 +2631,8 @@ class ReplayWorkbenchService:
                 instrument_symbol=normalized_request.instrument_symbol,
                 contract_symbol=normalized_request.contract_symbol,
                 root_symbol=normalized_request.root_symbol,
+                target_contract_symbol=normalized_request.target_contract_symbol,
+                target_root_symbol=normalized_request.target_root_symbol,
                 display_timeframe=normalized_request.display_timeframe,
                 window_start=normalized_request.window_start,
                 window_end=normalized_request.window_end,
@@ -2511,6 +2649,15 @@ class ReplayWorkbenchService:
             )
             self._backfill_requests[record.request_id] = record
             self._prune_backfill_requests_locked(now)
+            LOGGER.info(
+                "request_atas_backfill: created request_id=%s instrument_symbol=%s contract_symbol=%s root_symbol=%s chart_instance_id=%s ranges=%s",
+                record.request_id,
+                record.instrument_symbol,
+                record.contract_symbol,
+                record.root_symbol,
+                record.chart_instance_id,
+                len(record.requested_ranges),
+            )
             return ReplayWorkbenchAtasBackfillAcceptedResponse(
                 request=record,
                 reused_existing_request=False,
@@ -2544,6 +2691,14 @@ class ReplayWorkbenchService:
                     }
                 )
                 self._backfill_requests[record.request_id] = updated
+                LOGGER.info(
+                    "poll_atas_backfill: dispatched request_id=%s instrument_symbol=%s chart_instance_id=%s contract_symbol=%s root_symbol=%s",
+                    updated.request_id,
+                    updated.instrument_symbol,
+                    chart_instance_id,
+                    updated.contract_symbol,
+                    updated.root_symbol,
+                )
                 return AdapterBackfillDispatchResponse(
                     instrument_symbol=instrument_symbol,
                     chart_instance_id=chart_instance_id,
@@ -2569,6 +2724,10 @@ class ReplayWorkbenchService:
                 raise ReplayWorkbenchNotFoundError(
                     f"ATAS backfill request '{request.request_id}' not found."
                 )
+            if request.cache_key is not None and request.cache_key != record.cache_key:
+                raise ReplayWorkbenchNotFoundError(
+                    f"ATAS backfill request '{request.request_id}' cache_key mismatch."
+                )
 
             updated = record.model_copy(
                 update={
@@ -2583,6 +2742,14 @@ class ReplayWorkbenchService:
             )
             self._backfill_requests[request.request_id] = updated
             self._prune_backfill_requests_locked(now)
+        LOGGER.info(
+            "acknowledge_atas_backfill: request_id=%s cache_key=%s history_bars=%s history_footprint=%s latest_loaded_bar_started_at=%s",
+            request.request_id,
+            request.cache_key or updated.cache_key,
+            request.acknowledged_history_bars,
+            request.acknowledged_history_footprint,
+            request.latest_loaded_bar_started_at.isoformat() if request.latest_loaded_bar_started_at else None,
+        )
 
         verification = self._verify_acknowledged_backfill(updated)
         rebuild_result = ReplayWorkbenchAckRebuildResult(triggered=False, build_result=None)
@@ -2635,54 +2802,42 @@ class ReplayWorkbenchService:
         Returns:
             List of ReplayChartBar representing raw contract data.
         """
-        ingestions = self._repository.list_ingestions(
-            ingestion_kind="adapter_history_bars",
-            instrument_symbol=contract_symbol,
-            limit=limit * 2,
+        raw_rows = self._repository.list_atas_chart_bars_raw(
+            chart_instance_id=chart_instance_id,
+            contract_symbol=contract_symbol,
+            timeframe=timeframe.value,
+            window_start=window_start,
+            window_end=window_end,
+            limit=limit,
         )
-        if chart_instance_id is not None:
-            ingestions = [
-                i for i in ingestions
-                if i.observed_payload.get("source", {}).get("chart_instance_id") == chart_instance_id
-            ]
         bars: list[ReplayChartBar] = []
-        for st in ingestions:
-            payload = st.observed_payload
-            if not payload or payload.get("message_type") != "history_bars":
-                continue
-            bar_tf = payload.get("bar_timeframe")
-            if bar_tf and Timeframe(bar_tf) != timeframe:
-                continue
-            raw_bars = payload.get("bars") or []
-            for bar in raw_bars:
-                started_at = bar.get("started_at")
-                if isinstance(started_at, str):
-                    started_at = datetime.fromisoformat(started_at.replace("Z", "+00:00")).astimezone(UTC)
-                elif started_at is None:
-                    continue
-                else:
-                    started_at = started_at.astimezone(UTC) if started_at.tzinfo else started_at.replace(tzinfo=UTC)
-                if window_start <= started_at <= window_end:
-                    ended_at = bar.get("ended_at")
-                    if isinstance(ended_at, str):
-                        ended_at = datetime.fromisoformat(ended_at.replace("Z", "+00:00")).astimezone(UTC)
-                    bars.append(
-                        ReplayChartBar(
-                            started_at=started_at,
-                            ended_at=ended_at or started_at,
-                            open=float(bar.get("open") or 0),
-                            high=float(bar.get("high") or 0),
-                            low=float(bar.get("low") or 0),
-                            close=float(bar.get("close") or 0),
-                            volume=int(bar.get("volume") or 0) if bar.get("volume") else None,
-                            delta=int(bar.get("delta") or 0) if bar.get("delta") else None,
-                            bid_volume=int(bar.get("bid_volume") or 0) if bar.get("bid_volume") else None,
-                            ask_volume=int(bar.get("ask_volume") or 0) if bar.get("ask_volume") else None,
-                            bar_timestamp_utc=bar.get("bar_timestamp_utc"),
-                            original_bar_time_text=bar.get("original_bar_time_text"),
-                        )
-                    )
+        for row in raw_rows:
+            bars.append(
+                ReplayChartBar(
+                    started_at=row.source_started_at,
+                    ended_at=row.ended_at_utc,
+                    open=row.open,
+                    high=row.high,
+                    low=row.low,
+                    close=row.close,
+                    volume=row.volume,
+                    delta=row.delta,
+                    bid_volume=row.bid_volume,
+                    ask_volume=row.ask_volume,
+                    source_kind="history_bars",
+                    is_synthetic=False,
+                    bar_timestamp_utc=row.started_at_utc,
+                    original_bar_time_text=row.original_bar_time_text,
+                )
+            )
         bars.sort(key=lambda b: b.started_at)
+        LOGGER.info(
+            "get_mirror_bars: chart_instance_id=%s contract_symbol=%s timeframe=%s count=%s",
+            chart_instance_id,
+            contract_symbol,
+            timeframe.value,
+            len(bars),
+        )
         return bars[:limit]
 
     def get_continuous_bars(
@@ -2712,35 +2867,38 @@ class ReplayWorkbenchService:
         Returns:
             List of ReplayChartBar representing continuous adjusted data.
         """
-        ingestions = self._repository.list_ingestions(
-            ingestion_kind="adapter_continuous_state",
-            instrument_symbol=root_symbol,
-            limit=limit * 2,
+        candles = self._repository.list_chart_candles(
+            symbol=root_symbol.upper(),
+            timeframe=timeframe.value,
+            window_start=window_start,
+            window_end=window_end,
+            limit=limit,
         )
-        active_messages = self._select_trade_active_continuous_messages(ingestions)
-        if not active_messages:
-            return []
-        continuous_candles = self._build_candles(timeframe, active_messages)
         bars: list[ReplayChartBar] = []
-        for candle in continuous_candles:
-            started_at = candle.started_at
-            if started_at.tzinfo is None:
-                started_at = started_at.replace(tzinfo=UTC)
-            if window_start <= started_at <= window_end:
-                bars.append(
-                    ReplayChartBar(
-                        started_at=started_at,
-                        ended_at=candle.ended_at,
-                        open=candle.open,
-                        high=candle.high,
-                        low=candle.low,
-                        close=candle.close,
-                        volume=candle.volume,
-                        delta=candle.delta,
-                        bid_volume=None,
-                        ask_volume=None,
-                    )
+        for candle in candles:
+            bars.append(
+                ReplayChartBar(
+                    started_at=candle.started_at,
+                    ended_at=candle.ended_at,
+                    open=candle.open,
+                    high=candle.high,
+                    low=candle.low,
+                    close=candle.close,
+                    volume=candle.volume,
+                    delta=candle.delta,
+                    bid_volume=None,
+                    ask_volume=None,
+                    source_kind="chart_candles",
+                    is_synthetic=False,
                 )
+            )
+        LOGGER.info(
+            "get_continuous_bars: root_symbol=%s timeframe=%s roll_mode=%s count=%s",
+            root_symbol,
+            timeframe.value,
+            roll_mode.value,
+            len(bars),
+        )
         return bars[:limit]
 
     def _verify_acknowledged_backfill(
@@ -2835,6 +2993,10 @@ class ReplayWorkbenchService:
                     )
                     integrity = self._with_backfill_metadata(integrity, backfill_request)
                 return ReplayWorkbenchBuildResponse(
+                    schema_version=self._SCHEMA_VERSION,
+                    profile_version=payload.profile_version,
+                    engine_version=payload.engine_version,
+                    data_status=payload.data_status,
                     action=ReplayWorkbenchBuildAction.CACHE_HIT,
                     cache_key=request.cache_key,
                     reason="Replay cache already exists and is still eligible for reuse.",
@@ -2868,6 +3030,10 @@ class ReplayWorkbenchService:
             accepted = self.ingest_replay_snapshot(payload)
             cache_after = self.get_cache_record(request.cache_key)
             return ReplayWorkbenchBuildResponse(
+                schema_version=self._SCHEMA_VERSION,
+                profile_version=payload.profile_version,
+                engine_version=payload.engine_version,
+                data_status=payload.data_status,
                 action=ReplayWorkbenchBuildAction.BUILT_FROM_ATAS_HISTORY,
                 cache_key=request.cache_key,
                 reason="Replay packet rebuilt from ATAS chart-loaded history bars.",
@@ -2911,6 +3077,10 @@ class ReplayWorkbenchService:
             )
             integrity = self._with_backfill_metadata(integrity, backfill_request)
         return ReplayWorkbenchBuildResponse(
+            schema_version=self._SCHEMA_VERSION,
+            profile_version=payload.profile_version,
+            engine_version=payload.engine_version,
+            data_status=payload.data_status,
             action=ReplayWorkbenchBuildAction.BUILT_FROM_LOCAL_HISTORY,
             cache_key=request.cache_key,
             reason=(
@@ -4175,6 +4345,8 @@ class ReplayWorkbenchService:
                     delta=0,
                     bid_volume=0,
                     ask_volume=0,
+                    source_kind="synthetic_gap_fill",
+                    is_synthetic=True,
                 )
                 # Don't override real bars if they exist
                 if filler.started_at not in candle_map:
@@ -4778,6 +4950,8 @@ class ReplayWorkbenchService:
                 and self._backfill_ranges_equal(record.requested_ranges, request.requested_ranges)
                 and record.contract_symbol == request.contract_symbol
                 and record.root_symbol == request.root_symbol
+                and record.target_contract_symbol == request.target_contract_symbol
+                and record.target_root_symbol == request.target_root_symbol
             ):
                 return record
         return None
@@ -4828,6 +5002,10 @@ class ReplayWorkbenchService:
             request_id=record.request_id,
             cache_key=record.cache_key,
             instrument_symbol=record.instrument_symbol,
+            contract_symbol=record.contract_symbol,
+            root_symbol=record.root_symbol,
+            target_contract_symbol=record.target_contract_symbol,
+            target_root_symbol=record.target_root_symbol,
             display_timeframe=record.display_timeframe,
             window_start=record.window_start,
             window_end=record.window_end,

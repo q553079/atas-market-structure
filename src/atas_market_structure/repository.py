@@ -40,6 +40,68 @@ class StoredLiquidityMemory:
 
 
 @dataclass(frozen=True)
+class StoredBeliefState:
+    belief_state_id: str
+    instrument_symbol: str
+    observed_at: datetime
+    stored_at: datetime
+    schema_version: str
+    profile_version: str
+    engine_version: str
+    recognition_mode: str
+    belief_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StoredEventEpisode:
+    episode_id: str
+    instrument_symbol: str
+    event_kind: str
+    started_at: datetime
+    ended_at: datetime
+    resolution: str
+    schema_version: str
+    profile_version: str
+    engine_version: str
+    episode_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StoredEpisodeEvaluation:
+    evaluation_id: str
+    episode_id: str
+    instrument_symbol: str
+    event_kind: str
+    evaluated_at: datetime
+    schema_version: str
+    profile_version: str
+    engine_version: str
+    evaluation_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StoredInstrumentProfile:
+    instrument_symbol: str
+    profile_version: str
+    schema_version: str
+    ontology_version: str
+    is_active: bool
+    profile_payload: dict[str, Any]
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredRecognizerBuild:
+    engine_version: str
+    schema_version: str
+    ontology_version: str
+    is_active: bool
+    status: str
+    build_payload: dict[str, Any]
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class StoredChatSession:
     session_id: str
     workspace_id: str
@@ -192,6 +254,9 @@ class ChartCandleRepository(Protocol):
     def upsert_chart_candles(self, candles: list["ChartCandle"]) -> int:
         ...
 
+    def replace_chart_candles(self, candles: list["ChartCandle"]) -> int:
+        ...
+
     def list_chart_candles(
         self,
         symbol: str,
@@ -206,6 +271,42 @@ class ChartCandleRepository(Protocol):
         ...
 
     def purge_chart_candles(self, *, symbol: str | None, older_than: datetime) -> int:
+        ...
+
+    def upsert_atas_chart_bars_raw(self, bars: list["AtasChartBarRaw"]) -> int:
+        ...
+
+    def list_atas_chart_bars_raw(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+        limit: int = 5000,
+    ) -> list["AtasChartBarRaw"]:
+        ...
+
+    def count_atas_chart_bars_raw(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> int:
+        ...
+
+    def purge_atas_chart_bars_raw(
+        self,
+        *,
+        older_than: datetime,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+    ) -> int:
         ...
 
 
@@ -240,6 +341,8 @@ class IngestionRepository(Protocol):
         instrument_symbol: str | None = None,
         source_snapshot_id: str | None = None,
         limit: int = 100,
+        stored_at_after: datetime | None = None,
+        stored_at_before: datetime | None = None,
     ) -> list[StoredIngestion]:
         ...
 
@@ -270,6 +373,99 @@ class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
         analysis_payload: dict[str, Any],
         stored_at: datetime,
     ) -> StoredAnalysis:
+        ...
+
+    def save_belief_state(
+        self,
+        *,
+        belief_state_id: str,
+        instrument_symbol: str,
+        observed_at: datetime,
+        stored_at: datetime,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        recognition_mode: str,
+        belief_payload: dict[str, Any],
+    ) -> StoredBeliefState:
+        ...
+
+    def get_latest_belief_state(self, instrument_symbol: str) -> StoredBeliefState | None:
+        ...
+
+    def list_belief_states(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredBeliefState]:
+        ...
+
+    def save_event_episode(
+        self,
+        *,
+        episode_id: str,
+        instrument_symbol: str,
+        event_kind: str,
+        started_at: datetime,
+        ended_at: datetime,
+        resolution: str,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        episode_payload: dict[str, Any],
+    ) -> StoredEventEpisode:
+        ...
+
+    def get_event_episode(self, episode_id: str) -> StoredEventEpisode | None:
+        ...
+
+    def list_event_episodes(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredEventEpisode]:
+        ...
+
+    def save_episode_evaluation(
+        self,
+        *,
+        evaluation_id: str,
+        episode_id: str,
+        instrument_symbol: str,
+        event_kind: str,
+        evaluated_at: datetime,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        evaluation_payload: dict[str, Any],
+    ) -> StoredEpisodeEvaluation:
+        ...
+
+    def get_episode_evaluation(self, episode_id: str) -> StoredEpisodeEvaluation | None:
+        ...
+
+    def save_instrument_profile(
+        self,
+        *,
+        instrument_symbol: str,
+        profile_version: str,
+        schema_version: str,
+        ontology_version: str,
+        is_active: bool,
+        profile_payload: dict[str, Any],
+        created_at: datetime,
+    ) -> StoredInstrumentProfile:
+        ...
+
+    def get_active_instrument_profile(self, instrument_symbol: str) -> StoredInstrumentProfile | None:
+        ...
+
+    def save_recognizer_build(
+        self,
+        *,
+        engine_version: str,
+        schema_version: str,
+        ontology_version: str,
+        is_active: bool,
+        status: str,
+        build_payload: dict[str, Any],
+        created_at: datetime,
+    ) -> StoredRecognizerBuild:
+        ...
+
+    def get_active_recognizer_build(self) -> StoredRecognizerBuild | None:
         ...
 
     def save_or_update_liquidity_memory(
@@ -554,6 +750,79 @@ class SQLiteAnalysisRepository:
             )
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS belief_state_snapshots (
+                    belief_state_id TEXT PRIMARY KEY,
+                    instrument_symbol TEXT NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    stored_at TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    profile_version TEXT NOT NULL,
+                    engine_version TEXT NOT NULL,
+                    recognition_mode TEXT NOT NULL,
+                    belief_payload_json TEXT NOT NULL
+                )
+                """,
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_episodes (
+                    episode_id TEXT PRIMARY KEY,
+                    instrument_symbol TEXT NOT NULL,
+                    event_kind TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT NOT NULL,
+                    resolution TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    profile_version TEXT NOT NULL,
+                    engine_version TEXT NOT NULL,
+                    episode_payload_json TEXT NOT NULL
+                )
+                """,
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS episode_evaluations (
+                    evaluation_id TEXT PRIMARY KEY,
+                    episode_id TEXT NOT NULL UNIQUE,
+                    instrument_symbol TEXT NOT NULL,
+                    event_kind TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    profile_version TEXT NOT NULL,
+                    engine_version TEXT NOT NULL,
+                    evaluation_payload_json TEXT NOT NULL
+                )
+                """,
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS instrument_profiles (
+                    instrument_symbol TEXT NOT NULL,
+                    profile_version TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    ontology_version TEXT NOT NULL,
+                    is_active INTEGER NOT NULL,
+                    profile_payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (instrument_symbol, profile_version)
+                )
+                """,
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recognizer_builds (
+                    engine_version TEXT PRIMARY KEY,
+                    schema_version TEXT NOT NULL,
+                    ontology_version TEXT NOT NULL,
+                    is_active INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    build_payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """,
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS liquidity_memories (
                     memory_id TEXT PRIMARY KEY,
                     track_key TEXT NOT NULL UNIQUE,
@@ -752,6 +1021,55 @@ class SQLiteAnalysisRepository:
                 "CREATE INDEX IF NOT EXISTS idx_chart_candles_symbol_tf_started "
                 "ON chart_candles (symbol, timeframe, started_at DESC)"
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS atas_chart_bars_raw (
+                    chart_instance_id TEXT NOT NULL DEFAULT '',
+                    root_symbol TEXT,
+                    contract_symbol TEXT NOT NULL DEFAULT '',
+                    symbol TEXT NOT NULL,
+                    venue TEXT,
+                    timeframe TEXT NOT NULL,
+                    started_at_utc TEXT NOT NULL,
+                    ended_at_utc TEXT NOT NULL,
+                    source_started_at TEXT NOT NULL,
+                    original_bar_time_text TEXT,
+                    timestamp_basis TEXT,
+                    chart_display_timezone_mode TEXT,
+                    chart_display_timezone_name TEXT,
+                    chart_display_utc_offset_minutes INTEGER,
+                    instrument_timezone_value TEXT,
+                    instrument_timezone_source TEXT,
+                    collector_local_timezone_name TEXT,
+                    collector_local_utc_offset_minutes INTEGER,
+                    timezone_capture_confidence TEXT,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume INTEGER,
+                    bid_volume INTEGER,
+                    ask_volume INTEGER,
+                    delta INTEGER,
+                    trade_count INTEGER,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (chart_instance_id, contract_symbol, timeframe, started_at_utc)
+                )
+                """,
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_atas_chart_bars_raw_contract_tf_started "
+                "ON atas_chart_bars_raw (contract_symbol, timeframe, started_at_utc DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_atas_chart_bars_raw_root_tf_started "
+                "ON atas_chart_bars_raw (root_symbol, timeframe, started_at_utc DESC)"
+            )
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_belief_state_symbol_time ON belief_state_snapshots (instrument_symbol, observed_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_event_episodes_symbol_end ON event_episodes (instrument_symbol, ended_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_episode_evaluations_symbol_time ON episode_evaluations (instrument_symbol, evaluated_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_instrument_profiles_symbol_active ON instrument_profiles (instrument_symbol, is_active, created_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_recognizer_builds_active_created ON recognizer_builds (is_active, created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_ingestions_symbol_time ON ingestions (instrument_symbol, stored_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_analyses_ingestion ON analyses (ingestion_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_liquidity_memories_symbol_expiry ON liquidity_memories (instrument_symbol, expires_at, updated_at)")
@@ -804,6 +1122,576 @@ class SQLiteAnalysisRepository:
             connection.commit()
         return StoredAnalysis(analysis_id, ingestion_id, route_key, analysis_payload, stored_at)
 
+    def save_belief_state(
+        self,
+        *,
+        belief_state_id: str,
+        instrument_symbol: str,
+        observed_at: datetime,
+        stored_at: datetime,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        recognition_mode: str,
+        belief_payload: dict[str, Any],
+    ) -> StoredBeliefState:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO belief_state_snapshots (
+                    belief_state_id,
+                    instrument_symbol,
+                    observed_at,
+                    stored_at,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    recognition_mode,
+                    belief_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    belief_state_id,
+                    instrument_symbol,
+                    self._serialize_datetime(observed_at),
+                    self._serialize_datetime(stored_at),
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    recognition_mode,
+                    self._serialize_json(belief_payload),
+                ),
+            )
+            connection.commit()
+        beliefs = self.list_belief_states(instrument_symbol=instrument_symbol, limit=500)
+        for belief in beliefs:
+            if belief.belief_state_id == belief_state_id:
+                return belief
+        return StoredBeliefState(
+            belief_state_id=belief_state_id,
+            instrument_symbol=instrument_symbol,
+            observed_at=observed_at,
+            stored_at=stored_at,
+            schema_version=schema_version,
+            profile_version=profile_version,
+            engine_version=engine_version,
+            recognition_mode=recognition_mode,
+            belief_payload=belief_payload,
+        )
+
+    def get_latest_belief_state(self, instrument_symbol: str) -> StoredBeliefState | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    belief_state_id,
+                    instrument_symbol,
+                    observed_at,
+                    stored_at,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    recognition_mode,
+                    belief_payload_json
+                FROM belief_state_snapshots
+                WHERE instrument_symbol = ?
+                ORDER BY observed_at DESC, stored_at DESC
+                LIMIT 1
+                """,
+                (instrument_symbol,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredBeliefState(
+            belief_state_id=row["belief_state_id"],
+            instrument_symbol=row["instrument_symbol"],
+            observed_at=self._parse_datetime(row["observed_at"]),
+            stored_at=self._parse_datetime(row["stored_at"]),
+            schema_version=row["schema_version"],
+            profile_version=row["profile_version"],
+            engine_version=row["engine_version"],
+            recognition_mode=row["recognition_mode"],
+            belief_payload=self._parse_json(row["belief_payload_json"]),
+        )
+
+    def list_belief_states(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredBeliefState]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    belief_state_id,
+                    instrument_symbol,
+                    observed_at,
+                    stored_at,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    recognition_mode,
+                    belief_payload_json
+                FROM belief_state_snapshots
+                WHERE instrument_symbol = ?
+                ORDER BY observed_at DESC, stored_at DESC
+                LIMIT ?
+                """,
+                (instrument_symbol, limit),
+            ).fetchall()
+        return [
+            StoredBeliefState(
+                belief_state_id=row["belief_state_id"],
+                instrument_symbol=row["instrument_symbol"],
+                observed_at=self._parse_datetime(row["observed_at"]),
+                stored_at=self._parse_datetime(row["stored_at"]),
+                schema_version=row["schema_version"],
+                profile_version=row["profile_version"],
+                engine_version=row["engine_version"],
+                recognition_mode=row["recognition_mode"],
+                belief_payload=self._parse_json(row["belief_payload_json"]),
+            )
+            for row in rows
+        ]
+
+    def save_event_episode(
+        self,
+        *,
+        episode_id: str,
+        instrument_symbol: str,
+        event_kind: str,
+        started_at: datetime,
+        ended_at: datetime,
+        resolution: str,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        episode_payload: dict[str, Any],
+    ) -> StoredEventEpisode:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO event_episodes (
+                    episode_id,
+                    instrument_symbol,
+                    event_kind,
+                    started_at,
+                    ended_at,
+                    resolution,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    episode_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    episode_id,
+                    instrument_symbol,
+                    event_kind,
+                    self._serialize_datetime(started_at),
+                    self._serialize_datetime(ended_at),
+                    resolution,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    self._serialize_json(episode_payload),
+                ),
+            )
+            connection.commit()
+        episode = self.get_event_episode(episode_id)
+        if episode is not None:
+            return episode
+        return StoredEventEpisode(
+            episode_id=episode_id,
+            instrument_symbol=instrument_symbol,
+            event_kind=event_kind,
+            started_at=started_at,
+            ended_at=ended_at,
+            resolution=resolution,
+            schema_version=schema_version,
+            profile_version=profile_version,
+            engine_version=engine_version,
+            episode_payload=episode_payload,
+        )
+
+    def get_event_episode(self, episode_id: str) -> StoredEventEpisode | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    episode_id,
+                    instrument_symbol,
+                    event_kind,
+                    started_at,
+                    ended_at,
+                    resolution,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    episode_payload_json
+                FROM event_episodes
+                WHERE episode_id = ?
+                """,
+                (episode_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredEventEpisode(
+            episode_id=row["episode_id"],
+            instrument_symbol=row["instrument_symbol"],
+            event_kind=row["event_kind"],
+            started_at=self._parse_datetime(row["started_at"]),
+            ended_at=self._parse_datetime(row["ended_at"]),
+            resolution=row["resolution"],
+            schema_version=row["schema_version"],
+            profile_version=row["profile_version"],
+            engine_version=row["engine_version"],
+            episode_payload=self._parse_json(row["episode_payload_json"]),
+        )
+
+    def list_event_episodes(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredEventEpisode]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    episode_id,
+                    instrument_symbol,
+                    event_kind,
+                    started_at,
+                    ended_at,
+                    resolution,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    episode_payload_json
+                FROM event_episodes
+                WHERE instrument_symbol = ?
+                ORDER BY ended_at DESC, started_at DESC
+                LIMIT ?
+                """,
+                (instrument_symbol, limit),
+            ).fetchall()
+        return [
+            StoredEventEpisode(
+                episode_id=row["episode_id"],
+                instrument_symbol=row["instrument_symbol"],
+                event_kind=row["event_kind"],
+                started_at=self._parse_datetime(row["started_at"]),
+                ended_at=self._parse_datetime(row["ended_at"]),
+                resolution=row["resolution"],
+                schema_version=row["schema_version"],
+                profile_version=row["profile_version"],
+                engine_version=row["engine_version"],
+                episode_payload=self._parse_json(row["episode_payload_json"]),
+            )
+            for row in rows
+        ]
+
+    def save_episode_evaluation(
+        self,
+        *,
+        evaluation_id: str,
+        episode_id: str,
+        instrument_symbol: str,
+        event_kind: str,
+        evaluated_at: datetime,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        evaluation_payload: dict[str, Any],
+    ) -> StoredEpisodeEvaluation:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO episode_evaluations (
+                    evaluation_id,
+                    episode_id,
+                    instrument_symbol,
+                    event_kind,
+                    evaluated_at,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    evaluation_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    evaluation_id,
+                    episode_id,
+                    instrument_symbol,
+                    event_kind,
+                    self._serialize_datetime(evaluated_at),
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    self._serialize_json(evaluation_payload),
+                ),
+            )
+            connection.commit()
+        evaluation = self.get_episode_evaluation(episode_id)
+        if evaluation is not None:
+            return evaluation
+        return StoredEpisodeEvaluation(
+            evaluation_id=evaluation_id,
+            episode_id=episode_id,
+            instrument_symbol=instrument_symbol,
+            event_kind=event_kind,
+            evaluated_at=evaluated_at,
+            schema_version=schema_version,
+            profile_version=profile_version,
+            engine_version=engine_version,
+            evaluation_payload=evaluation_payload,
+        )
+
+    def get_episode_evaluation(self, episode_id: str) -> StoredEpisodeEvaluation | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    evaluation_id,
+                    episode_id,
+                    instrument_symbol,
+                    event_kind,
+                    evaluated_at,
+                    schema_version,
+                    profile_version,
+                    engine_version,
+                    evaluation_payload_json
+                FROM episode_evaluations
+                WHERE episode_id = ?
+                ORDER BY evaluated_at DESC
+                LIMIT 1
+                """,
+                (episode_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredEpisodeEvaluation(
+            evaluation_id=row["evaluation_id"],
+            episode_id=row["episode_id"],
+            instrument_symbol=row["instrument_symbol"],
+            event_kind=row["event_kind"],
+            evaluated_at=self._parse_datetime(row["evaluated_at"]),
+            schema_version=row["schema_version"],
+            profile_version=row["profile_version"],
+            engine_version=row["engine_version"],
+            evaluation_payload=self._parse_json(row["evaluation_payload_json"]),
+        )
+
+    def save_instrument_profile(
+        self,
+        *,
+        instrument_symbol: str,
+        profile_version: str,
+        schema_version: str,
+        ontology_version: str,
+        is_active: bool,
+        profile_payload: dict[str, Any],
+        created_at: datetime,
+    ) -> StoredInstrumentProfile:
+        with self._connect() as connection:
+            if is_active:
+                connection.execute(
+                    "UPDATE instrument_profiles SET is_active = 0 WHERE instrument_symbol = ? AND profile_version != ?",
+                    (instrument_symbol, profile_version),
+                )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO instrument_profiles (
+                    instrument_symbol,
+                    profile_version,
+                    schema_version,
+                    ontology_version,
+                    is_active,
+                    profile_payload_json,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    instrument_symbol,
+                    profile_version,
+                    schema_version,
+                    ontology_version,
+                    int(is_active),
+                    self._serialize_json(profile_payload),
+                    self._serialize_datetime(created_at),
+                ),
+            )
+            connection.commit()
+        profile = self.get_active_instrument_profile(instrument_symbol)
+        if profile is not None and profile.profile_version == profile_version:
+            return profile
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    instrument_symbol,
+                    profile_version,
+                    schema_version,
+                    ontology_version,
+                    is_active,
+                    profile_payload_json,
+                    created_at
+                FROM instrument_profiles
+                WHERE instrument_symbol = ? AND profile_version = ?
+                """,
+                (instrument_symbol, profile_version),
+            ).fetchone()
+        if row is None:
+            return StoredInstrumentProfile(
+                instrument_symbol=instrument_symbol,
+                profile_version=profile_version,
+                schema_version=schema_version,
+                ontology_version=ontology_version,
+                is_active=is_active,
+                profile_payload=profile_payload,
+                created_at=created_at,
+            )
+        return StoredInstrumentProfile(
+            instrument_symbol=row["instrument_symbol"],
+            profile_version=row["profile_version"],
+            schema_version=row["schema_version"],
+            ontology_version=row["ontology_version"],
+            is_active=bool(row["is_active"]),
+            profile_payload=self._parse_json(row["profile_payload_json"]),
+            created_at=self._parse_datetime(row["created_at"]),
+        )
+
+    def get_active_instrument_profile(self, instrument_symbol: str) -> StoredInstrumentProfile | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    instrument_symbol,
+                    profile_version,
+                    schema_version,
+                    ontology_version,
+                    is_active,
+                    profile_payload_json,
+                    created_at
+                FROM instrument_profiles
+                WHERE instrument_symbol = ?
+                ORDER BY is_active DESC, created_at DESC
+                LIMIT 1
+                """,
+                (instrument_symbol,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredInstrumentProfile(
+            instrument_symbol=row["instrument_symbol"],
+            profile_version=row["profile_version"],
+            schema_version=row["schema_version"],
+            ontology_version=row["ontology_version"],
+            is_active=bool(row["is_active"]),
+            profile_payload=self._parse_json(row["profile_payload_json"]),
+            created_at=self._parse_datetime(row["created_at"]),
+        )
+
+    def save_recognizer_build(
+        self,
+        *,
+        engine_version: str,
+        schema_version: str,
+        ontology_version: str,
+        is_active: bool,
+        status: str,
+        build_payload: dict[str, Any],
+        created_at: datetime,
+    ) -> StoredRecognizerBuild:
+        with self._connect() as connection:
+            if is_active:
+                connection.execute(
+                    "UPDATE recognizer_builds SET is_active = 0 WHERE engine_version != ?",
+                    (engine_version,),
+                )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO recognizer_builds (
+                    engine_version,
+                    schema_version,
+                    ontology_version,
+                    is_active,
+                    status,
+                    build_payload_json,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    engine_version,
+                    schema_version,
+                    ontology_version,
+                    int(is_active),
+                    status,
+                    self._serialize_json(build_payload),
+                    self._serialize_datetime(created_at),
+                ),
+            )
+            connection.commit()
+        build = self.get_active_recognizer_build()
+        if build is not None and build.engine_version == engine_version:
+            return build
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    engine_version,
+                    schema_version,
+                    ontology_version,
+                    is_active,
+                    status,
+                    build_payload_json,
+                    created_at
+                FROM recognizer_builds
+                WHERE engine_version = ?
+                """,
+                (engine_version,),
+            ).fetchone()
+        if row is None:
+            return StoredRecognizerBuild(
+                engine_version=engine_version,
+                schema_version=schema_version,
+                ontology_version=ontology_version,
+                is_active=is_active,
+                status=status,
+                build_payload=build_payload,
+                created_at=created_at,
+            )
+        return StoredRecognizerBuild(
+            engine_version=row["engine_version"],
+            schema_version=row["schema_version"],
+            ontology_version=row["ontology_version"],
+            is_active=bool(row["is_active"]),
+            status=row["status"],
+            build_payload=self._parse_json(row["build_payload_json"]),
+            created_at=self._parse_datetime(row["created_at"]),
+        )
+
+    def get_active_recognizer_build(self) -> StoredRecognizerBuild | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    engine_version,
+                    schema_version,
+                    ontology_version,
+                    is_active,
+                    status,
+                    build_payload_json,
+                    created_at
+                FROM recognizer_builds
+                ORDER BY is_active DESC, created_at DESC
+                LIMIT 1
+                """,
+            ).fetchone()
+        if row is None:
+            return None
+        return StoredRecognizerBuild(
+            engine_version=row["engine_version"],
+            schema_version=row["schema_version"],
+            ontology_version=row["ontology_version"],
+            is_active=bool(row["is_active"]),
+            status=row["status"],
+            build_payload=self._parse_json(row["build_payload_json"]),
+            created_at=self._parse_datetime(row["created_at"]),
+        )
+
     def save_or_update_liquidity_memory(self, *, memory_id: str, track_key: str, instrument_symbol: str, coverage_state: str, observed_track: dict[str, Any], derived_summary: dict[str, Any], expires_at: datetime, updated_at: datetime) -> StoredLiquidityMemory:
         with self._connect() as connection:
             connection.execute(
@@ -851,7 +1739,7 @@ class SQLiteAnalysisRepository:
             connection.commit()
         return self.get_ingestion(ingestion_id)
 
-    def list_ingestions(self, *, ingestion_kind: str | None = None, instrument_symbol: str | None = None, source_snapshot_id: str | None = None, limit: int = 100) -> list[StoredIngestion]:
+    def list_ingestions(self, *, ingestion_kind: str | None = None, instrument_symbol: str | None = None, source_snapshot_id: str | None = None, limit: int = 100, stored_at_after: datetime | None = None, stored_at_before: datetime | None = None) -> list[StoredIngestion]:
         clauses = []
         parameters: list[Any] = []
         if ingestion_kind is not None:
@@ -863,6 +1751,12 @@ class SQLiteAnalysisRepository:
         if source_snapshot_id is not None:
             clauses.append("source_snapshot_id = ?")
             parameters.append(source_snapshot_id)
+        if stored_at_after is not None:
+            clauses.append("stored_at >= ?")
+            parameters.append(self._serialize_datetime(stored_at_after))
+        if stored_at_before is not None:
+            clauses.append("stored_at <= ?")
+            parameters.append(self._serialize_datetime(stored_at_before))
         where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         query = f"SELECT ingestion_id, ingestion_kind, source_snapshot_id, instrument_symbol, observed_payload_json, stored_at FROM ingestions {where_clause} ORDER BY stored_at DESC LIMIT ?"
         parameters.append(limit)
@@ -1391,6 +2285,42 @@ class SQLiteAnalysisRepository:
             updated_at=self._parse_datetime(row["updated_at"]),
         )
 
+    def _row_to_atas_chart_bar_raw(self, row: sqlite3.Row) -> "AtasChartBarRaw":
+        from atas_market_structure.models._enums import Timeframe
+        from atas_market_structure.models._replay import AtasChartBarRaw
+
+        return AtasChartBarRaw(
+            chart_instance_id=row["chart_instance_id"] or None,
+            root_symbol=row["root_symbol"] or None,
+            contract_symbol=row["contract_symbol"] or None,
+            symbol=row["symbol"],
+            venue=row["venue"] or None,
+            timeframe=Timeframe(row["timeframe"]),
+            started_at_utc=self._parse_datetime(row["started_at_utc"]),
+            ended_at_utc=self._parse_datetime(row["ended_at_utc"]),
+            source_started_at=self._parse_datetime(row["source_started_at"]),
+            original_bar_time_text=row["original_bar_time_text"] or None,
+            timestamp_basis=row["timestamp_basis"] or None,
+            chart_display_timezone_mode=row["chart_display_timezone_mode"] or None,
+            chart_display_timezone_name=row["chart_display_timezone_name"] or None,
+            chart_display_utc_offset_minutes=row["chart_display_utc_offset_minutes"],
+            instrument_timezone_value=row["instrument_timezone_value"] or None,
+            instrument_timezone_source=row["instrument_timezone_source"] or None,
+            collector_local_timezone_name=row["collector_local_timezone_name"] or None,
+            collector_local_utc_offset_minutes=row["collector_local_utc_offset_minutes"],
+            timezone_capture_confidence=row["timezone_capture_confidence"] or None,
+            open=row["open"],
+            high=row["high"],
+            low=row["low"],
+            close=row["close"],
+            volume=row["volume"],
+            bid_volume=row["bid_volume"],
+            ask_volume=row["ask_volume"],
+            delta=row["delta"],
+            trade_count=row["trade_count"],
+            updated_at=self._parse_datetime(row["updated_at"]),
+        )
+
     @staticmethod
     def _serialize_json(value: dict[str, Any]) -> str:
         return json.dumps(value, separators=(",", ":"), ensure_ascii=True)
@@ -1435,7 +2365,7 @@ class SQLiteAnalysisRepository:
     # ─── Chart Candles ──────────────────────────────────────────────────────────
 
     def upsert_chart_candle(self, candle: "ChartCandle") -> "ChartCandle":
-        """Insert or update a single chart candle.  Raises on validation error."""
+        """Insert or update a single chart candle using exact replacement semantics."""
         from atas_market_structure.models._replay import ChartCandle as ChartCandleModel
 
         with self._connect() as conn:
@@ -1448,12 +2378,14 @@ class SQLiteAnalysisRepository:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
                     source_started_at = MIN(chart_candles.source_started_at, excluded.source_started_at),
-                    high        = MAX(excluded.high,  chart_candles.high),
-                    low         = MIN(excluded.low,   chart_candles.low),
+                    open        = excluded.open,
+                    high        = excluded.high,
+                    low         = excluded.low,
                     close       = excluded.close,
-                    volume      = chart_candles.volume    + (excluded.volume    - MAX(chart_candles.open, chart_candles.high, chart_candles.low, chart_candles.close)),
-                    tick_volume = chart_candles.tick_volume + excluded.tick_volume,
-                    delta       = chart_candles.delta       + excluded.delta,
+                    volume      = excluded.volume,
+                    tick_volume = excluded.tick_volume,
+                    delta       = excluded.delta,
+                    ended_at    = excluded.ended_at,
                     updated_at  = excluded.updated_at,
                     source_timezone = COALESCE(NULLIF(excluded.source_timezone, ''), chart_candles.source_timezone)
                 """,
@@ -1478,7 +2410,7 @@ class SQLiteAnalysisRepository:
         return candle
 
     def upsert_chart_candles(self, candles: list["ChartCandle"]) -> int:
-        """Bulk upsert a list of chart candles. Returns number of rows written."""
+        """Bulk upsert a list of chart candles using exact replacement semantics."""
         if not candles:
             return 0
         rows = [
@@ -1510,12 +2442,14 @@ class SQLiteAnalysisRepository:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol, timeframe, started_at) DO UPDATE SET
                     source_started_at = MIN(chart_candles.source_started_at, excluded.source_started_at),
-                    high        = MAX(excluded.high,  chart_candles.high),
-                    low         = MIN(excluded.low,   chart_candles.low),
+                    open        = excluded.open,
+                    high        = excluded.high,
+                    low         = excluded.low,
                     close       = excluded.close,
-                    volume      = chart_candles.volume      + excluded.volume,
-                    tick_volume = chart_candles.tick_volume + excluded.tick_volume,
-                    delta       = chart_candles.delta       + excluded.delta,
+                    volume      = excluded.volume,
+                    tick_volume = excluded.tick_volume,
+                    delta       = excluded.delta,
+                    ended_at    = excluded.ended_at,
                     updated_at  = excluded.updated_at,
                     source_timezone = COALESCE(NULLIF(excluded.source_timezone, ''), chart_candles.source_timezone)
                 """,
@@ -1523,6 +2457,10 @@ class SQLiteAnalysisRepository:
             )
             conn.commit()
         return len(candles)
+
+    def replace_chart_candles(self, candles: list["ChartCandle"]) -> int:
+        """Compatibility alias for exact chart-candle upserts."""
+        return self.upsert_chart_candles(candles)
 
     def list_chart_candles(
         self,
@@ -1605,5 +2543,195 @@ class SQLiteAnalysisRepository:
         where_clause = "WHERE " + " AND ".join(where_parts)
         with self._connect() as conn:
             cur = conn.execute(f"DELETE FROM chart_candles {where_clause}", tuple(params))
+            conn.commit()
+        return cur.rowcount
+
+    def upsert_atas_chart_bars_raw(self, bars: list["AtasChartBarRaw"]) -> int:
+        """Upsert raw mirrored ATAS chart bars without duplicating repeated UTC bars."""
+        if not bars:
+            return 0
+
+        rows = [
+            (
+                bar.chart_instance_id or "",
+                bar.root_symbol,
+                bar.contract_symbol or "",
+                bar.symbol,
+                bar.venue,
+                bar.timeframe.value,
+                self._serialize_datetime(bar.started_at_utc),
+                self._serialize_datetime(bar.ended_at_utc),
+                self._serialize_datetime(bar.source_started_at),
+                bar.original_bar_time_text,
+                bar.timestamp_basis,
+                bar.chart_display_timezone_mode,
+                bar.chart_display_timezone_name,
+                bar.chart_display_utc_offset_minutes,
+                bar.instrument_timezone_value,
+                bar.instrument_timezone_source,
+                bar.collector_local_timezone_name,
+                bar.collector_local_utc_offset_minutes,
+                bar.timezone_capture_confidence,
+                bar.open,
+                bar.high,
+                bar.low,
+                bar.close,
+                bar.volume,
+                bar.bid_volume,
+                bar.ask_volume,
+                bar.delta,
+                bar.trade_count,
+                self._serialize_datetime(bar.updated_at),
+            )
+            for bar in bars
+        ]
+
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO atas_chart_bars_raw (
+                    chart_instance_id, root_symbol, contract_symbol, symbol, venue, timeframe,
+                    started_at_utc, ended_at_utc, source_started_at, original_bar_time_text,
+                    timestamp_basis, chart_display_timezone_mode, chart_display_timezone_name,
+                    chart_display_utc_offset_minutes, instrument_timezone_value, instrument_timezone_source,
+                    collector_local_timezone_name, collector_local_utc_offset_minutes,
+                    timezone_capture_confidence, open, high, low, close, volume, bid_volume,
+                    ask_volume, delta, trade_count, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chart_instance_id, contract_symbol, timeframe, started_at_utc) DO UPDATE SET
+                    root_symbol = excluded.root_symbol,
+                    symbol = excluded.symbol,
+                    venue = excluded.venue,
+                    ended_at_utc = excluded.ended_at_utc,
+                    source_started_at = excluded.source_started_at,
+                    original_bar_time_text = excluded.original_bar_time_text,
+                    timestamp_basis = excluded.timestamp_basis,
+                    chart_display_timezone_mode = excluded.chart_display_timezone_mode,
+                    chart_display_timezone_name = excluded.chart_display_timezone_name,
+                    chart_display_utc_offset_minutes = excluded.chart_display_utc_offset_minutes,
+                    instrument_timezone_value = excluded.instrument_timezone_value,
+                    instrument_timezone_source = excluded.instrument_timezone_source,
+                    collector_local_timezone_name = excluded.collector_local_timezone_name,
+                    collector_local_utc_offset_minutes = excluded.collector_local_utc_offset_minutes,
+                    timezone_capture_confidence = excluded.timezone_capture_confidence,
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume,
+                    bid_volume = excluded.bid_volume,
+                    ask_volume = excluded.ask_volume,
+                    delta = excluded.delta,
+                    trade_count = excluded.trade_count,
+                    updated_at = excluded.updated_at
+                """,
+                rows,
+            )
+            conn.commit()
+        return len(bars)
+
+    def list_atas_chart_bars_raw(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+        limit: int = 5000,
+    ) -> list["AtasChartBarRaw"]:
+        from atas_market_structure.models._enums import Timeframe
+
+        where_parts: list[str] = []
+        params: list[Any] = []
+        if chart_instance_id is not None:
+            where_parts.append("chart_instance_id = ?")
+            params.append(chart_instance_id)
+        if contract_symbol is not None:
+            where_parts.append("contract_symbol = ?")
+            params.append(contract_symbol)
+        if root_symbol is not None:
+            where_parts.append("root_symbol = ?")
+            params.append(root_symbol)
+        if timeframe is not None:
+            where_parts.append("timeframe = ?")
+            params.append(Timeframe(timeframe).value)
+        if window_start is not None:
+            where_parts.append("started_at_utc >= ?")
+            params.append(self._serialize_datetime(window_start))
+        if window_end is not None:
+            where_parts.append("started_at_utc <= ?")
+            params.append(self._serialize_datetime(window_end))
+
+        where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        query = (
+            "SELECT chart_instance_id, root_symbol, contract_symbol, symbol, venue, timeframe, "
+            "started_at_utc, ended_at_utc, source_started_at, original_bar_time_text, "
+            "timestamp_basis, chart_display_timezone_mode, chart_display_timezone_name, "
+            "chart_display_utc_offset_minutes, instrument_timezone_value, instrument_timezone_source, "
+            "collector_local_timezone_name, collector_local_utc_offset_minutes, timezone_capture_confidence, "
+            "open, high, low, close, volume, bid_volume, ask_volume, delta, trade_count, updated_at "
+            f"FROM atas_chart_bars_raw {where_clause} ORDER BY started_at_utc ASC LIMIT ?"
+        )
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._row_to_atas_chart_bar_raw(row) for row in rows]
+
+    def count_atas_chart_bars_raw(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> int:
+        from atas_market_structure.models._enums import Timeframe
+
+        where_parts: list[str] = []
+        params: list[Any] = []
+        if chart_instance_id is not None:
+            where_parts.append("chart_instance_id = ?")
+            params.append(chart_instance_id)
+        if contract_symbol is not None:
+            where_parts.append("contract_symbol = ?")
+            params.append(contract_symbol)
+        if root_symbol is not None:
+            where_parts.append("root_symbol = ?")
+            params.append(root_symbol)
+        if timeframe is not None:
+            where_parts.append("timeframe = ?")
+            params.append(Timeframe(timeframe).value)
+
+        where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        query = f"SELECT COUNT(*) AS cnt FROM atas_chart_bars_raw {where_clause}"
+        with self._connect() as conn:
+            row = conn.execute(query, tuple(params)).fetchone()
+        return row["cnt"] if row else 0
+
+    def purge_atas_chart_bars_raw(
+        self,
+        *,
+        older_than: datetime,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+    ) -> int:
+        where_parts = ["updated_at < ?"]
+        params: list[Any] = [self._serialize_datetime(older_than)]
+        if chart_instance_id is not None:
+            where_parts.insert(0, "chart_instance_id = ?")
+            params.insert(0, chart_instance_id)
+        if contract_symbol is not None:
+            where_parts.insert(0, "contract_symbol = ?")
+            params.insert(0, contract_symbol)
+        if root_symbol is not None:
+            where_parts.insert(0, "root_symbol = ?")
+            params.insert(0, root_symbol)
+
+        where_clause = "WHERE " + " AND ".join(where_parts)
+        with self._connect() as conn:
+            cur = conn.execute(f"DELETE FROM atas_chart_bars_raw {where_clause}", tuple(params))
             conn.commit()
         return cur.rowcount

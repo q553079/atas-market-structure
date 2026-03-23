@@ -456,7 +456,7 @@ class MarketStructureApplication:
                     ),
                 )
 
-            # POST /api/v1/workbench/operator-entries
+            if method == "POST" and route_path == "/api/v1/workbench/operator-entries":
                 payload = ReplayOperatorEntryRequest.model_validate_json(body or b"{}")
                 response = self._replay_workbench_service.record_operator_entry(payload)
                 return self._json_model_response(201, response)

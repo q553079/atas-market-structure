@@ -2,19 +2,27 @@
 
 ## Status
 
-- `status`: `proposed_contract`
-- `scope`: phase-1 adapter-to-local-service integration
+- `status`: `implemented_minimal_mirror_dual_layer`
+- `scope`: ATAS adapter to local-service integration with mirror history and backfill control
 - `transport`: local REST over HTTP
 
-This document turns the collector checklist into a formal payload contract for the future ATAS adapter.
+This document describes the payload contract used by the current ATAS adapter implementation.
 
 The contract is intentionally split into:
 
 - `continuous_state`
 - `trigger_burst`
+- `history_bars`
+- `history_footprint`
+- `backfill_command`
+- `backfill_ack`
 - `durable_snapshot`
 
-This keeps ATAS lightweight during live trading while still preserving the evidence needed for later AI analysis and replay.
+This keeps ATAS lightweight during live trading while still preserving:
+
+- a raw chart mirror for one concrete ATAS chart instance,
+- a separate continuous-analysis series keyed by root symbol,
+- a server-driven backfill control plane for replay repair.
 
 ## Contract Principles
 
@@ -91,6 +99,77 @@ Suggested endpoints:
 - `POST /api/v1/ingestions/event-snapshot`
 - `POST /api/v1/ingestions/depth-snapshot`
 
+### 4. `history_bars`
+
+Purpose:
+
+- export currently loaded ATAS chart bars exactly as the chart sees them,
+- persist a raw mirror keyed by `chart_instance_id + contract_symbol + timeframe + started_at_utc`,
+- avoid polluting continuous analysis storage with per-contract mirror rows.
+
+Suggested endpoint:
+
+- `POST /api/v1/adapter/history-bars`
+
+Required additions beyond the common envelope:
+
+- `instrument.root_symbol`
+- `instrument.contract_symbol`
+- `source.chart_instance_id`
+- timezone capture fields on `source`
+- `bar_timeframe`
+- `bars[].bar_timestamp_utc`
+- `bars[].original_bar_time_text`
+
+### 5. `history_footprint`
+
+Purpose:
+
+- export loaded ATAS footprint bars in chunks,
+- keep footprint transport independent from realtime traffic,
+- acknowledge footprint completion separately from bars.
+
+Suggested endpoint:
+
+- `POST /api/v1/adapter/history-footprint`
+
+Required additions beyond the common envelope:
+
+- same instrument and source identity fields as `history_bars`
+- `batch_id`
+- `chunk_index`
+- `chunk_count`
+- `bar_timeframe`
+
+### 6. `backfill_command`
+
+Purpose:
+
+- allow the server to request re-export of missing history ranges for one chart instance,
+- keep replay repair control separate from the mirror data plane.
+
+Suggested endpoint:
+
+- `GET /api/v1/adapter/backfill-command`
+
+Current query identity:
+
+- `instrument_symbol`
+- optional `chart_instance_id`
+- optional `contract_symbol`
+- optional `root_symbol`
+
+### 7. `backfill_ack`
+
+Purpose:
+
+- let the adapter confirm that history bars and optional footprint were exported,
+- carry the latest loaded bar marker plus timezone semantics used during export.
+
+Suggested endpoint:
+
+- `POST /api/v1/adapter/backfill-ack`
+
 ## Common Envelope
 
 Every adapter message should include:
@@ -106,10 +185,22 @@ Every adapter message should include:
   "source": {
     "system": "ATAS",
     "instance_id": "DESKTOP-ATAS-01",
-    "adapter_version": "0.4.0"
+    "chart_instance_id": "NQH6-1m-main",
+    "adapter_version": "0.5.0-alpha",
+    "chart_display_timezone_mode": "exchange",
+    "chart_display_timezone_name": "America/New_York",
+    "chart_display_utc_offset_minutes": -240,
+    "instrument_timezone_value": "36",
+    "instrument_timezone_source": "exchange_metadata",
+    "collector_local_timezone_name": "Asia/Shanghai",
+    "collector_local_utc_offset_minutes": 480,
+    "timestamp_basis": "direct_chart_metadata",
+    "timezone_capture_confidence": "high"
   },
   "instrument": {
-    "symbol": "NQM6",
+    "symbol": "NQH6",
+    "root_symbol": "NQ",
+    "contract_symbol": "NQH6",
     "venue": "CME",
     "tick_size": 0.25,
     "currency": "USD"
@@ -127,6 +218,111 @@ Required common fields:
 - `observed_window_end`
 - `source`
 - `instrument`
+
+Strongly preferred common fields for mirror-safe ingestion:
+
+- `source.chart_instance_id`
+- `instrument.root_symbol`
+- `instrument.contract_symbol`
+- timezone capture fields on `source`
+
+## Time Semantics
+
+The current adapter implementation uses UTC as the only persisted storage time.
+
+Rules:
+
+- `observed_window_*` remain UTC.
+- `history_bars.bars[].bar_timestamp_utc` is the primary mirror key.
+- `history_bars.bars[].started_at` and `history_footprint.bars[].started_at` remain accepted for backward compatibility.
+- `bars[].original_bar_time_text` preserves the pre-normalized ATAS string for audit.
+- if chart display timezone cannot be read directly, the adapter must mark that in:
+  - `source.timestamp_basis`
+  - `time_context.chart_display_timezone_source`
+  - `source.timezone_capture_confidence`
+
+The adapter must never label a derived or fallback timezone as `direct`.
+
+## `history_bars` Contract
+
+Top-level fields:
+
+- common envelope
+- `bar_timeframe`
+- `bars`
+
+Per-bar fields:
+
+- `started_at`
+- `ended_at`
+- `open`
+- `high`
+- `low`
+- `close`
+- optional `volume`
+- optional `delta`
+- optional `bid_volume`
+- optional `ask_volume`
+- optional `bar_timestamp_utc`
+- optional `original_bar_time_text`
+
+Compatibility note:
+
+- older payloads without `bar_timestamp_utc` or `original_bar_time_text` still parse
+- newer payloads should send both whenever available
+
+## `history_footprint` Contract
+
+Top-level fields:
+
+- common envelope
+- `batch_id`
+- `bar_timeframe`
+- `chunk_index`
+- `chunk_count`
+- `bars`
+
+Each footprint bar inherits the `history_bars` time fields and adds:
+
+- `price_levels[]`
+
+## `backfill_command` Contract
+
+Response body shape:
+
+- `instrument_symbol`
+- optional `chart_instance_id`
+- optional `request`
+
+`request` fields:
+
+- `request_id`
+- `cache_key`
+- `instrument_symbol`
+- optional `contract_symbol`
+- optional `root_symbol`
+- optional `chart_instance_id`
+- `display_timeframe`
+- `window_start`
+- `window_end`
+- `requested_ranges[]`
+- `request_history_bars`
+- `request_history_footprint`
+
+## `backfill_ack` Contract
+
+Request fields:
+
+- `request_id`
+- optional `cache_key`
+- `instrument_symbol`
+- optional `chart_instance_id`
+- `acknowledged_at`
+- `acknowledged_history_bars`
+- `acknowledged_history_footprint`
+- optional `latest_loaded_bar_started_at`
+- optional `note`
+- timezone fields mirroring the adapter's export basis
 
 ## `continuous_state` Contract
 

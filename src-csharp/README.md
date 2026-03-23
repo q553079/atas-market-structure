@@ -1,18 +1,25 @@
 # ATAS C# Collector
 
-This folder contains the first ATAS-side collector skeleton for the local market-structure service.
+This folder contains the ATAS-side collector used by the local market-structure service.
 
 ## Current Status
 
-- `status`: `phase1_working_skeleton`
+- `status`: `minimal_runnable_mirror_dual_layer`
 - builds successfully against the local ATAS installation on this machine
-- the visible runtime indicator is currently a staged `shell` collector that is being expanded in-place
+- the visible runtime indicator `AtasMarketStructureCollector` is now a thin shell over the full collector pipeline
 - emits:
   - `continuous_state`
   - `trigger_burst`
+  - `history_bars`
+  - `history_footprint`
+- polls:
+  - `GET /api/v1/adapter/backfill-command`
+- acknowledges:
+  - `POST /api/v1/adapter/backfill-ack`
 - keeps the collector lightweight:
   - compact state on a timer
   - trigger bursts only on meaningful liquidity events
+  - history export on dedicated transports
 
 ## Main Files
 
@@ -53,10 +60,48 @@ The collector currently focuses on these observed facts:
 The collector now prefers ATAS chart metadata for:
 
 - `symbol`
+- `root_symbol`
+- `contract_symbol`
 - `tick size`
 - `chart_instance_id`
+- chart display timezone fields
+- instrument timezone fields
 
 Manual overrides are still available, but they are now explicit opt-in so multiple charts do not collapse into the same instrument symbol by default.
+
+## Transport Split
+
+The collector now uses separate transport paths:
+
+- realtime queue
+  - `continuous_state`
+  - `trigger_burst`
+  - timeout `5s`
+- history bars queue
+  - timeout `20s`
+- history footprint queue
+  - timeout `45s`
+- backfill command client
+  - timeout `3s`
+- backfill ack client
+  - timeout `10s`
+
+History export is no longer forced through the realtime queue, so slow historical posts do not silently block or drop realtime traffic.
+
+## Time And Identity Semantics
+
+The collector now emits:
+
+- `source.chart_instance_id`
+- `instrument.root_symbol`
+- `instrument.contract_symbol`
+- chart display timezone metadata
+- collector local timezone metadata
+- `timestamp_basis`
+- `timezone_capture_confidence`
+
+All persisted timestamps sent to the Python service are normalized to UTC.
+If the chart display timezone cannot be read directly, the collector marks the export as derived or fallback instead of pretending it was direct metadata.
 
 ## Loading Notes
 
@@ -73,6 +118,7 @@ The current collector is designed to reduce ATAS-side pressure by:
 
 - buffering outbound HTTP
 - dropping low-priority continuous-state payloads if the queue is full
+- preserving history on dedicated queues instead of mixing it with realtime
 - keeping trigger bursts event-driven instead of always-on
 
 This is the intended default for manual trading alongside collection.
@@ -81,6 +127,7 @@ This is the intended default for manual trading alongside collection.
 
 - `trigger_burst` is currently emitted immediately, so the `post_window` is intentionally minimal.
 - session references like prior RTH close or prior value area still rely on indicator settings for now.
+- continuous root-symbol candles are separated from raw contract mirror bars, but full contract-roll adjustment logic is still a later step.
 - the collector uses a first-pass heuristic for:
   - initiative drives
   - same-price replenishment strength

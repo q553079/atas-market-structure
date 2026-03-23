@@ -11,10 +11,47 @@ internal sealed class SourceEnvelope
     public string InstanceId { get; init; } = string.Empty;
 
     [JsonPropertyName("chart_instance_id")]
-    public string ChartInstanceId { get; init; } = string.Empty;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartInstanceId { get; init; }
 
     [JsonPropertyName("adapter_version")]
     public string AdapterVersion { get; init; } = string.Empty;
+
+    [JsonPropertyName("chart_display_timezone_mode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartDisplayTimezoneMode { get; init; }
+
+    [JsonPropertyName("chart_display_timezone_name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartDisplayTimezoneName { get; init; }
+
+    [JsonPropertyName("chart_display_utc_offset_minutes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ChartDisplayUtcOffsetMinutes { get; init; }
+
+    [JsonPropertyName("instrument_timezone_value")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InstrumentTimezoneValue { get; init; }
+
+    [JsonPropertyName("instrument_timezone_source")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InstrumentTimezoneSource { get; init; }
+
+    [JsonPropertyName("collector_local_timezone_name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CollectorLocalTimezoneName { get; init; }
+
+    [JsonPropertyName("collector_local_utc_offset_minutes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CollectorLocalUtcOffsetMinutes { get; init; }
+
+    [JsonPropertyName("timestamp_basis")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TimestampBasis { get; init; }
+
+    [JsonPropertyName("timezone_capture_confidence")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TimezoneCaptureConfidence { get; init; }
 }
 
 internal sealed class InstrumentEnvelope
@@ -55,6 +92,10 @@ internal sealed class TimeContextPayload
     [JsonPropertyName("chart_display_timezone_source")]
     public string ChartDisplayTimezoneSource { get; init; } = "unavailable";
 
+    [JsonPropertyName("chart_display_timezone_name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartDisplayTimezoneName { get; init; }
+
     [JsonPropertyName("chart_display_utc_offset_minutes")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ChartDisplayUtcOffsetMinutes { get; init; }
@@ -73,6 +114,10 @@ internal sealed class TimeContextPayload
 
     [JsonPropertyName("started_at_time_source")]
     public string StartedAtTimeSource { get; init; } = "collector_local_timezone";
+
+    [JsonPropertyName("timezone_capture_confidence")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TimezoneCaptureConfidence { get; init; }
 }
 
 internal sealed class SessionContextPayload
@@ -695,6 +740,14 @@ internal class HistoryBarPayload
     [JsonPropertyName("ask_volume")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? AskVolume { get; init; }
+
+    [JsonPropertyName("bar_timestamp_utc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? BarTimestampUtc { get; init; }
+
+    [JsonPropertyName("original_bar_time_text")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OriginalBarTimeText { get; init; }
 }
 
 internal sealed class HistoryFootprintLevelPayload
@@ -1065,6 +1118,14 @@ internal sealed class AdapterBackfillCommandPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ChartInstanceId { get; init; }
 
+    [JsonPropertyName("contract_symbol")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContractSymbol { get; init; }
+
+    [JsonPropertyName("root_symbol")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RootSymbol { get; init; }
+
     [JsonPropertyName("missing_segments")]
     public List<BackfillGapSegmentPayload> MissingSegments { get; init; } = new();
 
@@ -1112,6 +1173,10 @@ internal sealed class AdapterBackfillAcknowledgeRequestPayload
     [JsonPropertyName("request_id")]
     public string RequestId { get; init; } = string.Empty;
 
+    [JsonPropertyName("cache_key")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CacheKey { get; init; }
+
     [JsonPropertyName("chart_instance_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ChartInstanceId { get; init; }
@@ -1149,6 +1214,10 @@ internal sealed class AdapterBackfillAcknowledgeRequestPayload
     [JsonPropertyName("chart_display_timezone_source")]
     public string ChartDisplayTimezoneSource { get; init; } = "collector";
 
+    [JsonPropertyName("chart_display_timezone_name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChartDisplayTimezoneName { get; init; }
+
     [JsonPropertyName("chart_display_utc_offset_minutes")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ChartDisplayUtcOffsetMinutes { get; init; }
@@ -1158,6 +1227,14 @@ internal sealed class AdapterBackfillAcknowledgeRequestPayload
 
     [JsonPropertyName("collector_local_utc_offset_minutes")]
     public int CollectorLocalUtcOffsetMinutes { get; init; }
+
+    [JsonPropertyName("timestamp_basis")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TimestampBasis { get; init; }
+
+    [JsonPropertyName("timezone_capture_confidence")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TimezoneCaptureConfidence { get; init; }
 
     [JsonPropertyName("note")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
