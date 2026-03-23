@@ -195,7 +195,7 @@
     "DOM evidence unavailable; hard confirms were suppressed.",
     "macro/process context stale; regime confidence will be flattened.",
     "triggered_by=sample_absorption",
-    "recognition_mode=bar_anchor_only",
+    "recognition_mode=degraded_no_depth",
     "top_regime=transition_exhaustion"
   ]
 }

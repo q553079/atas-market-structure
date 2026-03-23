@@ -1,270 +1,182 @@
 # Repo Gap Analysis
 
-## 1. 文档定位
+本文档是 2026-03-23 集成收口后的仓库状态快照。若与其他旧文档冲突，以 `docs/k_repair/replay_workbench_master_spec_v2.md` 为准。
 
-本文档是本轮总集成线程的 repo scan 结果。它只做三件事：
+## 1. 结论先行
 
-1. 说明当前仓库已经有什么
-2. 说明这些实现与 `docs/k_repair/replay_workbench_master_spec_v2.md` 之间的接缝与缺口
-3. 给后续 feature 线程提供不可越界的集成边界
+当前仓库已经不再处于“recognition/evaluation/tuning 模块大面积缺失”的阶段。主要主链已经落地，当前收口重点变成：
 
-如果本文件与其他旧文档冲突，以 `docs/k_repair/replay_workbench_master_spec_v2.md` 为准。
+1. 命名统一
+2. 版本字段统一
+3. API 契约补薄兼容层
+4. README / docs / samples / tests 对齐
+5. 标记仍未闭环的 spec backlog
 
-## 2. 本次扫描输入
+## 2. 与 Master Spec v2 的已对齐部分
 
-本次扫描已完整覆盖以下资料：
+### 2.1 固定 ontology
 
-- `docs/k_repair/replay_workbench_master_spec_v2.md`
-- `README.md`
-- `docs/architecture.md`
-- `docs/replay_workbench_event_model/replay_workbench_event_reasoning_playbook.md`
-- `docs/replay_workbench_event_model/replay_workbench_event_trading_training_checklist.md`
-- `docs/replay_workbench_event_model/replay_workbench_hidden_state_event_memory_model.md`
-- `docs/replay_workbench_event_model/replay_workbench_tradable_event_templates.md`
-- 当前 `src/`, `schemas/`, `scripts/`, `tests/` 目录结构
+已落地：
 
-## 3. 现有代码结构盘点
+- `src/atas_market_structure/ontology.py`
+- `src/atas_market_structure/models/_enums.py`
 
-### 3.1 `src/atas_market_structure/` 现状
+当前固定 ontology 与主规格一致：
 
-当前代码主体已经具备以下模块簇：
+- regime
+- event hypothesis
+- phase
+- evaluation failure mode
 
-| 模块簇 | 现有文件 | 现状判断 |
+### 2.2 观测层与派生层分离
+
+已落地：
+
+- observed 模型：`src/atas_market_structure/models/_observed.py`
+- derived / replay / response 模型：`src/atas_market_structure/models/_derived.py`, `src/atas_market_structure/models/_replay.py`, `src/atas_market_structure/models/_responses.py`
+- ADR：`docs/adr/ADR-001-observed-vs-derived.md`
+
+当前判断：
+
+- observed facts 与 derived interpretation 已有清晰分层
+- replay/workbench projection 已被视为 projection layer，而不是原始真相层
+
+### 2.3 Append-only 与 versioned state
+
+已落地：
+
+- append-only belief / episode / evaluation / tuning recommendation 存储接口
+- versioned profile / recognizer build / memory anchor state
+- ADR：`docs/adr/ADR-002-append-only-and-versioned-state.md`
+
+### 2.4 AI 非关键路径
+
+已落地：
+
+- deterministic recognition 不依赖 AI
+- evaluation 是 rule-first
+- tuning recommendation 输出 `allow_ai_auto_apply = false`
+- ADR：`docs/adr/ADR-003-ai-not-on-critical-path.md`
+
+### 2.5 degraded mode
+
+已落地：
+
+- recognition 在 depth/DOM 缺失下继续运行
+- `data_status` / `freshness` / `completeness` 已进入关键输出
+- canonical degraded naming 已统一为 prefixed names
+
+## 3. 当前已存在模块台账
+
+### 3.1 主链模块
+
+| 能力 | 现有文件 | 当前状态 |
 |---|---|---|
-| HTTP 应用与路由 | `app.py`, `server.py`, `app_routes/*` | 已有统一入口，可承接新 API |
-| 领域模型 | `models/*`, `models.py` | 已有 observed / derived / replay / chat 契约，但未覆盖 Master Spec v2 的 belief/episode/evaluation/profile |
-| 观测与桥接 | `services.py`, `adapter_services.py`, `adapter_bridge/*`, `depth_services.py` | 已有 ingest 与 observed->derived skeleton，适合复用 |
-| Replay Workbench | `workbench_services.py`, `static/*` | 已有 replay snapshot、cache、backfill、AI review/chat UI，但不是 spec v2 的 recognition/belief 主链 |
-| 分析编排 | `analysis_orchestration_services.py`, `position_health_services.py`, `regime_monitor_services.py`, `strategy_selection_engine.py` | 有轻量分析与 replay 辅助逻辑，但 ontology 与 spec v2 不一致 |
-| 存储 | `repository.py`, `repository_clickhouse.py`, `chart_candle_service.py` | 已有 append-only `ingestions` 主入口和 chart candle 能力，可作为新 derived log 的承载层 |
-| Realtime / Infra | `realtime_*`, `ingestion_backfill.py`, `chart_candle_backfill.py` | 偏基础设施，可复用但不是本轮主实现焦点 |
+| Ontology | `src/atas_market_structure/ontology.py` | 已落地 |
+| Instrument profile | `src/atas_market_structure/profile_services.py`, `src/atas_market_structure/profile_loader.py` | 已落地 |
+| Recognizer build | `src/atas_market_structure/recognition/defaults.py`, `profile_services.py` | 已落地 |
+| Recognition pipeline | `src/atas_market_structure/recognition/*` | 已落地 |
+| Episode evaluation | `src/atas_market_structure/evaluation_services.py` | 已落地 |
+| Tuning recommendation | `src/atas_market_structure/tuning_services.py` | 已落地 |
+| Rebuild runner | `src/atas_market_structure/rebuild_runner.py` | 已落地 |
+| Projection/read model | `src/atas_market_structure/workbench_projection_services.py` | 已落地 |
 
-### 3.2 `schemas/` 现状
+### 3.2 合同资产
 
-现有 schema 主要覆盖：
+| 能力 | 现有路径 | 当前状态 |
+|---|---|---|
+| Profiles | `samples/profiles/*.yaml`, `schemas/instrument_profile_v1.schema.json` | 已落地 |
+| Recognition samples | `samples/recognition/*.sample.json` | 已落地 |
+| Episode evaluation samples | `samples/episode_evaluations/*.sample.json` | 已落地 |
+| Tuning samples | `samples/tuning/*.json` | 已落地 |
+| Golden replay cases | `samples/golden_cases/*.case_set.json` | 已落地 |
 
-- `market_structure`
-- `event_snapshot`
-- `depth_snapshot`
-- adapter continuous / trigger burst / history bars / history footprint
-- replay workbench snapshot / build / live / AI chat / AI review / operator entry
+### 3.3 测试资产
 
-缺失的 spec v2 contract：
+| 能力 | 现有文件 | 当前状态 |
+|---|---|---|
+| Recognition | `tests/test_recognition_pipeline.py` | 已落地 |
+| Evaluation | `tests/test_episode_evaluation.py` | 已落地 |
+| Tuning | `tests/test_tuning_services.py` | 已落地 |
+| Rebuild | `tests/test_rebuild_runner.py` | 已落地 |
+| Sample validation | `tests/test_sample_validation.py` | 已落地 |
+| Golden replay | `tests/test_golden_replay_cases.py` | 已落地 |
+| Projection API | `tests/test_workbench_projection_api.py` | 已落地 |
+
+## 4. 仍需明确标记的 spec backlog
+
+下列能力并非不存在代码基座，而是尚未以“稳定 HTTP 合同 + 完整运营闭环”形式暴露：
+
+| 主题 | 当前状态 | 结论 |
+|---|---|---|
+| `POST /api/v1/rebuild/belief` | `rebuild_runner.py` 已存在，但未暴露稳定 HTTP 路由 | backlog |
+| `POST /api/v1/tuning/recommendation` | `TuningAdvisorService` 已存在，但未暴露稳定 HTTP 路由 | backlog |
+| `POST /api/v1/tuning/patch/validate` | `InstrumentProfileService.validate_patch` 已存在，但未暴露稳定 HTTP 路由 | backlog |
+| `POST /api/v1/tuning/patch/promote` | promotion 流程未落地 | backlog |
+| offline replay compare | 当前为 stub/placeholder | backlog |
+
+## 5. 本次收口解决的跨线程冲突
+
+### 5.1 degraded mode 命名冲突
+
+已统一：
+
+- `degraded_no_depth`
+- `degraded_no_dom`
+- `degraded_no_ai`
+- `degraded_stale_macro`
+- `replay_rebuild_mode`
+
+保留兼容：
+
+- `bar_anchor_only`
+- `no_depth`
+- `no_dom`
+- `no_ai`
+- `stale_macro`
+- `replay_rebuild`
+
+### 5.2 spec API 与当前 workbench API 的落差
+
+当前仓库采取“双层接口”：
+
+- richer read-model API 保留在 `/api/v1/workbench/review/*`
+- 薄兼容 alias 暴露：
+  - `GET /api/v1/belief/latest`
+  - `GET /api/v1/episodes/latest`
+  - `POST /api/v1/review/episode-evaluation`
+  - `GET /api/v1/review/episode-evaluation/{episode_id}`
+  - `GET /health/recognition`
+
+### 5.3 version/schema 命名漂移
+
+已统一到 explicit names：
 
 - `instrument_profile_v1`
-- `belief_state_snapshot`
-- `event_episode`
+- `recognizer_build_v1`
+- `belief_state_snapshot_v1`
+- `event_episode_v1`
 - `episode_evaluation_v1`
-- `tuning_recommendation`
-- `profile_patch_candidate`
+- `tuning_recommendation_v1`
 
-### 3.3 `scripts/` 现状
+## 6. 仍需关注的风险
 
-现有脚本集中在：
+1. Master Spec v2 自身对 `recognition_mode` 存在 `bar_anchor_only` vs `degraded_no_depth` 的旧新混用。
+2. 部分历史测试 fixture 仍保留 `1.0.0` 这类泛 schema 字样，虽然不影响运行，但后续仍值得继续压缩。
+3. tuning HTTP 合同未完全暴露，外部调用仍应以当前 service / projection 形态为准。
+4. replay cache / replay snapshot 仍是基础设施层，不应被误当作 recognition 原始真相层。
 
-- ClickHouse / DolphinDB / backfill / migration / service launcher
+## 7. 当前总判断
 
-缺失的 spec v2 脚本：
+仓库当前状态是：
 
-- belief rebuild runner
-- profile / schema validation helper
-- golden replay rebuild verifier
-- offline patch validator
+- recognition/evaluation/tuning 主链已存在
+- replay/projection/read-model 已存在
+- 主要问题不再是“缺模块”，而是“收口与对齐”
 
-### 3.4 `tests/` 现状
+因此后续工作不应再发散新方向，而应围绕：
 
-现有测试已覆盖：
-
-- API 基础路由
-- replay builder
-- adapter bridge
-- chart candle backfill
-- repo hybrid / raw mirror
-- timezone capture
-- UI Playwright smoke/regression
-
-缺失的 spec v2 测试层：
-
-- fixed ontology unit tests
-- profile registry contract tests
-- belief/episode/evaluation contract tests
-- degraded mode tests
-- deterministic rebuild tests
-- golden replay tests
-
-## 4. 与 Master Spec v2 的接缝
-
-### 4.1 已具备且可复用的基础
-
-以下能力已经存在，可直接复用，不应另起炉灶：
-
-1. `repository.py` 中的 `save_ingestion` / `list_ingestions`
-   - 适合继续承载 append-only observed facts 与 append-only derived logs
-2. `workbench_services.py` 中的 replay snapshot build / cache / backfill
-   - 适合作为 recognition rebuild 的上游输入与 replay 基础设施
-3. `models/_observed.py` 与 `models/_derived.py`
-   - 已经建立 observed facts 与 derived interpretation 分层意识
-4. `app.py`
-   - 已有统一 HTTP dispatch，可继续挂 recognition / review / health API
-5. `schemas/` 与 `samples/`
-   - 已有 contract artifact 习惯，可直接扩展新的 belief / episode / evaluation / profile artifact
-6. `tests/test_app.py`
-   - 已有 API 集成测试模式，可直接补充 spec v2 路由回归
-
-### 4.2 已有实现与 Master Spec v2 的主要偏差
-
-| 主题 | 当前仓库现状 | 与 Master Spec v2 的偏差 |
-|---|---|---|
-| ontology 固定 | `models/_enums.py` 与 `regime_monitor_services.py` 使用当前项目自定义分类 | 未落地 spec v2 固定 regime / event hypothesis / phase / evaluation ontology |
-| instrument profile | 未发现 `instrument_profile_v1` loader / registry | 缺少版本化 profile 与边界验证 |
-| recognizer build | 未发现 `recognizer_build` 对象 | 缺少 engine version 主对象与输出打标机制 |
-| belief chain | replay snapshot 存在，但不是 `feature_slice -> regime/event -> belief_state` append-only 主链 | recognition plane 尚未按 spec 成型 |
-| event episode | 未发现 spec v2 `event_episode` schema / store / API | 无事件轨迹闭环 |
-| episode evaluation | 未发现 `episode_evaluation_v1` | review plane 仍偏 AI review，而非规则评估闭环 |
-| degraded mode | replay/backfill 已有完整性处理，但 recognition 没有 formal degraded mode | 未明确 `degraded_no_depth` / `degraded_no_dom` 及其输出字段 |
-| 版本字段 | 许多 payload 仅有 `schema_version`，replay snapshot 未普遍携带 `profile_version` / `engine_version` | 不满足 spec 对关键输出的统一版本要求 |
-| AI 角色 | AI review/chat 已存在，位置偏前台工作台协作 | 尚未以 spec v2 方式收束到 tuning/review plane，且缺少 rule-first contracts |
-
-## 5. 与 Master Spec v2 的关键冲突点
-
-这些冲突必须在后续线程落地时优先处理。
-
-### 5.1 旧文档中的事件命名与主规格不完全一致
-
-`docs/replay_workbench_event_model/replay_workbench_tradable_event_templates.md` 中存在以下旧命名：
-
-- `mean_reversion`
-- `absorption_to_reversal_prep`
-- 扩展到 `breakout_acceptance`
-- 扩展到 `failed_breakout_rejection`
-
-Master Spec v2 明确要求 V1 真正闭环只保留：
-
-- `momentum_continuation`
-- `balance_mean_reversion`
-- `absorption_to_reversal_preparation`
-
-结论：
-
-- 事件模板文档仍可作为训练和理念资产保留
-- 工程实现不得直接沿用旧 canonical kind
-- 若模板文档与主规格冲突，主规格胜出
-
-### 5.2 当前 `regime_monitor_services.py` 的 regime 不是主规格本体
-
-现有测试表明该模块仍使用：
-
-- `trending_up`
-- `trending_down`
-- `ranging`
-- `volatile`
-- `quiet`
-
-这不是 Master Spec v2 固定的 6 类 regime。
-
-结论：
-
-- 该模块可继续作为轻量辅助服务存在
-- 但不能被提升为 spec v2 的 regime posterior 真值来源
-
-### 5.3 `models_original.py` 是高风险重复模型面
-
-仓库内存在 `models_original.py`，与现行 `models/` 包并行。
-
-结论：
-
-- 新线程不要继续扩展 `models_original.py`
-- 所有新 contract 统一进入 `src/atas_market_structure/models/` 子模块
-
-## 6. 模块存在性台账
-
-### 6.1 已存在模块
-
-| 能力 | 现有承载 |
-|---|---|
-| observed ingestion | `services.py`, `adapter_services.py`, `depth_services.py` |
-| append-only 基础存储 | `repository.py` 中 `ingestions` |
-| replay snapshot / cache / backfill | `workbench_services.py` |
-| AI review/chat plane | `ai_review_services.py`, replay workbench UI |
-| chart candle / local history | `chart_candle_service.py`, `chart_candle_backfill.py` |
-| strategy / operator workflow | `strategy_selection_engine.py`, operator entry/manual region APIs |
-
-### 6.2 缺失模块
-
-| 能力 | 当前状态 |
-|---|---|
-| `ontology.py` | 缺失 |
-| `profile_registry.py` | 缺失 |
-| `schema_registry.py` | 缺失 |
-| `recognition/feature_builder.py` | 缺失 |
-| `recognition/regime_updater.py` | 缺失 |
-| `recognition/event_updater.py` | 缺失 |
-| `recognition/anchor_manager.py` | 缺失 |
-| `recognition/belief_emitter.py` | 缺失 |
-| `recognition/episode_closer.py` | 缺失 |
-| `recognition/degraded_mode.py` | 缺失 |
-| `review/episode_evaluator.py` | 缺失 |
-| `review/rule_review.py` | 缺失 |
-| `rebuild/rebuild_runner.py` | 缺失 |
-| spec v2 schemas/samples | 缺失 |
-| golden replay tests | 缺失 |
-
-### 6.3 建议新增目录
-
-遵循“增量接入、避免大重构”原则，建议新增以下目录，而不是重排整仓：
-
-- `docs/implementation/`
-- `docs/adr/`
-- `src/atas_market_structure/recognition/`
-- `src/atas_market_structure/review/`
-- `src/atas_market_structure/rebuild/`
-- `schemas/profile/`
-- `schemas/belief/`
-- `schemas/episode/`
-- `schemas/evaluation/`
-- `samples/golden_replays/`
-- `samples/episode_evaluations/`
-- `tests/unit/`
-- `tests/contract/`
-- `tests/integration/`
-- `tests/golden/`
-
-注意：
-
-- schema/sample/test 目录可以先增量创建，不要求一轮内整体迁移旧文件
-- 旧平铺文件允许继续保留，直到总集成阶段再统一
-
-## 7. 集成层面的高风险触点
-
-以下文件是后续线程最容易撞车的位置，应尽量串行或由集成线程最终收口：
-
-- `src/atas_market_structure/app.py`
-- `src/atas_market_structure/workbench_services.py`
-- `src/atas_market_structure/models/__init__.py`
-- `schemas/*`
-- `samples/*`
-- `tests/test_app.py`
-
-建议：
-
-1. 新 contract 与新 service 尽量先放新文件
-2. 只在最后一层再改 `app.py` / `models/__init__.py` 做导出与路由接线
-3. Replay UI 相关文件不要被 ontology/profile 线程直接改动
-
-## 8. 本轮集成结论
-
-当前仓库已经具备：
-
-- 本地 ingest 与 replay infrastructure
-- observed / derived 分层意识
-- workbench UI 与 AI 协作外壳
-- append-only ingestion 存储习惯
-
-但距离 Master Spec v2 仍缺少四个关键中枢：
-
-1. 固定 ontology 与 versioned profile/build
-2. deterministic recognition 主链
-3. episode / evaluation 闭环
-4. degraded mode + 统一版本字段 + contract artifacts
-
-因此后续 feature 线程应严格围绕这四个中枢推进，而不是继续扩散新的 UI 特性或新的事件命名。
+1. backlog HTTP route 暴露
+2. offline replay compare
+3. patch promotion gate
+4. 进一步清理旧 fixture / 旧命名

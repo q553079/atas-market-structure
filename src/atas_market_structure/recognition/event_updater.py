@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from atas_market_structure.models import (
+    DegradedMode,
     EventHypothesisKind,
     EventHypothesisState,
     EventPhase,
@@ -38,7 +39,12 @@ class EventHypothesisUpdater:
         regime_map = {item.regime: item.probability for item in regimes}
         anchor_support = max((item.influence or 0.0 for item in anchors), default=0.0)
         data_status = feature.context_payloads.get("data_status", {})
-        stale_macro = "stale_macro" in (data_status.get("degraded_modes") or []) if isinstance(data_status, dict) else False
+        stale_macro = False
+        if isinstance(data_status, dict):
+            stale_macro = any(
+                mode in {DegradedMode.STALE_MACRO.value, "stale_macro"}
+                for mode in (data_status.get("degraded_modes") or [])
+            )
 
         strong_trend = regime_map.get(RegimeKind.STRONG_MOMENTUM_TREND, 0.0)
         weak_trend = regime_map.get(RegimeKind.WEAK_MOMENTUM_TREND_NARROW, 0.0) + regime_map.get(RegimeKind.WEAK_MOMENTUM_TREND_WIDE, 0.0)

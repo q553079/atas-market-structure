@@ -388,8 +388,8 @@
     "belief_sample_count": 2,
     "degraded_belief_count": 1,
     "degraded_mode_counts": {
-      "no_ai": 1,
-      "no_depth": 1
+      "degraded_no_ai": 1,
+      "degraded_no_depth": 1
     },
     "depth_unavailable_count": 1,
     "dom_unavailable_count": 0,

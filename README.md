@@ -1,296 +1,254 @@
 # ATAS Market Structure
 
-Phase 1 infrastructure for a local ATAS market structure analysis service.
+本仓库当前收口到 `docs/k_repair/replay_workbench_master_spec_v2.md` 的 V1 范围，目标是一个本地可运行、可测试、可回放、可审计的 replay workbench 与 deterministic recognition/evaluation/tuning 基座。
 
-## Scope
+## 主规格与入口
 
-- Receive `market structure` snapshots every 10 minutes.
-- Receive additional `event snapshot` payloads on critical events.
-- Optionally receive `process context` spanning seconds, liquidity episodes, and cross-session sequences.
-- Record initiative-drive and exertion-zone context so later analysis can reason about who pushed, where they pushed from, and what happened on revisit.
-- Optionally receive `depth snapshot` payloads and retain only significant large-order memory for 3 days.
-- Validate payloads with a stable schema.
-- Persist observed facts and derived interpretation separately.
-- Run a minimal structure recognition and knowledge routing pipeline.
-- Expose REST endpoints for ingestion and review.
+主规格：
 
-This phase does **not** include auto-trading logic.
+- `docs/k_repair/replay_workbench_master_spec_v2.md`
 
-## Project Layout
+建议阅读顺序：
 
-- `src/atas_market_structure/models.py`: stable payload and analysis contracts
-- `src/atas_market_structure/repository.py`: SQLite metadata persistence
-- `src/atas_market_structure/services.py`: recognition and routing skeleton
-- `src/atas_market_structure/adapter_services.py`: adapter payload storage plus automatic bridge into durable market-structure and event-snapshot ingestions
-- `src/atas_market_structure/adapter_bridge.py`: synthetic adapter-to-domain bridge for durable snapshots
-- `src/atas_market_structure/depth_services.py`: elastic depth tracking and 3-day large-order memory
-- `src/atas_market_structure/app.py`: REST request dispatcher
-- `src/atas_market_structure/server.py`: local HTTP server
-- `docs/architecture.md`: process-aware multi-time-cycle architecture
-- `docs/market_script_driven_architecture.md`: market-script-driven design doctrine for environment, key zones, and live reaction
-- `docs/fabio_system_absorption_checklist.md`: Fabio line distilled into system-design doctrine
-- `docs/shuyin_gap_fill_system_absorption_checklist.md`: gap-fill opening-auction doctrine for index futures
-- `docs/atas_required_fields_checklist.md`: concrete ATAS collector field checklist mapped to current domain objects and pattern coverage
-- `docs/atas_adapter_payload_contract.md`: formal adapter-facing payload contract for continuous state, trigger bursts, and durable snapshots
-- `docs/replay_workbench_architecture.md`: standalone replay UI architecture for 3-7 day windows, event overlays, strategy-library matching, and AI briefing
-- `docs/strategy_library/README.md`: local video and creator doctrine library
-- `src-csharp/README.md`: ATAS-side C# collector build notes and current runtime intent
-- `schemas/`: generated JSON schema files
-- `samples/`: example request payloads
-  - includes adapter contract examples such as `atas_adapter.continuous_state.sample.json` and `atas_adapter.trigger_burst.sample.json`
-- `tests/`: minimal regression tests
+1. `docs/k_repair/replay_workbench_master_spec_v2.md`
+2. `docs/architecture.md`
+3. `docs/recognition/recognition_pipeline_v1.md`
+4. `docs/workbench/replay_workbench_projection_v1.md`
+5. `docs/implementation/repo_gap_analysis.md`
+6. `docs/implementation/integration_acceptance_checklist.md`
+7. `docs/adr/ADR-001-observed-vs-derived.md`
+8. `docs/adr/ADR-002-append-only-and-versioned-state.md`
+9. `docs/adr/ADR-003-ai-not-on-critical-path.md`
+10. `docs/adr/ADR-004-degraded-mode-and-data-completeness.md`
 
-## Run (PowerShell)
+## 系统边界
 
-Create the data directory if it does not exist:
+本仓库当前实现的是：
+
+- 本地 ingestion 与 replay workbench 基础设施
+- deterministic recognition 主链
+- append-only belief / episode / episode evaluation / tuning recommendation 数据面
+- versioned instrument profile / recognizer build / memory anchor state
+- degraded mode 下持续运行，而不是因 depth/DOM 缺失而中断
+- rule-first evaluation 与 offline-only tuning recommendation
+- workbench projection/read-model API
+
+本仓库明确不做：
+
+- 自动交易
+- AI 在线热更新参数
+- AI 进入 recognition 关键路径
+- 修改固定 ontology
+
+## 当前已实现范围
+
+### Recognition
+
+- 固定 ontology 已落地在 `src/atas_market_structure/ontology.py`
+- V1 闭环事件只保留：
+  - `momentum_continuation`
+  - `balance_mean_reversion`
+  - `absorption_to_reversal_preparation`
+- append-only 输出已覆盖：
+  - `feature_slice`
+  - `regime_posterior`
+  - `event_hypothesis_state`
+  - `belief_state_snapshot`
+  - `event_episode`
+  - `episode_evaluation`
+- 关键输出统一携带：
+  - `schema_version`
+  - `profile_version`
+  - `engine_version`
+  - 尽可能携带 `data_status` / `freshness` / `completeness`
+
+### Review / Tuning
+
+- `EpisodeEvaluationService` 产出 `episode_evaluation_v1`
+- `TuningAdvisorService` 产出 `tuning_recommendation_v1`
+- `ProfilePatchCandidate` / `ProfilePatchValidationResult` 已有模型与持久化
+- AI 只在 review/tuning 辅助层，不进入线上识别关键路径
+
+### Replay / Projection
+
+- replay workbench snapshot / cache / live tail 已可用
+- workbench review projection 已可用：
+  - `/api/v1/workbench/review/projection`
+  - `/api/v1/workbench/review/belief-state-timeline`
+  - `/api/v1/workbench/review/event-episodes`
+  - `/api/v1/workbench/review/episode-evaluations`
+  - `/api/v1/workbench/review/tuning-recommendations`
+  - `/api/v1/workbench/review/profile-engine`
+  - `/api/v1/workbench/review/health-status`
+- 兼容性 alias 已补齐：
+  - `GET /api/v1/belief/latest`
+  - `GET /api/v1/episodes/latest`
+  - `POST /api/v1/review/episode-evaluation`
+  - `GET /api/v1/review/episode-evaluation/{episode_id}`
+  - `GET /health/recognition`
+
+## 当前仍未闭环的 backlog
+
+以下项目仍属于 Master Spec v2 backlog，而不是本次收口新增方向：
+
+- `POST /api/v1/rebuild/belief`
+- `POST /api/v1/tuning/recommendation`
+- `POST /api/v1/tuning/patch/validate`
+- `POST /api/v1/tuning/patch/promote`
+- 真正的 offline replay compare runner 与 patch promotion 流程
+
+当前仓库已经有对应模型与服务基座，但尚未把这些端点全部作为稳定 HTTP 合同暴露。
+
+## 命名与版本约定
+
+### Canonical schema/version names
+
+- `instrument_profile_v1`
+- `recognizer_build_v1`
+- `feature_slice_v1`
+- `regime_posterior_v1`
+- `event_hypothesis_state_v1`
+- `belief_state_snapshot_v1`
+- `event_episode_v1`
+- `episode_evaluation_v1`
+- `tuning_recommendation_v1`
+
+### Degraded mode
+
+仓库 canonical 输出使用：
+
+- `degraded_no_depth`
+- `degraded_no_dom`
+- `degraded_no_ai`
+- `degraded_stale_macro`
+- `replay_rebuild_mode`
+
+说明：
+
+- Master Spec v2 在 7.3A 段落里保留了旧字样 `bar_anchor_only`
+- 同一规格在异常场景与 degraded 枚举章节又使用 `degraded_no_depth`
+- 当前仓库选择 `degraded_no_depth` 作为 canonical 输出
+- 读取层仍兼容旧值 `bar_anchor_only`
+
+## 运行
+
+### 1. 准备环境
 
 ```powershell
 New-Item -ItemType Directory -Force -Path .\data | Out-Null
+$env:PYTHONPATH = "$PWD\src"
 ```
 
-Run the local server without installing the package:
+### 2. 启动服务
 
 ```powershell
-$env:PYTHONPATH = "$PWD\src"
 python -m atas_market_structure.server
 ```
 
-Or start it in the background with log files:
+后台启动：
 
 ```powershell
 .\scripts\start-service-background.ps1
 ```
 
-Start the whole local stack for replay review:
-
-```powershell
-.\scripts\start-atas-workbench.ps1 -AtasExePath "C:\Path\To\OFT.Platform.exe"
-```
-
-What the launcher does:
-- deploy the latest collector DLL
-- start the backend service
-- wait for `/health`
-- open the replay workbench page
-- start ATAS if `-AtasExePath` or `ATAS_EXE_PATH` is configured
-- wait for the first fresh `adapter_continuous_state` message
-
-Stop the background server:
-
-```powershell
-.\scripts\stop-service.ps1
-```
-
-Report dirty pre-fix adapter samples and, if needed, remove them after creating a backup:
-
-```powershell
-python .\tools\cleanup_dirty_adapter_samples.py
-python .\tools\cleanup_dirty_adapter_samples.py --apply
-```
-
-The server listens on `http://127.0.0.1:8080`.
-
-## Example Requests
-
-Health check:
-
-```powershell
-Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8080/health
-```
-
-Open the standalone replay workbench UI:
+打开 replay workbench：
 
 ```text
 http://127.0.0.1:8080/workbench/replay
 ```
 
-Replay Workbench page actions:
-- `Build / Reuse Replay`: build from cache or local adapter history
-- `记录开仓`: bind one operator entry to the current replay packet
-- `AI 分析`: send the current replay packet to the backend AI briefing/review flow
-- `AI Chat`: run preset or free-form replay chat against strategy-library cards, replay events, and live adapter context
-- `Lookup Cache`: inspect replay cache state
-- `Invalidate Cache`: force manual invalidation before reimport
+### 3. 启动本地 ATAS workbench 栈
 
-Ingest a market structure snapshot:
+```powershell
+.\scripts\start-atas-workbench.ps1 -AtasExePath "C:\Path\To\OFT.Platform.exe"
+```
+
+### 4. 停止后台服务
+
+```powershell
+.\scripts\stop-service.ps1
+```
+
+## 常用接口
+
+健康检查：
+
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8080/health
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/health/recognition?instrument=NQ"
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/health/data-quality?instrument=NQ"
+```
+
+最新 belief / episodes：
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/belief/latest?instrument=NQ"
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/episodes/latest?instrument=NQ&limit=20"
+```
+
+生成或读取 episode evaluation：
 
 ```powershell
 Invoke-RestMethod `
   -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/ingestions/market-structure `
+  -Uri http://127.0.0.1:8080/api/v1/review/episode-evaluation `
   -ContentType "application/json" `
-  -InFile .\samples\market_structure.sample.json
+  -Body '{"episode_id":"ep-momentum_continuation-1000"}'
+
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/review/episode-evaluation/ep-momentum_continuation-1000"
 ```
 
-Ingest an event snapshot:
+完整 projection：
 
 ```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/ingestions/event-snapshot `
-  -ContentType "application/json" `
-  -InFile .\samples\event_snapshot.sample.json
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/workbench/review/projection?instrument_symbol=NQ&window_start=2026-03-23T09:29:00Z&window_end=2026-03-23T10:05:00Z"
 ```
 
-Ingest a depth snapshot:
+## 开发顺序
 
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/ingestions/depth-snapshot `
-  -ContentType "application/json" `
-  -InFile .\samples\depth_snapshot.sample.json
-```
+推荐的本地开发顺序：
 
-List active large-order memory:
+1. 固定 ontology 与 instrument profile
+2. recognition feature/regime/event/belief 主链
+3. event episode 与 episode evaluation
+4. tuning recommendation / patch validation
+5. workbench projection / API / samples / docs
+6. rebuild / golden replay / acceptance
 
-```powershell
-Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/liquidity-memory?symbol=ESM6"
-```
+## 调参流程
 
-Ingest an adapter continuous-state message:
+当前仓库采用离线调参闭环：
 
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/adapter/continuous-state `
-  -ContentType "application/json" `
-  -InFile .\samples\atas_adapter.continuous_state.sample.json
-```
+1. append-only 记录 belief / episode / evaluation
+2. 由 `TuningBundleBuilder` 聚合 profile、episodes、evaluations、degradation statistics
+3. 由 `TuningAdvisorService` 生成 `tuning_recommendation_v1`
+4. 生成 `profile_patch_candidate`
+5. 运行 boundary validation
+6. 等待 offline replay compare 与人工审批
+7. 未完成 replay compare 与人工审批前，禁止 promotion
 
-The response now includes:
-- raw adapter `ingestion_id`
-- `durable_outputs` with synthetic `market_structure` ingestion and analysis ids
-- `bridge_errors` if raw storage succeeded but durable bridging failed
+安全边界：
 
-Ingest an adapter trigger-burst message:
+- `allow_ai_auto_apply` 固定为 `false`
+- AI recommendation 只能建议，不能自动生效
 
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/adapter/trigger-burst `
-  -ContentType "application/json" `
-  -InFile .\samples\atas_adapter.trigger_burst.sample.json
-```
+## 测试
 
-The response now includes:
-- raw adapter `ingestion_id`
-- `durable_outputs` with synthetic `event_snapshot` ingestion and analysis ids
-- `bridge_errors` if raw storage succeeded but durable bridging failed
-
-Store a replay-workbench packet for the future standalone UI:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-snapshots `
-  -ContentType "application/json" `
-  -InFile .\samples\replay_workbench.snapshot.sample.json
-```
-
-Build or reuse a replay-workbench packet from cache and local adapter history:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-builder/build `
-  -ContentType "application/json" `
-  -InFile .\samples\replay_workbench.build_request.sample.json
-```
-
-Run AI review for one stored replay-workbench packet:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-ai-review `
-  -ContentType "application/json" `
-  -InFile .\samples\replay_workbench.ai_review_request.sample.json
-```
-
-AI review requires:
-- `OPENAI_API_KEY`
-- optional `OPENAI_BASE_URL`
-- optional `ATAS_MS_AI_PROVIDER`
-- optional `ATAS_MS_AI_MODEL`
-- optional `ATAS_MS_AI_TIMEOUT_SECONDS`
-
-Run one replay AI chat turn:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-ai-chat `
-  -ContentType "application/json" `
-  -InFile .\samples\replay_workbench.ai_chat_request.sample.json
-```
-
-The replay AI chat flow now reads machine-readable strategy cards from:
-- `docs/strategy_library/strategy_index.json`
-- `docs/strategy_library/cards/*.json`
-
-It filters cards by:
-- replay `strategy_candidates`
-- instrument symbol
-- selected chat preset
-
-Record one operator entry against the current replay packet:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/workbench/operator-entries `
-  -ContentType "application/json" `
-  -InFile .\samples\replay_workbench.operator_entry.sample.json
-```
-
-List recorded operator entries for one replay packet:
-
-```powershell
-Invoke-RestMethod `
-  -Method Get `
-  -Uri "http://127.0.0.1:8080/api/v1/workbench/operator-entries?replay_ingestion_id=<INGESTION_ID>"
-```
-
-Local AI provider profile:
-- `.env.local.ps1` is loaded automatically by `start-service-background.ps1`
-- current active profile is `deepseek`
-- `claude_third_party` is scaffolded as a second profile for an OpenAI-compatible Claude gateway
-
-Replay workbench caching policy:
-- only fetch from ATAS when the local replay packet is missing
-- verify cached replay packets at most once per day
-- after 3 successful verification passes, keep the replay packet durable until manual invalidation
-- reacquisition after invalidation is manual by design
-
-Look up the current replay cache state for one window:
-
-```powershell
-Invoke-RestMethod `
-  -Method Get `
-  -Uri "http://127.0.0.1:8080/api/v1/workbench/replay-cache?cache_key=NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z"
-```
-
-Manually invalidate one replay cache record:
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8080/api/v1/workbench/replay-cache/invalidate `
-  -ContentType "application/json" `
-  -Body '{"cache_key":"NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z","invalidation_reason":"operator requested replay refresh"}'
-```
-
-## Tests
-
-If `pytest` is installed:
+后端测试：
 
 ```powershell
 $env:PYTHONPATH = "$PWD\src"
-python -m pytest
+python -m pytest tests -q --ignore=tests/playwright_event_structured_priority.spec.js --ignore=tests/playwright_replay_ui_fix.spec.js
 ```
 
-Run replay workbench UI regression (Playwright):
+定向回归：
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python -m pytest tests/test_recognition_pipeline.py tests/test_tuning_services.py tests/test_sample_validation.py tests/test_golden_replay_cases.py tests/test_workbench_projection_api.py -q
+```
+
+Playwright UI：
 
 ```powershell
 npm install --no-save @playwright/test
@@ -298,92 +256,26 @@ npx playwright install chromium
 npx playwright test tests/playwright_replay_ui_fix.spec.js --reporter=line
 ```
 
-CI command sequence (backend + replay UI):
+## Collector / Docker
 
-```powershell
-$env:PYTHONPATH = "$PWD\src"
-python -m pytest
-npx playwright test tests/playwright_replay_ui_fix.spec.js --reporter=line
-```
-
-## Build The ATAS Collector
+ATAS C# collector：
 
 ```powershell
 dotnet build .\src-csharp\AtasMarketStructure.Adapter\AtasMarketStructure.Adapter.csproj
-```
-
-Deploy the freshly built collector into `%APPDATA%\ATAS\Indicators`:
-
-```powershell
 .\scripts\deploy-collector.ps1 -WaitForAtasExit
 ```
 
-## Docker
-
-Build and run with Docker Compose:
+Docker compose：
 
 ```powershell
 docker compose -f .\docker-compose.yml up --build -d
 ```
 
-Realtime fan-out stack endpoints:
-- HTTP ingest: `http://127.0.0.1:8090/api/tick`
-- WebSocket stream: `ws://127.0.0.1:8090/ws/stream`
-- Health check: `http://127.0.0.1:8090/health`
-- ClickHouse HTTP: `http://127.0.0.1:8123`
+## 仓库结构
 
-Compose now starts:
-- `redis`
-- `clickhouse`
-- `clickhouse-init` to create `market_data.ticks_raw`
-- `realtime-api` for low-latency tick ingest, WebSocket fan-out, and ClickHouse micro-batching
-
-Verify the end-to-end realtime pipeline:
-
-```powershell
-$env:PYTHONPATH = "$PWD\src"
-python .\scripts\verify_realtime_pipeline.py
-```
-
-Backfill existing SQLite `chart_candles` rows into ClickHouse before cleaning the
-legacy market-data rows from SQLite:
-
-```powershell
-python .\scripts\backfill_chart_candles_to_clickhouse.py --batch-size 5000
-```
-
-Useful backfill filters:
-- `--symbols NQ ES YM`
-- `--timeframes 1m 5m 15m`
-- `--start 2026-03-01T00:00:00Z --end 2026-03-22T00:00:00Z`
-- `--dry-run`
-
-Backfill existing SQLite `ingestions` rows into ClickHouse before cleaning the
-legacy market-data rows from SQLite:
-
-```powershell
-python .\scripts\backfill_ingestions_to_clickhouse.py --batch-size 5000
-```
-
-Useful ingestion backfill filters:
-- `--ingestion-kinds adapter_continuous_state adapter_history_bars replay_workbench_snapshot`
-- `--instrument-symbol NQ`
-- `--start 2026-03-01T00:00:00Z --end 2026-03-22T00:00:00Z`
-- `--dry-run`
-
-Market-data reads and writes now use ClickHouse by default:
-- `chart_candles` and `ingestions` are stored in ClickHouse
-- SQLite remains the metadata store for `analyses`, replay-workbench chat state, and other transactional records
-- optional: set `ATAS_MS_CLICKHOUSE_INGESTIONS_TABLE=ingestions`
-
-## Notes
-
-- The service keeps metadata in `.\data\market_structure.db` by default.
-- Observed facts are stored as the validated payload JSON.
-- Derived interpretation is stored as a separate analysis record for future replay or backtest pipelines.
-- `process_context` is optional, but it is the intended bridge from second-level heatmaps and cross-session build/release behavior into the same analysis contract.
-- `process_context` can now also carry `initiative_drives` and `exertion_zones`, which are the minimum viable objects for tracking aggressive effort, consumption, historical push zones, re-engagement, and trapped-inventory watch scenarios.
-- the adapter layer now accepts low-latency `continuous_state` and `trigger_burst` payloads and automatically bridges them into durable higher-level snapshots for the existing recognizer stack.
-- Derived analysis now emits `key_levels`, which is the current support and resistance view built from exertion zones, revisit behavior, and post-break follow-through.
-- `depth snapshot` ingestion is elastic: if DOM or depth data is unavailable, the rest of the system still runs; once depth resumes, only significant large-order tracks are retained as 3-day memory instead of storing the full order book.
-- replay-workbench packets are now cache-aware: they carry explicit acquisition mode, verification state, and the lock-after-3-verifications policy required for longer-lived historical review windows.
+- `src/atas_market_structure/`: 应用、识别、评估、调参、projection
+- `schemas/`: contract artifacts
+- `samples/`: sample payloads 与 golden cases
+- `scripts/`: launcher / validate / rebuild scripts
+- `tests/`: unit / integration / replay / sample validation
+- `docs/`: architecture / ADR / implementation / recognition / tuning / workbench

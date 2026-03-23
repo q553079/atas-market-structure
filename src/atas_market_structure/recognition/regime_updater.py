@@ -69,9 +69,9 @@ class RegimeUpdater:
         probabilities = _softmax(raw_scores)
         degraded = feature.context_payloads.get("data_status", {})
         degraded_modes = degraded.get("degraded_modes") if isinstance(degraded, dict) else []
-        if "stale_macro" in degraded_modes:
+        if any(mode in {DegradedMode.STALE_MACRO.value, "stale_macro"} for mode in degraded_modes):
             probabilities = _flatten(probabilities, 0.15)
-        if "replay_rebuild" in degraded_modes:
+        if any(mode in {DegradedMode.REPLAY_REBUILD.value, "replay_rebuild"} for mode in degraded_modes):
             probabilities = _flatten(probabilities, 0.22)
 
         records = []

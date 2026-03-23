@@ -1,343 +1,160 @@
 # Multi-Thread Execution Plan
 
-## 1. 目标与边界
+本文档保留“多线程施工计划”这个文件名，但内容已经更新为本轮集成收口时的执行台账，用来回答两件事：
 
-本计划用于把后续 feature 线程约束在 Master Spec v2 允许的施工面内。
+1. 哪些线程目标已经落地
+2. 哪些线程成果仍需继续补完
 
-本轮多线程施工的硬边界：
+## 1. 总体状态
 
-1. 不改 ontology
-2. 不把项目做成自动交易系统
-3. 不让 AI 进入 recognition 关键路径
-4. observed facts 与 derived interpretation 严格分离
-5. observations / feature slices / posteriors / belief states / episodes / episode evaluations 保持 append-only
-6. instrument profile / recognizer build / memory anchor freshness 等可变对象必须版本化
-7. depth/DOM 缺失时必须降级运行，不得抛错终止
-8. 所有关键输出统一带 `schema_version`、`profile_version`、`engine_version`
+| 线程 | 目标 | 当前状态 |
+|---|---|---|
+| Thread 0 | 集成收口 / ADR / README / checklist | 已完成本轮收口 |
+| Thread 1 | ontology / profile / schema / samples | 已基本落地 |
+| Thread 2 | deterministic recognition core | 已落地 |
+| Thread 3 | episode evaluation / tuning core | 已落地 |
+| Thread 4 | projection / API / workbench read model | 已落地，补了 spec alias |
+| Thread 5 | golden replay / sample validation / rebuild tests | 已落地 |
 
-## 2. 当前已有模块与缺失模块
-
-### 2.1 已有模块
-
-| 类别 | 已有文件 |
-|---|---|
-| HTTP / App | `src/atas_market_structure/app.py`, `server.py`, `app_routes/*` |
-| Models | `src/atas_market_structure/models/*` |
-| Repo / Storage | `src/atas_market_structure/repository.py`, `repository_clickhouse.py` |
-| Ingestion | `services.py`, `adapter_services.py`, `depth_services.py`, `adapter_bridge/*` |
-| Replay | `workbench_services.py`, `chart_candle_service.py`, `static/*` |
-| AI 协作 | `ai_review_services.py`, replay AI chat/review routes |
-| Tests | `tests/test_app.py` 等现有回归 |
-
-### 2.2 缺失模块
-
-| 类别 | 缺失项 |
-|---|---|
-| Ontology / Profile | `ontology.py`, `profile_registry.py`, `schema_registry.py` |
-| Recognition | `feature_builder`, `regime_updater`, `event_updater`, `anchor_manager`, `belief_emitter`, `episode_closer`, `degraded_mode` |
-| Review | `episode_evaluator`, `rule_review`, human override contract |
-| Rebuild | `rebuild_runner`, compare/verify helpers |
-| Contract Artifacts | belief / episode / evaluation / profile schemas and samples |
-| Validation | deterministic rebuild tests, degraded tests, golden replay tests |
-
-## 3. 建议新增目录
-
-建议优先新增，而不是大幅重构旧文件：
-
-```text
-docs/
-  implementation/
-  adr/
-
-src/atas_market_structure/
-  ontology.py
-  profile_registry.py
-  schema_registry.py
-  recognition/
-  review/
-  rebuild/
-
-schemas/
-  profile/
-  belief/
-  episode/
-  evaluation/
-
-samples/
-  golden_replays/
-  episode_evaluations/
-  tuning_recommendations/
-
-tests/
-  unit/
-  contract/
-  integration/
-  golden/
-```
-
-说明：
-
-- 这是“增量增加”，不是要求把旧的平铺结构一次性迁完
-- 旧路径继续保留，集成阶段再统一命名与索引
-
-## 4. 线程拆分建议
+## 2. 线程成果台账
 
 ### Thread 0：总集成线程
 
 职责：
 
-- 维护 ADR、台账、验收清单
-- 收口命名、版本字段、目录结构
-- 负责最终 README / docs 同步
+- ADR
+- 命名统一
+- 版本字段统一
+- README / docs 入口统一
+- API 契约收口
 
-主文件：
+本轮主要触达：
 
-- `docs/implementation/*`
-- `docs/adr/*`
-- 最后阶段触达 `README.md`
+- `README.md`
+- `docs/implementation/repo_gap_analysis.md`
+- `docs/implementation/multi_thread_execution_plan.md`
+- `docs/implementation/integration_acceptance_checklist.md`
+- `docs/adr/ADR-004-degraded-mode-and-data-completeness.md`
+- `docs/recognition/recognition_pipeline_v1.md`
 
-不要做：
+### Thread 1：Ontology / Profile / Contract
 
-- 大面积 feature 实现
-
-### Thread 1：Ontology / Profile / Contract Thread
-
-职责：
-
-- 落地固定 ontology constants
-- 定义 `instrument_profile_v1`
-- 定义 `recognizer_build`
-- 产出 belief/episode/evaluation/profile schemas 与 samples
-
-建议主文件：
+已落地成果：
 
 - `src/atas_market_structure/ontology.py`
-- `src/atas_market_structure/profile_registry.py`
-- `src/atas_market_structure/schema_registry.py`
-- `src/atas_market_structure/models/` 下新 contract 文件
-- `schemas/profile/*`
-- `schemas/belief/*`
-- `schemas/episode/*`
-- `schemas/evaluation/*`
-- `samples/*`
-- `tests/contract/*`
+- `src/atas_market_structure/profile_services.py`
+- `src/atas_market_structure/profile_loader.py`
+- `schemas/instrument_profile_v1.schema.json`
+- `samples/profiles/*.yaml`
 
-避免直接改：
+当前判断：
 
-- `workbench_services.py`
-- replay UI 静态文件
+- ontology 已固定
+- profile / build / patch candidate 合同已存在
+- sample contract 已存在
 
-依赖：
+### Thread 2：Recognition Core
 
-- 无，优先开工
-
-### Thread 2：Recognition Core Thread
-
-职责：
-
-- 实现 deterministic recognition 主链
-- 生成 `feature_slice`
-- 更新 regime posterior / event hypothesis / anchor interaction
-- 产出 `belief_state_snapshot`
-- 闭合 V1 三类事件 episode
-- 实现 degraded mode
-
-建议主文件：
+已落地成果：
 
 - `src/atas_market_structure/recognition/*`
-- `src/atas_market_structure/rebuild/*`
-- 少量接线到 `app.py`
-- 少量导出到 `models/__init__.py`
+- `src/atas_market_structure/models/_enums.py`
+- `src/atas_market_structure/models/_replay.py`
+- `src/atas_market_structure/storage_models.py`
+- `src/atas_market_structure/storage_repository.py`
 
-避免直接改：
+当前判断：
 
-- AI chat/review 逻辑
-- Replay UI 大量前端代码
+- feature -> regime -> hypothesis -> belief -> episode 主链已存在
+- degraded mode 已可运行
+- append-only / versioned state 边界已明确
 
-依赖：
+### Thread 3：Evaluation / Tuning
 
-- Thread 1 的 ontology/profile/contracts 应先稳定
+已落地成果：
 
-### Thread 3：Episode Evaluation / Review Thread
+- `src/atas_market_structure/evaluation_services.py`
+- `src/atas_market_structure/tuning_services.py`
+- `samples/episode_evaluations/*`
+- `samples/tuning/*`
 
-职责：
+当前判断：
 
-- 落地 `episode_evaluation_v1`
-- 实现 rule review engine
-- 提供 review APIs
-- 保持 AI 只消费 evaluation，不替代 evaluation
+- rule-first evaluation 已落地
+- tuning recommendation / patch candidate / validation result 数据模型已落地
+- promotion gate 仍未形成完整运营闭环
 
-建议主文件：
+### Thread 4：Projection / API / Workbench
 
-- `src/atas_market_structure/review/*`
+已落地成果：
+
+- `src/atas_market_structure/workbench_projection_services.py`
 - `src/atas_market_structure/app.py`
-- `tests/unit/*`
-- `tests/integration/*`
+- `tests/test_workbench_projection_api.py`
 
-避免直接改：
+当前判断：
 
-- ontology constants
-- replay snapshot builder 主逻辑，除非接线必须
+- `/api/v1/workbench/review/*` read-model 已落地
+- 本轮已补齐薄 alias：
+  - `GET /api/v1/belief/latest`
+  - `GET /api/v1/episodes/latest`
+  - `POST /api/v1/review/episode-evaluation`
+  - `GET /api/v1/review/episode-evaluation/{episode_id}`
+  - `GET /health/recognition`
 
-依赖：
+### Thread 5：Golden Replay / Validation
 
-- Thread 2 已能生成 episode
+已落地成果：
 
-### Thread 4：Projection / API / Workbench Thread
+- `samples/golden_cases/*`
+- `src/atas_market_structure/golden_cases.py`
+- `src/atas_market_structure/rebuild_runner.py`
+- `tests/test_golden_replay_cases.py`
+- `tests/test_rebuild_runner.py`
+- `tests/test_sample_validation.py`
 
-职责：
+当前判断：
 
-- 将 belief / episodes / evaluations 接入 API
-- 视需要把 projection 数据接入 workbench service
-- 只做最小 UI/response 扩展，不发散新功能
+- golden replay / rebuild / sample validation 已建立
+- deterministic replay compare 还未扩展到 tuning patch promotion gate
 
-建议主文件：
+## 3. 当前高冲突文件
+
+这些文件已经被收口线程统一处理，后续修改仍需谨慎：
 
 - `src/atas_market_structure/app.py`
+- `src/atas_market_structure/models/_enums.py`
 - `src/atas_market_structure/workbench_services.py`
-- `src/atas_market_structure/app_routes/*`
-- `src/atas_market_structure/static/*`
-- `tests/test_app.py`
-- `tests/playwright_*`
-
-避免直接改：
-
-- profile registry 内部实现
-- rule evaluator 内部实现
-
-依赖：
-
-- Thread 2、Thread 3 完成主要 contract
-
-### Thread 5：Golden Replay / Validation Thread
-
-职责：
-
-- 补充 golden replay payload
-- 增加 deterministic rebuild 与 degraded continuity 测试
-- 验证版本字段与 schema coverage
-
-建议主文件：
-
-- `samples/golden_replays/*`
-- `tests/golden/*`
-- `tests/contract/*`
-- 可增加 `scripts/` 下验证脚本
-
-依赖：
-
-- Thread 1-4 至少完成第一轮 contract 与 API
-
-## 5. 跨线程接口协调规则
-
-所有线程统一遵守以下字段和命名，不得私自漂移。
-
-### 5.1 固定 ontology
-
-固定 regime：
-
-- `strong_momentum_trend`
-- `weak_momentum_trend_narrow`
-- `weak_momentum_trend_wide`
-- `balance_mean_reversion`
-- `compression`
-- `transition_exhaustion`
-
-固定 tradable event V1：
-
-- `momentum_continuation`
-- `balance_mean_reversion`
-- `absorption_to_reversal_preparation`
-
-固定 phase：
-
-- `emerging`
-- `building`
-- `confirming`
-- `weakening`
-- `resolved`
-- `invalidated`
-
-固定 evaluation failure mode：
-
-- `none`
-- `early_confirmation`
-- `late_confirmation`
-- `late_invalidation`
-- `missed_transition`
-- `false_positive`
-- `false_negative`
-
-### 5.2 强制版本字段
-
-以下输出必须带：
-
-- `schema_version`
-- `profile_version`
-- `engine_version`
-
-尽可能再带：
-
-- `data_status`
-- `freshness`
-- `completeness`
-
-### 5.3 建议统一 ingestion kind
-
-建议新 derived log 统一使用以下 ingestion kind：
-
-- `feature_slice_v1`
-- `regime_posterior_v1`
-- `event_hypothesis_state_v1`
-- `belief_state_snapshot_v1`
-- `event_episode_v1`
-- `episode_evaluation_v1`
-
-如果线程采用不同命名，必须先与总集成线程对齐再提交。
-
-### 5.4 recognition mode
-
-最少保留：
-
-- `normal`
-- `degraded_no_depth`
-- `degraded_no_dom`
-
-如果需要补充额外 mode，可以加在附属枚举里，但不能替代上述两个 degraded mode。
-
-## 6. 共享高冲突文件
-
-以下文件只允许“最后接线线程”或集成线程集中合并：
-
-- `src/atas_market_structure/app.py`
-- `src/atas_market_structure/workbench_services.py`
-- `src/atas_market_structure/models/__init__.py`
+- `src/atas_market_structure/workbench_projection_services.py`
 - `README.md`
 
-并行线程应优先：
+## 4. 当前仍未完成的执行项
 
-1. 新建独立模块
-2. 在 PR 末尾最小化接线 diff
-3. 不在共享文件里顺手做 unrelated cleanup
+这些项目仍是 backlog，不建议再以“平行 feature thread”方式发散：
 
-## 7. 推荐执行顺序
+1. `POST /api/v1/rebuild/belief`
+2. `POST /api/v1/tuning/recommendation`
+3. `POST /api/v1/tuning/patch/validate`
+4. `POST /api/v1/tuning/patch/promote`
+5. offline replay compare runner
+6. patch promotion 审批与落地流程
 
-1. Thread 1 固定 ontology/profile/schema/contracts
-2. Thread 2 基于固定 contracts 落地 recognition core + degraded mode
-3. Thread 3 基于 episode 落地 evaluation/review
-4. Thread 4 接 API/workbench projection
-5. Thread 5 补 golden replay 与回归测试
-6. Thread 0 做最终集成收口、文档同步、命名统一
+## 5. 下一轮建议触达文件
 
-## 8. 最终集成阶段的收口任务
+若继续收口 backlog，建议按以下顺序推进：
 
-总集成线程在 feature 线程完成后统一负责：
+1. `src/atas_market_structure/app.py`
+2. `src/atas_market_structure/tuning_services.py`
+3. `src/atas_market_structure/profile_services.py`
+4. `src/atas_market_structure/rebuild_runner.py`
+5. `tests/test_workbench_projection_api.py`
+6. `tests/test_tuning_services.py`
+7. `tests/test_rebuild_runner.py`
 
-1. README 与 docs 更新
-2. 命名统一
-3. 版本字段统一
-4. schema/sample 目录清点
-5. tests 分类与入口整理
-6. 检查旧文档里与 Master Spec v2 冲突的字段名并标注“主规格优先”
+## 6. 本轮执行结论
 
-在此之前，不建议任何 feature 线程自行改写 README 或全仓文档索引。
+本仓库已经从“模块缺失期”进入“接口与命名收口期”。后续工作的优先级应该是：
+
+1. 完成剩余 spec HTTP 合同
+2. 完成 tuning 的 replay validate / promote 流程
+3. 继续清理旧 fixture 与旧别名

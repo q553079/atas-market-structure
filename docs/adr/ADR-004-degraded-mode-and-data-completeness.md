@@ -6,72 +6,79 @@
 
 ## Context
 
-Master Spec v2 多处明确要求：
+`docs/k_repair/replay_workbench_master_spec_v2.md` 明确要求：
 
-- depth/DOM 缺失时必须降级运行，而不是报错终止
-- 所有关键输出尽可能携带 `data_status` / `freshness` / `completeness`
-- degraded continuity 是验收重点
+- depth/DOM 缺失时必须降级运行，而不是崩溃
+- 关键输出尽量携带 `data_status` / `freshness` / `completeness`
+- degraded continuity 是验收项
 
-当前仓库已经在 replay/backfill 层有完整性处理，但 recognition 层还没有 formal degraded mode 设计。
+同时，主规格内部还有一个命名不一致：
+
+- degraded enum 章节使用 `degraded_no_depth`
+- 7.3A 的旧描述仍写 `recognition_mode = bar_anchor_only`
+
+仓库需要一个统一、可测试、可回放的最终口径。
 
 ## Decision
 
-recognition plane 统一采用“显式降级，不隐式失败”的策略。
+仓库 canonical degraded naming 统一为：
 
-### 最低限度 recognition mode
+- `degraded_no_depth`
+- `degraded_no_dom`
+- `degraded_no_ai`
+- `degraded_stale_macro`
+- `replay_rebuild_mode`
+
+仓库 canonical recognition mode 统一为：
 
 - `normal`
 - `degraded_no_depth`
 - `degraded_no_dom`
+- `replay_rebuild_mode`
 
-实现方如果需要附加模式，可以增加：
+兼容性策略：
 
-- `degraded_sparse_microstructure`
-- `degraded_stale_context`
-
-但不得替代上述基础模式。
+- 读取层继续接受旧值 `bar_anchor_only`
+- 读取层继续接受旧值 `no_depth` / `no_dom` / `no_ai` / `stale_macro` / `replay_rebuild`
+- 输出层、samples、tests、docs 统一写 canonical prefixed names
 
 ## Rules
 
 1. depth 不可用时：
-   - depth/DOM 相关 evidence bucket 标记为 unavailable 或降权
-   - recognition 继续运行
-   - 输出 `recognition_mode=degraded_no_depth` 或更具体 mode
+   - `degraded_no_depth` 进入 `data_status.degraded_modes`
+   - `recognition_mode` 输出 `degraded_no_depth`
+   - depth/DOM evidence bucket 标记 unavailable 或降权
 2. DOM 不可用时：
-   - DOM checks 不参与硬失败
-   - 输出 `recognition_mode=degraded_no_dom`
-3. 输出必须显式暴露数据质量字段，例如：
-   - `data_freshness_ms`
-   - `feature_completeness`
-   - `depth_available`
-   - `dom_available`
-   - `ai_available`
-4. 降级时允许：
-   - 概率更保守
-   - missing confirmation 更多
-   - confidence 降低
-5. 降级时不允许：
-   - 抛异常终止 recognition
-   - 因单一 evidence 缺失而停止 rebuild
+   - `degraded_no_dom` 进入 `data_status.degraded_modes`
+   - recognition 不因 DOM 缺失而终止
+3. AI 不可用时：
+   - `degraded_no_ai` 进入 `data_status.degraded_modes`
+   - recognition 继续运行
+4. 宏观/过程上下文陈旧时：
+   - `degraded_stale_macro` 进入 `data_status.degraded_modes`
+   - regime posterior 做保守化处理
+5. replay rebuild 模式下：
+   - `replay_rebuild_mode` 进入 `data_status.degraded_modes`
+   - completeness 可下降到 `gapped`
 
 ## Consequences
 
 正面结果：
 
-- 深度数据中断不会拖垮回放与识别
-- UI 与 review 可以清楚看到“为什么当前信号更弱”
-- 测试能明确覆盖 degraded continuity
+- API、samples、tests、projection、health badge 使用同一套 degraded naming
+- 旧样例和旧数据库值仍可被兼容解析
+- spec 内部旧字样不会继续扩散到新实现
 
 代价：
 
-- 每个关键输出都要带更多状态字段
-- 规则引擎需要处理 unavailable evidence，而不是默认完整数据
+- 代码中需要保留少量 alias 兼容逻辑
+- 文档必须明确说明 canonical 输出与 legacy alias 的边界
 
 ## Acceptance Signal
 
-任何线程完成 recognition 相关改动后，至少要能给出：
+验收时至少确认：
 
-1. 正常模式样例
-2. `degraded_no_depth` 样例
-3. `degraded_no_dom` 样例
-4. 对应 contract tests
+1. `belief_state_snapshot_v1` 样例输出 canonical degraded naming
+2. golden replay case 使用 canonical degraded naming
+3. health/data-quality/workbench projection 使用 canonical degraded naming
+4. legacy `bar_anchor_only` 和 `no_*` 旧值仍可被解析

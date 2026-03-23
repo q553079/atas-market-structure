@@ -168,9 +168,9 @@ Example `GET /health/ingestion` response:
     "dom_available": false,
     "ai_available": false,
     "degraded_modes": [
-      "no_depth",
-      "no_dom",
-      "no_ai"
+      "degraded_no_depth",
+      "degraded_no_dom",
+      "degraded_no_ai"
     ],
     "freshness": "fresh",
     "completeness": "partial"
@@ -233,9 +233,9 @@ Example `GET /health/data-quality?instrument_symbol=ESM6` response:
     "dom_available": false,
     "ai_available": false,
     "degraded_modes": [
-      "no_depth",
-      "no_dom",
-      "no_ai"
+      "degraded_no_depth",
+      "degraded_no_dom",
+      "degraded_no_ai"
     ],
     "freshness": "fresh",
     "completeness": "partial"

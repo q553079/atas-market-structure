@@ -168,7 +168,7 @@ def _seed_active_versions(*, repository: SQLiteAnalysisRepository, instrument_sy
         instrument_symbol,
         tick_size=default_tick_size_for_symbol(instrument_symbol),
         profile_version="instrument_profile_v1",
-        schema_version="1.0.0",
+        schema_version="instrument_profile_v1",
         ontology_version="master_spec_v2_v1",
         created_at=created_at,
     )

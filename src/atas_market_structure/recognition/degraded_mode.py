@@ -166,7 +166,7 @@ class RecognitionQualityEvaluator:
         data_status = payload.get("data_status")
         if isinstance(data_status, dict):
             modes = data_status.get("degraded_modes") or []
-            if "replay_rebuild" in modes:
+            if any(mode in {DegradedMode.REPLAY_REBUILD.value, "replay_rebuild"} for mode in modes):
                 return True
         integrity = payload.get("integrity")
         if isinstance(integrity, dict):

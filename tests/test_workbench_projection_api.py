@@ -91,6 +91,31 @@ def test_workbench_projection_api_supports_episode_and_evaluation_filters(tmp_pa
     assert evaluation_payload["items"][0]["evaluation"]["evaluation_id"].startswith("eval-")
     assert isinstance(evaluation_payload["items"][0]["candidate_parameters"], list)
 
+    belief_latest_response = application.dispatch(
+        "GET",
+        "/api/v1/belief/latest?instrument=NQ",
+    )
+    episode_latest_response = application.dispatch(
+        "GET",
+        "/api/v1/episodes/latest?instrument=NQ&limit=2",
+    )
+    episode_evaluation_response = application.dispatch(
+        "GET",
+        f"/api/v1/review/episode-evaluation/{evaluation_payload['items'][0]['evaluation']['episode_id']}",
+    )
+
+    assert belief_latest_response.status_code == 200
+    assert episode_latest_response.status_code == 200
+    assert episode_evaluation_response.status_code == 200
+
+    belief_latest_payload = json.loads(belief_latest_response.body)
+    episode_latest_payload = json.loads(episode_latest_response.body)
+    episode_evaluation_payload = json.loads(episode_evaluation_response.body)
+
+    assert belief_latest_payload["belief"]["belief_state_id"] == "b3-ok"
+    assert len(episode_latest_payload["episodes"]) == 2
+    assert episode_evaluation_payload["evaluation"]["episode_id"] == evaluation_payload["items"][0]["evaluation"]["episode_id"]
+
 
 def test_workbench_projection_api_returns_tuning_metadata_and_health_views(tmp_path: Path) -> None:
     application = _build_seeded_application(tmp_path)
@@ -110,18 +135,24 @@ def test_workbench_projection_api_returns_tuning_metadata_and_health_views(tmp_p
         "GET",
         "/api/v1/workbench/review/health-status?instrument_symbol=NQ",
     )
+    health_alias_response = application.dispatch(
+        "GET",
+        "/health/recognition?instrument=NQ",
+    )
     js_response = application.dispatch("GET", "/static/replay_workbench_bootstrap.js")
     loader_js_response = application.dispatch("GET", "/static/replay_workbench_replay_loader.js")
 
     assert tuning_response.status_code == 200
     assert metadata_response.status_code == 200
     assert health_response.status_code == 200
+    assert health_alias_response.status_code == 200
     assert js_response.status_code == 200
     assert loader_js_response.status_code == 200
 
     tuning_payload = json.loads(tuning_response.body)
     metadata_payload = json.loads(metadata_response.body)
     health_payload = json.loads(health_response.body)
+    health_alias_payload = json.loads(health_alias_response.body)
 
     assert tuning_payload["items"][0]["recommendation"]["allow_ai_auto_apply"] is False
     assert tuning_payload["items"][0]["patch_candidate"] is not None
@@ -134,6 +165,7 @@ def test_workbench_projection_api_returns_tuning_metadata_and_health_views(tmp_p
 
     assert health_payload["health"]["profile_version"] == "nq-profile-test"
     assert health_payload["health"]["engine_version"] == "recognizer-test"
+    assert health_alias_payload["health"]["engine_version"] == "recognizer-test"
     assert health_payload["data_quality"]["data_status"]["completeness"] is not None
     assert b"/api/v1/workbench/review/projection" in loader_js_response.body
     assert b"Belief State" in js_response.body
@@ -151,7 +183,7 @@ def _seed_repository(repository: SQLiteAnalysisRepository) -> None:
         "NQ",
         tick_size=default_tick_size_for_symbol("NQ"),
         profile_version="nq-profile-test",
-        schema_version="1.0.0",
+        schema_version="instrument_profile_v1",
         ontology_version="master_spec_v2_v1",
         created_at=datetime(2026, 3, 23, 8, 0, tzinfo=UTC),
     )
@@ -299,7 +331,7 @@ def _episode(
         active_anchor_ids=["anc-balance"],
         replacement_episode_id=None,
         replacement_event_kind=None,
-        schema_version="1.0.0",
+        schema_version="event_episode_v1",
         profile_version="nq-profile-test",
         engine_version="recognizer-test",
         data_status=_data_status(),
@@ -318,7 +350,7 @@ def _belief(
         instrument_symbol="NQ",
         observed_at=observed_at,
         stored_at=observed_at,
-        schema_version="1.0.0",
+        schema_version="belief_state_snapshot_v1",
         profile_version="nq-profile-test",
         engine_version="recognizer-test",
         recognition_mode=RecognitionMode.NORMAL,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from atas_market_structure.models import BeliefDataStatus
+from atas_market_structure.models import BeliefDataStatus, DegradedMode
 from atas_market_structure.repository import AnalysisRepository
 from atas_market_structure.storage_models import ObservationTable
 from atas_market_structure.recognition.types import EvidenceBucket, RecognitionFeatureVector
@@ -529,7 +529,7 @@ def _feature_notes(data_status: BeliefDataStatus, bar_count: int) -> list[str]:
         notes.append("depth evidence unavailable; related weights were reduced.")
     if not data_status.dom_available:
         notes.append("DOM evidence unavailable; hard confirms were suppressed.")
-    if any(mode.value == "stale_macro" for mode in data_status.degraded_modes):
+    if any(mode is DegradedMode.STALE_MACRO for mode in data_status.degraded_modes):
         notes.append("macro/process context stale; regime confidence will be flattened.")
     return notes
 

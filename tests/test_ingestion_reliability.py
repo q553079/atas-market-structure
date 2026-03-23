@@ -147,7 +147,7 @@ def test_health_reports_rebuild_required_when_latest_replay_snapshot_is_in_rebui
         "depth_available": False,
         "dom_available": False,
         "ai_available": False,
-        "degraded_modes": ["replay_rebuild", "no_depth", "no_dom", "no_ai"],
+        "degraded_modes": ["replay_rebuild_mode", "degraded_no_depth", "degraded_no_dom", "degraded_no_ai"],
         "freshness": "delayed",
         "completeness": "gapped"
     }

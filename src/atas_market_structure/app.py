@@ -29,6 +29,7 @@ from atas_market_structure.continuous_contract_service import (
     ContinuousContractServiceError,
 )
 from atas_market_structure.depth_services import DepthMonitoringService
+from atas_market_structure.evaluation_services import EpisodeEvaluationService
 from atas_market_structure.ingestion_reliability_services import IngestionReliabilityService
 from atas_market_structure.models import (
     AdapterBackfillAcknowledgeRequest,
@@ -40,6 +41,8 @@ from atas_market_structure.models import (
     AdapterHistoryFootprintPayload,
     AdapterTriggerBurstPayload,
     AnalysisEnvelope,
+    BeliefLatestEnvelope,
+    BeliefStateSnapshot,
     ChartCandleEnvelope,
     ContinuousAdjustmentMode,
     ContinuousBarsEnvelope,
@@ -47,6 +50,10 @@ from atas_market_structure.models import (
     DepthSnapshotAcceptedResponse,
     DepthSnapshotPayload,
     EventSnapshotPayload,
+    EpisodeEvaluation,
+    EpisodeEvaluationEnvelope,
+    EpisodeListEnvelope,
+    EventEpisode,
     IngestionErrorResponse,
     IngestionAcceptedResponse,
     IngestionEnvelope,
@@ -167,9 +174,11 @@ class MarketStructureApplication:
             repository=repository,
             replay_ai_chat_service=self._replay_ai_chat_service,
         )
+        self._episode_evaluation_service = EpisodeEvaluationService(repository=repository)
         self._chart_candle_service = ChartCandleService(repository=repository)
         self._analysis_pattern = re.compile(r"^/api/v1/analyses/(?P<analysis_id>[^/]+)$")
         self._ingestion_pattern = re.compile(r"^/api/v1/ingestions/(?P<ingestion_id>[^/]+)$")
+        self._episode_evaluation_pattern = re.compile(r"^/api/v1/review/episode-evaluation/(?P<episode_id>[^/]+)$")
         self._logger = LOGGER
 
     def dispatch(self, method: str, path: str, body: bytes | None = None) -> HttpResponse:
@@ -181,18 +190,29 @@ class MarketStructureApplication:
                 return self._json_response(200, {"status": "ok", "timestamp": datetime.now(tz=UTC)})
 
             if method == "GET" and route_path == "/health/ingestion":
-                instrument_symbol = query.get("instrument_symbol", [None])[0]
+                instrument_symbol = self._query_value(query, "instrument_symbol", "instrument")
                 result = self._ingestion_reliability_service.get_ingestion_health(
                     instrument_symbol=instrument_symbol,
                 )
                 return self._json_model_response(result.status_code, result.body)
 
             if method == "GET" and route_path == "/health/data-quality":
-                instrument_symbol = query.get("instrument_symbol", [None])[0]
+                instrument_symbol = self._query_value(query, "instrument_symbol", "instrument")
                 result = self._ingestion_reliability_service.get_data_quality(
                     instrument_symbol=instrument_symbol,
                 )
                 return self._json_model_response(result.status_code, result.body)
+
+            if method == "GET" and route_path == "/health/recognition":
+                instrument_symbol = self._query_value(query, "instrument_symbol", "instrument")
+                if instrument_symbol is None:
+                    return self._json_response(
+                        400,
+                        {"error": "missing_query_parameter", "detail": "instrument or instrument_symbol is required."},
+                    )
+                projection_query = ReplayProjectionQuery(instrument_symbol=instrument_symbol)
+                response = self._workbench_projection_service.get_health_status(projection_query)
+                return self._json_model_response(200, response)
 
             if method == "GET" and route_path in {"/workbench/replay", "/static/replay_workbench.html"}:
                 html = (STATIC_DIR / "replay_workbench.html").read_text(encoding="utf-8")
@@ -400,15 +420,80 @@ class MarketStructureApplication:
                 response = self._workbench_projection_service.get_belief_state_timeline(projection_query)
                 return self._json_model_response(200, response)
 
+            if method == "GET" and route_path == "/api/v1/belief/latest":
+                instrument_symbol = self._query_value(query, "instrument_symbol", "instrument")
+                if instrument_symbol is None:
+                    return self._json_response(
+                        400,
+                        {"error": "missing_query_parameter", "detail": "instrument or instrument_symbol is required."},
+                    )
+                stored = self._repository.get_latest_belief_state(instrument_symbol)
+                belief = (
+                    BeliefStateSnapshot.model_validate(stored.belief_payload)
+                    if stored is not None
+                    else None
+                )
+                return self._json_model_response(200, BeliefLatestEnvelope(belief=belief))
+
             if method == "GET" and route_path == "/api/v1/workbench/review/event-episodes":
                 projection_query = self._parse_projection_query(query)
                 response = self._workbench_projection_service.get_event_episode_reviews(projection_query)
                 return self._json_model_response(200, response)
 
+            if method == "GET" and route_path == "/api/v1/episodes/latest":
+                instrument_symbol = self._query_value(query, "instrument_symbol", "instrument")
+                if instrument_symbol is None:
+                    return self._json_response(
+                        400,
+                        {"error": "missing_query_parameter", "detail": "instrument or instrument_symbol is required."},
+                    )
+                limit_raw = self._query_value(query, "limit")
+                try:
+                    limit = max(1, min(1000, int(limit_raw))) if limit_raw is not None else 20
+                except ValueError:
+                    return self._json_response(
+                        400,
+                        {"error": "invalid_query_parameter", "detail": "limit must be an integer."},
+                    )
+                episodes = [
+                    EventEpisode.model_validate(item.episode_payload)
+                    for item in self._repository.list_event_episodes(
+                        instrument_symbol=instrument_symbol,
+                        limit=limit,
+                    )
+                ]
+                return self._json_model_response(
+                    200,
+                    EpisodeListEnvelope(instrument_symbol=instrument_symbol, episodes=episodes),
+                )
+
             if method == "GET" and route_path == "/api/v1/workbench/review/episode-evaluations":
                 projection_query = self._parse_projection_query(query)
                 response = self._workbench_projection_service.get_episode_evaluations(projection_query)
                 return self._json_model_response(200, response)
+
+            if method == "POST" and route_path == "/api/v1/review/episode-evaluation":
+                payload = json.loads(body or b"{}")
+                episode_id = payload.get("episode_id")
+                if not isinstance(episode_id, str) or not episode_id.strip():
+                    return self._json_response(
+                        400,
+                        {"error": "missing_required_field", "detail": "episode_id is required."},
+                    )
+                evaluation = self._episode_evaluation_service.evaluate_episode_from_repository(
+                    episode_id.strip(),
+                    persist=True,
+                )
+                return self._json_model_response(200, EpisodeEvaluationEnvelope(evaluation=evaluation))
+
+            episode_evaluation_match = self._episode_evaluation_pattern.match(route_path)
+            if method == "GET" and episode_evaluation_match:
+                episode_id = episode_evaluation_match.group("episode_id")
+                stored = self._repository.get_episode_evaluation(episode_id)
+                if stored is None:
+                    raise NotFoundError(f"episode evaluation '{episode_id}' not found")
+                evaluation = EpisodeEvaluation.model_validate(stored.evaluation_payload)
+                return self._json_model_response(200, EpisodeEvaluationEnvelope(evaluation=evaluation))
 
             if method == "GET" and route_path == "/api/v1/workbench/review/tuning-recommendations":
                 projection_query = self._parse_projection_query(query)
@@ -705,7 +790,7 @@ class MarketStructureApplication:
     @staticmethod
     def _json_model_response(
         status_code: int,
-        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope | ContinuousBarsEnvelope | MirrorBarsEnvelope | ReliableIngestionResponse | IngestionErrorResponse | IngestionHealthResponse | DataQualityResponse,
+        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | BeliefLatestEnvelope | EpisodeEvaluationEnvelope | EpisodeListEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope | ContinuousBarsEnvelope | MirrorBarsEnvelope | ReliableIngestionResponse | IngestionErrorResponse | IngestionHealthResponse | DataQualityResponse,
     ) -> HttpResponse:
         payload = model.model_dump(mode="json")
         return MarketStructureApplication._json_response(status_code, payload)
@@ -739,12 +824,12 @@ class MarketStructureApplication:
         return datetime.fromisoformat(normalized).astimezone(UTC)
 
     def _parse_projection_query(self, query: dict[str, list[str]]) -> ReplayProjectionQuery:
-        instrument_symbol = query.get("instrument_symbol", [None])[0]
+        instrument_symbol = self._query_value(query, "instrument_symbol", "instrument")
         if instrument_symbol is None:
-            raise ValueError("instrument_symbol is required.")
-        window_start_raw = query.get("window_start", [None])[0] or query.get("from", [None])[0]
-        window_end_raw = query.get("window_end", [None])[0] or query.get("to", [None])[0]
-        limit_raw = query.get("limit", [None])[0]
+            raise ValueError("instrument or instrument_symbol is required.")
+        window_start_raw = self._query_value(query, "window_start", "from")
+        window_end_raw = self._query_value(query, "window_end", "to")
+        limit_raw = self._query_value(query, "limit")
         limit = 100
         if limit_raw is not None:
             try:
@@ -784,6 +869,14 @@ class MarketStructureApplication:
         if value is None or value.strip() == "":
             return None
         return [item.strip() for item in value.split(",") if item.strip()]
+
+    @staticmethod
+    def _query_value(query: dict[str, list[str]], *names: str) -> str | None:
+        for name in names:
+            values = query.get(name)
+            if values:
+                return values[0]
+        return None
 
     @staticmethod
     def _json_response(status_code: int, payload: dict[str, Any]) -> HttpResponse:
