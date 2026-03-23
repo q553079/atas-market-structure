@@ -42,6 +42,26 @@ export function createReplayLoader({
     }
   }
 
+  async function loadReviewProjection() {
+    const snapshot = state.snapshot;
+    const instrumentSymbol = snapshot?.instrument_symbol || snapshot?.instrument?.symbol || "";
+    if (!instrumentSymbol) {
+      state.reviewProjection = null;
+      return;
+    }
+    const params = new URLSearchParams({
+      instrument_symbol: instrumentSymbol,
+      limit: "80",
+    });
+    if (snapshot?.window_start) {
+      params.set("window_start", snapshot.window_start);
+    }
+    if (snapshot?.window_end) {
+      params.set("window_end", snapshot.window_end);
+    }
+    state.reviewProjection = await fetchJson(`/api/v1/workbench/review/projection?${params.toString()}`);
+  }
+
   function syncEntryDefaultsFromSnapshot() {
     if (!state.snapshot) {
       return;
@@ -80,6 +100,7 @@ export function createReplayLoader({
     state.integrity = snapshot?.integrity || null;
     state.pendingBackfill = snapshot?.latest_backfill_request || state.buildResponse?.atas_backfill_request || null;
     state.lastLiveTailIntegrityHash = state.integrity ? JSON.stringify(state.integrity) : null;
+    state.reviewProjection = null;
     state.operatorEntries = [];
     state.manualRegions = [];
     state.aiReview = null;
@@ -149,7 +170,7 @@ export function createReplayLoader({
     state.sidebarLoading = true;
     const startedAt = performance.now();
     try {
-      await Promise.all([loadOperatorEntries(), loadManualRegions()]);
+      await Promise.all([loadOperatorEntries(), loadManualRegions(), loadReviewProjection()]);
       if (ingestionId !== state.currentReplayIngestionId) {
         return;
       }
@@ -218,6 +239,7 @@ export function createReplayLoader({
     loadDeferredEnhancements,
     loadOperatorEntries,
     loadManualRegions,
+    loadReviewProjection,
     loadFootprintBarDetail,
     syncEntryDefaultsFromSnapshot,
   };

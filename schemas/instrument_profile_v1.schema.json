@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "instrument_profile_v1.schema.json",
+  "title": "instrument_profile_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "instrument",
+    "profile_version",
+    "schema_version",
+    "ontology_version",
+    "normalization",
+    "time_windows",
+    "thresholds",
+    "weights",
+    "decay",
+    "priors",
+    "safety",
+    "created_at"
+  ],
+  "properties": {
+    "instrument": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "ontology_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "is_active": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "price_unit",
+        "tick_size",
+        "atr_window_bars",
+        "displacement_normalizer",
+        "volume_normalizer",
+        "range_ticks_reference",
+        "anchor_active_distance_ticks"
+      ],
+      "properties": {
+        "price_unit": { "const": "ticks" },
+        "tick_size": { "type": "number", "exclusiveMinimum": 0 },
+        "atr_window_bars": { "type": "integer", "minimum": 2, "maximum": 200 },
+        "displacement_normalizer": { "const": "atr_fraction" },
+        "volume_normalizer": { "const": "rolling_quantile" },
+        "range_ticks_reference": { "type": "number", "exclusiveMinimum": 0 },
+        "anchor_active_distance_ticks": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "time_windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feature_lookback_bars",
+        "feature_lookback_minutes",
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "properties": {
+        "feature_lookback_bars": { "type": "integer", "minimum": 4, "maximum": 200 },
+        "feature_lookback_minutes": { "type": "integer", "minimum": 5, "maximum": 480 },
+        "momentum_continuation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strong", "normal"],
+          "properties": {
+            "strong": { "$ref": "#/$defs/window_range" },
+            "normal": { "$ref": "#/$defs/window_range" }
+          }
+        },
+        "balance_mean_reversion": { "$ref": "#/$defs/event_window" },
+        "absorption_to_reversal_preparation": { "$ref": "#/$defs/event_window" }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_hypothesis_probability",
+        "building_hypothesis_probability",
+        "confirming_hypothesis_probability",
+        "resolved_hypothesis_probability",
+        "weakening_drop_threshold",
+        "momentum_efficiency_high",
+        "balance_score_high",
+        "compression_score_high",
+        "absorption_score_high",
+        "center_hit_ticks",
+        "anchor_near_ticks",
+        "initiative_reacceleration_score",
+        "initiative_push",
+        "shallow_pullback",
+        "deep_pullback",
+        "balance_return_penalty_trigger"
+      ],
+      "properties": {
+        "active_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "building_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confirming_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "resolved_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "weakening_drop_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "momentum_efficiency_high": { "type": "number", "minimum": 0, "maximum": 1 },
+        "balance_score_high": { "type": "number", "minimum": 0, "maximum": 1 },
+        "compression_score_high": { "type": "number", "minimum": 0, "maximum": 1 },
+        "absorption_score_high": { "type": "number", "minimum": 0, "maximum": 1 },
+        "center_hit_ticks": { "type": "number", "minimum": 0, "maximum": 64 },
+        "anchor_near_ticks": { "type": "number", "minimum": 0, "maximum": 128 },
+        "initiative_reacceleration_score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "initiative_push": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["displacement_zscore", "efficiency_min"],
+          "properties": {
+            "displacement_zscore": { "type": "number", "minimum": 0, "maximum": 5 },
+            "efficiency_min": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "shallow_pullback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["retrace_ratio_max"],
+          "properties": {
+            "retrace_ratio_max": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "deep_pullback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["retrace_ratio_min"],
+          "properties": {
+            "retrace_ratio_min": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "balance_return_penalty_trigger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["distance_to_balance_ticks"],
+          "properties": {
+            "distance_to_balance_ticks": { "type": "number", "minimum": 0, "maximum": 64 }
+          }
+        }
+      }
+    },
+    "weights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bar_structure",
+        "volatility_range",
+        "trend_efficiency",
+        "initiative",
+        "balance",
+        "absorption",
+        "depth_dom",
+        "anchor_interaction",
+        "path_dependency"
+      ],
+      "properties": {
+        "bar_structure": { "type": "number", "minimum": 0, "maximum": 2 },
+        "volatility_range": { "type": "number", "minimum": 0, "maximum": 2 },
+        "trend_efficiency": { "type": "number", "minimum": 0, "maximum": 2 },
+        "initiative": { "type": "number", "minimum": 0, "maximum": 2 },
+        "balance": { "type": "number", "minimum": 0, "maximum": 2 },
+        "absorption": { "type": "number", "minimum": 0, "maximum": 2 },
+        "depth_dom": { "type": "number", "minimum": 0, "maximum": 2 },
+        "anchor_interaction": { "type": "number", "minimum": 0, "maximum": 2 },
+        "path_dependency": { "type": "number", "minimum": 0, "maximum": 2 }
+      }
+    },
+    "decay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stale_macro_penalty",
+        "missing_depth_penalty",
+        "missing_dom_penalty",
+        "anchor_freshness_hours",
+        "balance_center_half_life_bars",
+        "gap_edge_half_life_bars",
+        "initiative_origin_half_life_bars"
+      ],
+      "properties": {
+        "stale_macro_penalty": { "type": "number", "minimum": 0, "maximum": 1 },
+        "missing_depth_penalty": { "type": "number", "minimum": 0, "maximum": 1 },
+        "missing_dom_penalty": { "type": "number", "minimum": 0, "maximum": 1 },
+        "anchor_freshness_hours": { "type": "integer", "minimum": 1, "maximum": 720 },
+        "balance_center_half_life_bars": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "gap_edge_half_life_bars": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "initiative_origin_half_life_bars": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "priors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["regimes", "hypotheses"],
+      "properties": {
+        "regimes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strong_momentum_trend",
+            "weak_momentum_trend_narrow",
+            "weak_momentum_trend_wide",
+            "balance_mean_reversion",
+            "compression",
+            "transition_exhaustion"
+          ],
+          "properties": {
+            "strong_momentum_trend": { "type": "number", "minimum": 0, "maximum": 1 },
+            "weak_momentum_trend_narrow": { "type": "number", "minimum": 0, "maximum": 1 },
+            "weak_momentum_trend_wide": { "type": "number", "minimum": 0, "maximum": 1 },
+            "balance_mean_reversion": { "type": "number", "minimum": 0, "maximum": 1 },
+            "compression": { "type": "number", "minimum": 0, "maximum": 1 },
+            "transition_exhaustion": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "hypotheses": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "continuation_base",
+            "distribution_balance",
+            "absorption_accumulation",
+            "reversal_preparation"
+          ],
+          "properties": {
+            "continuation_base": { "type": "number", "minimum": 0, "maximum": 1 },
+            "distribution_balance": { "type": "number", "minimum": 0, "maximum": 1 },
+            "absorption_accumulation": { "type": "number", "minimum": 0, "maximum": 1 },
+            "reversal_preparation": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allow_ai_auto_apply",
+        "require_offline_validation",
+        "max_belief_regimes",
+        "max_belief_hypotheses",
+        "max_active_anchors",
+        "minimum_bar_count_for_primary_features"
+      ],
+      "properties": {
+        "allow_ai_auto_apply": { "const": false },
+        "require_offline_validation": { "const": true },
+        "max_belief_regimes": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "max_belief_hypotheses": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "max_active_anchors": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "minimum_bar_count_for_primary_features": { "type": "integer", "minimum": 1, "maximum": 32 }
+      }
+    }
+  },
+  "$defs": {
+    "window_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bars_min", "bars_max"],
+      "properties": {
+        "bars_min": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "bars_max": { "type": "integer", "minimum": 1, "maximum": 128 }
+      }
+    },
+    "event_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normal"],
+      "properties": {
+        "normal": { "$ref": "#/$defs/window_range" }
+      }
+    }
+  }
+}

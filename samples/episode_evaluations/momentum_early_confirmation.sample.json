@@ -1,0 +1,85 @@
+{
+  "evaluation_id": "eval-sample-momentum-early",
+  "episode_id": "ep-sample-momentum-early",
+  "instrument": "NQ",
+  "session": "us_regular",
+  "bar_tf": "1m",
+  "market_time_start": "2026-03-23T10:00:00Z",
+  "market_time_end": "2026-03-23T10:01:00Z",
+  "profile_version": "nq_profile_v1",
+  "engine_version": "recognizer_deterministic_v1",
+  "schema_version": "episode_evaluation_v1",
+  "initial_regime_top1": "weak_momentum_trend_narrow",
+  "initial_regime_prob": 0.47,
+  "evaluated_event_kind": "momentum_continuation",
+  "initial_phase": "confirming",
+  "initial_prob": 0.62,
+  "declared_time_window": {
+    "mode": "next_8_bars",
+    "bars_min": 3,
+    "bars_max": 8
+  },
+  "anchor_context": [
+    "initiative_origin_at_price"
+  ],
+  "lifecycle": {
+    "started_at": "2026-03-23T10:00:00Z",
+    "first_validation_hit_at": "2026-03-23T10:00:00Z",
+    "peak_prob": 0.77,
+    "peak_prob_at": "2026-03-23T10:01:00Z",
+    "first_invalidation_hit_at": null,
+    "downgraded_at": null,
+    "resolved_at": "2026-03-23T10:01:00Z",
+    "resolution": "confirmed",
+    "replacement_event": null
+  },
+  "outcome": {
+    "did_event_materialize": true,
+    "did_partial_materialize": false,
+    "dominant_final_event": "momentum_continuation",
+    "judgement_source": "rule_review_v1"
+  },
+  "scores": {
+    "hypothesis_selection_score": 0,
+    "confirmation_timing_score": -2,
+    "invalidation_timing_score": 0,
+    "transition_handling_score": 0,
+    "calibration_score": 2
+  },
+  "diagnosis": {
+    "primary_failure_mode": "early_confirmation",
+    "supporting_reasons": [
+      "validation_before_declared_window",
+      "event_materialized",
+      "confidence_matched_outcome"
+    ],
+    "missing_confirmation": [
+      "acceptance_after_pullback"
+    ],
+    "invalidating_signals_seen": [],
+    "candidate_parameters": [
+      "thresholds.confirming_hypothesis_probability",
+      "thresholds.resolved_hypothesis_probability",
+      "time_windows.momentum_continuation.normal.bars_min"
+    ],
+    "suggested_direction": {
+      "thresholds.confirming_hypothesis_probability": "increase",
+      "thresholds.resolved_hypothesis_probability": "increase",
+      "time_windows.momentum_continuation.normal.bars_min": "increase"
+    }
+  },
+  "tuning_hints": {
+    "candidate_parameters": [
+      "thresholds.confirming_hypothesis_probability",
+      "thresholds.resolved_hypothesis_probability",
+      "time_windows.momentum_continuation.normal.bars_min"
+    ],
+    "suggested_direction": {
+      "thresholds.confirming_hypothesis_probability": "increase",
+      "thresholds.resolved_hypothesis_probability": "increase",
+      "time_windows.momentum_continuation.normal.bars_min": "increase"
+    },
+    "confidence": "medium"
+  },
+  "evaluated_at": "2026-03-23T10:05:00Z"
+}

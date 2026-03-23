@@ -1,0 +1,401 @@
+{
+  "bundle_id": "bundle-sample-20260323-001",
+  "instrument": "NQ",
+  "schema_version": "tuning_input_bundle_v1",
+  "built_at": "2026-03-23T05:02:20.342763Z",
+  "profile_version": "nq-profile-test",
+  "engine_version": "recognizer-test",
+  "analysis_window": {
+    "episode_count": 1,
+    "evaluation_count": 1,
+    "from": "2026-03-23T09:30:00Z",
+    "to": "2026-03-23T09:31:00Z"
+  },
+  "instrument_profile": {
+    "instrument": "NQ",
+    "profile_version": "nq-profile-test",
+    "schema_version": "1.0.0",
+    "ontology_version": "master_spec_v2_v1",
+    "is_active": true,
+    "normalization": {
+      "price_unit": "ticks",
+      "tick_size": 0.25,
+      "atr_window_bars": 20,
+      "displacement_normalizer": "atr_fraction",
+      "volume_normalizer": "rolling_quantile",
+      "range_ticks_reference": 32.0,
+      "anchor_active_distance_ticks": 48.0
+    },
+    "time_windows": {
+      "feature_lookback_bars": 20,
+      "feature_lookback_minutes": 60,
+      "momentum_continuation": {
+        "strong": {
+          "bars_min": 2,
+          "bars_max": 6
+        },
+        "normal": {
+          "bars_min": 3,
+          "bars_max": 8
+        }
+      },
+      "balance_mean_reversion": {
+        "normal": {
+          "bars_min": 4,
+          "bars_max": 12
+        }
+      },
+      "absorption_to_reversal_preparation": {
+        "normal": {
+          "bars_min": 3,
+          "bars_max": 10
+        }
+      }
+    },
+    "thresholds": {
+      "active_hypothesis_probability": 0.28,
+      "building_hypothesis_probability": 0.36,
+      "confirming_hypothesis_probability": 0.56,
+      "resolved_hypothesis_probability": 0.74,
+      "weakening_drop_threshold": 0.12,
+      "momentum_efficiency_high": 0.58,
+      "balance_score_high": 0.6,
+      "compression_score_high": 0.62,
+      "absorption_score_high": 0.56,
+      "center_hit_ticks": 10.0,
+      "anchor_near_ticks": 20.0,
+      "initiative_reacceleration_score": 0.68,
+      "initiative_push": {
+        "displacement_zscore": 1.4,
+        "efficiency_min": 0.58
+      },
+      "shallow_pullback": {
+        "retrace_ratio_max": 0.38
+      },
+      "deep_pullback": {
+        "retrace_ratio_min": 0.55
+      },
+      "balance_return_penalty_trigger": {
+        "distance_to_balance_ticks": 8.0
+      }
+    },
+    "weights": {
+      "bar_structure": 1.0,
+      "volatility_range": 0.8,
+      "trend_efficiency": 1.0,
+      "initiative": 1.05,
+      "balance": 0.95,
+      "absorption": 1.05,
+      "depth_dom": 0.88,
+      "anchor_interaction": 0.85,
+      "path_dependency": 0.8
+    },
+    "decay": {
+      "stale_macro_penalty": 0.08,
+      "missing_depth_penalty": 0.1,
+      "missing_dom_penalty": 0.08,
+      "anchor_freshness_hours": 72,
+      "balance_center_half_life_bars": 120,
+      "gap_edge_half_life_bars": 80,
+      "initiative_origin_half_life_bars": 60
+    },
+    "priors": {
+      "regimes": {
+        "strong_momentum_trend": 0.18,
+        "weak_momentum_trend_narrow": 0.18,
+        "weak_momentum_trend_wide": 0.14,
+        "balance_mean_reversion": 0.2,
+        "compression": 0.14,
+        "transition_exhaustion": 0.16
+      },
+      "hypotheses": {
+        "continuation_base": 0.27,
+        "distribution_balance": 0.24,
+        "absorption_accumulation": 0.23,
+        "reversal_preparation": 0.26
+      }
+    },
+    "safety": {
+      "allow_ai_auto_apply": false,
+      "require_offline_validation": true,
+      "max_belief_regimes": 3,
+      "max_belief_hypotheses": 3,
+      "max_active_anchors": 3,
+      "minimum_bar_count_for_primary_features": 3
+    },
+    "created_at": "2026-03-23T00:00:00Z"
+  },
+  "recognizer_build": {
+    "engine_version": "recognizer-test",
+    "schema_version": "recognizer_build_v1",
+    "ontology_version": "master_spec_v2_v1",
+    "is_active": true,
+    "status": "active",
+    "notes": [
+      "test recognizer build"
+    ],
+    "created_at": "2026-03-23T09:00:00Z"
+  },
+  "recent_closed_episodes": [
+    {
+      "episode_id": "ep-momentum_continuation-0930",
+      "instrument_symbol": "NQ",
+      "event_kind": "momentum_continuation",
+      "hypothesis_kind": "continuation_base",
+      "phase": "resolved",
+      "resolution": "confirmed",
+      "started_at": "2026-03-23T09:30:00Z",
+      "ended_at": "2026-03-23T09:31:00Z",
+      "peak_probability": 0.78,
+      "dominant_regime": "weak_momentum_trend_narrow",
+      "supporting_evidence": [
+        "support_a",
+        "support_b"
+      ],
+      "invalidating_evidence": [],
+      "key_evidence_summary": [
+        "support_a",
+        "support_b"
+      ],
+      "active_anchor_ids": [
+        "anc-balance"
+      ],
+      "replacement_episode_id": null,
+      "replacement_event_kind": null,
+      "schema_version": "1.0.0",
+      "profile_version": "nq-profile-test",
+      "engine_version": "recognizer-test",
+      "data_status": {
+        "data_freshness_ms": 0,
+        "feature_completeness": 1.0,
+        "depth_available": true,
+        "dom_available": true,
+        "ai_available": false,
+        "degraded_modes": [],
+        "freshness": "fresh",
+        "completeness": "complete"
+      }
+    }
+  ],
+  "episode_evaluations": [
+    {
+      "evaluation_id": "eval-sample-20260323-001",
+      "episode_id": "ep-momentum_continuation-0930",
+      "instrument": "NQ",
+      "session": null,
+      "bar_tf": null,
+      "market_time_start": "2026-03-23T09:30:00Z",
+      "market_time_end": "2026-03-23T09:31:00Z",
+      "profile_version": "nq-profile-test",
+      "engine_version": "recognizer-test",
+      "schema_version": "episode_evaluation_v1",
+      "initial_regime_top1": "weak_momentum_trend_narrow",
+      "initial_regime_prob": 0.44,
+      "evaluated_event_kind": "momentum_continuation",
+      "initial_phase": "confirming",
+      "initial_prob": 0.62,
+      "declared_time_window": {
+        "mode": "next_8_bars",
+        "bars_min": 3,
+        "bars_max": 8
+      },
+      "anchor_context": [
+        "balance_center_at_price"
+      ],
+      "lifecycle": {
+        "started_at": "2026-03-23T09:30:00Z",
+        "first_validation_hit_at": "2026-03-23T09:30:00Z",
+        "peak_prob": 0.77,
+        "peak_prob_at": "2026-03-23T09:31:00Z",
+        "first_invalidation_hit_at": null,
+        "downgraded_at": null,
+        "resolved_at": "2026-03-23T09:31:00Z",
+        "resolution": "confirmed",
+        "replacement_event": null
+      },
+      "outcome": {
+        "did_event_materialize": true,
+        "did_partial_materialize": false,
+        "dominant_final_event": "momentum_continuation",
+        "judgement_source": "rule_review_v1"
+      },
+      "scores": {
+        "hypothesis_selection_score": 1,
+        "confirmation_timing_score": -2,
+        "invalidation_timing_score": 0,
+        "transition_handling_score": 0,
+        "calibration_score": 2
+      },
+      "diagnosis": {
+        "primary_failure_mode": "early_confirmation",
+        "supporting_reasons": [
+          "validation_before_declared_window",
+          "event_materialized",
+          "confidence_matched_outcome"
+        ],
+        "missing_confirmation": [],
+        "invalidating_signals_seen": [],
+        "candidate_parameters": [
+          "thresholds.confirming_hypothesis_probability",
+          "time_windows.momentum_continuation.normal.bars_min"
+        ],
+        "suggested_direction": {
+          "thresholds.confirming_hypothesis_probability": "increase",
+          "time_windows.momentum_continuation.normal.bars_min": "increase"
+        }
+      },
+      "tuning_hints": {
+        "candidate_parameters": [
+          "thresholds.confirming_hypothesis_probability",
+          "time_windows.momentum_continuation.normal.bars_min"
+        ],
+        "suggested_direction": {
+          "thresholds.confirming_hypothesis_probability": "increase",
+          "time_windows.momentum_continuation.normal.bars_min": "increase"
+        },
+        "confidence": "low"
+      },
+      "evaluated_at": "2026-03-23T05:02:20.270810Z"
+    }
+  ],
+  "positive_negative_summary": {
+    "positive_episode_count": 0,
+    "negative_episode_count": 1,
+    "unevaluated_episode_count": 0,
+    "failure_mode_counts": {
+      "early_confirmation": 1
+    },
+    "event_kind_counts": {
+      "momentum_continuation": 1
+    },
+    "average_scores": {
+      "hypothesis_selection_score": 1.0,
+      "confirmation_timing_score": -2.0,
+      "invalidation_timing_score": 0.0,
+      "transition_handling_score": 0.0,
+      "calibration_score": 2.0
+    }
+  },
+  "patch_history": [
+    {
+      "candidate": {
+        "candidate_id": "patch-history-20260323-001",
+        "instrument": "NQ",
+        "schema_version": "profile_patch_candidate_v1",
+        "ontology_version": "master_spec_v2_v1",
+        "base_profile_version": "nq-profile-test",
+        "proposed_profile_version": "nq-profile-test.patch-preview",
+        "recommendation_id": null,
+        "candidate_parameters": [
+          "weights.depth_dom"
+        ],
+        "suggested_changes": {
+          "weights.depth_dom": {
+            "action": "decrease",
+            "from": 0.88,
+            "to": 0.8
+          }
+        },
+        "risk_notes": [
+          "weights.depth_dom is a critical-criticality parameter.",
+          "This change requires replay validation before promotion."
+        ],
+        "allow_ai_auto_apply": false,
+        "created_at": "2026-03-23T05:02:20.327328Z"
+      },
+      "latest_validation_result": {
+        "schema_version": "patch_validation_result_v1",
+        "candidate_id": "patch-history-20260323-001",
+        "instrument_symbol": "NQ",
+        "validation_status": "accepted",
+        "boundary_validation_status": "accepted",
+        "recommendation_id": null,
+        "base_profile_version": "nq-profile-test",
+        "proposed_profile_version": "nq-profile-test.patch-preview",
+        "errors": [],
+        "warnings": [],
+        "changed_fields": [
+          "weights.depth_dom"
+        ],
+        "risk_notes": [
+          "weights.depth_dom is a critical-criticality parameter.",
+          "This change requires replay validation before promotion."
+        ],
+        "preview": {
+          "instrument_symbol": "NQ",
+          "base_profile_version": "nq-profile-test",
+          "proposed_profile_version": "nq-profile-test.patch-preview",
+          "candidate_parameters": [
+            "weights.depth_dom"
+          ],
+          "changed_fields": [
+            {
+              "path": "weights.depth_dom",
+              "action": "decrease",
+              "previous_value": 0.88,
+              "next_value": 0.8,
+              "metadata": {
+                "path": "weights.depth_dom",
+                "value_type": "float",
+                "min": 0.0,
+                "max": 2.0,
+                "step": 0.05,
+                "safe_default": 0.88,
+                "criticality": "critical",
+                "applies_to_events": [
+                  "momentum_continuation",
+                  "balance_mean_reversion",
+                  "absorption_to_reversal_preparation"
+                ],
+                "description": "Evidence bucket weight."
+              },
+              "risk_notes": [
+                "weights.depth_dom is a critical-criticality parameter.",
+                "This change requires replay validation before promotion."
+              ]
+            }
+          ],
+          "risk_notes": [
+            "weights.depth_dom is a critical-criticality parameter.",
+            "This change requires replay validation before promotion."
+          ],
+          "requires_human_review": true,
+          "allow_ai_auto_apply": false
+        },
+        "offline_replay_validation": {
+          "status": "not_run",
+          "runner": "local_stub",
+          "compared_episode_count": 0,
+          "metrics": {},
+          "summary": null,
+          "notes": [],
+          "validated_at": null
+        },
+        "human_approval": {
+          "required": true,
+          "status": "pending",
+          "approved_by": null,
+          "approved_at": null,
+          "notes": []
+        },
+        "promotion_ready": false,
+        "allow_ai_auto_apply": false,
+        "validated_at": "2026-03-23T05:02:20.327328Z"
+      }
+    }
+  ],
+  "degradation_statistics": {
+    "belief_sample_count": 2,
+    "degraded_belief_count": 1,
+    "degraded_mode_counts": {
+      "no_ai": 1,
+      "no_depth": 1
+    },
+    "depth_unavailable_count": 1,
+    "dom_unavailable_count": 0,
+    "ai_unavailable_count": 2,
+    "latest_freshness": "fresh",
+    "latest_completeness": "complete"
+  },
+  "unevaluated_episode_ids": []
+}

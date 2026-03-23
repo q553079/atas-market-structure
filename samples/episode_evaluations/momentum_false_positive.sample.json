@@ -1,0 +1,88 @@
+{
+  "evaluation_id": "eval-sample-momentum-false-positive",
+  "episode_id": "ep-sample-momentum-false-positive",
+  "instrument": "NQ",
+  "session": "us_regular",
+  "bar_tf": "1m",
+  "market_time_start": "2026-03-23T13:00:00Z",
+  "market_time_end": "2026-03-23T13:03:00Z",
+  "profile_version": "nq_profile_v1",
+  "engine_version": "recognizer_deterministic_v1",
+  "schema_version": "episode_evaluation_v1",
+  "initial_regime_top1": "weak_momentum_trend_narrow",
+  "initial_regime_prob": 0.46,
+  "evaluated_event_kind": "momentum_continuation",
+  "initial_phase": "emerging",
+  "initial_prob": 0.31,
+  "declared_time_window": {
+    "mode": "next_8_bars",
+    "bars_min": 3,
+    "bars_max": 8
+  },
+  "anchor_context": [
+    "initiative_origin_nearby"
+  ],
+  "lifecycle": {
+    "started_at": "2026-03-23T13:00:00Z",
+    "first_validation_hit_at": "2026-03-23T13:02:00Z",
+    "peak_prob": 0.78,
+    "peak_prob_at": "2026-03-23T13:02:00Z",
+    "first_invalidation_hit_at": "2026-03-23T13:03:00Z",
+    "downgraded_at": null,
+    "resolved_at": null,
+    "resolution": "invalidated",
+    "replacement_event": null
+  },
+  "outcome": {
+    "did_event_materialize": false,
+    "did_partial_materialize": true,
+    "dominant_final_event": null,
+    "judgement_source": "rule_review_v1"
+  },
+  "scores": {
+    "hypothesis_selection_score": -2,
+    "confirmation_timing_score": 1,
+    "invalidation_timing_score": 2,
+    "transition_handling_score": 0,
+    "calibration_score": -1
+  },
+  "diagnosis": {
+    "primary_failure_mode": "false_positive",
+    "supporting_reasons": [
+      "validation_within_declared_window",
+      "event_partially_materialized",
+      "confidence_misaligned_with_outcome",
+      "confirming_level_peak_probability_seen"
+    ],
+    "missing_confirmation": [
+      "avoid_return_to_old_balance"
+    ],
+    "invalidating_signals_seen": [
+      "returned_to_balance_center"
+    ],
+    "candidate_parameters": [
+      "priors.hypotheses.continuation_base",
+      "thresholds.confirming_hypothesis_probability",
+      "weights.initiative"
+    ],
+    "suggested_direction": {
+      "priors.hypotheses.continuation_base": "decrease",
+      "thresholds.confirming_hypothesis_probability": "increase",
+      "weights.initiative": "decrease"
+    }
+  },
+  "tuning_hints": {
+    "candidate_parameters": [
+      "priors.hypotheses.continuation_base",
+      "thresholds.confirming_hypothesis_probability",
+      "weights.initiative"
+    ],
+    "suggested_direction": {
+      "priors.hypotheses.continuation_base": "decrease",
+      "thresholds.confirming_hypothesis_probability": "increase",
+      "weights.initiative": "decrease"
+    },
+    "confidence": "medium"
+  },
+  "evaluated_at": "2026-03-23T13:07:00Z"
+}

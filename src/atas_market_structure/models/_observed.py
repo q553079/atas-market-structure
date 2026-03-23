@@ -922,6 +922,53 @@ class EventSnapshotPayload(BaseModel):
     )
 
 
+class ProcessContextPayload(BaseModel):
+    """Observed process-context payload stored independently from full structure snapshots."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "schema_version": "1.0.0",
+                "process_context_id": "proc-20260315-093100",
+                "observed_at": "2026-03-15T09:31:00Z",
+                "source": {
+                    "system": "ATAS",
+                    "instance_id": "DESKTOP-ATAS-01",
+                    "adapter_version": "0.3.0",
+                },
+                "instrument": {
+                    "symbol": "NQH6",
+                    "venue": "CME",
+                    "tick_size": 0.25,
+                    "currency": "USD",
+                },
+                "process_context": {
+                    "session_windows": [],
+                    "second_features": [],
+                    "liquidity_episodes": [],
+                    "initiative_drives": [],
+                    "measured_moves": [],
+                    "manipulation_legs": [],
+                    "gap_references": [],
+                    "post_harvest_responses": [],
+                    "exertion_zones": [],
+                    "cross_session_sequences": [],
+                },
+            },
+        },
+    )
+
+    schema_version: str = Field(..., description="Payload schema version.", examples=["1.0.0"])
+    process_context_id: str = Field(..., description="Producer-generated process-context identifier.")
+    observed_at: datetime = Field(..., description="Timestamp of the process-context snapshot.")
+    source: SourceRef = Field(..., description="Source metadata.")
+    instrument: InstrumentRef = Field(..., description="Instrument metadata.")
+    process_context: ObservedProcessContext = Field(
+        ...,
+        description="Observed multi-horizon process context kept separate from derived interpretation.",
+    )
+
+
 class ObservedLargeLiquidityLevel(BaseModel):
     """Observed summary for one significant large order track."""
 
@@ -1029,5 +1076,4 @@ class DepthSnapshotPayload(BaseModel):
         default_factory=list,
         description="Only the significant large order tracks selected by the adapter or local filter.",
     )
-
 

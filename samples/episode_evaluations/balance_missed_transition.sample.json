@@ -1,0 +1,87 @@
+{
+  "evaluation_id": "eval-sample-balance-transition",
+  "episode_id": "ep-sample-balance-transition",
+  "instrument": "NQ",
+  "session": "us_regular",
+  "bar_tf": "1m",
+  "market_time_start": "2026-03-23T12:00:00Z",
+  "market_time_end": "2026-03-23T12:02:00Z",
+  "profile_version": "nq_profile_v1",
+  "engine_version": "recognizer_deterministic_v1",
+  "schema_version": "episode_evaluation_v1",
+  "initial_regime_top1": "balance_mean_reversion",
+  "initial_regime_prob": 0.39,
+  "evaluated_event_kind": "balance_mean_reversion",
+  "initial_phase": "building",
+  "initial_prob": 0.4,
+  "declared_time_window": {
+    "mode": "next_12_bars",
+    "bars_min": 4,
+    "bars_max": 12
+  },
+  "anchor_context": [
+    "balance_center_at_price"
+  ],
+  "lifecycle": {
+    "started_at": "2026-03-23T12:00:00Z",
+    "first_validation_hit_at": null,
+    "peak_prob": 0.4,
+    "peak_prob_at": "2026-03-23T12:00:00Z",
+    "first_invalidation_hit_at": "2026-03-23T12:02:00Z",
+    "downgraded_at": "2026-03-23T12:01:00Z",
+    "resolved_at": null,
+    "resolution": "replaced",
+    "replacement_event": "momentum_continuation"
+  },
+  "outcome": {
+    "did_event_materialize": false,
+    "did_partial_materialize": true,
+    "dominant_final_event": "momentum_continuation",
+    "judgement_source": "rule_review_v1"
+  },
+  "scores": {
+    "hypothesis_selection_score": -1,
+    "confirmation_timing_score": 0,
+    "invalidation_timing_score": 2,
+    "transition_handling_score": -2,
+    "calibration_score": 0
+  },
+  "diagnosis": {
+    "primary_failure_mode": "missed_transition",
+    "supporting_reasons": [
+      "replacement_event_not_preannounced_in_transition_watch",
+      "event_partially_materialized",
+      "confidence_misaligned_with_outcome"
+    ],
+    "missing_confirmation": [
+      "continued_return_to_center"
+    ],
+    "invalidating_signals_seen": [
+      "fresh_initiative_breakout"
+    ],
+    "candidate_parameters": [
+      "weights.path_dependency",
+      "weights.anchor_interaction",
+      "priors.hypotheses.continuation_base"
+    ],
+    "suggested_direction": {
+      "weights.path_dependency": "increase",
+      "weights.anchor_interaction": "increase",
+      "priors.hypotheses.continuation_base": "increase"
+    }
+  },
+  "tuning_hints": {
+    "candidate_parameters": [
+      "weights.path_dependency",
+      "weights.anchor_interaction",
+      "priors.hypotheses.continuation_base"
+    ],
+    "suggested_direction": {
+      "weights.path_dependency": "increase",
+      "weights.anchor_interaction": "increase",
+      "priors.hypotheses.continuation_base": "increase"
+    },
+    "confidence": "medium"
+  },
+  "evaluated_at": "2026-03-23T12:05:00Z"
+}

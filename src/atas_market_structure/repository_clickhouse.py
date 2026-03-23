@@ -286,7 +286,7 @@ class ClickHouseChartCandleRepository:
                 tick_volume=int(row[10]),
                 delta=int(row[11]),
                 updated_at=_normalize_utc(row[12]),
-                source_timezone=row[13] or None,
+                source_timezone=(row[13] if len(row) > 13 else None) or None,
             )
             for row in rows
         ]
@@ -658,6 +658,64 @@ class ClickHouseChartCandleRepository:
         stored_at_after: datetime | None = None,
         stored_at_before: datetime | None = None,
     ) -> list[StoredIngestion]:
+        return self._list_ingestions_page(
+            ingestion_kind=ingestion_kind,
+            instrument_symbol=instrument_symbol,
+            source_snapshot_id=source_snapshot_id,
+            limit=limit,
+            stored_at_after=stored_at_after,
+            stored_at_before=stored_at_before,
+        )
+
+    def iter_ingestions_paginated(
+        self,
+        *,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        source_snapshot_id: str | None = None,
+        page_size: int = 1000,
+        stored_at_after: datetime | None = None,
+        stored_at_before: datetime | None = None,
+    ):
+        """Yield ingestion rows in stable descending pages for large replay scans."""
+
+        safe_page_size = max(1, int(page_size))
+        cursor_stored_at: datetime | None = None
+        cursor_ingestion_id: str | None = None
+
+        while True:
+            page = self._list_ingestions_page(
+                ingestion_kind=ingestion_kind,
+                instrument_symbol=instrument_symbol,
+                source_snapshot_id=source_snapshot_id,
+                limit=safe_page_size,
+                stored_at_after=stored_at_after,
+                stored_at_before=stored_at_before,
+                cursor_stored_at=cursor_stored_at,
+                cursor_ingestion_id=cursor_ingestion_id,
+            )
+            if not page:
+                break
+            for item in page:
+                yield item
+            if len(page) < safe_page_size:
+                break
+            tail = page[-1]
+            cursor_stored_at = tail.stored_at
+            cursor_ingestion_id = tail.ingestion_id
+
+    def _list_ingestions_page(
+        self,
+        *,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        source_snapshot_id: str | None = None,
+        limit: int = 100,
+        stored_at_after: datetime | None = None,
+        stored_at_before: datetime | None = None,
+        cursor_stored_at: datetime | None = None,
+        cursor_ingestion_id: str | None = None,
+    ) -> list[StoredIngestion]:
         clauses: list[str] = []
         if ingestion_kind is not None:
             clauses.append(f"ingestion_kind = {_quote_string(ingestion_kind)}")
@@ -672,6 +730,16 @@ class ClickHouseChartCandleRepository:
         if stored_at_before is not None:
             clauses.append(
                 f"stored_at <= toDateTime64('{_to_ch_datetime64_literal(stored_at_before)}', 3, 'UTC')"
+            )
+        if cursor_stored_at is not None:
+            if cursor_ingestion_id is None:
+                raise ValueError("cursor_ingestion_id is required when cursor_stored_at is provided")
+            clauses.append(
+                "("
+                f"stored_at < toDateTime64('{_to_ch_datetime64_literal(cursor_stored_at)}', 3, 'UTC') "
+                f"OR (stored_at = toDateTime64('{_to_ch_datetime64_literal(cursor_stored_at)}', 3, 'UTC') "
+                f"AND ingestion_id < {_quote_string(cursor_ingestion_id)})"
+                ")"
             )
 
         where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
@@ -919,6 +987,37 @@ class HybridAnalysisRepository:
             stored_at_after=stored_at_after,
             stored_at_before=stored_at_before,
         )
+
+    def iter_ingestions_paginated(
+        self,
+        *,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        source_snapshot_id: str | None = None,
+        page_size: int = 1000,
+        stored_at_after: datetime | None = None,
+        stored_at_before: datetime | None = None,
+    ):
+        repo = self._ingestion_repository
+        if hasattr(repo, "iter_ingestions_paginated"):
+            yield from repo.iter_ingestions_paginated(
+                ingestion_kind=ingestion_kind,
+                instrument_symbol=instrument_symbol,
+                source_snapshot_id=source_snapshot_id,
+                page_size=page_size,
+                stored_at_after=stored_at_after,
+                stored_at_before=stored_at_before,
+            )
+            return
+        for item in repo.list_ingestions(
+            ingestion_kind=ingestion_kind,
+            instrument_symbol=instrument_symbol,
+            source_snapshot_id=source_snapshot_id,
+            limit=page_size,
+            stored_at_after=stored_at_after,
+            stored_at_before=stored_at_before,
+        ):
+            yield item
 
     def purge_ingestions(
         self,

@@ -1,0 +1,92 @@
+instrument: NQ
+profile_version: nq_profile_v1
+schema_version: instrument_profile_v1
+ontology_version: master_spec_v2_v1
+is_active: true
+created_at: 2026-03-23T00:00:00Z
+normalization:
+  price_unit: ticks
+  tick_size: 0.25
+  atr_window_bars: 20
+  displacement_normalizer: atr_fraction
+  volume_normalizer: rolling_quantile
+  range_ticks_reference: 32.0
+  anchor_active_distance_ticks: 48.0
+time_windows:
+  feature_lookback_bars: 20
+  feature_lookback_minutes: 60
+  momentum_continuation:
+    strong:
+      bars_min: 2
+      bars_max: 6
+    normal:
+      bars_min: 3
+      bars_max: 8
+  balance_mean_reversion:
+    normal:
+      bars_min: 4
+      bars_max: 12
+  absorption_to_reversal_preparation:
+    normal:
+      bars_min: 3
+      bars_max: 10
+thresholds:
+  active_hypothesis_probability: 0.28
+  building_hypothesis_probability: 0.36
+  confirming_hypothesis_probability: 0.56
+  resolved_hypothesis_probability: 0.74
+  weakening_drop_threshold: 0.12
+  momentum_efficiency_high: 0.58
+  balance_score_high: 0.60
+  compression_score_high: 0.62
+  absorption_score_high: 0.56
+  center_hit_ticks: 10.0
+  anchor_near_ticks: 20.0
+  initiative_reacceleration_score: 0.68
+  initiative_push:
+    displacement_zscore: 1.4
+    efficiency_min: 0.58
+  shallow_pullback:
+    retrace_ratio_max: 0.38
+  deep_pullback:
+    retrace_ratio_min: 0.55
+  balance_return_penalty_trigger:
+    distance_to_balance_ticks: 8.0
+weights:
+  bar_structure: 1.0
+  volatility_range: 0.8
+  trend_efficiency: 1.0
+  initiative: 1.05
+  balance: 0.95
+  absorption: 1.05
+  depth_dom: 0.88
+  anchor_interaction: 0.85
+  path_dependency: 0.8
+decay:
+  stale_macro_penalty: 0.08
+  missing_depth_penalty: 0.1
+  missing_dom_penalty: 0.08
+  anchor_freshness_hours: 72
+  balance_center_half_life_bars: 120
+  gap_edge_half_life_bars: 80
+  initiative_origin_half_life_bars: 60
+priors:
+  regimes:
+    strong_momentum_trend: 0.18
+    weak_momentum_trend_narrow: 0.18
+    weak_momentum_trend_wide: 0.14
+    balance_mean_reversion: 0.20
+    compression: 0.14
+    transition_exhaustion: 0.16
+  hypotheses:
+    continuation_base: 0.27
+    distribution_balance: 0.24
+    absorption_accumulation: 0.23
+    reversal_preparation: 0.26
+safety:
+  allow_ai_auto_apply: false
+  require_offline_validation: true
+  max_belief_regimes: 3
+  max_belief_hypotheses: 3
+  max_active_anchors: 3
+  minimum_bar_count_for_primary_features: 3

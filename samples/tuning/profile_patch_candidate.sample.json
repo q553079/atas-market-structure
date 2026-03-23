@@ -1,0 +1,33 @@
+{
+  "candidate_id": "patch-sample-20260323-001",
+  "instrument": "NQ",
+  "schema_version": "profile_patch_candidate_v1",
+  "ontology_version": "master_spec_v2_v1",
+  "base_profile_version": "nq-profile-test",
+  "proposed_profile_version": "nq-profile-test.candidate.20260323050220",
+  "recommendation_id": "tune-sample-20260323-001",
+  "candidate_parameters": [
+    "time_windows.momentum_continuation.normal.bars_min",
+    "thresholds.confirming_hypothesis_probability"
+  ],
+  "suggested_changes": {
+    "time_windows.momentum_continuation.normal.bars_min": {
+      "action": "increase",
+      "from": 3,
+      "to": 4
+    },
+    "thresholds.confirming_hypothesis_probability": {
+      "action": "increase",
+      "from": 0.56,
+      "to": 0.57
+    }
+  },
+  "risk_notes": [
+    "time_windows.momentum_continuation.normal.bars_min is a medium-criticality parameter.",
+    "time_windows.momentum_continuation.normal.bars_min moves more than 20% away from the safe default.",
+    "thresholds.confirming_hypothesis_probability is a critical-criticality parameter.",
+    "This change requires replay validation before promotion."
+  ],
+  "allow_ai_auto_apply": false,
+  "created_at": "2026-03-23T05:02:20.343657Z"
+}

@@ -42,7 +42,19 @@ class DepthMonitoringService:
             observed_payload=payload.model_dump(mode="json"),
             stored_at=stored_at,
         )
+        return self.ingest_depth_snapshot_after_store(
+            payload,
+            ingestion_id=ingestion_id,
+            stored_at=stored_at,
+        )
 
+    def ingest_depth_snapshot_after_store(
+        self,
+        payload: DepthSnapshotPayload,
+        *,
+        ingestion_id: str,
+        stored_at: datetime,
+    ) -> DepthSnapshotAcceptedResponse:
         updated_memories = [
             self._upsert_memory(payload=payload, level=level, stored_at=stored_at)
             for level in payload.significant_levels

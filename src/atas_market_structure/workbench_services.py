@@ -1764,9 +1764,12 @@ class ReplayWorkbenchChatService:
 
 
 class ReplayWorkbenchService:
-    _SCHEMA_VERSION = "1.2.0"
-    _PROFILE_VERSION = "instrument_profile_v1"
-    _ENGINE_VERSION = "recognizer_build_v1"
+    _BUILD_RESPONSE_SCHEMA_VERSION = "replay_workbench_build_response_v1"
+    _SNAPSHOT_SCHEMA_VERSION = "replay_workbench_snapshot_v1"
+    _LIVE_STATUS_SCHEMA_VERSION = "replay_workbench_live_status_v1"
+    _LIVE_TAIL_SCHEMA_VERSION = "replay_workbench_live_tail_v1"
+    _FALLBACK_PROFILE_VERSION = "profile_unassigned"
+    _FALLBACK_ENGINE_VERSION = "engine_unassigned"
     """Stores replay-workbench packets and builds replay snapshots from local adapter history."""
 
     _TIMEFRAME_MINUTES: dict[Timeframe, int] = {
@@ -1800,6 +1803,16 @@ class ReplayWorkbenchService:
         self._continuous_contract_service = ContinuousContractService(repository=repository)
         self._backfill_lock = Lock()
         self._backfill_requests: dict[str, ReplayWorkbenchAtasBackfillRecord] = {}
+
+    def _resolve_active_versions(self, instrument_symbol: str | None) -> tuple[str, str]:
+        profile_version = self._FALLBACK_PROFILE_VERSION
+        if instrument_symbol:
+            profile = self._repository.get_active_instrument_profile(instrument_symbol.upper())
+            if profile is not None:
+                profile_version = profile.profile_version
+        build = self._repository.get_active_recognizer_build()
+        engine_version = build.engine_version if build is not None else self._FALLBACK_ENGINE_VERSION
+        return profile_version, engine_version
 
     def ingest_replay_snapshot(self, payload: ReplayWorkbenchSnapshotPayload) -> ReplayWorkbenchAcceptedResponse:
         stored_at = datetime.now(tz=UTC)
@@ -2177,6 +2190,7 @@ class ReplayWorkbenchService:
         replay_ingestion_id: str | None = None,
     ) -> ReplayWorkbenchLiveStatusResponse:
         now = datetime.now(tz=UTC)
+        profile_version, engine_version = self._resolve_active_versions(instrument_symbol)
         latest_continuous_state = self._get_latest_ingestion_status(
             now=now,
             ingestion_kind="adapter_continuous_state",
@@ -2229,9 +2243,9 @@ class ReplayWorkbenchService:
         )
 
         return ReplayWorkbenchLiveStatusResponse(
-            schema_version=self._SCHEMA_VERSION,
-            profile_version=self._PROFILE_VERSION,
-            engine_version=self._ENGINE_VERSION,
+            schema_version=self._LIVE_STATUS_SCHEMA_VERSION,
+            profile_version=profile_version,
+            engine_version=engine_version,
             data_status=self._build_data_status(
                 latest_adapter_sync_at=latest_adapter_sync_at,
                 integrity=self._build_integrity(
@@ -2264,6 +2278,7 @@ class ReplayWorkbenchService:
         lookback_bars: int = 4,
     ) -> ReplayWorkbenchLiveTailResponse:
         symbol = instrument_symbol.upper()
+        profile_version, engine_version = self._resolve_active_versions(symbol)
 
         # Fast path: query pre-aggregated bars from chart_candles first.
         timeframe_minutes = self._TIMEFRAME_MINUTES.get(display_timeframe, 1)
@@ -2356,9 +2371,9 @@ class ReplayWorkbenchService:
 
         if latest_observed_at is None and latest_payload is None and not preaggregated_candles and tick_quote is None:
             return ReplayWorkbenchLiveTailResponse(
-                schema_version=self._SCHEMA_VERSION,
-                profile_version=self._PROFILE_VERSION,
-                engine_version=self._ENGINE_VERSION,
+                schema_version=self._LIVE_TAIL_SCHEMA_VERSION,
+                profile_version=profile_version,
+                engine_version=engine_version,
                 data_status=self._build_data_status(
                     latest_adapter_sync_at=None,
                     integrity=self._build_integrity(
@@ -2530,9 +2545,9 @@ class ReplayWorkbenchService:
             active_post_harvest_response = None
 
         return ReplayWorkbenchLiveTailResponse(
-            schema_version=self._SCHEMA_VERSION,
-            profile_version=self._PROFILE_VERSION,
-            engine_version=self._ENGINE_VERSION,
+            schema_version=self._LIVE_TAIL_SCHEMA_VERSION,
+            profile_version=profile_version,
+            engine_version=engine_version,
             data_status=self._build_data_status(
                 latest_adapter_sync_at=latest_observed_at,
                 integrity=integrity,
@@ -2991,7 +3006,7 @@ class ReplayWorkbenchService:
                     )
                     integrity = self._with_backfill_metadata(integrity, backfill_request)
                 return ReplayWorkbenchBuildResponse(
-                    schema_version=self._SCHEMA_VERSION,
+                    schema_version=self._BUILD_RESPONSE_SCHEMA_VERSION,
                     profile_version=payload.profile_version,
                     engine_version=payload.engine_version,
                     data_status=payload.data_status,
@@ -3028,7 +3043,7 @@ class ReplayWorkbenchService:
             accepted = self.ingest_replay_snapshot(payload)
             cache_after = self.get_cache_record(request.cache_key)
             return ReplayWorkbenchBuildResponse(
-                schema_version=self._SCHEMA_VERSION,
+                schema_version=self._BUILD_RESPONSE_SCHEMA_VERSION,
                 profile_version=payload.profile_version,
                 engine_version=payload.engine_version,
                 data_status=payload.data_status,
@@ -3075,7 +3090,7 @@ class ReplayWorkbenchService:
             )
             integrity = self._with_backfill_metadata(integrity, backfill_request)
         return ReplayWorkbenchBuildResponse(
-            schema_version=self._SCHEMA_VERSION,
+            schema_version=self._BUILD_RESPONSE_SCHEMA_VERSION,
             profile_version=payload.profile_version,
             engine_version=payload.engine_version,
             data_status=payload.data_status,
@@ -3150,17 +3165,23 @@ class ReplayWorkbenchService:
         footprint_digest = self._build_footprint_digest(footprint_payloads, request) if footprint_payloads else None
         history_coverage_start = min(payload.observed_window_start for payload in history_payloads)
         history_coverage_end = max(payload.observed_window_end for payload in history_payloads)
-        data_status = self._build_data_status(
-            latest_adapter_sync_at=history_coverage_end,
-            integrity=integrity,
-            ai_available=self._replay_ai_chat_service is not None,
-        )
+        latest_adapter_sync_at = history_coverage_end
+        if continuous_messages:
+            latest_adapter_sync_at = max(
+                latest_adapter_sync_at,
+                max(self._payload_observed_at(item.observed_payload) for item in continuous_messages),
+            )
+        profile_version, engine_version = self._resolve_active_versions(request.instrument_symbol)
 
         return ReplayWorkbenchSnapshotPayload(
-            schema_version="1.1.0",
-            profile_version=self._PROFILE_VERSION,
-            engine_version=self._ENGINE_VERSION,
-            data_status=data_status,
+            schema_version=self._SNAPSHOT_SCHEMA_VERSION,
+            profile_version=profile_version,
+            engine_version=engine_version,
+            data_status=self._build_data_status(
+                latest_adapter_sync_at=latest_adapter_sync_at,
+                integrity=integrity,
+                ai_available=self._replay_ai_chat_service is not None,
+            ),
             replay_snapshot_id=replay_snapshot_id,
             cache_key=request.cache_key,
             acquisition_mode=ReplayAcquisitionMode.ATAS_FETCH,
@@ -3508,22 +3529,20 @@ class ReplayWorkbenchService:
         chart_instance_id = request.chart_instance_id
         if chart_instance_id is None and isinstance(source_payload, dict):
             chart_instance_id = source_payload.get("chart_instance_id")
-        latest_adapter_sync_at: datetime | None = None
+        latest_adapter_sync_at = actual_window_end
         if last_payload is not None:
             latest_adapter_sync_at = self._payload_observed_at(last_payload)
-        elif candles:
-            latest_adapter_sync_at = candles[-1].ended_at
-        data_status = self._build_data_status(
-            latest_adapter_sync_at=latest_adapter_sync_at,
-            integrity=integrity,
-            ai_available=self._replay_ai_chat_service is not None,
-        )
+        profile_version, engine_version = self._resolve_active_versions(request.instrument_symbol)
 
         return ReplayWorkbenchSnapshotPayload(
-            schema_version="1.1.0",
-            profile_version=self._PROFILE_VERSION,
-            engine_version=self._ENGINE_VERSION,
-            data_status=data_status,
+            schema_version=self._SNAPSHOT_SCHEMA_VERSION,
+            profile_version=profile_version,
+            engine_version=engine_version,
+            data_status=self._build_data_status(
+                latest_adapter_sync_at=latest_adapter_sync_at,
+                integrity=integrity,
+                ai_available=self._replay_ai_chat_service is not None,
+            ),
             replay_snapshot_id=replay_snapshot_id,
             cache_key=request.cache_key,
             acquisition_mode=ReplayAcquisitionMode.CACHE_REUSE,

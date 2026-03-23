@@ -306,8 +306,162 @@ function renderEventPreviewMarkup(clusters = []) {
   `;
 }
 
+function renderProjectionBadgeRow(items = []) {
+  const values = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!values.length) {
+    return `<p class="empty-note">无</p>`;
+  }
+  return `<div class="recap-item-chip-row">${values.map((item) => `<span class="session-workspace-chip">${escapeHtml(String(item))}</span>`).join("")}</div>`;
+}
+
+function renderCurrentBeliefMarkup(projection) {
+  const currentBelief = projection?.belief_timeline?.current_belief || null;
+  if (!currentBelief) {
+    return `<div class="info-card"><h4>Belief State</h4><p class="empty-note">当前窗口没有 belief state。</p></div>`;
+  }
+  const topRegimes = Array.isArray(currentBelief.regime_posteriors)
+    ? currentBelief.regime_posteriors.slice(0, 3).map((item) => `${item.regime} ${Number(item.probability || 0).toFixed(2)}`)
+    : [];
+  const topHypotheses = Array.isArray(currentBelief.event_hypotheses)
+    ? currentBelief.event_hypotheses.slice(0, 3).map((item) => {
+      const label = item.mapped_event_kind || item.hypothesis_kind;
+      return `${label} / ${item.phase} / ${Number(item.posterior_probability || 0).toFixed(2)}`;
+    })
+    : [];
+  const activeAnchors = Array.isArray(currentBelief.active_anchors)
+    ? currentBelief.active_anchors.slice(0, 4).map((item) => item.anchor_id || item.anchor_type)
+    : [];
+  return `
+    <div class="info-card">
+      <h4>Belief State</h4>
+      <p class="mono">${escapeHtml(currentBelief.observed_at || "--")}</p>
+      <p class="mono">mode=${escapeHtml(currentBelief.recognition_mode || "--")} · profile=${escapeHtml(currentBelief.profile_version || "--")} · engine=${escapeHtml(currentBelief.engine_version || "--")}</p>
+      <p>Top Regimes</p>
+      ${renderProjectionBadgeRow(topRegimes)}
+      <p>Top Hypotheses</p>
+      ${renderProjectionBadgeRow(topHypotheses)}
+      <p>Active Anchors</p>
+      ${renderProjectionBadgeRow(activeAnchors)}
+      <p>Transition Watch</p>
+      ${renderProjectionBadgeRow(currentBelief.transition_watch || [])}
+      <p>Missing Confirmation</p>
+      ${renderProjectionBadgeRow(currentBelief.missing_confirmation || [])}
+    </div>
+  `;
+}
+
+function renderProjectionHealthMarkup(projection) {
+  const health = projection?.health_status?.health || null;
+  const dataQuality = projection?.health_status?.data_quality || null;
+  if (!health || !dataQuality) {
+    return `<div class="info-card"><h4>Health</h4><p class="empty-note">未加载 health/degraded 状态。</p></div>`;
+  }
+  return `
+    <div class="info-card">
+      <h4>Health / Degraded</h4>
+      <p class="mono">status=${escapeHtml(health.status || "--")} · freshness=${escapeHtml(health.freshness || "--")} · completeness=${escapeHtml(health.completeness || "--")}</p>
+      <p class="mono">profile=${escapeHtml(health.profile_version || "--")} · engine=${escapeHtml(health.engine_version || "--")}</p>
+      <p>Degraded Badges</p>
+      ${renderProjectionBadgeRow(health.degraded_reasons || [])}
+      <p>Source Status</p>
+      ${renderProjectionBadgeRow((dataQuality.source_statuses || []).map((item) => `${item.source_kind}:${item.available ? "ok" : "missing"}`))}
+    </div>
+  `;
+}
+
+function renderProjectionEpisodesMarkup(projection) {
+  const items = Array.isArray(projection?.episode_reviews?.items) ? projection.episode_reviews.items.slice(0, 6) : [];
+  if (!items.length) {
+    return `<div class="info-card"><h4>Closed Episodes</h4><p class="empty-note">当前窗口没有 closed episode。</p></div>`;
+  }
+  return `
+    <div class="info-card">
+      <h4>Closed Episodes</h4>
+      <div class="recap-item-list">
+        ${items.map((item) => `
+          <article class="recap-item-card">
+            <div class="recap-item-head">
+              <strong>${escapeHtml(item.episode.event_kind || "episode")}</strong>
+              <span class="session-workspace-chip">${escapeHtml(item.summary_status || "--")}</span>
+            </div>
+            <p class="recap-card-meta">${escapeHtml(formatCompactLocalDateTime(item.episode.started_at))} → ${escapeHtml(formatCompactLocalDateTime(item.episode.ended_at))}</p>
+            ${item.episode.key_evidence_summary?.length ? `<p>${escapeHtml(item.episode.key_evidence_summary.slice(0, 3).join(" / "))}</p>` : ""}
+            ${item.evaluation?.diagnosis?.supporting_reasons?.length ? `<p>${escapeHtml(item.evaluation.diagnosis.supporting_reasons.slice(0, 3).join(" / "))}</p>` : ""}
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderProjectionEvaluationsMarkup(projection) {
+  const items = Array.isArray(projection?.episode_evaluations?.items) ? projection.episode_evaluations.items.slice(0, 6) : [];
+  if (!items.length) {
+    return `<div class="info-card"><h4>Episode Evaluation</h4><p class="empty-note">当前窗口没有 episode evaluation。</p></div>`;
+  }
+  return `
+    <div class="info-card">
+      <h4>Episode Evaluation</h4>
+      <div class="recap-item-list">
+        ${items.map((item) => `
+          <article class="recap-item-card">
+            <div class="recap-item-head">
+              <strong>${escapeHtml(item.evaluation.evaluated_event_kind || "evaluation")}</strong>
+              <span class="session-workspace-chip">${escapeHtml(item.primary_failure_mode || "--")}</span>
+            </div>
+            <p class="recap-card-meta">${escapeHtml(formatCompactLocalDateTime(item.evaluation.evaluated_at))}</p>
+            <p>selection=${escapeHtml(String(item.evaluation.scores?.hypothesis_selection_score ?? "--"))}
+              / confirm=${escapeHtml(String(item.evaluation.scores?.confirmation_timing_score ?? "--"))}
+              / invalidate=${escapeHtml(String(item.evaluation.scores?.invalidation_timing_score ?? "--"))}</p>
+            <p>transition=${escapeHtml(String(item.evaluation.scores?.transition_handling_score ?? "--"))}
+              / calibration=${escapeHtml(String(item.evaluation.scores?.calibration_score ?? "--"))}</p>
+            <p>Candidate Parameters</p>
+            ${renderProjectionBadgeRow(item.candidate_parameters || [])}
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderProjectionTuningMarkup(projection) {
+  const metadata = projection?.metadata || null;
+  const items = Array.isArray(projection?.tuning_reviews?.items) ? projection.tuning_reviews.items.slice(0, 4) : [];
+  const metadataCard = metadata ? `
+    <div class="info-card">
+      <h4>Profile / Engine</h4>
+      <p class="mono">profile=${escapeHtml(metadata.active_profile?.profile_version || "--")} · ontology=${escapeHtml(metadata.active_profile?.ontology_version || "--")}</p>
+      <p class="mono">engine=${escapeHtml(metadata.active_build?.engine_version || "--")} · status=${escapeHtml(metadata.active_build?.status || "--")}</p>
+      ${metadata.latest_patch_candidate ? `<p class="mono">latest patch=${escapeHtml(metadata.latest_patch_candidate.candidate_id || "--")} / ${escapeHtml(metadata.latest_patch_candidate_status || "--")}</p>` : `<p class="empty-note">当前没有 patch candidate。</p>`}
+    </div>
+  ` : "";
+  const recommendationCard = items.length ? `
+    <div class="info-card">
+      <h4>AI Recommendation / Patch Compare</h4>
+      <div class="recap-item-list">
+        ${items.map((item) => `
+          <article class="recap-item-card">
+            <div class="recap-item-head">
+              <strong>${escapeHtml(item.recommendation.advisor_kind || "recommendation")}</strong>
+              <span class="session-workspace-chip">${escapeHtml(item.recommendation.confidence || "--")}</span>
+            </div>
+            <p class="recap-card-meta">${escapeHtml(formatCompactLocalDateTime(item.recommendation.generated_at))}</p>
+            <p>${escapeHtml(summarizeText(item.recommendation.expected_improvement || "", 180))}</p>
+            ${item.recommendation.recommendations?.length ? `<p>${escapeHtml(item.recommendation.recommendations.slice(0, 3).map((entry) => `${entry.parameter}:${entry.direction}->${entry.proposed_value}`).join(" / "))}</p>` : ""}
+            ${item.patch_candidate ? `<p class="mono">patch=${escapeHtml(item.patch_candidate.proposed_profile_version || "--")} / status=${escapeHtml(item.patch_candidate_status || "--")}</p>` : `<p class="empty-note">无 patch candidate。</p>`}
+            ${item.latest_validation_result?.preview?.changed_fields?.length ? `<p>${escapeHtml(item.latest_validation_result.preview.changed_fields.slice(0, 3).map((entry) => `${entry.field_path}:${entry.previous_value}->${entry.next_value}`).join(" / "))}</p>` : ""}
+            ${item.latest_validation_result ? `<p class="mono">validation=${escapeHtml(item.latest_validation_result.validation_status || "--")} / promotion_ready=${escapeHtml(String(item.latest_validation_result.promotion_ready))}</p>` : ""}
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  ` : `<div class="info-card"><h4>AI Recommendation / Patch Compare</h4><p class="empty-note">当前窗口没有 tuning recommendation。</p></div>`;
+  return `${metadataCard}${recommendationCard}`;
+}
+
 function renderDrawers({ state, els }) {
   const snapshot = state.snapshot;
+  const projection = state.reviewProjection || null;
   const eventModel = state.chartEventModel || null;
   const selectedCluster = eventModel?.selectedCluster || null;
   const topVisibleClusters = Array.isArray(eventModel?.topVisibleClusters) ? eventModel.topVisibleClusters : [];
@@ -325,6 +479,8 @@ function renderDrawers({ state, els }) {
         <p>${escapeHtml(eventModel?.viewportSummary || "视图未初始化")}</p>
       </div>
       <div class="drawer-card-grid">
+        ${renderProjectionHealthMarkup(projection)}
+        ${renderCurrentBeliefMarkup(projection)}
         <div class="info-card">
           <h4>${selectedCluster ? `事件详情 · ${escapeHtml(selectedCluster.timeLabel || "--")}` : "当前视图关键事件"}</h4>
           <p>${escapeHtml(selectedCluster?.summaryText || eventModel?.viewportSummary || "当前还没有关键事件摘要。")}</p>
@@ -355,7 +511,14 @@ function renderDrawers({ state, els }) {
       : `<div class="empty-note">无开仓记录。</div>`;
   }
 
-  els.drawerRecapPanel.innerHTML = renderRecapDrawerMarkup(state);
+  els.drawerRecapPanel.innerHTML = `
+    <div class="recap-panel-stack">
+      ${renderProjectionEpisodesMarkup(projection)}
+      ${renderProjectionEvaluationsMarkup(projection)}
+      ${renderProjectionTuningMarkup(projection)}
+      ${renderRecapDrawerMarkup(state)}
+    </div>
+  `;
 
   renderGammaDrawer({ state, els });
 }

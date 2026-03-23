@@ -1,0 +1,208 @@
+{
+  "belief_state_id": "bs-nq-20260323013000",
+  "instrument_symbol": "NQ",
+  "observed_at": "2026-03-23T01:30:00Z",
+  "stored_at": "2026-03-23T03:20:12Z",
+  "schema_version": "belief_state_snapshot_v1",
+  "profile_version": "nq_profile_v1_default",
+  "engine_version": "recognizer_deterministic_v1",
+  "recognition_mode": "degraded_no_depth",
+  "data_status": {
+    "data_freshness_ms": 6611765,
+    "feature_completeness": 0.6,
+    "depth_available": false,
+    "dom_available": false,
+    "ai_available": false,
+    "degraded_modes": [
+      "degraded_no_depth",
+      "degraded_no_dom",
+      "degraded_no_ai",
+      "degraded_stale_macro"
+    ],
+    "freshness": "stale",
+    "completeness": "partial"
+  },
+  "regime_posteriors": [
+    {
+      "regime": "strong_momentum_trend",
+      "probability": 0.33444,
+      "evidence": [
+        "initiative",
+        "trend_efficiency",
+        "bar_structure"
+      ]
+    },
+    {
+      "regime": "weak_momentum_trend_wide",
+      "probability": 0.236202,
+      "evidence": [
+        "initiative",
+        "trend_efficiency",
+        "bar_structure"
+      ]
+    },
+    {
+      "regime": "weak_momentum_trend_narrow",
+      "probability": 0.231325,
+      "evidence": [
+        "initiative",
+        "trend_efficiency",
+        "bar_structure"
+      ]
+    }
+  ],
+  "event_hypotheses": [
+    {
+      "hypothesis_id": "hyp-nq-continuation_base-20260323013000",
+      "hypothesis_kind": "continuation_base",
+      "mapped_event_kind": "momentum_continuation",
+      "phase": "confirming",
+      "posterior_probability": 0.631455,
+      "supporting_evidence": [
+        "trend_efficiency_support",
+        "initiative_relaunch_present",
+        "no_deep_return_to_center",
+        "path_still_directional"
+      ],
+      "missing_confirmation": [
+        "fresh_push_needed",
+        "acceptance_after_pullback",
+        "avoid_return_to_old_balance"
+      ],
+      "invalidating_signals": [],
+      "transition_watch": [
+        "watch_absorption_accumulation",
+        "watch_distribution_balance"
+      ],
+      "data_quality_score": 0.6,
+      "evidence_density_score": 0.6666666666666666,
+      "model_stability_score": 1.0,
+      "anchor_dependence_score": 0.7143
+    },
+    {
+      "hypothesis_id": "hyp-nq-absorption_accumulation-20260323013000",
+      "hypothesis_kind": "absorption_accumulation",
+      "mapped_event_kind": "absorption_to_reversal_preparation",
+      "phase": "invalidated",
+      "posterior_probability": 0.139466,
+      "supporting_evidence": [
+        "anchor_proximity_support"
+      ],
+      "missing_confirmation": [
+        "need_sustained_hold",
+        "need_opposite_initiative_hint"
+      ],
+      "invalidating_signals": [
+        "trend_reaccelerated"
+      ],
+      "transition_watch": [
+        "watch_continuation_base",
+        "watch_distribution_balance"
+      ],
+      "data_quality_score": 0.6,
+      "evidence_density_score": 0.16666666666666666,
+      "model_stability_score": 1.0,
+      "anchor_dependence_score": 0.7143
+    },
+    {
+      "hypothesis_id": "hyp-nq-distribution_balance-20260323013000",
+      "hypothesis_kind": "distribution_balance",
+      "mapped_event_kind": "balance_mean_reversion",
+      "phase": "invalidated",
+      "posterior_probability": 0.122554,
+      "supporting_evidence": [
+        "balance_center_defined",
+        "anchor_as_center_magnet"
+      ],
+      "missing_confirmation": [
+        "continued_return_to_center",
+        "avoid_fresh_single_sided_acceptance"
+      ],
+      "invalidating_signals": [
+        "fresh_initiative_breakout",
+        "acceptance_away_from_center"
+      ],
+      "transition_watch": [
+        "watch_continuation_base",
+        "watch_absorption_accumulation"
+      ],
+      "data_quality_score": 0.6,
+      "evidence_density_score": 0.3333333333333333,
+      "model_stability_score": 1.0,
+      "anchor_dependence_score": 0.7143
+    }
+  ],
+  "active_anchors": [
+    {
+      "anchor_id": "anc-1dab3d6ca0077677",
+      "anchor_type": "high_volume_acceptance_zone",
+      "reference_price": 21497.25,
+      "reference_time": "2026-03-23T01:15:00Z",
+      "freshness": "fresh",
+      "distance_ticks": 28.0,
+      "influence": 0.7143,
+      "role_profile": {
+        "magnet": 0.66,
+        "reversal_reference": 0.41
+      },
+      "profile_version": "nq_profile_v1_default"
+    },
+    {
+      "anchor_id": "anc-c7c01c09b8c6206a",
+      "anchor_type": "initiative_origin",
+      "reference_price": 21496.5,
+      "reference_time": "2026-03-23T01:27:00Z",
+      "freshness": "fresh",
+      "distance_ticks": 31.0,
+      "influence": 0.6837,
+      "role_profile": {
+        "resistance_from_below": 0.58,
+        "reversal_reference": 0.55,
+        "support_from_above": 0.58
+      },
+      "profile_version": "nq_profile_v1_default"
+    },
+    {
+      "anchor_id": "anc-2ffb7bfd1a35eb7e",
+      "anchor_type": "balance_center",
+      "reference_price": 21492.0,
+      "reference_time": "2026-03-23T01:30:00Z",
+      "freshness": "fresh",
+      "distance_ticks": 49.0,
+      "influence": 0.5,
+      "role_profile": {
+        "magnet": 0.82,
+        "reversal_reference": 0.42,
+        "take_profit_target": 0.64
+      },
+      "profile_version": "nq_profile_v1_default"
+    }
+  ],
+  "missing_confirmation": [
+    "fresh_push_needed",
+    "acceptance_after_pullback",
+    "avoid_return_to_old_balance",
+    "need_sustained_hold",
+    "need_opposite_initiative_hint",
+    "continued_return_to_center"
+  ],
+  "invalidating_signals_seen": [
+    "trend_reaccelerated",
+    "fresh_initiative_breakout",
+    "acceptance_away_from_center"
+  ],
+  "transition_watch": [
+    "watch_absorption_accumulation",
+    "watch_distribution_balance",
+    "watch_continuation_base"
+  ],
+  "notes": [
+    "feature_bar_count=6",
+    "depth evidence unavailable; related weights were reduced.",
+    "DOM evidence unavailable; hard confirms were suppressed.",
+    "macro/process context stale; regime confidence will be flattened.",
+    "triggered_by=sample_momentum",
+    "recognition_mode=bar_anchor_only",
+    "top_regime=strong_momentum_trend"
+  ]
+}

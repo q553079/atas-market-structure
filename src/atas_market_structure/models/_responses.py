@@ -14,10 +14,12 @@ from atas_market_structure.models._enums import (
     DepthCoverageState,
     ReplayAcquisitionMode,
     ReplayVerificationStatus,
+    ServiceHealthStatus,
     Timeframe,
 )
 from atas_market_structure.models._observed import ObservedLargeLiquidityLevel
 from atas_market_structure.models._replay import (
+    BeliefDataStatus,
     ReplayCachePolicy,
     ReplayChartBar,
     ReplayWorkbenchBackfillRange,
@@ -940,6 +942,122 @@ class IngestionEnvelope(BaseModel):
     source_snapshot_id: str
     observed_payload: dict[str, Any]
     stored_at: datetime
+
+
+class ReliableIngestionResponse(BaseModel):
+    """Store-first ingestion response used by the reliability endpoints."""
+
+    endpoint: str = Field(..., description="HTTP endpoint that accepted the payload.")
+    ingestion_kind: str = Field(..., description="Observed ingestion kind persisted for the payload.")
+    status: str = Field(..., description="Accepted/duplicate/store-only state for this request.")
+    request_id: str | None = Field(None, description="Natural request identifier when the payload provides one.")
+    dedup_key: str = Field(..., description="Idempotency key derived from request id or canonical payload hash.")
+    payload_hash: str = Field(..., description="Canonical payload hash used for duplicate protection.")
+    duplicate: bool = Field(False, description="Whether the request matched a previously stored payload.")
+    stored_at: datetime | None = Field(None, description="Timestamp when the raw payload was durably stored.")
+    ingestion_id: str | None = Field(None, description="Stored raw-ingestion identifier when persistence succeeded.")
+    dead_letter_id: str | None = Field(None, description="Dead-letter identifier when the request was quarantined.")
+    downstream_status: str = Field(..., description="Status of non-critical post-store processing.")
+    downstream_result: dict[str, Any] | None = Field(
+        None,
+        description="Optional downstream output generated after the raw payload was persisted.",
+    )
+    profile_version: str = Field(..., description="Instrument profile version attached to this response.")
+    engine_version: str = Field(..., description="Recognizer build version attached to this response.")
+    schema_version: str = Field(..., description="Response schema version.")
+    data_status: BeliefDataStatus = Field(..., description="Freshness/completeness state for UI and recognition consumers.")
+    freshness: str | None = Field(None, description="Compact freshness label copied from data_status.")
+    completeness: str | None = Field(None, description="Compact completeness label copied from data_status.")
+
+
+class IngestionErrorResponse(BaseModel):
+    """Standard error envelope for reliability ingestion endpoints."""
+
+    error: str = Field(..., description="Stable error code.")
+    detail: Any = Field(..., description="Structured error detail.")
+    endpoint: str = Field(..., description="HTTP endpoint that rejected the payload.")
+    ingestion_kind: str = Field(..., description="Target ingestion kind for the rejected payload.")
+    request_id: str | None = Field(None, description="Natural request identifier when one could be extracted.")
+    dedup_key: str | None = Field(None, description="Derived idempotency key when one could be extracted.")
+    payload_hash: str | None = Field(None, description="Payload hash when one could be computed.")
+    dead_letter_id: str | None = Field(None, description="Dead-letter identifier if the payload was quarantined.")
+    profile_version: str = Field(..., description="Instrument profile version attached to this error response.")
+    engine_version: str = Field(..., description="Recognizer build version attached to this error response.")
+    schema_version: str = Field(..., description="Response schema version.")
+
+
+class IngestionMetricsSnapshot(BaseModel):
+    """Compact counters derived from recent ingestion run logs."""
+
+    total_count: int = Field(..., ge=0, description="Total run-log rows included in the metrics window.")
+    accepted_count: int = Field(..., ge=0, description="Successful accepted ingestions.")
+    duplicate_count: int = Field(..., ge=0, description="Duplicate submissions absorbed by idempotency.")
+    dead_letter_count: int = Field(..., ge=0, description="Requests written to dead letter.")
+    downstream_failure_count: int = Field(..., ge=0, description="Post-store failures that did not block raw persistence.")
+
+
+class IngestionRunLogEntry(BaseModel):
+    """Recent ingestion run-log row surfaced by health endpoints."""
+
+    run_id: str = Field(..., description="Run-log identifier.")
+    endpoint: str = Field(..., description="Endpoint that handled the request.")
+    ingestion_kind: str = Field(..., description="Observed ingestion kind.")
+    instrument_symbol: str | None = Field(None, description="Instrument symbol when available.")
+    request_id: str | None = Field(None, description="Natural request identifier when available.")
+    dedup_key: str = Field(..., description="Derived idempotency key.")
+    payload_hash: str = Field(..., description="Canonical payload hash.")
+    outcome: str = Field(..., description="Accepted/duplicate/dead-letter/downstream-failed outcome.")
+    http_status: int = Field(..., description="HTTP status returned to the caller.")
+    ingestion_id: str | None = Field(None, description="Raw-ingestion identifier when persistence succeeded.")
+    dead_letter_id: str | None = Field(None, description="Dead-letter identifier when one was created.")
+    detail: dict[str, Any] = Field(default_factory=dict, description="Structured run-log detail for operators.")
+    started_at: datetime = Field(..., description="When processing began.")
+    completed_at: datetime = Field(..., description="When processing finished.")
+
+
+class IngestionHealthResponse(BaseModel):
+    """Health and recent-run summary for the ingestion plane."""
+
+    status: ServiceHealthStatus = Field(..., description="Overall ingestion-plane health state.")
+    degraded_reasons: list[str] = Field(default_factory=list, description="Explicit degraded reasons for operators and UI.")
+    profile_version: str = Field(..., description="Instrument profile version attached to this health payload.")
+    engine_version: str = Field(..., description="Recognizer build version attached to this health payload.")
+    schema_version: str = Field(..., description="Health payload schema version.")
+    data_status: BeliefDataStatus = Field(..., description="Data freshness/completeness state surfaced to UI and recognition.")
+    freshness: str | None = Field(None, description="Compact freshness label copied from data_status.")
+    completeness: str | None = Field(None, description="Compact completeness label copied from data_status.")
+    last_success_at: datetime | None = Field(None, description="Most recent accepted raw-ingestion timestamp.")
+    last_dead_letter_at: datetime | None = Field(None, description="Most recent dead-letter timestamp.")
+    last_run_at: datetime | None = Field(None, description="Most recent run-log completion timestamp.")
+    metrics: IngestionMetricsSnapshot = Field(..., description="Recent ingestion counters.")
+    recent_runs: list[IngestionRunLogEntry] = Field(default_factory=list, description="Tail of recent run-log entries.")
+
+
+class DataQualitySourceStatus(BaseModel):
+    """Per-source freshness/completeness summary used by recognition and UI."""
+
+    source_kind: str = Field(..., description="Observed source family.")
+    latest_observed_at: datetime | None = Field(None, description="Latest timestamp observed for this source.")
+    available: bool = Field(..., description="Whether at least one recent payload was available.")
+    freshness_ms: int | None = Field(None, ge=0, description="Age in milliseconds from now to latest_observed_at.")
+
+
+class DataQualityResponse(BaseModel):
+    """Current data-quality envelope consumed by recognition and UI layers."""
+
+    status: ServiceHealthStatus = Field(..., description="Overall data-quality health state.")
+    degraded_reasons: list[str] = Field(default_factory=list, description="Explicit degraded reasons active right now.")
+    instrument_symbol: str | None = Field(None, description="Instrument symbol the quality snapshot is scoped to.")
+    profile_version: str = Field(..., description="Instrument profile version attached to this quality payload.")
+    engine_version: str = Field(..., description="Recognizer build version attached to this quality payload.")
+    schema_version: str = Field(..., description="Quality payload schema version.")
+    data_status: BeliefDataStatus = Field(..., description="Belief-style data status for recognition and UI consumers.")
+    freshness: str | None = Field(None, description="Compact freshness label copied from data_status.")
+    completeness: str | None = Field(None, description="Compact completeness label copied from data_status.")
+    source_statuses: list[DataQualitySourceStatus] = Field(
+        default_factory=list,
+        description="Latest availability/freshness state for each observed source family.",
+    )
 
 
 class InstrumentRef(BaseModel):

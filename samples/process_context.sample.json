@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "process_context_id": "proc-20260315-093100",
+  "observed_at": "2026-03-15T09:31:00Z",
+  "source": {
+    "system": "ATAS",
+    "instance_id": "DESKTOP-ATAS-01",
+    "chart_instance_id": "NQ-7fa31b2c",
+    "adapter_version": "0.3.0"
+  },
+  "instrument": {
+    "symbol": "NQH6",
+    "venue": "CME",
+    "tick_size": 0.25,
+    "currency": "USD"
+  },
+  "process_context": {
+    "session_windows": [],
+    "second_features": [],
+    "liquidity_episodes": [],
+    "initiative_drives": [],
+    "measured_moves": [],
+    "manipulation_legs": [],
+    "gap_references": [],
+    "post_harvest_responses": [],
+    "exertion_zones": [],
+    "cross_session_sequences": []
+  }
+}

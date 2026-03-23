@@ -1,0 +1,54 @@
+{
+  "recommendation_id": "tune-sample-20260323-001",
+  "bundle_id": "bundle-sample-20260323-001",
+  "instrument": "NQ",
+  "schema_version": "tuning_recommendation_v1",
+  "profile_version": "nq-profile-test",
+  "engine_version": "recognizer-test",
+  "generated_at": "2026-03-23T05:02:20.342870Z",
+  "advisor_kind": "offline_stub_v1",
+  "analysis_window": {
+    "episode_count": 2,
+    "evaluation_count": 2,
+    "from": "2026-03-23T09:30:00Z",
+    "to": "2026-03-23T10:03:00Z"
+  },
+  "top_failure_modes": [
+    {
+      "kind": "early_confirmation",
+      "count": 1,
+      "summary": "momentum_continuation shows recurring early_confirmation across 1 recent evaluations."
+    }
+  ],
+  "recommendations": [
+    {
+      "event_kind": "momentum_continuation",
+      "parameter": "time_windows.momentum_continuation.normal.bars_min",
+      "direction": "increase",
+      "current_value": 3,
+      "proposed_value": 4,
+      "support_count": 1,
+      "reason": "Recent early_confirmation diagnoses repeatedly surfaced validation_before_declared_window; propose to increase the bounded parameter.",
+      "expected_improvement": "reduce recurring early_confirmation outcomes in momentum_continuation",
+      "risk": "bounded parameter change still requires offline replay and explicit approval",
+      "confidence": "low"
+    },
+    {
+      "event_kind": "momentum_continuation",
+      "parameter": "thresholds.confirming_hypothesis_probability",
+      "direction": "increase",
+      "current_value": 0.56,
+      "proposed_value": 0.57,
+      "support_count": 1,
+      "reason": "Recent early_confirmation diagnoses repeatedly surfaced validation_before_declared_window; propose to increase the bounded parameter.",
+      "expected_improvement": "reduce recurring early_confirmation outcomes in momentum_continuation",
+      "risk": "critical parameter; offline replay compare and human approval remain mandatory",
+      "confidence": "low"
+    }
+  ],
+  "expected_improvement": "Target the dominant failure clusters (early_confirmation) with bounded offline-only parameter candidates.",
+  "risk": "time_windows.momentum_continuation.normal.bars_min is a medium-criticality parameter.; time_windows.momentum_continuation.normal.bars_min moves more than 20% away from the safe default.",
+  "confidence": "low",
+  "patch_candidate_ref": "patch-sample-20260323-001",
+  "allow_ai_auto_apply": false
+}

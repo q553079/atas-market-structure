@@ -1,0 +1,311 @@
+{
+  "schema_version": "golden_replay_case_set_v1",
+  "case_group": "degraded_and_failure",
+  "cases": [
+    {
+      "case_id": "degraded_no_depth_absorption_01",
+      "title": "Absorption case keeps running without depth or DOM",
+      "scenario": "degraded_no_depth",
+      "instrument": "NQ",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "evt",
+          "template": "event_snapshot",
+          "stored_at": "2026-03-23T12:30:01Z",
+          "observed_at": "2026-03-23T12:30:00Z",
+          "trigger_price": 21580.75
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T12:30:02Z",
+          "observed_at": "2026-03-23T12:30:00Z",
+          "point_of_control": 21572.0,
+          "initiative_side": "sell",
+          "zone_low": 21579.75,
+          "zone_high": 21580.75,
+          "include_initiative": false,
+          "include_liquidity_episode": true
+        }
+      ],
+      "expected": {
+        "top_event_kind": "absorption_to_reversal_preparation",
+        "recognition_mode": "degraded_no_depth",
+        "required_degraded_modes": ["degraded_no_depth", "degraded_no_dom"],
+        "forbidden_degraded_modes": ["degraded_no_ai", "degraded_stale_macro", "replay_rebuild_mode"],
+        "minimum_belief_count": 2,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "partial",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "degraded_no_ai_momentum_02",
+      "title": "Momentum continuation still closes while AI is unavailable",
+      "scenario": "degraded_no_ai",
+      "instrument": "NQ",
+      "ai_available": false,
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T13:00:01Z",
+          "observed_at": "2026-03-23T13:00:00Z",
+          "start_at": "2026-03-23T12:54:00Z",
+          "bars": [
+            { "open": 21490.0, "high": 21493.0, "low": 21489.75, "close": 21492.75, "volume": 240, "delta": 95 },
+            { "open": 21492.75, "high": 21496.0, "low": 21492.5, "close": 21495.75, "volume": 260, "delta": 112 },
+            { "open": 21495.75, "high": 21499.0, "low": 21495.5, "close": 21498.75, "volume": 270, "delta": 118 },
+            { "open": 21498.75, "high": 21502.0, "low": 21498.5, "close": 21501.75, "volume": 285, "delta": 124 },
+            { "open": 21501.75, "high": 21505.0, "low": 21501.5, "close": 21504.75, "volume": 300, "delta": 138 },
+            { "open": 21504.75, "high": 21508.0, "low": 21504.5, "close": 21507.75, "volume": 320, "delta": 150 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T13:00:02Z",
+          "observed_at": "2026-03-23T13:00:00Z",
+          "point_of_control": 21484.0,
+          "initiative_side": "buy",
+          "zone_low": 21487.0,
+          "zone_high": 21488.5
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T13:00:03Z",
+          "observed_at": "2026-03-23T13:00:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 21507.75,
+          "best_ask": 21508.0,
+          "reference_price": 21507.75,
+          "significant_levels": [
+            {
+              "track_id": "ask-21508-hold",
+              "side": "sell",
+              "price": 21508.0,
+              "current_size": 120,
+              "max_seen_size": 220,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 2,
+              "executed_volume_estimate": 12,
+              "replenishment_count": 2,
+              "price_reaction_ticks": 8,
+              "heat_score": 0.82,
+              "notes": ["depth stayed live while AI was unavailable"]
+            }
+          ]
+        },
+        {
+          "step_id": "cont",
+          "template": "adapter_continuous_state",
+          "stored_at": "2026-03-23T13:00:04Z",
+          "observed_at": "2026-03-23T13:00:04Z",
+          "last_price": 21518.25,
+          "local_low": 21505.0,
+          "local_high": 21518.25,
+          "net_delta": 820,
+          "volume": 1400,
+          "side": "buy",
+          "drive_low": 21505.0,
+          "drive_high": 21518.25
+        }
+      ],
+      "expected": {
+        "top_event_kind": "momentum_continuation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": ["degraded_no_ai"],
+        "forbidden_degraded_modes": ["degraded_no_depth", "degraded_no_dom", "degraded_stale_macro", "replay_rebuild_mode"],
+        "minimum_belief_count": 4,
+        "minimum_episode_count": 1,
+        "minimum_evaluation_count": 1,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": ["momentum_continuation"],
+        "required_episode_resolutions": ["confirmed"],
+        "required_evaluation_failure_modes": ["none"],
+        "data_completeness": "partial",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "degraded_stale_macro_balance_03",
+      "title": "Balance case stays available even when macro/process context is stale",
+      "scenario": "degraded_stale_macro",
+      "instrument": "ES",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T11:55:02Z",
+          "observed_at": "2026-03-23T11:55:00Z",
+          "point_of_control": 5300.0,
+          "initiative_side": "buy",
+          "zone_low": 5299.75,
+          "zone_high": 5300.25,
+          "include_initiative": false
+        },
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T12:30:01Z",
+          "observed_at": "2026-03-23T12:30:00Z",
+          "start_at": "2026-03-23T12:20:00Z",
+          "bars": [
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 80, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 81, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 82, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 83, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 84, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 85, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 86, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 87, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 88, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 89, "delta": -1 }
+          ]
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T12:30:03Z",
+          "observed_at": "2026-03-23T12:30:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 5299.75,
+          "best_ask": 5300.0,
+          "reference_price": 5299.75,
+          "significant_levels": [
+            {
+              "track_id": "bid-5300-stale",
+              "side": "buy",
+              "price": 5299.75,
+              "current_size": 150,
+              "max_seen_size": 210,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 3,
+              "executed_volume_estimate": 18,
+              "replenishment_count": 3,
+              "price_reaction_ticks": 6,
+              "heat_score": 0.74,
+              "notes": ["depth is current but macro context is intentionally old"]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "top_event_kind": "balance_mean_reversion",
+        "recognition_mode": "normal",
+        "required_degraded_modes": ["degraded_stale_macro"],
+        "forbidden_degraded_modes": ["degraded_no_depth", "degraded_no_dom", "degraded_no_ai", "replay_rebuild_mode"],
+        "minimum_belief_count": 2,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "partial",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "failure_missed_transition_04",
+      "title": "Balance narrative gets replaced by momentum and evaluates as missed transition",
+      "scenario": "missed_transition",
+      "instrument": "ES",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T13:30:01Z",
+          "observed_at": "2026-03-23T13:30:00Z",
+          "start_at": "2026-03-23T13:24:00Z",
+          "bars": [
+            { "open": 5300.0, "high": 5301.0, "low": 5299.75, "close": 5300.5, "volume": 100, "delta": 2 },
+            { "open": 5300.5, "high": 5301.0, "low": 5299.75, "close": 5300.0, "volume": 98, "delta": -1 },
+            { "open": 5300.0, "high": 5300.75, "low": 5299.5, "close": 5300.25, "volume": 96, "delta": 1 },
+            { "open": 5300.25, "high": 5300.75, "low": 5299.5, "close": 5300.0, "volume": 95, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5299.75, "volume": 94, "delta": -1 },
+            { "open": 5299.75, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 92, "delta": 1 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T13:30:02Z",
+          "observed_at": "2026-03-23T13:30:00Z",
+          "point_of_control": 5300.0,
+          "initiative_side": "buy",
+          "zone_low": 5299.75,
+          "zone_high": 5300.25,
+          "include_initiative": false
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T13:30:03Z",
+          "observed_at": "2026-03-23T13:30:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 5299.75,
+          "best_ask": 5300.0,
+          "reference_price": 5299.75,
+          "significant_levels": [
+            {
+              "track_id": "bid-5300-transition",
+              "side": "buy",
+              "price": 5299.75,
+              "current_size": 150,
+              "max_seen_size": 210,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 3,
+              "executed_volume_estimate": 18,
+              "replenishment_count": 3,
+              "price_reaction_ticks": 6,
+              "heat_score": 0.74,
+              "notes": ["rotation looked balanced before the breakout attempt"]
+            }
+          ]
+        },
+        {
+          "step_id": "cont",
+          "template": "adapter_continuous_state",
+          "stored_at": "2026-03-23T13:30:04Z",
+          "observed_at": "2026-03-23T13:30:04Z",
+          "last_price": 5300.0,
+          "local_low": 5299.5,
+          "local_high": 5300.5,
+          "net_delta": 20,
+          "volume": 420,
+          "side": "buy",
+          "drive_low": 5299.5,
+          "drive_high": 5300.5
+        }
+      ],
+      "expected": {
+        "top_event_kind": "momentum_continuation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["degraded_no_depth", "degraded_no_dom", "degraded_no_ai", "degraded_stale_macro", "replay_rebuild_mode"],
+        "minimum_belief_count": 4,
+        "minimum_episode_count": 2,
+        "minimum_evaluation_count": 2,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": ["balance_mean_reversion", "momentum_continuation"],
+        "required_episode_resolutions": ["replaced", "invalidated"],
+        "required_evaluation_failure_modes": ["missed_transition"],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    }
+  ]
+}

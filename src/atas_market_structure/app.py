@@ -29,6 +29,7 @@ from atas_market_structure.continuous_contract_service import (
     ContinuousContractServiceError,
 )
 from atas_market_structure.depth_services import DepthMonitoringService
+from atas_market_structure.ingestion_reliability_services import IngestionReliabilityService
 from atas_market_structure.models import (
     AdapterBackfillAcknowledgeRequest,
     AdapterBackfillAcknowledgeResponse,
@@ -42,15 +43,19 @@ from atas_market_structure.models import (
     ChartCandleEnvelope,
     ContinuousAdjustmentMode,
     ContinuousBarsEnvelope,
+    DataQualityResponse,
     DepthSnapshotAcceptedResponse,
     DepthSnapshotPayload,
     EventSnapshotPayload,
+    IngestionErrorResponse,
     IngestionAcceptedResponse,
     IngestionEnvelope,
+    IngestionHealthResponse,
     LiquidityMemoryEnvelope,
     LiquidityMemoryRecord,
     MarketStructurePayload,
     MirrorBarsEnvelope,
+    ProcessContextPayload,
     ReplayFootprintBarDetail,
     ReplayManualRegionAnnotationAcceptedResponse,
     ReplayManualRegionAnnotationEnvelope,
@@ -61,20 +66,31 @@ from atas_market_structure.models import (
     ReplayWorkbenchAcceptedResponse,
     ReplayWorkbenchAtasBackfillAcceptedResponse,
     ReplayWorkbenchAtasBackfillRequest,
+    ReplayProjectionQuery,
     ReplayWorkbenchBuildRequest,
     ReplayWorkbenchBuildResponse,
+    ReplayWorkbenchBeliefTimelineEnvelope,
     ReplayWorkbenchCacheEnvelope,
+    ReplayWorkbenchEpisodeEvaluationListEnvelope,
+    ReplayWorkbenchEpisodeReviewEnvelope,
+    ReplayWorkbenchHealthStatusEnvelope,
     ReplayWorkbenchInvalidationRequest,
     ReplayWorkbenchInvalidationResponse,
     ReplayWorkbenchLiveTailResponse,
+    ReplayWorkbenchProfileEngineEnvelope,
+    ReplayWorkbenchProjectionEnvelope,
     ReplayWorkbenchRebuildLatestRequest,
     ReplayWorkbenchRebuildLatestResponse,
     ReplayWorkbenchSnapshotPayload,
+    ReplayWorkbenchTuningReviewEnvelope,
+    ReliableIngestionResponse,
     RollMode,
     Timeframe,
 )
 from atas_market_structure.repository import AnalysisRepository
+from atas_market_structure.recognition import DeterministicRecognitionService
 from atas_market_structure.services import IngestionOrchestrator
+from atas_market_structure.workbench_projection_services import ReplayWorkbenchProjectionService
 from atas_market_structure.workbench_services import (
     ReplayWorkbenchChatError,
     ReplayWorkbenchChatUnavailableError,
@@ -105,6 +121,7 @@ class MarketStructureApplication:
         orchestrator: IngestionOrchestrator | None = None,
         depth_monitoring_service: DepthMonitoringService | None = None,
         adapter_ingestion_service: AdapterIngestionService | None = None,
+        recognition_service: DeterministicRecognitionService | None = None,
         replay_workbench_service: ReplayWorkbenchService | None = None,
         continuous_contract_service: ContinuousContractService | None = None,
         replay_ai_review_service: ReplayAiReviewService | None = None,
@@ -113,14 +130,37 @@ class MarketStructureApplication:
     ) -> None:
         self._repository = repository
         self._config = config or AppConfig.from_env()
-        self._orchestrator = orchestrator or IngestionOrchestrator(repository=repository)
+        self._recognition_service = recognition_service or DeterministicRecognitionService(
+            repository=repository,
+            ai_available=(replay_ai_review_service is not None or replay_ai_chat_service is not None),
+        )
+        self._orchestrator = orchestrator or IngestionOrchestrator(
+            repository=repository,
+            recognition_service=self._recognition_service,
+        )
         self._depth_monitoring_service = depth_monitoring_service or DepthMonitoringService(repository=repository)
         self._adapter_ingestion_service = adapter_ingestion_service or AdapterIngestionService(
             repository=repository,
             orchestrator=self._orchestrator,
+            recognition_service=self._recognition_service,
+        )
+        self._ingestion_reliability_service = IngestionReliabilityService(
+            repository=repository,
+            orchestrator=self._orchestrator,
+            depth_monitoring_service=self._depth_monitoring_service,
+            adapter_ingestion_service=self._adapter_ingestion_service,
+            ai_available=(
+                replay_ai_review_service is not None
+                or replay_ai_chat_service is not None
+            ),
+            recognition_service=self._recognition_service,
         )
         self._replay_workbench_service = replay_workbench_service or ReplayWorkbenchService(repository=repository)
         self._continuous_contract_service = continuous_contract_service or ContinuousContractService(repository=repository)
+        self._workbench_projection_service = ReplayWorkbenchProjectionService(
+            repository=repository,
+            ingestion_reliability_service=self._ingestion_reliability_service,
+        )
         self._replay_ai_review_service = replay_ai_review_service
         self._replay_ai_chat_service = replay_ai_chat_service
         self._replay_workbench_chat_service = ReplayWorkbenchChatService(
@@ -139,6 +179,20 @@ class MarketStructureApplication:
         try:
             if method == "GET" and route_path == "/health":
                 return self._json_response(200, {"status": "ok", "timestamp": datetime.now(tz=UTC)})
+
+            if method == "GET" and route_path == "/health/ingestion":
+                instrument_symbol = query.get("instrument_symbol", [None])[0]
+                result = self._ingestion_reliability_service.get_ingestion_health(
+                    instrument_symbol=instrument_symbol,
+                )
+                return self._json_model_response(result.status_code, result.body)
+
+            if method == "GET" and route_path == "/health/data-quality":
+                instrument_symbol = query.get("instrument_symbol", [None])[0]
+                result = self._ingestion_reliability_service.get_data_quality(
+                    instrument_symbol=instrument_symbol,
+                )
+                return self._json_model_response(result.status_code, result.body)
 
             if method == "GET" and route_path in {"/workbench/replay", "/static/replay_workbench.html"}:
                 html = (STATIC_DIR / "replay_workbench.html").read_text(encoding="utf-8")
@@ -187,15 +241,35 @@ class MarketStructureApplication:
                 response = self._orchestrator.ingest_market_structure(payload)
                 return self._json_model_response(201, response)
 
+            if method == "POST" and route_path == "/api/v1/ingest/market-structure":
+                result = self._ingestion_reliability_service.ingest_market_structure(body or b"")
+                return self._json_model_response(result.status_code, result.body)
+
             if method == "POST" and route_path == "/api/v1/ingestions/event-snapshot":
                 payload = EventSnapshotPayload.model_validate_json(body or b"{}")
                 response = self._orchestrator.ingest_event_snapshot(payload)
                 return self._json_model_response(201, response)
 
+            if method == "POST" and route_path == "/api/v1/ingest/event-snapshot":
+                result = self._ingestion_reliability_service.ingest_event_snapshot(body or b"")
+                return self._json_model_response(result.status_code, result.body)
+
             if method == "POST" and route_path == "/api/v1/ingestions/depth-snapshot":
                 payload = DepthSnapshotPayload.model_validate_json(body or b"{}")
                 response = self._depth_monitoring_service.ingest_depth_snapshot(payload)
                 return self._json_model_response(201, response)
+
+            if method == "POST" and route_path == "/api/v1/ingest/process-context":
+                result = self._ingestion_reliability_service.ingest_process_context(body or b"")
+                return self._json_model_response(result.status_code, result.body)
+
+            if method == "POST" and route_path == "/api/v1/ingest/depth-snapshot":
+                result = self._ingestion_reliability_service.ingest_depth_snapshot(body or b"")
+                return self._json_model_response(result.status_code, result.body)
+
+            if method == "POST" and route_path == "/api/v1/ingest/adapter-payload":
+                result = self._ingestion_reliability_service.ingest_adapter_payload(body or b"")
+                return self._json_model_response(result.status_code, result.body)
 
             if method == "POST" and route_path == "/api/v1/adapter/continuous-state":
                 payload = AdapterContinuousStatePayload.model_validate_json(body or b"{}")
@@ -319,6 +393,41 @@ class MarketStructureApplication:
                     chart_instance_id=chart_instance_id,
                     lookback_bars=max(1, min(500, lookback_bars)),
                 )
+                return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/review/belief-state-timeline":
+                projection_query = self._parse_projection_query(query)
+                response = self._workbench_projection_service.get_belief_state_timeline(projection_query)
+                return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/review/event-episodes":
+                projection_query = self._parse_projection_query(query)
+                response = self._workbench_projection_service.get_event_episode_reviews(projection_query)
+                return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/review/episode-evaluations":
+                projection_query = self._parse_projection_query(query)
+                response = self._workbench_projection_service.get_episode_evaluations(projection_query)
+                return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/review/tuning-recommendations":
+                projection_query = self._parse_projection_query(query)
+                response = self._workbench_projection_service.get_tuning_reviews(projection_query)
+                return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/review/profile-engine":
+                projection_query = self._parse_projection_query(query)
+                response = self._workbench_projection_service.get_profile_engine_metadata(projection_query)
+                return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/review/health-status":
+                projection_query = self._parse_projection_query(query)
+                response = self._workbench_projection_service.get_health_status(projection_query)
+                return self._json_model_response(200, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/review/projection":
+                projection_query = self._parse_projection_query(query)
+                response = self._workbench_projection_service.build_projection(projection_query)
                 return self._json_model_response(200, response)
 
             if method == "GET" and route_path == "/api/v1/workbench/instruments":
@@ -585,6 +694,8 @@ class MarketStructureApplication:
             return self._json_response(400, {"error": "chat_error", "detail": str(exc)})
         except ReplayAiReviewUnavailableError as exc:
             return self._json_response(503, {"error": "ai_review_unavailable", "detail": str(exc)})
+        except ValueError as exc:
+            return self._json_response(400, {"error": "invalid_parameter", "detail": str(exc)})
         except json.JSONDecodeError:
             return self._json_response(400, {"error": "invalid_json", "detail": "Request body is not valid JSON."})
         except Exception as exc:  # pragma: no cover
@@ -594,7 +705,7 @@ class MarketStructureApplication:
     @staticmethod
     def _json_model_response(
         status_code: int,
-        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope | ContinuousBarsEnvelope | MirrorBarsEnvelope,
+        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope | ContinuousBarsEnvelope | MirrorBarsEnvelope | ReliableIngestionResponse | IngestionErrorResponse | IngestionHealthResponse | DataQualityResponse,
     ) -> HttpResponse:
         payload = model.model_dump(mode="json")
         return MarketStructureApplication._json_response(status_code, payload)
@@ -626,6 +737,27 @@ class MarketStructureApplication:
             raise TypeError("datetime value must not be None")
         normalized = _normalize_query_datetime(value)
         return datetime.fromisoformat(normalized).astimezone(UTC)
+
+    def _parse_projection_query(self, query: dict[str, list[str]]) -> ReplayProjectionQuery:
+        instrument_symbol = query.get("instrument_symbol", [None])[0]
+        if instrument_symbol is None:
+            raise ValueError("instrument_symbol is required.")
+        window_start_raw = query.get("window_start", [None])[0] or query.get("from", [None])[0]
+        window_end_raw = query.get("window_end", [None])[0] or query.get("to", [None])[0]
+        limit_raw = query.get("limit", [None])[0]
+        limit = 100
+        if limit_raw is not None:
+            try:
+                limit = max(1, min(1000, int(limit_raw)))
+            except ValueError as exc:
+                raise ValueError("limit must be an integer.") from exc
+        return ReplayProjectionQuery(
+            instrument_symbol=instrument_symbol,
+            window_start=self._parse_datetime_arg(window_start_raw) if window_start_raw is not None else None,
+            window_end=self._parse_datetime_arg(window_end_raw) if window_end_raw is not None else None,
+            session_date=query.get("session_date", [None])[0] or query.get("date", [None])[0],
+            limit=limit,
+        )
 
     @staticmethod
     def _parse_positive_int_arg(value: str | None, *, default: int) -> int:

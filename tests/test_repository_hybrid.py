@@ -102,6 +102,7 @@ class _FakeIngestionRepository:
     def __init__(self) -> None:
         self.initialized = False
         self.rows: dict[str, StoredIngestion] = {}
+        self.paginated_calls = 0
 
     def initialize(self) -> None:
         self.initialized = True
@@ -173,6 +174,29 @@ class _FakeIngestionRepository:
             rows = [row for row in rows if row.stored_at <= stored_at_before]
         rows.sort(key=lambda row: row.stored_at, reverse=True)
         return rows[:limit]
+
+    def iter_ingestions_paginated(
+        self,
+        *,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        source_snapshot_id: str | None = None,
+        page_size: int = 1000,
+        stored_at_after: datetime | None = None,
+        stored_at_before: datetime | None = None,
+    ):
+        self.paginated_calls += 1
+        rows = self.list_ingestions(
+            ingestion_kind=ingestion_kind,
+            instrument_symbol=instrument_symbol,
+            source_snapshot_id=source_snapshot_id,
+            limit=10_000,
+            stored_at_after=stored_at_after,
+            stored_at_before=stored_at_before,
+        )
+        for index in range(0, len(rows), page_size):
+            for row in rows[index : index + page_size]:
+                yield row
 
     def purge_ingestions(
         self,
@@ -264,6 +288,38 @@ def test_hybrid_repository_can_delegate_ingestions_to_secondary_store() -> None:
     assert listed[0].observed_payload["message_id"] == "msg-1"
     assert updated is not None
     assert updated.observed_payload["status"] == "updated"
+
+
+def test_hybrid_repository_can_delegate_paginated_ingestion_reads() -> None:
+    metadata_repo = _FakeMetadataRepository()
+    chart_repo = _FakeChartCandleRepository()
+    ingestion_repo = _FakeIngestionRepository()
+    hybrid_repo = HybridAnalysisRepository(
+        metadata_repository=metadata_repo,
+        chart_candle_repository=chart_repo,
+        ingestion_repository=ingestion_repo,
+    )
+    stored_at = datetime(2026, 3, 22, 10, 1, tzinfo=UTC)
+    ingestion_repo.save_ingestion(
+        ingestion_id="ing-1",
+        ingestion_kind="adapter_continuous_state",
+        source_snapshot_id="msg-1",
+        instrument_symbol="NQ",
+        observed_payload={"message_id": "msg-1"},
+        stored_at=stored_at,
+    )
+
+    rows = list(
+        hybrid_repo.iter_ingestions_paginated(
+            ingestion_kind="adapter_continuous_state",
+            instrument_symbol="NQ",
+            page_size=1,
+        )
+    )
+
+    assert len(rows) == 1
+    assert rows[0].ingestion_id == "ing-1"
+    assert ingestion_repo.paginated_calls == 1
 
 
 def test_hybrid_repository_can_delegate_tick_quote_lookup() -> None:

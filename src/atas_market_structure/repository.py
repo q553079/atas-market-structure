@@ -7,6 +7,20 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Protocol
 
+from atas_market_structure.storage_repository import SQLiteStorageBlueprintRepository
+from atas_market_structure.storage_models import (
+    StoredBeliefStateSnapshot,
+    StoredDeadLetterPayload,
+    StoredEpisodeEvaluationRecord,
+    StoredEventEpisodeRecord,
+    StoredIngestionRunLogRecord,
+    StoredInstrumentProfileVersion,
+    StoredPatchValidationResult,
+    StoredProfilePatchCandidate,
+    StoredRecognizerBuildVersion,
+    StoredTuningRecommendation,
+)
+
 
 @dataclass(frozen=True)
 class StoredIngestion:
@@ -99,6 +113,95 @@ class StoredRecognizerBuild:
     status: str
     build_payload: dict[str, Any]
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredTuningRecommendationRecord:
+    recommendation_id: str
+    instrument_symbol: str
+    market_time: datetime
+    ingested_at: datetime
+    schema_version: str
+    profile_version: str
+    engine_version: str
+    episode_id: str | None
+    evaluation_id: str | None
+    source_kind: str
+    recommendation_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StoredProfilePatchCandidateRecord:
+    candidate_id: str
+    instrument_symbol: str
+    market_time: datetime
+    ingested_at: datetime
+    schema_version: str
+    base_profile_version: str
+    proposed_profile_version: str
+    recommendation_id: str | None
+    status: str
+    patch_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StoredPatchValidationResultRecord:
+    validation_result_id: str
+    instrument_symbol: str
+    market_time: datetime
+    ingested_at: datetime
+    schema_version: str
+    candidate_id: str
+    validation_status: str
+    validation_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StoredIngestionDeadLetter:
+    dead_letter_id: str
+    endpoint: str
+    ingestion_kind: str
+    instrument_symbol: str | None
+    source_snapshot_id: str | None
+    request_id: str | None
+    dedup_key: str
+    payload_hash: str
+    raw_payload: str
+    error_code: str
+    error_detail: dict[str, Any]
+    ingestion_id: str | None
+    stored_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredIngestionIdempotencyKey:
+    endpoint: str
+    dedup_key: str
+    request_id: str | None
+    payload_hash: str
+    ingestion_id: str
+    response_payload: dict[str, Any]
+    first_seen_at: datetime
+    last_seen_at: datetime
+    duplicate_count: int
+
+
+@dataclass(frozen=True)
+class StoredIngestionRunLog:
+    run_id: str
+    endpoint: str
+    ingestion_kind: str
+    instrument_symbol: str | None
+    request_id: str | None
+    dedup_key: str
+    payload_hash: str
+    outcome: str
+    http_status: int
+    ingestion_id: str | None
+    dead_letter_id: str | None
+    detail: dict[str, Any]
+    started_at: datetime
+    completed_at: datetime
 
 
 @dataclass(frozen=True)
@@ -393,7 +496,15 @@ class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
     def get_latest_belief_state(self, instrument_symbol: str) -> StoredBeliefState | None:
         ...
 
-    def list_belief_states(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredBeliefState]:
+    def list_belief_states(
+        self,
+        *,
+        instrument_symbol: str,
+        observed_at_after: datetime | None = None,
+        observed_at_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredBeliefState]:
         ...
 
     def save_event_episode(
@@ -415,7 +526,15 @@ class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
     def get_event_episode(self, episode_id: str) -> StoredEventEpisode | None:
         ...
 
-    def list_event_episodes(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredEventEpisode]:
+    def list_event_episodes(
+        self,
+        *,
+        instrument_symbol: str,
+        ended_at_after: datetime | None = None,
+        ended_at_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredEventEpisode]:
         ...
 
     def save_episode_evaluation(
@@ -434,6 +553,17 @@ class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
         ...
 
     def get_episode_evaluation(self, episode_id: str) -> StoredEpisodeEvaluation | None:
+        ...
+
+    def list_episode_evaluations(
+        self,
+        *,
+        instrument_symbol: str,
+        evaluated_at_after: datetime | None = None,
+        evaluated_at_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredEpisodeEvaluation]:
         ...
 
     def save_instrument_profile(
@@ -466,6 +596,176 @@ class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
         ...
 
     def get_active_recognizer_build(self) -> StoredRecognizerBuild | None:
+        ...
+
+    def save_tuning_recommendation(
+        self,
+        *,
+        recommendation_id: str,
+        instrument_symbol: str,
+        market_time: datetime,
+        ingested_at: datetime,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        episode_id: str | None,
+        evaluation_id: str | None,
+        source_kind: str,
+        recommendation_payload: dict[str, Any],
+    ) -> StoredTuningRecommendationRecord:
+        ...
+
+    def list_tuning_recommendations(
+        self,
+        *,
+        instrument_symbol: str,
+        market_time_after: datetime | None = None,
+        market_time_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredTuningRecommendationRecord]:
+        ...
+
+    def save_profile_patch_candidate(
+        self,
+        *,
+        candidate_id: str,
+        instrument_symbol: str,
+        market_time: datetime,
+        ingested_at: datetime,
+        schema_version: str,
+        base_profile_version: str,
+        proposed_profile_version: str,
+        recommendation_id: str | None,
+        status: str,
+        patch_payload: dict[str, Any],
+    ) -> StoredProfilePatchCandidateRecord:
+        ...
+
+    def list_profile_patch_candidates(
+        self,
+        *,
+        instrument_symbol: str,
+        market_time_after: datetime | None = None,
+        market_time_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredProfilePatchCandidateRecord]:
+        ...
+
+    def save_patch_validation_result(
+        self,
+        *,
+        validation_result_id: str,
+        instrument_symbol: str,
+        market_time: datetime,
+        ingested_at: datetime,
+        schema_version: str,
+        candidate_id: str,
+        validation_status: str,
+        validation_payload: dict[str, Any],
+    ) -> StoredPatchValidationResultRecord:
+        ...
+
+    def list_patch_validation_results(
+        self,
+        *,
+        candidate_id: str,
+        limit: int = 100,
+    ) -> list[StoredPatchValidationResultRecord]:
+        ...
+
+    def save_dead_letter(
+        self,
+        *,
+        dead_letter_id: str,
+        endpoint: str,
+        ingestion_kind: str,
+        instrument_symbol: str | None,
+        source_snapshot_id: str | None,
+        request_id: str | None,
+        dedup_key: str,
+        payload_hash: str,
+        raw_payload: str,
+        error_code: str,
+        error_detail: dict[str, Any],
+        ingestion_id: str | None,
+        stored_at: datetime,
+    ) -> StoredIngestionDeadLetter:
+        ...
+
+    def list_dead_letters(
+        self,
+        *,
+        endpoint: str | None = None,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        limit: int = 100,
+        stored_at_after: datetime | None = None,
+    ) -> list[StoredIngestionDeadLetter]:
+        ...
+
+    def get_ingestion_idempotency_key(
+        self,
+        *,
+        endpoint: str,
+        dedup_key: str,
+    ) -> StoredIngestionIdempotencyKey | None:
+        ...
+
+    def save_ingestion_idempotency_key(
+        self,
+        *,
+        endpoint: str,
+        dedup_key: str,
+        request_id: str | None,
+        payload_hash: str,
+        ingestion_id: str,
+        response_payload: dict[str, Any],
+        first_seen_at: datetime,
+        last_seen_at: datetime,
+    ) -> StoredIngestionIdempotencyKey:
+        ...
+
+    def touch_ingestion_idempotency_key(
+        self,
+        *,
+        endpoint: str,
+        dedup_key: str,
+        seen_at: datetime,
+    ) -> StoredIngestionIdempotencyKey | None:
+        ...
+
+    def save_ingestion_run_log(
+        self,
+        *,
+        run_id: str,
+        endpoint: str,
+        ingestion_kind: str,
+        instrument_symbol: str | None,
+        request_id: str | None,
+        dedup_key: str,
+        payload_hash: str,
+        outcome: str,
+        http_status: int,
+        ingestion_id: str | None,
+        dead_letter_id: str | None,
+        detail: dict[str, Any],
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> StoredIngestionRunLog:
+        ...
+
+    def list_ingestion_run_logs(
+        self,
+        *,
+        endpoint: str | None = None,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        outcome: str | None = None,
+        limit: int = 100,
+        completed_at_after: datetime | None = None,
+    ) -> list[StoredIngestionRunLog]:
         ...
 
     def save_or_update_liquidity_memory(
@@ -716,6 +1016,10 @@ class SQLiteAnalysisRepository:
 
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
+        self._storage_blueprint_repository = SQLiteStorageBlueprintRepository(database_path=database_path)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._storage_blueprint_repository, name)
 
     @property
     def workspace_root(self) -> Path:
@@ -723,6 +1027,7 @@ class SQLiteAnalysisRepository:
 
     def initialize(self) -> None:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
+        self._storage_blueprint_repository.initialize()
         with self._connect() as connection:
             connection.execute(
                 """
@@ -818,6 +1123,61 @@ class SQLiteAnalysisRepository:
                     status TEXT NOT NULL,
                     build_payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                )
+                """,
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ingestion_dead_letters (
+                    dead_letter_id TEXT PRIMARY KEY,
+                    endpoint TEXT NOT NULL,
+                    ingestion_kind TEXT NOT NULL,
+                    instrument_symbol TEXT,
+                    source_snapshot_id TEXT,
+                    request_id TEXT,
+                    dedup_key TEXT NOT NULL,
+                    payload_hash TEXT NOT NULL,
+                    raw_payload TEXT NOT NULL,
+                    error_code TEXT NOT NULL,
+                    error_detail_json TEXT NOT NULL,
+                    ingestion_id TEXT,
+                    stored_at TEXT NOT NULL
+                )
+                """,
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ingestion_idempotency_keys (
+                    endpoint TEXT NOT NULL,
+                    dedup_key TEXT NOT NULL,
+                    request_id TEXT,
+                    payload_hash TEXT NOT NULL,
+                    ingestion_id TEXT NOT NULL,
+                    response_payload_json TEXT NOT NULL,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    duplicate_count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (endpoint, dedup_key)
+                )
+                """,
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ingestion_run_logs (
+                    run_id TEXT PRIMARY KEY,
+                    endpoint TEXT NOT NULL,
+                    ingestion_kind TEXT NOT NULL,
+                    instrument_symbol TEXT,
+                    request_id TEXT,
+                    dedup_key TEXT NOT NULL,
+                    payload_hash TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    http_status INTEGER NOT NULL,
+                    ingestion_id TEXT,
+                    dead_letter_id TEXT,
+                    detail_json TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL
                 )
                 """,
             )
@@ -1071,6 +1431,14 @@ class SQLiteAnalysisRepository:
             connection.execute("CREATE INDEX IF NOT EXISTS idx_episode_evaluations_symbol_time ON episode_evaluations (instrument_symbol, evaluated_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_instrument_profiles_symbol_active ON instrument_profiles (instrument_symbol, is_active, created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_recognizer_builds_active_created ON recognizer_builds (is_active, created_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_dead_letters_endpoint_time ON ingestion_dead_letters (endpoint, stored_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_dead_letters_symbol_time ON ingestion_dead_letters (instrument_symbol, stored_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_dead_letters_hash ON ingestion_dead_letters (payload_hash, stored_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_idempotency_request_id ON ingestion_idempotency_keys (request_id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_idempotency_ingestion_id ON ingestion_idempotency_keys (ingestion_id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_run_logs_endpoint_time ON ingestion_run_logs (endpoint, completed_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_run_logs_outcome_time ON ingestion_run_logs (outcome, completed_at DESC)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_run_logs_symbol_time ON ingestion_run_logs (instrument_symbol, completed_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_ingestions_symbol_time ON ingestions (instrument_symbol, stored_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_analyses_ingestion ON analyses (ingestion_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_liquidity_memories_symbol_expiry ON liquidity_memories (instrument_symbol, expires_at, updated_at)")
@@ -1117,6 +1485,14 @@ class SQLiteAnalysisRepository:
                 (ingestion_id, ingestion_kind, source_snapshot_id, instrument_symbol, self._serialize_json(observed_payload), self._serialize_datetime(stored_at)),
             )
             connection.commit()
+        self._storage_blueprint_repository.mirror_legacy_ingestion(
+            ingestion_id=ingestion_id,
+            ingestion_kind=ingestion_kind,
+            source_snapshot_id=source_snapshot_id,
+            instrument_symbol=instrument_symbol,
+            observed_payload=observed_payload,
+            stored_at=stored_at,
+        )
         return StoredIngestion(ingestion_id, ingestion_kind, source_snapshot_id, instrument_symbol, observed_payload, stored_at)
 
     def save_analysis(self, *, analysis_id: str, ingestion_id: str, route_key: str, analysis_payload: dict[str, Any], stored_at: datetime) -> StoredAnalysis:
@@ -1172,6 +1548,21 @@ class SQLiteAnalysisRepository:
                 ),
             )
             connection.commit()
+        self._storage_blueprint_repository.save_belief_state_snapshot(
+            StoredBeliefStateSnapshot(
+                belief_state_id=belief_state_id,
+                instrument_symbol=instrument_symbol,
+                market_time=observed_at,
+                session_date=observed_at.date().isoformat(),
+                ingested_at=stored_at,
+                schema_version=schema_version,
+                profile_version=profile_version,
+                engine_version=engine_version,
+                recognition_mode=recognition_mode,
+                data_status=belief_payload.get("data_status", {}) if isinstance(belief_payload.get("data_status"), dict) else {},
+                belief_payload=belief_payload,
+            ),
+        )
         beliefs = self.list_belief_states(instrument_symbol=instrument_symbol, limit=500)
         for belief in beliefs:
             if belief.belief_state_id == belief_state_id:
@@ -1223,7 +1614,37 @@ class SQLiteAnalysisRepository:
             belief_payload=self._parse_json(row["belief_payload_json"]),
         )
 
-    def list_belief_states(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredBeliefState]:
+    def list_belief_states(
+        self,
+        *,
+        instrument_symbol: str,
+        observed_at_after: datetime | None = None,
+        observed_at_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredBeliefState]:
+        if observed_at_after is not None or observed_at_before is not None or session_date is not None:
+            rows = self._storage_blueprint_repository.list_belief_state_snapshots(
+                instrument_symbol=instrument_symbol,
+                market_time_after=observed_at_after,
+                market_time_before=observed_at_before,
+                session_date=session_date,
+                limit=limit,
+            )
+            return [
+                StoredBeliefState(
+                    belief_state_id=row.belief_state_id,
+                    instrument_symbol=row.instrument_symbol,
+                    observed_at=row.market_time,
+                    stored_at=row.ingested_at,
+                    schema_version=row.schema_version,
+                    profile_version=row.profile_version,
+                    engine_version=row.engine_version,
+                    recognition_mode=row.recognition_mode,
+                    belief_payload=row.belief_payload,
+                )
+                for row in rows
+            ]
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -1303,6 +1724,22 @@ class SQLiteAnalysisRepository:
                 ),
             )
             connection.commit()
+        self._storage_blueprint_repository.save_event_episode_record(
+            StoredEventEpisodeRecord(
+                episode_id=episode_id,
+                instrument_symbol=instrument_symbol,
+                market_time=ended_at,
+                ingested_at=ended_at,
+                schema_version=schema_version,
+                profile_version=profile_version,
+                engine_version=engine_version,
+                event_kind=event_kind,
+                started_at=started_at,
+                ended_at=ended_at,
+                resolution=resolution,
+                episode_payload=episode_payload,
+            ),
+        )
         episode = self.get_event_episode(episode_id)
         if episode is not None:
             return episode
@@ -1354,7 +1791,38 @@ class SQLiteAnalysisRepository:
             episode_payload=self._parse_json(row["episode_payload_json"]),
         )
 
-    def list_event_episodes(self, *, instrument_symbol: str, limit: int = 100) -> list[StoredEventEpisode]:
+    def list_event_episodes(
+        self,
+        *,
+        instrument_symbol: str,
+        ended_at_after: datetime | None = None,
+        ended_at_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredEventEpisode]:
+        if ended_at_after is not None or ended_at_before is not None or session_date is not None:
+            rows = self._storage_blueprint_repository.list_event_episode_records_filtered(
+                instrument_symbol=instrument_symbol,
+                market_time_after=ended_at_after,
+                market_time_before=ended_at_before,
+                session_date=session_date,
+                limit=limit,
+            )
+            return [
+                StoredEventEpisode(
+                    episode_id=row.episode_id,
+                    instrument_symbol=row.instrument_symbol,
+                    event_kind=row.event_kind,
+                    started_at=row.started_at,
+                    ended_at=row.ended_at,
+                    resolution=row.resolution,
+                    schema_version=row.schema_version,
+                    profile_version=row.profile_version,
+                    engine_version=row.engine_version,
+                    episode_payload=row.episode_payload,
+                )
+                for row in rows
+            ]
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -1433,6 +1901,21 @@ class SQLiteAnalysisRepository:
                 ),
             )
             connection.commit()
+        self._storage_blueprint_repository.save_episode_evaluation_record(
+            StoredEpisodeEvaluationRecord(
+                evaluation_id=evaluation_id,
+                episode_id=episode_id,
+                instrument_symbol=instrument_symbol,
+                market_time=evaluated_at,
+                ingested_at=evaluated_at,
+                schema_version=schema_version,
+                profile_version=profile_version,
+                engine_version=engine_version,
+                event_kind=event_kind,
+                evaluated_at=evaluated_at,
+                evaluation_payload=evaluation_payload,
+            ),
+        )
         evaluation = self.get_episode_evaluation(episode_id)
         if evaluation is not None:
             return evaluation
@@ -1483,6 +1966,37 @@ class SQLiteAnalysisRepository:
             evaluation_payload=self._parse_json(row["evaluation_payload_json"]),
         )
 
+    def list_episode_evaluations(
+        self,
+        *,
+        instrument_symbol: str,
+        evaluated_at_after: datetime | None = None,
+        evaluated_at_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredEpisodeEvaluation]:
+        rows = self._storage_blueprint_repository.list_episode_evaluation_records(
+            instrument_symbol=instrument_symbol,
+            market_time_after=evaluated_at_after,
+            market_time_before=evaluated_at_before,
+            session_date=session_date,
+            limit=limit,
+        )
+        return [
+            StoredEpisodeEvaluation(
+                evaluation_id=row.evaluation_id,
+                episode_id=row.episode_id,
+                instrument_symbol=row.instrument_symbol,
+                event_kind=row.event_kind,
+                evaluated_at=row.evaluated_at,
+                schema_version=row.schema_version,
+                profile_version=row.profile_version,
+                engine_version=row.engine_version,
+                evaluation_payload=row.evaluation_payload,
+            )
+            for row in rows
+        ]
+
     def save_instrument_profile(
         self,
         *,
@@ -1523,6 +2037,18 @@ class SQLiteAnalysisRepository:
                 ),
             )
             connection.commit()
+        self._storage_blueprint_repository.save_instrument_profile_version(
+            StoredInstrumentProfileVersion(
+                instrument_symbol=instrument_symbol,
+                profile_version=profile_version,
+                schema_version=schema_version,
+                ontology_version=ontology_version,
+                is_active=is_active,
+                profile_payload=profile_payload,
+                created_at=created_at,
+                updated_at=created_at,
+            ),
+        )
         profile = self.get_active_instrument_profile(instrument_symbol)
         if profile is not None and profile.profile_version == profile_version:
             return profile
@@ -1633,6 +2159,18 @@ class SQLiteAnalysisRepository:
                 ),
             )
             connection.commit()
+        self._storage_blueprint_repository.save_recognizer_build_version(
+            StoredRecognizerBuildVersion(
+                engine_version=engine_version,
+                schema_version=schema_version,
+                ontology_version=ontology_version,
+                is_active=is_active,
+                status=status,
+                build_payload=build_payload,
+                created_at=created_at,
+                updated_at=created_at,
+            ),
+        )
         build = self.get_active_recognizer_build()
         if build is not None and build.engine_version == engine_version:
             return build
@@ -1700,6 +2238,573 @@ class SQLiteAnalysisRepository:
             build_payload=self._parse_json(row["build_payload_json"]),
             created_at=self._parse_datetime(row["created_at"]),
         )
+
+    def save_tuning_recommendation(
+        self,
+        *,
+        recommendation_id: str,
+        instrument_symbol: str,
+        market_time: datetime,
+        ingested_at: datetime,
+        schema_version: str,
+        profile_version: str,
+        engine_version: str,
+        episode_id: str | None,
+        evaluation_id: str | None,
+        source_kind: str,
+        recommendation_payload: dict[str, Any],
+    ) -> StoredTuningRecommendationRecord:
+        record = self._storage_blueprint_repository.save_tuning_recommendation(
+            StoredTuningRecommendation(
+                recommendation_id=recommendation_id,
+                instrument_symbol=instrument_symbol,
+                market_time=market_time,
+                ingested_at=ingested_at,
+                schema_version=schema_version,
+                profile_version=profile_version,
+                engine_version=engine_version,
+                episode_id=episode_id,
+                evaluation_id=evaluation_id,
+                source_kind=source_kind,
+                recommendation_payload=recommendation_payload,
+            ),
+        )
+        return StoredTuningRecommendationRecord(
+            recommendation_id=record.recommendation_id,
+            instrument_symbol=record.instrument_symbol,
+            market_time=record.market_time,
+            ingested_at=record.ingested_at,
+            schema_version=record.schema_version,
+            profile_version=record.profile_version,
+            engine_version=record.engine_version,
+            episode_id=record.episode_id,
+            evaluation_id=record.evaluation_id,
+            source_kind=record.source_kind,
+            recommendation_payload=record.recommendation_payload,
+        )
+
+    def list_tuning_recommendations(
+        self,
+        *,
+        instrument_symbol: str,
+        market_time_after: datetime | None = None,
+        market_time_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredTuningRecommendationRecord]:
+        rows = self._storage_blueprint_repository.list_tuning_recommendations(
+            instrument_symbol=instrument_symbol,
+            market_time_after=market_time_after,
+            market_time_before=market_time_before,
+            session_date=session_date,
+            limit=limit,
+        )
+        return [
+            StoredTuningRecommendationRecord(
+                recommendation_id=row.recommendation_id,
+                instrument_symbol=row.instrument_symbol,
+                market_time=row.market_time,
+                ingested_at=row.ingested_at,
+                schema_version=row.schema_version,
+                profile_version=row.profile_version,
+                engine_version=row.engine_version,
+                episode_id=row.episode_id,
+                evaluation_id=row.evaluation_id,
+                source_kind=row.source_kind,
+                recommendation_payload=row.recommendation_payload,
+            )
+            for row in rows
+        ]
+
+    def save_profile_patch_candidate(
+        self,
+        *,
+        candidate_id: str,
+        instrument_symbol: str,
+        market_time: datetime,
+        ingested_at: datetime,
+        schema_version: str,
+        base_profile_version: str,
+        proposed_profile_version: str,
+        recommendation_id: str | None,
+        status: str,
+        patch_payload: dict[str, Any],
+    ) -> StoredProfilePatchCandidateRecord:
+        record = self._storage_blueprint_repository.save_profile_patch_candidate(
+            StoredProfilePatchCandidate(
+                candidate_id=candidate_id,
+                instrument_symbol=instrument_symbol,
+                market_time=market_time,
+                ingested_at=ingested_at,
+                schema_version=schema_version,
+                base_profile_version=base_profile_version,
+                proposed_profile_version=proposed_profile_version,
+                recommendation_id=recommendation_id,
+                status=status,
+                patch_payload=patch_payload,
+            ),
+        )
+        return StoredProfilePatchCandidateRecord(
+            candidate_id=record.candidate_id,
+            instrument_symbol=record.instrument_symbol,
+            market_time=record.market_time,
+            ingested_at=record.ingested_at,
+            schema_version=record.schema_version,
+            base_profile_version=record.base_profile_version,
+            proposed_profile_version=record.proposed_profile_version,
+            recommendation_id=record.recommendation_id,
+            status=record.status,
+            patch_payload=record.patch_payload,
+        )
+
+    def list_profile_patch_candidates(
+        self,
+        *,
+        instrument_symbol: str,
+        market_time_after: datetime | None = None,
+        market_time_before: datetime | None = None,
+        session_date: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredProfilePatchCandidateRecord]:
+        rows = self._storage_blueprint_repository.list_profile_patch_candidates(
+            instrument_symbol=instrument_symbol,
+            market_time_after=market_time_after,
+            market_time_before=market_time_before,
+            session_date=session_date,
+            limit=limit,
+        )
+        return [
+            StoredProfilePatchCandidateRecord(
+                candidate_id=row.candidate_id,
+                instrument_symbol=row.instrument_symbol,
+                market_time=row.market_time,
+                ingested_at=row.ingested_at,
+                schema_version=row.schema_version,
+                base_profile_version=row.base_profile_version,
+                proposed_profile_version=row.proposed_profile_version,
+                recommendation_id=row.recommendation_id,
+                status=row.status,
+                patch_payload=row.patch_payload,
+            )
+            for row in rows
+        ]
+
+    def save_patch_validation_result(
+        self,
+        *,
+        validation_result_id: str,
+        instrument_symbol: str,
+        market_time: datetime,
+        ingested_at: datetime,
+        schema_version: str,
+        candidate_id: str,
+        validation_status: str,
+        validation_payload: dict[str, Any],
+    ) -> StoredPatchValidationResultRecord:
+        record = self._storage_blueprint_repository.save_patch_validation_result(
+            StoredPatchValidationResult(
+                validation_result_id=validation_result_id,
+                instrument_symbol=instrument_symbol,
+                market_time=market_time,
+                ingested_at=ingested_at,
+                schema_version=schema_version,
+                candidate_id=candidate_id,
+                validation_status=validation_status,
+                validation_payload=validation_payload,
+            ),
+        )
+        return StoredPatchValidationResultRecord(
+            validation_result_id=record.validation_result_id,
+            instrument_symbol=record.instrument_symbol,
+            market_time=record.market_time,
+            ingested_at=record.ingested_at,
+            schema_version=record.schema_version,
+            candidate_id=record.candidate_id,
+            validation_status=record.validation_status,
+            validation_payload=record.validation_payload,
+        )
+
+    def list_patch_validation_results(
+        self,
+        *,
+        candidate_id: str,
+        limit: int = 100,
+    ) -> list[StoredPatchValidationResultRecord]:
+        rows = self._storage_blueprint_repository.list_patch_validation_results(
+            candidate_id=candidate_id,
+            limit=limit,
+        )
+        return [
+            StoredPatchValidationResultRecord(
+                validation_result_id=row.validation_result_id,
+                instrument_symbol=row.instrument_symbol,
+                market_time=row.market_time,
+                ingested_at=row.ingested_at,
+                schema_version=row.schema_version,
+                candidate_id=row.candidate_id,
+                validation_status=row.validation_status,
+                validation_payload=row.validation_payload,
+            )
+            for row in rows
+        ]
+
+    def save_dead_letter(
+        self,
+        *,
+        dead_letter_id: str,
+        endpoint: str,
+        ingestion_kind: str,
+        instrument_symbol: str | None,
+        source_snapshot_id: str | None,
+        request_id: str | None,
+        dedup_key: str,
+        payload_hash: str,
+        raw_payload: str,
+        error_code: str,
+        error_detail: dict[str, Any],
+        ingestion_id: str | None,
+        stored_at: datetime,
+    ) -> StoredIngestionDeadLetter:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO ingestion_dead_letters (
+                    dead_letter_id,
+                    endpoint,
+                    ingestion_kind,
+                    instrument_symbol,
+                    source_snapshot_id,
+                    request_id,
+                    dedup_key,
+                    payload_hash,
+                    raw_payload,
+                    error_code,
+                    error_detail_json,
+                    ingestion_id,
+                    stored_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    dead_letter_id,
+                    endpoint,
+                    ingestion_kind,
+                    instrument_symbol,
+                    source_snapshot_id,
+                    request_id,
+                    dedup_key,
+                    payload_hash,
+                    raw_payload,
+                    error_code,
+                    self._serialize_json(error_detail),
+                    ingestion_id,
+                    self._serialize_datetime(stored_at),
+                ),
+            )
+            connection.commit()
+        self._storage_blueprint_repository.save_dead_letter_payload(
+            StoredDeadLetterPayload(
+                dead_letter_id=dead_letter_id,
+                endpoint=endpoint,
+                ingestion_kind=ingestion_kind,
+                instrument_symbol=instrument_symbol,
+                market_time=stored_at,
+                ingested_at=stored_at,
+                schema_version="1.0.0",
+                request_id=request_id,
+                dedup_key=dedup_key,
+                payload_hash=payload_hash,
+                source_ingestion_id=ingestion_id,
+                error_code=error_code,
+                error_detail=error_detail,
+                raw_payload=raw_payload,
+            ),
+        )
+        return StoredIngestionDeadLetter(
+            dead_letter_id=dead_letter_id,
+            endpoint=endpoint,
+            ingestion_kind=ingestion_kind,
+            instrument_symbol=instrument_symbol,
+            source_snapshot_id=source_snapshot_id,
+            request_id=request_id,
+            dedup_key=dedup_key,
+            payload_hash=payload_hash,
+            raw_payload=raw_payload,
+            error_code=error_code,
+            error_detail=error_detail,
+            ingestion_id=ingestion_id,
+            stored_at=stored_at,
+        )
+
+    def list_dead_letters(
+        self,
+        *,
+        endpoint: str | None = None,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        limit: int = 100,
+        stored_at_after: datetime | None = None,
+    ) -> list[StoredIngestionDeadLetter]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if endpoint is not None:
+            clauses.append("endpoint = ?")
+            parameters.append(endpoint)
+        if ingestion_kind is not None:
+            clauses.append("ingestion_kind = ?")
+            parameters.append(ingestion_kind)
+        if instrument_symbol is not None:
+            clauses.append("instrument_symbol = ?")
+            parameters.append(instrument_symbol)
+        if stored_at_after is not None:
+            clauses.append("stored_at >= ?")
+            parameters.append(self._serialize_datetime(stored_at_after))
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = (
+            "SELECT dead_letter_id, endpoint, ingestion_kind, instrument_symbol, "
+            "source_snapshot_id, request_id, dedup_key, payload_hash, raw_payload, "
+            "error_code, error_detail_json, ingestion_id, stored_at "
+            f"FROM ingestion_dead_letters {where_clause} "
+            "ORDER BY stored_at DESC LIMIT ?"
+        )
+        parameters.append(limit)
+        with self._connect() as connection:
+            rows = connection.execute(query, tuple(parameters)).fetchall()
+        return [self._row_to_dead_letter(row) for row in rows]
+
+    def get_ingestion_idempotency_key(
+        self,
+        *,
+        endpoint: str,
+        dedup_key: str,
+    ) -> StoredIngestionIdempotencyKey | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    endpoint,
+                    dedup_key,
+                    request_id,
+                    payload_hash,
+                    ingestion_id,
+                    response_payload_json,
+                    first_seen_at,
+                    last_seen_at,
+                    duplicate_count
+                FROM ingestion_idempotency_keys
+                WHERE endpoint = ? AND dedup_key = ?
+                """,
+                (endpoint, dedup_key),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_idempotency_key(row)
+
+    def save_ingestion_idempotency_key(
+        self,
+        *,
+        endpoint: str,
+        dedup_key: str,
+        request_id: str | None,
+        payload_hash: str,
+        ingestion_id: str,
+        response_payload: dict[str, Any],
+        first_seen_at: datetime,
+        last_seen_at: datetime,
+    ) -> StoredIngestionIdempotencyKey:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO ingestion_idempotency_keys (
+                    endpoint,
+                    dedup_key,
+                    request_id,
+                    payload_hash,
+                    ingestion_id,
+                    response_payload_json,
+                    first_seen_at,
+                    last_seen_at,
+                    duplicate_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    endpoint,
+                    dedup_key,
+                    request_id,
+                    payload_hash,
+                    ingestion_id,
+                    self._serialize_json(response_payload),
+                    self._serialize_datetime(first_seen_at),
+                    self._serialize_datetime(last_seen_at),
+                ),
+            )
+            connection.commit()
+        stored = self.get_ingestion_idempotency_key(endpoint=endpoint, dedup_key=dedup_key)
+        if stored is not None:
+            return stored
+        return StoredIngestionIdempotencyKey(
+            endpoint=endpoint,
+            dedup_key=dedup_key,
+            request_id=request_id,
+            payload_hash=payload_hash,
+            ingestion_id=ingestion_id,
+            response_payload=response_payload,
+            first_seen_at=first_seen_at,
+            last_seen_at=last_seen_at,
+            duplicate_count=0,
+        )
+
+    def touch_ingestion_idempotency_key(
+        self,
+        *,
+        endpoint: str,
+        dedup_key: str,
+        seen_at: datetime,
+    ) -> StoredIngestionIdempotencyKey | None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE ingestion_idempotency_keys
+                SET duplicate_count = duplicate_count + 1,
+                    last_seen_at = ?
+                WHERE endpoint = ? AND dedup_key = ?
+                """,
+                (self._serialize_datetime(seen_at), endpoint, dedup_key),
+            )
+            connection.commit()
+        return self.get_ingestion_idempotency_key(endpoint=endpoint, dedup_key=dedup_key)
+
+    def save_ingestion_run_log(
+        self,
+        *,
+        run_id: str,
+        endpoint: str,
+        ingestion_kind: str,
+        instrument_symbol: str | None,
+        request_id: str | None,
+        dedup_key: str,
+        payload_hash: str,
+        outcome: str,
+        http_status: int,
+        ingestion_id: str | None,
+        dead_letter_id: str | None,
+        detail: dict[str, Any],
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> StoredIngestionRunLog:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO ingestion_run_logs (
+                    run_id,
+                    endpoint,
+                    ingestion_kind,
+                    instrument_symbol,
+                    request_id,
+                    dedup_key,
+                    payload_hash,
+                    outcome,
+                    http_status,
+                    ingestion_id,
+                    dead_letter_id,
+                    detail_json,
+                    started_at,
+                    completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    endpoint,
+                    ingestion_kind,
+                    instrument_symbol,
+                    request_id,
+                    dedup_key,
+                    payload_hash,
+                    outcome,
+                    http_status,
+                    ingestion_id,
+                    dead_letter_id,
+                    self._serialize_json(detail),
+                    self._serialize_datetime(started_at),
+                    self._serialize_datetime(completed_at),
+                ),
+            )
+            connection.commit()
+        self._storage_blueprint_repository.save_ingestion_run_log_record(
+            StoredIngestionRunLogRecord(
+                run_id=run_id,
+                endpoint=endpoint,
+                ingestion_kind=ingestion_kind,
+                instrument_symbol=instrument_symbol,
+                market_time=completed_at,
+                ingested_at=completed_at,
+                schema_version="1.0.0",
+                request_id=request_id,
+                dedup_key=dedup_key,
+                payload_hash=payload_hash,
+                ingestion_id=ingestion_id,
+                dead_letter_id=dead_letter_id,
+                outcome=outcome,
+                http_status=http_status,
+                detail=detail,
+                started_at=started_at,
+                completed_at=completed_at,
+            ),
+        )
+        return StoredIngestionRunLog(
+            run_id=run_id,
+            endpoint=endpoint,
+            ingestion_kind=ingestion_kind,
+            instrument_symbol=instrument_symbol,
+            request_id=request_id,
+            dedup_key=dedup_key,
+            payload_hash=payload_hash,
+            outcome=outcome,
+            http_status=http_status,
+            ingestion_id=ingestion_id,
+            dead_letter_id=dead_letter_id,
+            detail=detail,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+
+    def list_ingestion_run_logs(
+        self,
+        *,
+        endpoint: str | None = None,
+        ingestion_kind: str | None = None,
+        instrument_symbol: str | None = None,
+        outcome: str | None = None,
+        limit: int = 100,
+        completed_at_after: datetime | None = None,
+    ) -> list[StoredIngestionRunLog]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if endpoint is not None:
+            clauses.append("endpoint = ?")
+            parameters.append(endpoint)
+        if ingestion_kind is not None:
+            clauses.append("ingestion_kind = ?")
+            parameters.append(ingestion_kind)
+        if instrument_symbol is not None:
+            clauses.append("instrument_symbol = ?")
+            parameters.append(instrument_symbol)
+        if outcome is not None:
+            clauses.append("outcome = ?")
+            parameters.append(outcome)
+        if completed_at_after is not None:
+            clauses.append("completed_at >= ?")
+            parameters.append(self._serialize_datetime(completed_at_after))
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = (
+            "SELECT run_id, endpoint, ingestion_kind, instrument_symbol, request_id, dedup_key, "
+            "payload_hash, outcome, http_status, ingestion_id, dead_letter_id, detail_json, "
+            f"started_at, completed_at FROM ingestion_run_logs {where_clause} "
+            "ORDER BY completed_at DESC LIMIT ?"
+        )
+        parameters.append(limit)
+        with self._connect() as connection:
+            rows = connection.execute(query, tuple(parameters)).fetchall()
+        return [self._row_to_run_log(row) for row in rows]
 
     def save_or_update_liquidity_memory(self, *, memory_id: str, track_key: str, instrument_symbol: str, coverage_state: str, observed_track: dict[str, Any], derived_summary: dict[str, Any], expires_at: datetime, updated_at: datetime) -> StoredLiquidityMemory:
         with self._connect() as connection:
@@ -2149,6 +3254,54 @@ class SQLiteAnalysisRepository:
             derived_summary=self._parse_json(row["derived_summary_json"]),
             expires_at=self._parse_datetime(row["expires_at"]),
             updated_at=self._parse_datetime(row["updated_at"]),
+        )
+
+    def _row_to_dead_letter(self, row: sqlite3.Row) -> StoredIngestionDeadLetter:
+        return StoredIngestionDeadLetter(
+            dead_letter_id=row["dead_letter_id"],
+            endpoint=row["endpoint"],
+            ingestion_kind=row["ingestion_kind"],
+            instrument_symbol=row["instrument_symbol"],
+            source_snapshot_id=row["source_snapshot_id"],
+            request_id=row["request_id"],
+            dedup_key=row["dedup_key"],
+            payload_hash=row["payload_hash"],
+            raw_payload=row["raw_payload"],
+            error_code=row["error_code"],
+            error_detail=self._parse_json(row["error_detail_json"]),
+            ingestion_id=row["ingestion_id"],
+            stored_at=self._parse_datetime(row["stored_at"]),
+        )
+
+    def _row_to_idempotency_key(self, row: sqlite3.Row) -> StoredIngestionIdempotencyKey:
+        return StoredIngestionIdempotencyKey(
+            endpoint=row["endpoint"],
+            dedup_key=row["dedup_key"],
+            request_id=row["request_id"],
+            payload_hash=row["payload_hash"],
+            ingestion_id=row["ingestion_id"],
+            response_payload=self._parse_json(row["response_payload_json"]),
+            first_seen_at=self._parse_datetime(row["first_seen_at"]),
+            last_seen_at=self._parse_datetime(row["last_seen_at"]),
+            duplicate_count=int(row["duplicate_count"]),
+        )
+
+    def _row_to_run_log(self, row: sqlite3.Row) -> StoredIngestionRunLog:
+        return StoredIngestionRunLog(
+            run_id=row["run_id"],
+            endpoint=row["endpoint"],
+            ingestion_kind=row["ingestion_kind"],
+            instrument_symbol=row["instrument_symbol"],
+            request_id=row["request_id"],
+            dedup_key=row["dedup_key"],
+            payload_hash=row["payload_hash"],
+            outcome=row["outcome"],
+            http_status=int(row["http_status"]),
+            ingestion_id=row["ingestion_id"],
+            dead_letter_id=row["dead_letter_id"],
+            detail=self._parse_json(row["detail_json"]),
+            started_at=self._parse_datetime(row["started_at"]),
+            completed_at=self._parse_datetime(row["completed_at"]),
         )
 
     def _row_to_chat_session(self, row: sqlite3.Row) -> StoredChatSession:

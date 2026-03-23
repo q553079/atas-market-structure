@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import logging
 from typing import Iterable
 from uuid import uuid4
 
@@ -36,6 +37,10 @@ from atas_market_structure.models import (
     StructureSide,
 )
 from atas_market_structure.repository import AnalysisRepository
+from atas_market_structure.recognition import DeterministicRecognitionService
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 PayloadType = MarketStructurePayload | EventSnapshotPayload
@@ -837,14 +842,38 @@ class IngestionOrchestrator:
         repository: AnalysisRepository,
         recognizer: StructureRecognizer | None = None,
         knowledge_router: KnowledgeRouter | None = None,
+        recognition_service: DeterministicRecognitionService | None = None,
     ) -> None:
         self._repository = repository
         self._recognizer = recognizer or StructureRecognizer()
         self._knowledge_router = knowledge_router or KnowledgeRouter()
+        self._recognition_service = recognition_service or DeterministicRecognitionService(repository=repository)
 
     def ingest_market_structure(self, payload: MarketStructurePayload) -> IngestionAcceptedResponse:
-        return self._ingest(
-            payload=payload,
+        stored_at = datetime.now(tz=UTC)
+        ingestion_id = f"ing-{uuid4().hex}"
+        self._repository.save_ingestion(
+            ingestion_id=ingestion_id,
+            ingestion_kind="market_structure",
+            source_snapshot_id=payload.snapshot_id,
+            instrument_symbol=payload.instrument.symbol,
+            observed_payload=payload.model_dump(mode="json"),
+            stored_at=stored_at,
+        )
+        return self.ingest_market_structure_after_store(
+            payload,
+            ingestion_id=ingestion_id,
+            stored_at=stored_at,
+        )
+
+    def ingest_market_structure_after_store(
+        self,
+        payload: MarketStructurePayload,
+        *,
+        ingestion_id: str,
+        stored_at: datetime,
+    ) -> IngestionAcceptedResponse:
+        return self._ingest_after_store(
             context=IngestionContext(
                 ingestion_kind="market_structure",
                 source_snapshot_id=payload.snapshot_id,
@@ -852,11 +881,35 @@ class IngestionOrchestrator:
                 decision_layers=payload.decision_layers,
                 process_context=payload.process_context,
             ),
+            ingestion_id=ingestion_id,
+            stored_at=stored_at,
         )
 
     def ingest_event_snapshot(self, payload: EventSnapshotPayload) -> IngestionAcceptedResponse:
-        return self._ingest(
-            payload=payload,
+        stored_at = datetime.now(tz=UTC)
+        ingestion_id = f"ing-{uuid4().hex}"
+        self._repository.save_ingestion(
+            ingestion_id=ingestion_id,
+            ingestion_kind="event_snapshot",
+            source_snapshot_id=payload.event_snapshot_id,
+            instrument_symbol=payload.instrument.symbol,
+            observed_payload=payload.model_dump(mode="json"),
+            stored_at=stored_at,
+        )
+        return self.ingest_event_snapshot_after_store(
+            payload,
+            ingestion_id=ingestion_id,
+            stored_at=stored_at,
+        )
+
+    def ingest_event_snapshot_after_store(
+        self,
+        payload: EventSnapshotPayload,
+        *,
+        ingestion_id: str,
+        stored_at: datetime,
+    ) -> IngestionAcceptedResponse:
+        return self._ingest_after_store(
             context=IngestionContext(
                 ingestion_kind="event_snapshot",
                 source_snapshot_id=payload.event_snapshot_id,
@@ -864,21 +917,18 @@ class IngestionOrchestrator:
                 decision_layers=payload.decision_layers,
                 process_context=payload.process_context,
             ),
-        )
-
-    def _ingest(self, *, payload: PayloadType, context: IngestionContext) -> IngestionAcceptedResponse:
-        stored_at = datetime.now(tz=UTC)
-        ingestion_id = f"ing-{uuid4().hex}"
-        analysis_id = f"ana-{uuid4().hex}"
-
-        self._repository.save_ingestion(
             ingestion_id=ingestion_id,
-            ingestion_kind=context.ingestion_kind,
-            source_snapshot_id=context.source_snapshot_id,
-            instrument_symbol=context.instrument_symbol,
-            observed_payload=payload.model_dump(mode="json"),
             stored_at=stored_at,
         )
+
+    def _ingest_after_store(
+        self,
+        *,
+        context: IngestionContext,
+        ingestion_id: str,
+        stored_at: datetime,
+    ) -> IngestionAcceptedResponse:
+        analysis_id = f"ana-{uuid4().hex}"
 
         macro, intraday, setup, execution, process, key_levels, gap_assessments, analyst_flags = self._recognizer.analyze(context)
         knowledge_route = self._knowledge_router.route(
@@ -912,6 +962,17 @@ class IngestionOrchestrator:
             analysis_payload=analysis.model_dump(mode="json"),
             stored_at=stored_at,
         )
+        try:
+            self._recognition_service.run_for_instrument(
+                context.instrument_symbol,
+                triggered_by=context.ingestion_kind,
+            )
+        except Exception:  # pragma: no cover - defensive only
+            LOGGER.exception(
+                "deterministic recognition failed after %s ingest for %s",
+                context.ingestion_kind,
+                context.instrument_symbol,
+            )
 
         return IngestionAcceptedResponse(
             ingestion_id=ingestion_id,

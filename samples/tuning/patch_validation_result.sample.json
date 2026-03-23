@@ -1,0 +1,114 @@
+{
+  "schema_version": "patch_validation_result_v1",
+  "candidate_id": "patch-sample-20260323-001",
+  "instrument_symbol": "NQ",
+  "validation_status": "accepted",
+  "boundary_validation_status": "accepted",
+  "recommendation_id": "tune-sample-20260323-001",
+  "base_profile_version": "nq-profile-test",
+  "proposed_profile_version": "nq-profile-test.candidate.20260323050220",
+  "errors": [],
+  "warnings": [],
+  "changed_fields": [
+    "time_windows.momentum_continuation.normal.bars_min",
+    "thresholds.confirming_hypothesis_probability"
+  ],
+  "risk_notes": [
+    "time_windows.momentum_continuation.normal.bars_min is a medium-criticality parameter.",
+    "time_windows.momentum_continuation.normal.bars_min moves more than 20% away from the safe default.",
+    "thresholds.confirming_hypothesis_probability is a critical-criticality parameter.",
+    "This change requires replay validation before promotion."
+  ],
+  "preview": {
+    "instrument_symbol": "NQ",
+    "base_profile_version": "nq-profile-test",
+    "proposed_profile_version": "nq-profile-test.candidate.20260323050220",
+    "candidate_parameters": [
+      "time_windows.momentum_continuation.normal.bars_min",
+      "thresholds.confirming_hypothesis_probability"
+    ],
+    "changed_fields": [
+      {
+        "path": "time_windows.momentum_continuation.normal.bars_min",
+        "action": "increase",
+        "previous_value": 3,
+        "next_value": 4,
+        "metadata": {
+          "path": "time_windows.momentum_continuation.normal.bars_min",
+          "value_type": "int",
+          "min": 1.0,
+          "max": 32.0,
+          "step": 1.0,
+          "safe_default": 3.0,
+          "criticality": "medium",
+          "applies_to_events": [
+            "momentum_continuation"
+          ],
+          "description": "Tempo window boundary for the mapped tradable event."
+        },
+        "risk_notes": [
+          "time_windows.momentum_continuation.normal.bars_min is a medium-criticality parameter.",
+          "time_windows.momentum_continuation.normal.bars_min moves more than 20% away from the safe default."
+        ]
+      },
+      {
+        "path": "thresholds.confirming_hypothesis_probability",
+        "action": "increase",
+        "previous_value": 0.56,
+        "next_value": 0.57,
+        "metadata": {
+          "path": "thresholds.confirming_hypothesis_probability",
+          "value_type": "float",
+          "min": 0.2,
+          "max": 0.9,
+          "step": 0.01,
+          "safe_default": 0.56,
+          "criticality": "critical",
+          "applies_to_events": [
+            "momentum_continuation",
+            "balance_mean_reversion",
+            "absorption_to_reversal_preparation"
+          ],
+          "description": "Posterior threshold for the confirming phase."
+        },
+        "risk_notes": [
+          "thresholds.confirming_hypothesis_probability is a critical-criticality parameter.",
+          "This change requires replay validation before promotion."
+        ]
+      }
+    ],
+    "risk_notes": [
+      "time_windows.momentum_continuation.normal.bars_min is a medium-criticality parameter.",
+      "time_windows.momentum_continuation.normal.bars_min moves more than 20% away from the safe default.",
+      "thresholds.confirming_hypothesis_probability is a critical-criticality parameter.",
+      "This change requires replay validation before promotion."
+    ],
+    "requires_human_review": true,
+    "allow_ai_auto_apply": false
+  },
+  "offline_replay_validation": {
+    "status": "not_run",
+    "runner": "local_stub",
+    "compared_episode_count": 2,
+    "metrics": {
+      "proposed_parameter_count": 2.0,
+      "top_failure_mode_count": 1.0
+    },
+    "summary": "Local stub validator recorded the candidate for later offline replay compare; no replay was executed in V1.",
+    "notes": [
+      "This hook is intentionally off the recognition critical path.",
+      "Promotion remains blocked until a replay compare run and human approval are both completed."
+    ],
+    "validated_at": "2026-03-23T05:02:20.343967Z"
+  },
+  "human_approval": {
+    "required": true,
+    "status": "pending",
+    "approved_by": null,
+    "approved_at": null,
+    "notes": []
+  },
+  "promotion_ready": false,
+  "allow_ai_auto_apply": false,
+  "validated_at": "2026-03-23T05:02:20.343657Z"
+}

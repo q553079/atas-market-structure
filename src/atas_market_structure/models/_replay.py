@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from atas_market_structure.models._adapter_states import (
     AdapterInitiativeDriveState,
@@ -20,6 +20,8 @@ from atas_market_structure.models._enums import (
     EventHypothesisKind,
     EventPhase,
     EvaluationFailureMode,
+    ParameterCriticality,
+    PatchValidationStatus,
     RecognitionMode,
     RegimeKind,
     ReplayAcquisitionMode,
@@ -1269,19 +1271,439 @@ class ReplayWorkbenchLiveTailResponse(BaseModel):
 class InstrumentProfile(BaseModel):
     """Versioned instrument profile used by the deterministic recognizer."""
 
-    instrument_symbol: str = Field(..., description="Instrument symbol that this profile applies to.")
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    class Normalization(BaseModel):
+        """Typed normalization block for instrument_profile_v1."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        price_unit: Literal["ticks"] = Field("ticks", description="Price normalization unit for V1 profiles.")
+        tick_size: float = Field(..., gt=0.0, description="Native instrument tick size.")
+        atr_window_bars: int = Field(20, ge=2, le=200, description="ATR lookback used by normalized movement helpers.")
+        displacement_normalizer: Literal["atr_fraction"] = Field(
+            "atr_fraction",
+            description="Fixed displacement normalization mode for V1.",
+        )
+        volume_normalizer: Literal["rolling_quantile"] = Field(
+            "rolling_quantile",
+            description="Fixed volume normalization mode for V1.",
+        )
+        range_ticks_reference: float = Field(..., gt=0.0, description="Reference range in ticks for compact scaling heuristics.")
+        anchor_active_distance_ticks: float = Field(
+            ...,
+            gt=0.0,
+            description="Distance in ticks below which anchors stay operationally relevant.",
+        )
+
+    class WindowRange(BaseModel):
+        """Bounded bar-count window for one event tempo profile."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        bars_min: int = Field(..., ge=1, le=64, description="Minimum bars expected for this tempo bucket.")
+        bars_max: int = Field(..., ge=1, le=128, description="Maximum bars expected for this tempo bucket.")
+
+        @model_validator(mode="after")
+        def validate_window_bounds(self) -> "InstrumentProfile.WindowRange":
+            if self.bars_max < self.bars_min:
+                raise ValueError("bars_max must be greater than or equal to bars_min")
+            return self
+
+    class TimeWindows(BaseModel):
+        """Typed time-window block for instrument_profile_v1."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        class MomentumContinuation(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            strong: "InstrumentProfile.WindowRange" = Field(
+                ...,
+                description="Expected tempo for strong momentum continuation sequences.",
+            )
+            normal: "InstrumentProfile.WindowRange" = Field(
+                ...,
+                description="Expected tempo for regular momentum continuation sequences.",
+            )
+
+        class EventWindow(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            normal: "InstrumentProfile.WindowRange" = Field(
+                ...,
+                description="Primary tempo window for the mapped tradable event.",
+            )
+
+        feature_lookback_bars: int = Field(20, ge=4, le=200, description="Historical bar lookback for feature assembly.")
+        feature_lookback_minutes: int = Field(60, ge=5, le=480, description="Historical minute lookback for feature assembly.")
+        momentum_continuation: "InstrumentProfile.TimeWindows.MomentumContinuation" = Field(
+            ...,
+            description="Tempo windows for the momentum_continuation tradable event.",
+        )
+        balance_mean_reversion: "InstrumentProfile.TimeWindows.EventWindow" = Field(
+            ...,
+            description="Tempo window for the balance_mean_reversion tradable event.",
+        )
+        absorption_to_reversal_preparation: "InstrumentProfile.TimeWindows.EventWindow" = Field(
+            ...,
+            description="Tempo window for the absorption_to_reversal_preparation tradable event.",
+        )
+
+    class Thresholds(BaseModel):
+        """Typed threshold block for instrument_profile_v1."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        class InitiativePush(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            displacement_zscore: float = Field(..., ge=0.0, le=5.0, description="Normalized displacement threshold for initiative pushes.")
+            efficiency_min: float = Field(..., ge=0.0, le=1.0, description="Minimum efficiency needed to treat a push as initiative.")
+
+        class ShallowPullback(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            retrace_ratio_max: float = Field(..., ge=0.0, le=1.0, description="Maximum retrace ratio for a shallow pullback.")
+
+        class DeepPullback(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            retrace_ratio_min: float = Field(..., ge=0.0, le=1.0, description="Minimum retrace ratio for a deep pullback.")
+
+        class BalanceReturnPenaltyTrigger(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            distance_to_balance_ticks: float = Field(
+                ...,
+                ge=0.0,
+                le=64.0,
+                description="Distance threshold used to mark a return toward prior balance.",
+            )
+
+        active_hypothesis_probability: float = Field(..., ge=0.0, le=1.0, description="Minimum posterior needed to keep a hypothesis active.")
+        building_hypothesis_probability: float = Field(..., ge=0.0, le=1.0, description="Posterior threshold for the building phase.")
+        confirming_hypothesis_probability: float = Field(..., ge=0.0, le=1.0, description="Posterior threshold for the confirming phase.")
+        resolved_hypothesis_probability: float = Field(..., ge=0.0, le=1.0, description="Posterior threshold for resolved episodes.")
+        weakening_drop_threshold: float = Field(..., ge=0.0, le=1.0, description="Required posterior drop before a state is tagged weakening.")
+        momentum_efficiency_high: float = Field(..., ge=0.0, le=1.0, description="High-confidence efficiency marker for momentum.")
+        balance_score_high: float = Field(..., ge=0.0, le=1.0, description="High-confidence balance marker.")
+        compression_score_high: float = Field(..., ge=0.0, le=1.0, description="High-confidence compression marker.")
+        absorption_score_high: float = Field(..., ge=0.0, le=1.0, description="High-confidence absorption marker.")
+        center_hit_ticks: float = Field(..., ge=0.0, le=64.0, description="Distance threshold used to treat price as back at balance center.")
+        anchor_near_ticks: float = Field(..., ge=0.0, le=128.0, description="Anchor activation distance for localized confirmation logic.")
+        initiative_reacceleration_score: float = Field(..., ge=0.0, le=1.0, description="Threshold for reacceleration invalidation checks.")
+        initiative_push: "InstrumentProfile.Thresholds.InitiativePush" = Field(
+            ...,
+            description="Boundaries for initiative push detection.",
+        )
+        shallow_pullback: "InstrumentProfile.Thresholds.ShallowPullback" = Field(
+            ...,
+            description="Boundaries for shallow pullback classification.",
+        )
+        deep_pullback: "InstrumentProfile.Thresholds.DeepPullback" = Field(
+            ...,
+            description="Boundaries for deep pullback classification.",
+        )
+        balance_return_penalty_trigger: "InstrumentProfile.Thresholds.BalanceReturnPenaltyTrigger" = Field(
+            ...,
+            description="Return-to-balance boundary used by continuation logic.",
+        )
+
+    class Weights(BaseModel):
+        """Typed evidence-weight block for instrument_profile_v1."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        bar_structure: float = Field(..., ge=0.0, le=2.0, description="Weight for bar-structure evidence.")
+        volatility_range: float = Field(..., ge=0.0, le=2.0, description="Weight for volatility/range evidence.")
+        trend_efficiency: float = Field(..., ge=0.0, le=2.0, description="Weight for trend-efficiency evidence.")
+        initiative: float = Field(..., ge=0.0, le=2.0, description="Weight for initiative evidence.")
+        balance: float = Field(..., ge=0.0, le=2.0, description="Weight for balance evidence.")
+        absorption: float = Field(..., ge=0.0, le=2.0, description="Weight for absorption evidence.")
+        depth_dom: float = Field(..., ge=0.0, le=2.0, description="Weight for depth/DOM evidence.")
+        anchor_interaction: float = Field(..., ge=0.0, le=2.0, description="Weight for anchor-interaction evidence.")
+        path_dependency: float = Field(..., ge=0.0, le=2.0, description="Weight for path-dependency evidence.")
+
+    class Decay(BaseModel):
+        """Typed decay block for instrument_profile_v1."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        stale_macro_penalty: float = Field(..., ge=0.0, le=1.0, description="Penalty factor applied when macro/process context is stale.")
+        missing_depth_penalty: float = Field(..., ge=0.0, le=1.0, description="Penalty factor applied when depth is missing.")
+        missing_dom_penalty: float = Field(..., ge=0.0, le=1.0, description="Penalty factor applied when DOM is missing.")
+        anchor_freshness_hours: int = Field(..., ge=1, le=720, description="Maximum freshness horizon for active anchors.")
+        balance_center_half_life_bars: int = Field(..., ge=1, le=1000, description="Half-life for balance-center anchors.")
+        gap_edge_half_life_bars: int = Field(..., ge=1, le=1000, description="Half-life for gap-edge anchors.")
+        initiative_origin_half_life_bars: int = Field(..., ge=1, le=1000, description="Half-life for initiative-origin anchors.")
+
+    class Priors(BaseModel):
+        """Typed prior block for instrument_profile_v1."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        class Regimes(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            strong_momentum_trend: float = Field(..., ge=0.0, le=1.0)
+            weak_momentum_trend_narrow: float = Field(..., ge=0.0, le=1.0)
+            weak_momentum_trend_wide: float = Field(..., ge=0.0, le=1.0)
+            balance_mean_reversion: float = Field(..., ge=0.0, le=1.0)
+            compression: float = Field(..., ge=0.0, le=1.0)
+            transition_exhaustion: float = Field(..., ge=0.0, le=1.0)
+
+        class Hypotheses(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            continuation_base: float = Field(..., ge=0.0, le=1.0)
+            distribution_balance: float = Field(..., ge=0.0, le=1.0)
+            absorption_accumulation: float = Field(..., ge=0.0, le=1.0)
+            reversal_preparation: float = Field(..., ge=0.0, le=1.0)
+
+        regimes: "InstrumentProfile.Priors.Regimes" = Field(..., description="Priors for the fixed regime ontology.")
+        hypotheses: "InstrumentProfile.Priors.Hypotheses" = Field(
+            ...,
+            description="Priors for the V1 hypothesis subset used by the deterministic recognizer.",
+        )
+
+    class Safety(BaseModel):
+        """Typed safety block for instrument_profile_v1."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        allow_ai_auto_apply: Literal[False] = Field(
+            False,
+            description="Hard safety gate: AI may not auto-apply instrument profile patches.",
+        )
+        require_offline_validation: Literal[True] = Field(
+            True,
+            description="Hard safety gate: offline validation is always required before promotion.",
+        )
+        max_belief_regimes: int = Field(..., ge=1, le=6, description="Maximum number of regimes kept in one belief snapshot.")
+        max_belief_hypotheses: int = Field(..., ge=1, le=8, description="Maximum number of hypotheses kept in one belief snapshot.")
+        max_active_anchors: int = Field(..., ge=1, le=8, description="Maximum number of active anchors kept in one belief snapshot.")
+        minimum_bar_count_for_primary_features: int = Field(
+            ...,
+            ge=1,
+            le=32,
+            description="Minimum bar count before primary bar-based features may dominate the slice.",
+        )
+
+    instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol that this profile applies to.")
     profile_version: str = Field(..., description="Version identifier for this profile.")
     schema_version: str = Field(..., description="Schema version for the profile payload.")
     ontology_version: str = Field(..., description="Fixed ontology version referenced by this profile.")
     is_active: bool = Field(True, description="Whether this profile is currently active for the instrument.")
-    normalization: dict[str, Any] = Field(default_factory=dict, description="Normalization and scaling settings.")
-    time_windows: dict[str, Any] = Field(default_factory=dict, description="Session or replay time-window settings.")
-    thresholds: dict[str, Any] = Field(default_factory=dict, description="Threshold parameters used by the recognizer.")
-    weights: dict[str, Any] = Field(default_factory=dict, description="Relative weights for evidence buckets.")
-    decay: dict[str, Any] = Field(default_factory=dict, description="Decay settings for stale evidence and anchors.")
-    priors: dict[str, Any] = Field(default_factory=dict, description="Prior probabilities for regimes and event hypotheses.")
-    safety: dict[str, Any] = Field(default_factory=dict, description="Safety bounds for degraded operation and evaluation.")
+    normalization: "InstrumentProfile.Normalization" = Field(..., description="Normalization and scaling settings.")
+    time_windows: "InstrumentProfile.TimeWindows" = Field(..., description="Session or replay time-window settings.")
+    thresholds: "InstrumentProfile.Thresholds" = Field(..., description="Threshold parameters used by the recognizer.")
+    weights: "InstrumentProfile.Weights" = Field(..., description="Relative weights for evidence buckets.")
+    decay: "InstrumentProfile.Decay" = Field(..., description="Decay settings for stale evidence and anchors.")
+    priors: "InstrumentProfile.Priors" = Field(..., description="Prior probabilities for regimes and event hypotheses.")
+    safety: "InstrumentProfile.Safety" = Field(..., description="Safety bounds and fixed patch gates.")
     created_at: datetime = Field(..., description="When this profile version was created.")
+
+
+class InstrumentProfileParameterMetadata(BaseModel):
+    """Metadata and safe boundary definition for one adjustable profile parameter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(..., description="Dot-path to the adjustable parameter inside instrument_profile_v1.")
+    value_type: Literal["int", "float"] = Field(..., description="Primitive numeric type expected at the parameter path.")
+    min: float = Field(..., description="Inclusive lower bound.")
+    max: float = Field(..., description="Inclusive upper bound.")
+    step: float = Field(..., gt=0.0, description="Allowed adjustment step.")
+    safe_default: float = Field(..., description="Safe default value used by the profile registry.")
+    criticality: ParameterCriticality = Field(..., description="Risk level attached to this parameter.")
+    applies_to_events: list[TradableEventKind] = Field(
+        default_factory=list,
+        description="Tradable events that are most directly affected by this parameter.",
+    )
+    description: str = Field(..., description="Operator-facing explanation for the parameter.")
+
+
+class ProfileSuggestedChange(BaseModel):
+    """One explicit from/to change in a patch candidate."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    action: Literal["increase", "decrease", "set"] = Field(..., description="Direction of the proposed change.")
+    from_value: float | int = Field(..., alias="from", description="Current parameter value.")
+    to_value: float | int = Field(..., alias="to", description="Proposed parameter value.")
+
+
+class ProfilePatchFieldDiff(BaseModel):
+    """Detailed diff row used by compare/preview output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(..., description="Dot-path for the changed parameter.")
+    action: Literal["increase", "decrease", "set"] = Field(..., description="Direction of the change.")
+    previous_value: float | int = Field(..., description="Current value before patch application.")
+    next_value: float | int = Field(..., description="Value proposed by the patch.")
+    metadata: InstrumentProfileParameterMetadata = Field(..., description="Boundary metadata for the changed parameter.")
+    risk_notes: list[str] = Field(default_factory=list, description="Risk notes specific to this field change.")
+
+
+class ProfilePatchPreview(BaseModel):
+    """Preview output comparing one base profile against a validated patch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_symbol: str = Field(..., description="Instrument symbol affected by the patch preview.")
+    base_profile_version: str = Field(..., description="Current profile version used as the compare baseline.")
+    proposed_profile_version: str = Field(..., description="Candidate profile version after patch application.")
+    candidate_parameters: list[str] = Field(default_factory=list, description="Changed parameter paths included in the patch.")
+    changed_fields: list[ProfilePatchFieldDiff] = Field(default_factory=list, description="Detailed diff rows for each changed field.")
+    risk_notes: list[str] = Field(default_factory=list, description="Aggregated risk notes for the patch preview.")
+    requires_human_review: bool = Field(True, description="Patch promotion requires explicit human review.")
+    allow_ai_auto_apply: Literal[False] = Field(False, description="AI auto-apply remains disabled in preview output.")
+
+
+class ProfilePatchCandidate(BaseModel):
+    """Structured append-only profile patch candidate."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    candidate_id: str = Field(..., description="Stable patch candidate identifier.")
+    instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol targeted by the patch.")
+    schema_version: str = Field(..., description="Schema version for this patch candidate.")
+    ontology_version: str = Field(..., description="Ontology version inherited from the base profile.")
+    base_profile_version: str = Field(..., description="Profile version used as the patch baseline.")
+    proposed_profile_version: str = Field(..., description="Profile version that would be produced if this patch is promoted.")
+    recommendation_id: str | None = Field(None, description="Optional upstream recommendation identifier.")
+    candidate_parameters: list[str] = Field(default_factory=list, description="Parameter paths touched by this candidate.")
+    suggested_changes: dict[str, ProfileSuggestedChange] = Field(
+        default_factory=dict,
+        description="Explicit parameter changes expressed as from/to transitions.",
+    )
+    risk_notes: list[str] = Field(default_factory=list, description="Aggregated risk notes for operator review.")
+    allow_ai_auto_apply: Literal[False] = Field(False, description="Hard gate preventing automatic patch promotion.")
+    created_at: datetime = Field(..., description="When this patch candidate was generated.")
+
+
+class ProfilePatchValidationIssue(BaseModel):
+    """One validation issue emitted by the boundary validator."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(..., description="Affected dot-path when available.")
+    code: str = Field(..., description="Stable machine-readable issue code.")
+    message: str = Field(..., description="Operator-facing validation message.")
+
+
+class OfflineReplayValidationSummary(BaseModel):
+    """Offline replay validation hook result for one patch candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["not_run", "passed", "failed"] = Field(
+        "not_run",
+        description="Offline replay validation status for the candidate patch.",
+    )
+    runner: str = Field(
+        "local_stub",
+        description="Offline validator implementation that produced this summary.",
+    )
+    compared_episode_count: int = Field(
+        0,
+        ge=0,
+        description="How many evaluated episodes were included in the offline compare scope.",
+    )
+    metrics: dict[str, float] = Field(
+        default_factory=dict,
+        description="Compact deterministic compare metrics emitted by the offline runner.",
+    )
+    summary: str | None = Field(
+        None,
+        description="Operator-facing summary of the offline replay compare result.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Additional validation notes preserved for auditability.",
+    )
+    validated_at: datetime | None = Field(
+        None,
+        description="When the offline replay validation completed.",
+    )
+
+
+class PatchHumanApproval(BaseModel):
+    """Human approval placeholder required before any patch promotion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: Literal[True] = Field(
+        True,
+        description="Patch promotion always requires explicit human approval.",
+    )
+    status: Literal["pending", "approved", "rejected"] = Field(
+        "pending",
+        description="Current human approval state for this candidate patch.",
+    )
+    approved_by: str | None = Field(
+        None,
+        description="Operator or reviewer that approved or rejected the candidate.",
+    )
+    approved_at: datetime | None = Field(
+        None,
+        description="When the approval decision was recorded.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operator notes recorded during the approval stage.",
+    )
+
+
+class ProfilePatchValidationResult(BaseModel):
+    """Boundary-validation result for one patch candidate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(
+        "patch_validation_result_v1",
+        description="Schema version for this patch validation result payload.",
+    )
+    candidate_id: str = Field(..., description="Patch candidate identifier being validated.")
+    instrument_symbol: str = Field(..., description="Instrument symbol targeted by the patch.")
+    validation_status: PatchValidationStatus = Field(..., description="Accepted or rejected validation result.")
+    boundary_validation_status: PatchValidationStatus | None = Field(
+        None,
+        description="Explicit boundary-validation status before offline replay and human approval are considered.",
+    )
+    recommendation_id: str | None = Field(
+        None,
+        description="Upstream tuning recommendation linked to this validation run when available.",
+    )
+    base_profile_version: str | None = Field(
+        None,
+        description="Base profile version used by the candidate under validation.",
+    )
+    proposed_profile_version: str | None = Field(
+        None,
+        description="Proposed profile version that would be promoted after validation.",
+    )
+    errors: list[ProfilePatchValidationIssue] = Field(default_factory=list, description="Hard validation failures.")
+    warnings: list[ProfilePatchValidationIssue] = Field(default_factory=list, description="Non-blocking validation warnings.")
+    changed_fields: list[str] = Field(default_factory=list, description="Changed parameter paths observed during validation.")
+    risk_notes: list[str] = Field(default_factory=list, description="Aggregated patch risk notes.")
+    preview: ProfilePatchPreview | None = Field(None, description="Patch preview when validation succeeded.")
+    offline_replay_validation: OfflineReplayValidationSummary = Field(
+        default_factory=OfflineReplayValidationSummary,
+        description="Offline replay validation hook output for this candidate.",
+    )
+    human_approval: PatchHumanApproval = Field(
+        default_factory=PatchHumanApproval,
+        description="Human approval placeholder that must be resolved before promotion.",
+    )
+    promotion_ready: bool = Field(
+        False,
+        description="Whether the candidate is ready for explicit promotion after all safety gates.",
+    )
+    allow_ai_auto_apply: Literal[False] = Field(False, description="Hard gate preventing automatic patch promotion.")
+    validated_at: datetime = Field(..., description="When validation completed.")
 
 
 class RecognizerBuild(BaseModel):
@@ -1329,6 +1751,10 @@ class EventHypothesisState(BaseModel):
     missing_confirmation: list[str] = Field(default_factory=list, description="Evidence still missing before stronger confirmation.")
     invalidating_signals: list[str] = Field(default_factory=list, description="Signals that would weaken or invalidate the hypothesis.")
     transition_watch: list[str] = Field(default_factory=list, description="Competing transitions that the engine is watching.")
+    data_quality_score: float | None = Field(None, ge=0.0, le=1.0, description="How much the current data quality supports this hypothesis.")
+    evidence_density_score: float | None = Field(None, ge=0.0, le=1.0, description="How dense and coherent the supporting evidence is.")
+    model_stability_score: float | None = Field(None, ge=0.0, le=1.0, description="How stable the hypothesis posterior is versus recent prior states.")
+    anchor_dependence_score: float | None = Field(None, ge=0.0, le=1.0, description="How strongly this hypothesis depends on nearby memory anchors.")
 
 
 class MemoryAnchorSnapshot(BaseModel):
@@ -1339,6 +1765,9 @@ class MemoryAnchorSnapshot(BaseModel):
     reference_price: float | None = Field(None, description="Primary price reference for the anchor.")
     reference_time: datetime | None = Field(None, description="Primary time reference for the anchor.")
     freshness: str | None = Field(None, description="Anchor freshness label.")
+    distance_ticks: float | None = Field(None, description="Distance in ticks from current price to this anchor when the snapshot was emitted.")
+    influence: float | None = Field(None, ge=0.0, le=1.0, description="Relative influence score of this anchor on the current posterior.")
+    role_profile: dict[str, float] = Field(default_factory=dict, description="Current anchor-role profile such as magnet or reversal reference.")
     profile_version: str = Field(..., description="Profile version used to emit this anchor snapshot.")
 
 
@@ -1357,6 +1786,9 @@ class BeliefStateSnapshot(BaseModel):
     regime_posteriors: list[RegimePosteriorRecord] = Field(default_factory=list, description="Top regime posteriors for the current state.")
     event_hypotheses: list[EventHypothesisState] = Field(default_factory=list, description="Parallel event hypotheses for the current state.")
     active_anchors: list[MemoryAnchorSnapshot] = Field(default_factory=list, description="Active memory anchors that influence the current posterior.")
+    missing_confirmation: list[str] = Field(default_factory=list, description="Aggregated missing confirmations across the leading event hypotheses.")
+    invalidating_signals_seen: list[str] = Field(default_factory=list, description="Aggregated invalidating or weakening signals currently in view.")
+    transition_watch: list[str] = Field(default_factory=list, description="Aggregated transition watch list across leading hypotheses.")
     notes: list[str] = Field(default_factory=list, description="Additional operator-facing notes emitted by the recognizer.")
 
 
@@ -1375,8 +1807,10 @@ class EventEpisode(BaseModel):
     dominant_regime: RegimeKind = Field(..., description="Dominant regime during the episode.")
     supporting_evidence: list[str] = Field(default_factory=list, description="Key evidence that supported the episode.")
     invalidating_evidence: list[str] = Field(default_factory=list, description="Key evidence that weakened or ended the episode.")
+    key_evidence_summary: list[str] = Field(default_factory=list, description="Condensed evidence summary suitable for replay review and audit.")
     active_anchor_ids: list[str] = Field(default_factory=list, description="Relevant memory anchors referenced by the episode.")
     replacement_episode_id: str | None = Field(None, description="Replacement episode identifier when this one was superseded.")
+    replacement_event_kind: TradableEventKind | None = Field(None, description="Replacement tradable event kind when this episode was superseded.")
     schema_version: str = Field(..., description="Episode schema version.")
     profile_version: str = Field(..., description="Instrument-profile version used for this episode.")
     engine_version: str = Field(..., description="Recognizer build version used for this episode.")
@@ -1384,32 +1818,464 @@ class EventEpisode(BaseModel):
 
 
 class EpisodeEvaluationScorecard(BaseModel):
-    """Standardized scorecard for one episode evaluation."""
+    """Five-dimensional episode_evaluation_v1 scorecard using the Master Spec v2 scale."""
 
-    structure_alignment: float = Field(..., ge=0.0, le=1.0, description="Alignment between episode structure and the observed path.")
-    timing_quality: float = Field(..., ge=0.0, le=1.0, description="Whether the episode progressed within the declared time window.")
-    confirmation_quality: float = Field(..., ge=0.0, le=1.0, description="Strength and cleanliness of the confirmation sequence.")
-    overall_score: float = Field(..., ge=0.0, le=1.0, description="Overall normalized episode score.")
+    model_config = ConfigDict(extra="forbid")
+
+    hypothesis_selection_score: int = Field(..., ge=-2, le=2, description="Whether the event hypothesis was selected correctly.")
+    confirmation_timing_score: int = Field(..., ge=-2, le=2, description="Whether confirmation happened within the declared window.")
+    invalidation_timing_score: int = Field(..., ge=-2, le=2, description="Whether invalidation happened promptly after negative evidence.")
+    transition_handling_score: int = Field(..., ge=-2, le=2, description="Whether transition watch and replacement handling were appropriate.")
+    calibration_score: int = Field(..., ge=-2, le=2, description="Whether confidence levels were consistent with the observed outcome.")
+
+
+class EpisodeEvaluationDeclaredTimeWindow(BaseModel):
+    """Declared event window used for timing-oriented episode review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str = Field(..., description="Compact window label such as next_5_bars.")
+    bars_min: int | None = Field(None, ge=1, description="Earliest bar count at which validation is expected.")
+    bars_max: int | None = Field(None, ge=1, description="Latest bar count by which validation should occur.")
+
+
+class EpisodeEvaluationLifecycle(BaseModel):
+    """Lifecycle landmarks reconstructed from belief-state history and the closed episode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    started_at: datetime = Field(..., description="When the reviewed episode started forming.")
+    first_validation_hit_at: datetime | None = Field(None, description="First time the event reached a validating state.")
+    peak_prob: float = Field(..., ge=0.0, le=1.0, description="Highest posterior probability reached by the event.")
+    peak_prob_at: datetime | None = Field(None, description="Timestamp of the highest posterior probability.")
+    first_invalidation_hit_at: datetime | None = Field(None, description="First time invalidation was explicitly recognized.")
+    downgraded_at: datetime | None = Field(None, description="First time the event entered a weakening state.")
+    resolved_at: datetime | None = Field(None, description="When the event closed as confirmed.")
+    resolution: EpisodeResolution = Field(..., description="Terminal resolution used for evaluation.")
+    replacement_event: TradableEventKind | None = Field(None, description="Replacement event when the narrative was superseded.")
+
+
+class EpisodeEvaluationOutcome(BaseModel):
+    """Rule-review outcome summary for one episode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    did_event_materialize: bool = Field(..., description="Whether the event completed as a confirmed materialization.")
+    did_partial_materialize: bool = Field(..., description="Whether the event partially formed before failing or being replaced.")
+    dominant_final_event: TradableEventKind | None = Field(None, description="Dominant final event when known.")
+    judgement_source: ReviewSource = Field(..., description="Which review source produced the evaluation.")
+
+
+class EpisodeEvaluationDiagnosis(BaseModel):
+    """Structured diagnosis consumed by operators and downstream AI tuning workflows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    primary_failure_mode: EvaluationFailureMode = Field(..., description="Primary V1 failure mode classification.")
+    supporting_reasons: list[str] = Field(default_factory=list, description="Rule-review reason codes supporting the diagnosis.")
+    missing_confirmation: list[str] = Field(default_factory=list, description="Confirmation items still missing at the point of failure.")
+    invalidating_signals_seen: list[str] = Field(default_factory=list, description="Invalidating signals observed during the evaluated lifecycle.")
+    candidate_parameters: list[str] = Field(default_factory=list, description="Profile parameter paths that are plausible tuning candidates.")
+    suggested_direction: dict[str, Literal["increase", "decrease", "hold"]] = Field(
+        default_factory=dict,
+        description="Suggested parameter adjustment direction keyed by profile parameter path.",
+    )
+
+
+class EpisodeEvaluationTuningHints(BaseModel):
+    """Compact tuning-hint packet aligned with the structured diagnosis."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_parameters: list[str] = Field(default_factory=list, description="Candidate parameter paths for offline review.")
+    suggested_direction: dict[str, Literal["increase", "decrease", "hold"]] = Field(
+        default_factory=dict,
+        description="Suggested direction for each candidate parameter.",
+    )
+    confidence: Literal["low", "medium", "high"] = Field("low", description="Operator-facing confidence for these tuning hints.")
 
 
 class EpisodeEvaluation(BaseModel):
-    """Append-only standardized evaluation over one closed event episode."""
+    """Append-only episode_evaluation_v1 payload aligned to Master Spec v2."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     evaluation_id: str = Field(..., description="Stable evaluation identifier.")
     episode_id: str = Field(..., description="Closed event episode being evaluated.")
-    instrument_symbol: str = Field(..., description="Instrument symbol for the episode.")
-    event_kind: TradableEventKind = Field(..., description="V1 tradable event kind evaluated.")
-    judgement_source: ReviewSource = Field(..., description="Source that produced this evaluation.")
-    failure_mode: EvaluationFailureMode = Field(..., description="Primary failure mode for this evaluation.")
-    summary: str = Field(..., description="Compact evaluation summary.")
-    strengths: list[str] = Field(default_factory=list, description="What worked well in the episode lifecycle.")
-    weaknesses: list[str] = Field(default_factory=list, description="Where the episode or confirmation sequence was weak.")
-    tuning_hints: list[str] = Field(default_factory=list, description="Non-binding tuning hints for later review.")
-    scorecard: EpisodeEvaluationScorecard = Field(..., description="Normalized scorecard for this evaluation.")
-    schema_version: str = Field(..., description="Evaluation schema version.")
+    instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol for the reviewed episode.")
+    session: str | None = Field(None, description="Session label when available.")
+    bar_tf: str | None = Field(None, description="Bar timeframe label when available.")
+    market_time_start: datetime = Field(..., description="Episode market start timestamp.")
+    market_time_end: datetime = Field(..., description="Episode market end timestamp.")
     profile_version: str = Field(..., description="Instrument-profile version used for this evaluation.")
     engine_version: str = Field(..., description="Recognizer build version used for this evaluation.")
+    schema_version: str = Field(..., description="Evaluation schema version.")
+    initial_regime_top1: RegimeKind | None = Field(None, description="Top initial regime when the episode began.")
+    initial_regime_prob: float | None = Field(None, ge=0.0, le=1.0, description="Probability attached to the top initial regime.")
+    evaluated_event_kind: TradableEventKind = Field(..., description="V1 tradable event being evaluated.")
+    initial_phase: EventPhase | None = Field(None, description="Initial phase of the event when the episode began.")
+    initial_prob: float | None = Field(None, ge=0.0, le=1.0, description="Initial probability for the evaluated event.")
+    declared_time_window: EpisodeEvaluationDeclaredTimeWindow = Field(..., description="Declared event window used during rule review.")
+    anchor_context: list[str] = Field(default_factory=list, description="Compact anchor context captured at episode start.")
+    lifecycle: EpisodeEvaluationLifecycle = Field(..., description="Lifecycle landmarks reconstructed for the episode.")
+    outcome: EpisodeEvaluationOutcome = Field(..., description="Rule-review outcome summary.")
+    scores: EpisodeEvaluationScorecard = Field(..., description="Five-dimensional V1 episode scorecard.")
+    diagnosis: EpisodeEvaluationDiagnosis = Field(..., description="Structured diagnosis for operator review and tuning inputs.")
+    tuning_hints: EpisodeEvaluationTuningHints = Field(..., description="Compact tuning hints derived from the diagnosis.")
     evaluated_at: datetime = Field(..., description="When this evaluation was produced.")
+
+
+class TuningAnalysisWindow(BaseModel):
+    """Closed-episode analysis window used by tuning bundle and recommendation payloads."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    episode_count: int = Field(..., ge=0, description="Closed episode count included in the tuning window.")
+    evaluation_count: int = Field(..., ge=0, description="Episode evaluation count available inside the tuning window.")
+    date_from: datetime | None = Field(None, alias="from", description="Inclusive start of the tuning analysis window.")
+    date_to: datetime | None = Field(None, alias="to", description="Inclusive end of the tuning analysis window.")
+
+
+class TuningFailureModeSummary(BaseModel):
+    """One aggregated failure-mode summary used by the tuning advisor."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: EvaluationFailureMode = Field(..., description="Failure mode summarized across recent evaluations.")
+    count: int = Field(..., ge=0, description="How many evaluations surfaced this failure mode.")
+    summary: str = Field(..., description="Compact explanation of the recurring failure pattern.")
+
+
+class TuningPositiveNegativeSummary(BaseModel):
+    """Positive or negative evaluation summary statistics for one tuning bundle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    positive_episode_count: int = Field(..., ge=0, description="Evaluations classified as healthy or no-failure episodes.")
+    negative_episode_count: int = Field(..., ge=0, description="Evaluations classified with one or more failure modes.")
+    unevaluated_episode_count: int = Field(..., ge=0, description="Closed episodes still missing a corresponding evaluation.")
+    failure_mode_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Failure-mode counts keyed by fixed evaluation failure-mode labels.",
+    )
+    event_kind_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Evaluated tradable event counts keyed by event kind.",
+    )
+    average_scores: dict[str, float] = Field(
+        default_factory=dict,
+        description="Mean score per V1 evaluation dimension.",
+    )
+
+
+class TuningDegradationStatistics(BaseModel):
+    """Aggregated degraded-mode statistics attached to one tuning bundle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    belief_sample_count: int = Field(..., ge=0, description="Belief snapshot count used to estimate degradation exposure.")
+    degraded_belief_count: int = Field(..., ge=0, description="How many sampled belief snapshots were degraded.")
+    degraded_mode_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Counts per degraded mode observed in sampled belief snapshots.",
+    )
+    depth_unavailable_count: int = Field(..., ge=0, description="Belief snapshots where depth evidence was unavailable.")
+    dom_unavailable_count: int = Field(..., ge=0, description="Belief snapshots where DOM evidence was unavailable.")
+    ai_unavailable_count: int = Field(..., ge=0, description="Belief snapshots where optional AI services were unavailable.")
+    latest_freshness: str | None = Field(None, description="Latest compact freshness label seen in the bundle scope.")
+    latest_completeness: str | None = Field(None, description="Latest compact completeness label seen in the bundle scope.")
+
+
+class TuningPatchHistoryEntry(BaseModel):
+    """One patch-history row attached to the tuning input bundle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate: ProfilePatchCandidate = Field(..., description="Stored candidate patch from recent history.")
+    latest_validation_result: ProfilePatchValidationResult | None = Field(
+        None,
+        description="Latest validation result found for the candidate patch.",
+    )
+
+
+class TuningInputBundle(BaseModel):
+    """Structured AI-facing bundle built from profile, episodes, evaluations, and ops history."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    bundle_id: str = Field(..., description="Stable bundle identifier for one advisory run.")
+    instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol under tuning review.")
+    schema_version: str = Field(..., description="Schema version for this tuning input bundle.")
+    built_at: datetime = Field(..., description="When the bundle was assembled.")
+    profile_version: str = Field(..., description="Active profile version referenced by this bundle.")
+    engine_version: str = Field(..., description="Recognizer build version referenced by this bundle.")
+    analysis_window: TuningAnalysisWindow = Field(..., description="Episode window summarized by this bundle.")
+    instrument_profile: InstrumentProfile = Field(..., description="Current active instrument profile payload.")
+    recognizer_build: RecognizerBuild | None = Field(
+        None,
+        description="Active recognizer build metadata when available.",
+    )
+    recent_closed_episodes: list[EventEpisode] = Field(
+        default_factory=list,
+        description="Recent closed episodes included in the bundle window.",
+    )
+    episode_evaluations: list[EpisodeEvaluation] = Field(
+        default_factory=list,
+        description="Structured episode evaluations corresponding to recent closed episodes.",
+    )
+    positive_negative_summary: TuningPositiveNegativeSummary = Field(
+        ...,
+        description="Positive and negative summary statistics derived from recent evaluations.",
+    )
+    patch_history: list[TuningPatchHistoryEntry] = Field(
+        default_factory=list,
+        description="Recent patch candidate history, including latest validation state when available.",
+    )
+    degradation_statistics: TuningDegradationStatistics | None = Field(
+        None,
+        description="Recent degraded-mode exposure statistics when belief-state history is available.",
+    )
+    unevaluated_episode_ids: list[str] = Field(
+        default_factory=list,
+        description="Closed episode identifiers that did not yet have a stored evaluation.",
+    )
+
+
+class TuningRecommendationItem(BaseModel):
+    """One structured AI-generated parameter recommendation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_kind: TradableEventKind | None = Field(
+        None,
+        description="Tradable event most directly impacted by this parameter change.",
+    )
+    parameter: str = Field(..., description="Instrument-profile parameter path proposed for tuning.")
+    direction: Literal["increase", "decrease", "hold", "set"] = Field(
+        ...,
+        description="Suggested direction of change for the parameter.",
+    )
+    current_value: float | int = Field(..., description="Current parameter value in the active profile.")
+    proposed_value: float | int = Field(..., description="Suggested bounded next value for offline validation.")
+    support_count: int = Field(..., ge=0, description="Number of evaluations that supported this recommendation.")
+    reason: str = Field(..., description="Compact diagnosis-backed reason for the recommendation.")
+    expected_improvement: str = Field(..., description="Expected improvement if the patch is validated offline.")
+    risk: str = Field(..., description="Primary risk introduced by applying the recommendation.")
+    confidence: Literal["low", "medium", "high"] = Field(
+        ...,
+        description="Advisor confidence for this one recommendation item.",
+    )
+
+
+class TuningRecommendation(BaseModel):
+    """Structured tuning recommendation output produced by the offline advisor layer."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    recommendation_id: str = Field(..., description="Stable recommendation identifier.")
+    bundle_id: str = Field(..., description="Source bundle identifier used to generate this recommendation.")
+    instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol under tuning review.")
+    schema_version: str = Field(..., description="Schema version for this tuning recommendation payload.")
+    profile_version: str = Field(..., description="Profile version evaluated by the advisor.")
+    engine_version: str = Field(..., description="Recognizer build evaluated by the advisor.")
+    generated_at: datetime = Field(..., description="When the recommendation was generated.")
+    advisor_kind: str = Field(..., description="Offline advisor implementation that produced this recommendation.")
+    analysis_window: TuningAnalysisWindow = Field(..., description="Episode window summarized by the recommendation.")
+    top_failure_modes: list[TuningFailureModeSummary] = Field(
+        default_factory=list,
+        description="Most common recent failure modes that motivated the recommendation.",
+    )
+    recommendations: list[TuningRecommendationItem] = Field(
+        default_factory=list,
+        description="Structured, bounded parameter recommendations.",
+    )
+    expected_improvement: str = Field(..., description="Top-level expected improvement narrative.")
+    risk: str = Field(..., description="Top-level risk narrative for the combined recommendation.")
+    confidence: Literal["low", "medium", "high"] = Field(
+        ...,
+        description="Overall confidence for the recommendation set.",
+    )
+    patch_candidate_ref: str | None = Field(
+        None,
+        description="Patch candidate identifier generated from this recommendation when available.",
+    )
+    allow_ai_auto_apply: Literal[False] = Field(
+        False,
+        description="Hard safety gate preventing AI recommendation auto-apply.",
+    )
+
+
+class ReplayProjectionQuery(BaseModel):
+    """Filter metadata shared by replay workbench read/projection endpoints."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol scoped by the read-model query.")
+    window_start: datetime | None = Field(None, alias="from", description="Inclusive market-time lower bound for the query.")
+    window_end: datetime | None = Field(None, alias="to", description="Inclusive market-time upper bound for the query.")
+    session_date: str | None = Field(None, description="Optional YYYY-MM-DD session/date filter.")
+    limit: int = Field(100, ge=1, le=1000, description="Maximum number of rows returned per section.")
+
+
+class ReplayProjectionTimelineEntry(BaseModel):
+    """Timeline-friendly summary item used by the replay workbench projection layer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entry_type: Literal[
+        "belief_state",
+        "event_episode",
+        "episode_evaluation",
+        "tuning_recommendation",
+        "patch_candidate",
+        "health_status",
+    ] = Field(..., description="Projection item family.")
+    object_id: str = Field(..., description="Primary object identifier represented by this timeline row.")
+    market_time: datetime = Field(..., description="Primary market or event timestamp for this row.")
+    session_date: str | None = Field(None, description="Session/date label carried through the projection layer.")
+    title: str = Field(..., description="Compact title shown in timeline UIs.")
+    summary: str = Field(..., description="Compact operator-facing summary.")
+    degraded_badges: list[str] = Field(default_factory=list, description="Degraded/freshness badges associated with this row.")
+    profile_version: str | None = Field(None, description="Profile version attached to the represented object.")
+    engine_version: str | None = Field(None, description="Engine version attached to the represented object.")
+
+
+class ReplayWorkbenchBeliefTimelineEntry(BaseModel):
+    """Belief-state row enriched with timeline-friendly summaries for the workbench."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    market_time: datetime = Field(..., description="Belief market timestamp.")
+    session_date: str | None = Field(None, description="Session/date label for this belief row.")
+    belief_state_id: str = Field(..., description="Belief-state identifier.")
+    top_regimes: list[str] = Field(default_factory=list, description="Top regime probability summaries.")
+    top_event_hypotheses: list[str] = Field(default_factory=list, description="Top event-hypothesis summaries.")
+    degraded_badges: list[str] = Field(default_factory=list, description="Degraded/freshness badges active for this belief.")
+    freshness: str | None = Field(None, description="Compact freshness label copied from the belief data status.")
+    completeness: str | None = Field(None, description="Compact completeness label copied from the belief data status.")
+    belief: BeliefStateSnapshot = Field(..., description="Full belief-state snapshot payload.")
+
+
+class ReplayWorkbenchBeliefTimelineEnvelope(BaseModel):
+    """Read-model response for replay workbench belief-state timelines."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ReplayProjectionQuery = Field(..., description="Filters used to build this timeline.")
+    current_belief: BeliefStateSnapshot | None = Field(None, description="Latest belief-state snapshot in scope when available.")
+    items: list[ReplayWorkbenchBeliefTimelineEntry] = Field(default_factory=list, description="Timeline-ordered belief-state rows.")
+
+
+class ReplayWorkbenchEpisodeReviewItem(BaseModel):
+    """Episode row enriched with the latest stored evaluation for workbench review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    market_time: datetime = Field(..., description="Episode close timestamp used for timeline ordering.")
+    session_date: str | None = Field(None, description="Session/date label for this episode row.")
+    summary_status: str = Field(..., description="Compact episode/evaluation status label.")
+    primary_failure_mode: EvaluationFailureMode | None = Field(None, description="Primary evaluation failure mode when available.")
+    episode: EventEpisode = Field(..., description="Closed event episode payload.")
+    evaluation: EpisodeEvaluation | None = Field(None, description="Latest stored evaluation linked to the episode when available.")
+
+
+class ReplayWorkbenchEpisodeReviewEnvelope(BaseModel):
+    """Read-model response for replay workbench event episode review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ReplayProjectionQuery = Field(..., description="Filters used to build this review section.")
+    items: list[ReplayWorkbenchEpisodeReviewItem] = Field(default_factory=list, description="Episode review rows in descending time order.")
+
+
+class ReplayWorkbenchEpisodeEvaluationItem(BaseModel):
+    """Timeline-oriented episode evaluation row for replay review UIs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    market_time: datetime = Field(..., description="Evaluation timestamp used for ordering.")
+    session_date: str | None = Field(None, description="Session/date label for this evaluation row.")
+    primary_failure_mode: EvaluationFailureMode = Field(..., description="Primary V1 failure mode classification.")
+    candidate_parameters: list[str] = Field(default_factory=list, description="Candidate profile parameter paths extracted from the diagnosis.")
+    episode: EventEpisode | None = Field(None, description="Linked closed event episode when available.")
+    evaluation: EpisodeEvaluation = Field(..., description="Stored episode evaluation payload.")
+
+
+class ReplayWorkbenchEpisodeEvaluationListEnvelope(BaseModel):
+    """Read-model response for replay workbench episode-evaluation timelines."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ReplayProjectionQuery = Field(..., description="Filters used to build this evaluation section.")
+    items: list[ReplayWorkbenchEpisodeEvaluationItem] = Field(default_factory=list, description="Evaluation rows in descending time order.")
+
+
+class ReplayWorkbenchTuningReviewItem(BaseModel):
+    """Tuning recommendation row enriched with patch candidate and validation state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    market_time: datetime = Field(..., description="Recommendation generation time used for ordering.")
+    session_date: str | None = Field(None, description="Session/date label for this tuning row.")
+    degraded_badges: list[str] = Field(default_factory=list, description="Compact badges derived from the linked bundle degradation statistics when available.")
+    patch_candidate_status: str | None = Field(None, description="Stored patch candidate lifecycle status when available.")
+    recommendation: TuningRecommendation = Field(..., description="Stored tuning recommendation payload.")
+    patch_candidate: ProfilePatchCandidate | None = Field(None, description="Linked profile patch candidate when available.")
+    latest_validation_result: ProfilePatchValidationResult | None = Field(
+        None,
+        description="Latest validation result linked to the patch candidate when available.",
+    )
+
+
+class ReplayWorkbenchTuningReviewEnvelope(BaseModel):
+    """Read-model response for replay workbench tuning recommendation review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ReplayProjectionQuery = Field(..., description="Filters used to build this tuning section.")
+    items: list[ReplayWorkbenchTuningReviewItem] = Field(default_factory=list, description="Tuning review rows in descending time order.")
+
+
+class ReplayWorkbenchProfileEngineEnvelope(BaseModel):
+    """Current profile/build metadata shown by replay workbench review panels."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ReplayProjectionQuery = Field(..., description="Filters used to resolve the active metadata.")
+    active_profile: InstrumentProfile | None = Field(None, description="Currently active instrument profile when available.")
+    active_build: RecognizerBuild | None = Field(None, description="Currently active recognizer build when available.")
+    latest_patch_candidate_status: str | None = Field(None, description="Stored lifecycle status for the latest patch candidate when available.")
+    latest_patch_candidate: ProfilePatchCandidate | None = Field(None, description="Most recent patch candidate for the instrument when available.")
+    latest_patch_validation_result: ProfilePatchValidationResult | None = Field(
+        None,
+        description="Latest validation result linked to the latest patch candidate when available.",
+    )
+
+
+class ReplayWorkbenchHealthStatusEnvelope(BaseModel):
+    """Combined health/data-quality view consumed by replay workbench review UIs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ReplayProjectionQuery = Field(..., description="Filters used to scope the health view.")
+    health: IngestionHealthResponse = Field(..., description="Current ingestion-plane health payload.")
+    data_quality: DataQualityResponse = Field(..., description="Current data-quality payload for recognition/UI consumers.")
+    latest_belief: BeliefStateSnapshot | None = Field(None, description="Latest belief-state snapshot available for the instrument.")
+
+
+class ReplayWorkbenchProjectionEnvelope(BaseModel):
+    """Full replay workbench projection/read-model bundle for timeline and review panels."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ReplayProjectionQuery = Field(..., description="Filters used to build this projection.")
+    health_status: ReplayWorkbenchHealthStatusEnvelope = Field(..., description="Health and degraded-state view.")
+    metadata: ReplayWorkbenchProfileEngineEnvelope = Field(..., description="Current profile/build metadata view.")
+    belief_timeline: ReplayWorkbenchBeliefTimelineEnvelope = Field(..., description="Belief-state timeline section.")
+    episode_reviews: ReplayWorkbenchEpisodeReviewEnvelope = Field(..., description="Closed-episode review section.")
+    episode_evaluations: ReplayWorkbenchEpisodeEvaluationListEnvelope = Field(..., description="Episode-evaluation review section.")
+    tuning_reviews: ReplayWorkbenchTuningReviewEnvelope = Field(..., description="Tuning recommendation review section.")
+    timeline: list[ReplayProjectionTimelineEntry] = Field(default_factory=list, description="Merged timeline-friendly projection rows.")
 
 
 class BeliefLatestEnvelope(BaseModel):

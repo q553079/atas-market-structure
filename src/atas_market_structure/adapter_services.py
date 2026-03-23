@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import logging
 from threading import Lock
+from typing import Any
 from uuid import uuid4
 
 from atas_market_structure.adapter_bridge import AdapterPayloadBridge
@@ -18,9 +19,16 @@ from atas_market_structure.models import (
 )
 from atas_market_structure.regime_monitor_services import RegimeMonitor
 from atas_market_structure.repository import AnalysisRepository
+from atas_market_structure.recognition import DeterministicRecognitionService
 from atas_market_structure.services import IngestionOrchestrator
 
 LOGGER = logging.getLogger(__name__)
+AdapterPayloadType = (
+    AdapterContinuousStatePayload
+    | AdapterHistoryBarsPayload
+    | AdapterHistoryFootprintPayload
+    | AdapterTriggerBurstPayload
+)
 
 
 class AdapterIngestionService:
@@ -38,33 +46,18 @@ class AdapterIngestionService:
         repository: AnalysisRepository,
         orchestrator: IngestionOrchestrator | None = None,
         bridge: AdapterPayloadBridge | None = None,
+        recognition_service: DeterministicRecognitionService | None = None,
     ) -> None:
         self._repository = repository
         self._orchestrator = orchestrator or IngestionOrchestrator(repository=repository)
         self._bridge = bridge or AdapterPayloadBridge(regime_monitor=RegimeMonitor(repository=repository))
+        self._recognition_service = recognition_service or DeterministicRecognitionService(repository=repository)
         self._unresolved_tick_size_logged_at: dict[str, datetime] = {}
         self._unresolved_tick_size_lock = Lock()
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> AdapterAcceptedResponse:
         self._warn_on_unresolved_tick_size("ingest_continuous_state", payload)
-        self._bridge.regime_monitor.ingest_continuous_state(payload)
-        LOGGER.info(
-            "ingest_continuous_state: symbol=%s root_symbol=%s chart_instance_id=%s",
-            payload.instrument.symbol,
-            payload.instrument.root_symbol,
-            payload.source.chart_instance_id,
-        )
-        summary = AdapterAcceptedSummary(
-            instrument_symbol=payload.instrument.symbol,
-            observed_window_start=payload.observed_window_start,
-            observed_window_end=payload.observed_window_end,
-            significant_liquidity_count=len(payload.significant_liquidity),
-            has_gap_reference=payload.gap_reference is not None,
-            has_active_initiative_drive=payload.active_initiative_drive is not None,
-            has_active_manipulation_leg=payload.active_manipulation_leg is not None,
-            has_active_measured_move=payload.active_measured_move is not None,
-            has_active_post_harvest_response=payload.active_post_harvest_response is not None,
-        )
+        summary = self.build_summary(payload)
         accepted = self._store(
             ingestion_kind="adapter_continuous_state",
             source_snapshot_id=payload.message_id,
@@ -73,6 +66,21 @@ class AdapterIngestionService:
             message_id=payload.message_id,
             message_type=payload.message_type,
             summary=summary,
+        )
+        return self.ingest_continuous_state_after_store(payload, accepted=accepted)
+
+    def ingest_continuous_state_after_store(
+        self,
+        payload: AdapterContinuousStatePayload,
+        *,
+        accepted: AdapterAcceptedResponse,
+    ) -> AdapterAcceptedResponse:
+        self._bridge.regime_monitor.ingest_continuous_state(payload)
+        LOGGER.info(
+            "ingest_continuous_state: symbol=%s root_symbol=%s chart_instance_id=%s",
+            payload.instrument.symbol,
+            payload.instrument.root_symbol,
+            payload.source.chart_instance_id,
         )
         durable_outputs: list[AdapterBridgedArtifact] = []
         bridge_errors: list[str] = []
@@ -101,28 +109,7 @@ class AdapterIngestionService:
 
     def ingest_trigger_burst(self, payload: AdapterTriggerBurstPayload) -> AdapterAcceptedResponse:
         self._warn_on_unresolved_tick_size("ingest_trigger_burst", payload)
-        summary = AdapterAcceptedSummary(
-            instrument_symbol=payload.instrument.symbol,
-            observed_window_start=payload.observed_window_start,
-            observed_window_end=payload.observed_window_end,
-            trigger_type=payload.trigger.trigger_type,
-            reason_codes=payload.trigger.reason_codes,
-            trade_event_count=(
-                len(payload.pre_window.trade_events)
-                + len(payload.event_window.trade_events)
-                + len(payload.post_window.trade_events)
-            ),
-            depth_event_count=(
-                len(payload.pre_window.depth_events)
-                + len(payload.event_window.depth_events)
-                + len(payload.post_window.depth_events)
-            ),
-            second_feature_count=(
-                len(payload.pre_window.second_features)
-                + len(payload.event_window.second_features)
-                + len(payload.post_window.second_features)
-            ),
-        )
+        summary = self.build_summary(payload)
         accepted = self._store(
             ingestion_kind="adapter_trigger_burst",
             source_snapshot_id=payload.message_id,
@@ -132,6 +119,14 @@ class AdapterIngestionService:
             message_type=payload.message_type,
             summary=summary,
         )
+        return self.ingest_trigger_burst_after_store(payload, accepted=accepted)
+
+    def ingest_trigger_burst_after_store(
+        self,
+        payload: AdapterTriggerBurstPayload,
+        *,
+        accepted: AdapterAcceptedResponse,
+    ) -> AdapterAcceptedResponse:
         durable_outputs: list[AdapterBridgedArtifact] = []
         bridge_errors: list[str] = []
         try:
@@ -158,6 +153,24 @@ class AdapterIngestionService:
         )
 
     def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> AdapterAcceptedResponse:
+        summary = self.build_summary(payload)
+        accepted = self._store(
+            ingestion_kind="adapter_history_bars",
+            source_snapshot_id=payload.message_id,
+            instrument_symbol=payload.instrument.symbol,
+            observed_payload=payload.model_dump(mode="json"),
+            message_id=payload.message_id,
+            message_type=payload.message_type,
+            summary=summary,
+        )
+        return self.ingest_history_bars_after_store(payload, accepted=accepted)
+
+    def ingest_history_bars_after_store(
+        self,
+        payload: AdapterHistoryBarsPayload,
+        *,
+        accepted: AdapterAcceptedResponse,
+    ) -> AdapterAcceptedResponse:
         self._purge_expired_history(
             instrument_symbol=payload.instrument.symbol,
             root_symbol=payload.instrument.root_symbol,
@@ -182,22 +195,13 @@ class AdapterIngestionService:
             payload.bar_timeframe.value,
             len(payload.bars),
         )
-        summary = AdapterAcceptedSummary(
-            instrument_symbol=payload.instrument.symbol,
-            observed_window_start=payload.observed_window_start,
-            observed_window_end=payload.observed_window_end,
-            history_bar_count=len(payload.bars),
-            history_bar_timeframe=payload.bar_timeframe,
-        )
-        accepted = self._store(
-            ingestion_kind="adapter_history_bars",
-            source_snapshot_id=payload.message_id,
-            instrument_symbol=payload.instrument.symbol,
-            observed_payload=payload.model_dump(mode="json"),
-            message_id=payload.message_id,
-            message_type=payload.message_type,
-            summary=summary,
-        )
+        try:
+            self._recognition_service.run_for_instrument(
+                analysis_symbol,
+                triggered_by="adapter_history_bars",
+            )
+        except Exception:  # pragma: no cover - defensive only
+            LOGGER.exception("deterministic recognition failed after adapter_history_bars for %s", analysis_symbol)
         return AdapterAcceptedResponse(
             ingestion_id=accepted.ingestion_id,
             message_id=accepted.message_id,
@@ -209,6 +213,24 @@ class AdapterIngestionService:
         )
 
     def ingest_history_footprint(self, payload: AdapterHistoryFootprintPayload) -> AdapterAcceptedResponse:
+        summary = self.build_summary(payload)
+        accepted = self._store(
+            ingestion_kind="adapter_history_footprint",
+            source_snapshot_id=payload.batch_id,
+            instrument_symbol=payload.instrument.symbol,
+            observed_payload=payload.model_dump(mode="json"),
+            message_id=payload.message_id,
+            message_type=payload.message_type,
+            summary=summary,
+        )
+        return self.ingest_history_footprint_after_store(payload, accepted=accepted)
+
+    def ingest_history_footprint_after_store(
+        self,
+        payload: AdapterHistoryFootprintPayload,
+        *,
+        accepted: AdapterAcceptedResponse,
+    ) -> AdapterAcceptedResponse:
         self._purge_expired_history(
             instrument_symbol=payload.instrument.symbol,
             root_symbol=payload.instrument.root_symbol,
@@ -223,24 +245,6 @@ class AdapterIngestionService:
             payload.chunk_index,
             payload.chunk_count,
             len(payload.bars),
-        )
-        summary = AdapterAcceptedSummary(
-            instrument_symbol=payload.instrument.symbol,
-            observed_window_start=payload.observed_window_start,
-            observed_window_end=payload.observed_window_end,
-            history_footprint_bar_count=len(payload.bars),
-            history_footprint_timeframe=payload.bar_timeframe,
-            history_footprint_chunk_index=payload.chunk_index,
-            history_footprint_chunk_count=payload.chunk_count,
-        )
-        accepted = self._store(
-            ingestion_kind="adapter_history_footprint",
-            source_snapshot_id=payload.batch_id,
-            instrument_symbol=payload.instrument.symbol,
-            observed_payload=payload.model_dump(mode="json"),
-            message_id=payload.message_id,
-            message_type=payload.message_type,
-            summary=summary,
         )
         return AdapterAcceptedResponse(
             ingestion_id=accepted.ingestion_id,
@@ -280,6 +284,107 @@ class AdapterIngestionService:
             stored_at=stored_at,
             summary=summary,
         )
+
+    def build_summary(self, payload: AdapterPayloadType) -> AdapterAcceptedSummary:
+        if isinstance(payload, AdapterContinuousStatePayload):
+            return AdapterAcceptedSummary(
+                instrument_symbol=payload.instrument.symbol,
+                observed_window_start=payload.observed_window_start,
+                observed_window_end=payload.observed_window_end,
+                significant_liquidity_count=len(payload.significant_liquidity),
+                has_gap_reference=payload.gap_reference is not None,
+                has_active_initiative_drive=payload.active_initiative_drive is not None,
+                has_active_manipulation_leg=payload.active_manipulation_leg is not None,
+                has_active_measured_move=payload.active_measured_move is not None,
+                has_active_post_harvest_response=payload.active_post_harvest_response is not None,
+            )
+        if isinstance(payload, AdapterTriggerBurstPayload):
+            return AdapterAcceptedSummary(
+                instrument_symbol=payload.instrument.symbol,
+                observed_window_start=payload.observed_window_start,
+                observed_window_end=payload.observed_window_end,
+                trigger_type=payload.trigger.trigger_type,
+                reason_codes=payload.trigger.reason_codes,
+                trade_event_count=(
+                    len(payload.pre_window.trade_events)
+                    + len(payload.event_window.trade_events)
+                    + len(payload.post_window.trade_events)
+                ),
+                depth_event_count=(
+                    len(payload.pre_window.depth_events)
+                    + len(payload.event_window.depth_events)
+                    + len(payload.post_window.depth_events)
+                ),
+                second_feature_count=(
+                    len(payload.pre_window.second_features)
+                    + len(payload.event_window.second_features)
+                    + len(payload.post_window.second_features)
+                ),
+            )
+        if isinstance(payload, AdapterHistoryBarsPayload):
+            return AdapterAcceptedSummary(
+                instrument_symbol=payload.instrument.symbol,
+                observed_window_start=payload.observed_window_start,
+                observed_window_end=payload.observed_window_end,
+                history_bar_count=len(payload.bars),
+                history_bar_timeframe=payload.bar_timeframe,
+            )
+        return AdapterAcceptedSummary(
+            instrument_symbol=payload.instrument.symbol,
+            observed_window_start=payload.observed_window_start,
+            observed_window_end=payload.observed_window_end,
+            history_footprint_bar_count=len(payload.bars),
+            history_footprint_timeframe=payload.bar_timeframe,
+            history_footprint_chunk_index=payload.chunk_index,
+            history_footprint_chunk_count=payload.chunk_count,
+        )
+
+    def describe_payload(self, payload: AdapterPayloadType) -> dict[str, Any]:
+        if isinstance(payload, AdapterContinuousStatePayload):
+            return {
+                "ingestion_kind": "adapter_continuous_state",
+                "source_snapshot_id": payload.message_id,
+                "message_id": payload.message_id,
+                "message_type": payload.message_type,
+                "summary": self.build_summary(payload),
+            }
+        if isinstance(payload, AdapterTriggerBurstPayload):
+            return {
+                "ingestion_kind": "adapter_trigger_burst",
+                "source_snapshot_id": payload.message_id,
+                "message_id": payload.message_id,
+                "message_type": payload.message_type,
+                "summary": self.build_summary(payload),
+            }
+        if isinstance(payload, AdapterHistoryBarsPayload):
+            return {
+                "ingestion_kind": "adapter_history_bars",
+                "source_snapshot_id": payload.message_id,
+                "message_id": payload.message_id,
+                "message_type": payload.message_type,
+                "summary": self.build_summary(payload),
+            }
+        return {
+            "ingestion_kind": "adapter_history_footprint",
+            "source_snapshot_id": payload.batch_id,
+            "message_id": payload.message_id,
+            "message_type": payload.message_type,
+            "summary": self.build_summary(payload),
+        }
+
+    def ingest_adapter_payload_after_store(
+        self,
+        payload: AdapterPayloadType,
+        *,
+        accepted: AdapterAcceptedResponse,
+    ) -> AdapterAcceptedResponse:
+        if isinstance(payload, AdapterContinuousStatePayload):
+            return self.ingest_continuous_state_after_store(payload, accepted=accepted)
+        if isinstance(payload, AdapterTriggerBurstPayload):
+            return self.ingest_trigger_burst_after_store(payload, accepted=accepted)
+        if isinstance(payload, AdapterHistoryBarsPayload):
+            return self.ingest_history_bars_after_store(payload, accepted=accepted)
+        return self.ingest_history_footprint_after_store(payload, accepted=accepted)
 
     def _purge_expired_history(
         self,

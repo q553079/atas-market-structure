@@ -1,5 +1,21 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "replay_workbench_snapshot_v1",
+  "profile_version": "nq_profile_v1",
+  "engine_version": "recognizer_deterministic_v1",
+  "data_status": {
+    "data_freshness_ms": 0,
+    "feature_completeness": 0.95,
+    "depth_available": false,
+    "dom_available": false,
+    "ai_available": false,
+    "degraded_modes": [
+      "degraded_no_depth",
+      "degraded_no_dom",
+      "degraded_no_ai"
+    ],
+    "freshness": "fresh",
+    "completeness": "partial"
+  },
   "replay_snapshot_id": "replay-20260317-nq-europe-01",
   "cache_key": "NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z",
   "acquisition_mode": "cache_reuse",
@@ -33,6 +49,20 @@
     "invalidated_at": null,
     "invalidation_reason": null,
     "locked_until_manual_reset": true
+  },
+  "integrity": {
+    "status": "complete",
+    "window_start": "2026-03-12T07:00:00Z",
+    "window_end": "2026-03-17T02:15:00Z",
+    "window_days": 5,
+    "gap_count": 0,
+    "missing_bar_count": 0,
+    "completeness": "complete",
+    "freshness": "fresh",
+    "latest_data_status": "complete",
+    "missing_segments": [],
+    "latest_backfill_request_id": null,
+    "latest_backfill_status": null
   },
   "candles": [
     {

@@ -1,0 +1,249 @@
+{
+  "schema_version": "golden_replay_case_set_v1",
+  "case_group": "balance_mean_reversion",
+  "cases": [
+    {
+      "case_id": "balance_es_normal_01",
+      "title": "ES compressed rotation stays centered around value",
+      "scenario": "balance_mean_reversion",
+      "instrument": "ES",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T10:30:01Z",
+          "observed_at": "2026-03-23T10:30:00Z",
+          "start_at": "2026-03-23T10:20:00Z",
+          "bars": [
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 80, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 81, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 82, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 83, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 84, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 85, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 86, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 87, "delta": -1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.25, "volume": 88, "delta": 1 },
+            { "open": 5300.0, "high": 5300.5, "low": 5299.5, "close": 5300.0, "volume": 89, "delta": -1 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T10:30:02Z",
+          "observed_at": "2026-03-23T10:30:00Z",
+          "point_of_control": 5300.0,
+          "initiative_side": "buy",
+          "zone_low": 5299.75,
+          "zone_high": 5300.25,
+          "include_initiative": false
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T10:30:03Z",
+          "observed_at": "2026-03-23T10:30:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 5299.75,
+          "best_ask": 5300.0,
+          "reference_price": 5299.75,
+          "significant_levels": [
+            {
+              "track_id": "bid-5300-balance",
+              "side": "buy",
+              "price": 5299.75,
+              "current_size": 150,
+              "max_seen_size": 210,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 3,
+              "executed_volume_estimate": 18,
+              "replenishment_count": 3,
+              "price_reaction_ticks": 6,
+              "heat_score": 0.74,
+              "notes": ["bid refreshed while price stayed near center"]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "top_event_kind": "balance_mean_reversion",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 3,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "balance_nq_normal_02",
+      "title": "NQ compressed auction rotates around the balance center",
+      "scenario": "balance_mean_reversion",
+      "instrument": "NQ",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T11:00:01Z",
+          "observed_at": "2026-03-23T11:00:00Z",
+          "start_at": "2026-03-23T10:50:00Z",
+          "bars": [
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.25, "volume": 90, "delta": 1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.0, "volume": 91, "delta": -1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.25, "volume": 92, "delta": 1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.0, "volume": 93, "delta": -1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.25, "volume": 94, "delta": 1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.0, "volume": 95, "delta": -1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.25, "volume": 96, "delta": 1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.0, "volume": 97, "delta": -1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.25, "volume": 98, "delta": 1 },
+            { "open": 21500.0, "high": 21500.5, "low": 21499.5, "close": 21500.0, "volume": 99, "delta": -1 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T11:00:02Z",
+          "observed_at": "2026-03-23T11:00:00Z",
+          "point_of_control": 21500.0,
+          "initiative_side": "buy",
+          "zone_low": 21499.75,
+          "zone_high": 21500.25,
+          "include_initiative": false
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T11:00:03Z",
+          "observed_at": "2026-03-23T11:00:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 21499.75,
+          "best_ask": 21500.0,
+          "reference_price": 21499.75,
+          "significant_levels": [
+            {
+              "track_id": "bid-21500-balance",
+              "side": "buy",
+              "price": 21499.75,
+              "current_size": 148,
+              "max_seen_size": 208,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 3,
+              "executed_volume_estimate": 16,
+              "replenishment_count": 3,
+              "price_reaction_ticks": 6,
+              "heat_score": 0.72,
+              "notes": ["passive bid refreshed while price rotated inside value"]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "top_event_kind": "balance_mean_reversion",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 3,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "balance_es_normal_03",
+      "title": "ES second balance sequence with the same deterministic pattern",
+      "scenario": "balance_mean_reversion",
+      "instrument": "ES",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T11:30:01Z",
+          "observed_at": "2026-03-23T11:30:00Z",
+          "start_at": "2026-03-23T11:20:00Z",
+          "bars": [
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.25, "volume": 88, "delta": 1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.0, "volume": 89, "delta": -1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.25, "volume": 90, "delta": 1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.0, "volume": 91, "delta": -1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.25, "volume": 92, "delta": 1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.0, "volume": 93, "delta": -1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.25, "volume": 94, "delta": 1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.0, "volume": 95, "delta": -1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.25, "volume": 96, "delta": 1 },
+            { "open": 5320.0, "high": 5320.5, "low": 5319.5, "close": 5320.0, "volume": 97, "delta": -1 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T11:30:02Z",
+          "observed_at": "2026-03-23T11:30:00Z",
+          "point_of_control": 5320.0,
+          "initiative_side": "buy",
+          "zone_low": 5319.75,
+          "zone_high": 5320.25,
+          "include_initiative": false
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T11:30:03Z",
+          "observed_at": "2026-03-23T11:30:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 5319.75,
+          "best_ask": 5320.0,
+          "reference_price": 5319.75,
+          "significant_levels": [
+            {
+              "track_id": "bid-5320-balance",
+              "side": "buy",
+              "price": 5319.75,
+              "current_size": 152,
+              "max_seen_size": 212,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 3,
+              "executed_volume_estimate": 18,
+              "replenishment_count": 3,
+              "price_reaction_ticks": 6,
+              "heat_score": 0.75,
+              "notes": ["bid refreshed while the rotation stayed two-sided"]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "top_event_kind": "balance_mean_reversion",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 3,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    }
+  ]
+}

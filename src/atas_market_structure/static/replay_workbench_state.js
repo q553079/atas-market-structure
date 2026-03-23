@@ -132,6 +132,7 @@ export function createWorkbenchState() {
   const state = {
     buildResponse: null,
     snapshot: null,
+    reviewProjection: null,
     operatorEntries: [],
     manualRegions: [],
     aiReview: null,

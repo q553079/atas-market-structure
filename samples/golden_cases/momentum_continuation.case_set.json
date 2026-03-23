@@ -1,0 +1,280 @@
+{
+  "schema_version": "golden_replay_case_set_v1",
+  "case_group": "momentum_continuation",
+  "cases": [
+    {
+      "case_id": "momentum_nq_normal_01",
+      "title": "NQ strong initiative continuation with depth support",
+      "scenario": "momentum_continuation",
+      "instrument": "NQ",
+      "ai_available": true,
+      "notes": [
+        "Healthy momentum continuation case.",
+        "Depth and AI are available, so the final state should be normal."
+      ],
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T09:36:01Z",
+          "observed_at": "2026-03-23T09:36:00Z",
+          "start_at": "2026-03-23T09:30:00Z",
+          "bars": [
+            { "open": 21490.0, "high": 21493.0, "low": 21489.75, "close": 21492.75, "volume": 240, "delta": 95 },
+            { "open": 21492.75, "high": 21496.0, "low": 21492.5, "close": 21495.75, "volume": 260, "delta": 112 },
+            { "open": 21495.75, "high": 21499.0, "low": 21495.5, "close": 21498.75, "volume": 270, "delta": 118 },
+            { "open": 21498.75, "high": 21502.0, "low": 21498.5, "close": 21501.75, "volume": 285, "delta": 124 },
+            { "open": 21501.75, "high": 21505.0, "low": 21501.5, "close": 21504.75, "volume": 300, "delta": 138 },
+            { "open": 21504.75, "high": 21508.0, "low": 21504.5, "close": 21507.75, "volume": 320, "delta": 150 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T09:36:02Z",
+          "observed_at": "2026-03-23T09:36:00Z",
+          "point_of_control": 21484.0,
+          "initiative_side": "buy",
+          "zone_low": 21487.0,
+          "zone_high": 21488.5
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T09:36:03Z",
+          "observed_at": "2026-03-23T09:36:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 21507.75,
+          "best_ask": 21508.0,
+          "reference_price": 21507.75,
+          "significant_levels": [
+            {
+              "track_id": "ask-21508-hold",
+              "side": "sell",
+              "price": 21508.0,
+              "current_size": 120,
+              "max_seen_size": 220,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 2,
+              "executed_volume_estimate": 12,
+              "replenishment_count": 2,
+              "price_reaction_ticks": 8,
+              "heat_score": 0.82,
+              "notes": ["stacked offer stayed nearby but did not stop the drive"]
+            }
+          ]
+        },
+        {
+          "step_id": "cont",
+          "template": "adapter_continuous_state",
+          "stored_at": "2026-03-23T09:36:04Z",
+          "observed_at": "2026-03-23T09:36:04Z",
+          "last_price": 21518.25,
+          "local_low": 21505.0,
+          "local_high": 21518.25,
+          "net_delta": 820,
+          "volume": 1400,
+          "side": "buy",
+          "drive_low": 21505.0,
+          "drive_high": 21518.25
+        }
+      ],
+      "expected": {
+        "top_event_kind": "momentum_continuation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 4,
+        "minimum_episode_count": 1,
+        "minimum_evaluation_count": 1,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": ["momentum_continuation"],
+        "required_episode_resolutions": ["confirmed"],
+        "required_evaluation_failure_modes": ["none"],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "momentum_nq_normal_02",
+      "title": "NQ second continuation ladder with the same structural pattern",
+      "scenario": "momentum_continuation",
+      "instrument": "NQ",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T10:06:01Z",
+          "observed_at": "2026-03-23T10:06:00Z",
+          "start_at": "2026-03-23T10:00:00Z",
+          "bars": [
+            { "open": 21520.0, "high": 21523.0, "low": 21519.75, "close": 21522.75, "volume": 244, "delta": 96 },
+            { "open": 21522.75, "high": 21526.0, "low": 21522.5, "close": 21525.75, "volume": 266, "delta": 113 },
+            { "open": 21525.75, "high": 21529.0, "low": 21525.5, "close": 21528.75, "volume": 274, "delta": 121 },
+            { "open": 21528.75, "high": 21532.0, "low": 21528.5, "close": 21531.75, "volume": 288, "delta": 127 },
+            { "open": 21531.75, "high": 21535.0, "low": 21531.5, "close": 21534.75, "volume": 304, "delta": 139 },
+            { "open": 21534.75, "high": 21538.0, "low": 21534.5, "close": 21537.75, "volume": 324, "delta": 152 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T10:06:02Z",
+          "observed_at": "2026-03-23T10:06:00Z",
+          "point_of_control": 21514.0,
+          "initiative_side": "buy",
+          "zone_low": 21517.0,
+          "zone_high": 21518.5
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T10:06:03Z",
+          "observed_at": "2026-03-23T10:06:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 21537.75,
+          "best_ask": 21538.0,
+          "reference_price": 21537.75,
+          "significant_levels": [
+            {
+              "track_id": "ask-21538-hold",
+              "side": "sell",
+              "price": 21538.0,
+              "current_size": 118,
+              "max_seen_size": 214,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 2,
+              "executed_volume_estimate": 12,
+              "replenishment_count": 2,
+              "price_reaction_ticks": 8,
+              "heat_score": 0.8,
+              "notes": ["depth stayed live while buyers pushed higher"]
+            }
+          ]
+        },
+        {
+          "step_id": "cont",
+          "template": "adapter_continuous_state",
+          "stored_at": "2026-03-23T10:06:04Z",
+          "observed_at": "2026-03-23T10:06:04Z",
+          "last_price": 21548.25,
+          "local_low": 21535.0,
+          "local_high": 21548.25,
+          "net_delta": 840,
+          "volume": 1420,
+          "side": "buy",
+          "drive_low": 21535.0,
+          "drive_high": 21548.25
+        }
+      ],
+      "expected": {
+        "top_event_kind": "momentum_continuation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 4,
+        "minimum_episode_count": 1,
+        "minimum_evaluation_count": 1,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": ["momentum_continuation"],
+        "required_episode_resolutions": ["confirmed"],
+        "required_evaluation_failure_modes": ["none"],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "momentum_nq_normal_03",
+      "title": "NQ third continuation ladder on the same deterministic rule skeleton",
+      "scenario": "momentum_continuation",
+      "instrument": "NQ",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "hist",
+          "template": "adapter_history_bars",
+          "stored_at": "2026-03-23T10:36:01Z",
+          "observed_at": "2026-03-23T10:36:00Z",
+          "start_at": "2026-03-23T10:30:00Z",
+          "bars": [
+            { "open": 21550.0, "high": 21553.0, "low": 21549.75, "close": 21552.75, "volume": 242, "delta": 96 },
+            { "open": 21552.75, "high": 21556.0, "low": 21552.5, "close": 21555.75, "volume": 262, "delta": 113 },
+            { "open": 21555.75, "high": 21559.0, "low": 21555.5, "close": 21558.75, "volume": 272, "delta": 120 },
+            { "open": 21558.75, "high": 21562.0, "low": 21558.5, "close": 21561.75, "volume": 286, "delta": 126 },
+            { "open": 21561.75, "high": 21565.0, "low": 21561.5, "close": 21564.75, "volume": 302, "delta": 140 },
+            { "open": 21564.75, "high": 21568.0, "low": 21564.5, "close": 21567.75, "volume": 322, "delta": 153 }
+          ]
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T10:36:02Z",
+          "observed_at": "2026-03-23T10:36:00Z",
+          "point_of_control": 21544.0,
+          "initiative_side": "buy",
+          "zone_low": 21547.0,
+          "zone_high": 21548.5
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T10:36:03Z",
+          "observed_at": "2026-03-23T10:36:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 21567.75,
+          "best_ask": 21568.0,
+          "reference_price": 21567.75,
+          "significant_levels": [
+            {
+              "track_id": "ask-21568-hold",
+              "side": "sell",
+              "price": 21568.0,
+              "current_size": 120,
+              "max_seen_size": 220,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 2,
+              "executed_volume_estimate": 12,
+              "replenishment_count": 2,
+              "price_reaction_ticks": 8,
+              "heat_score": 0.82,
+              "notes": ["offer stack stayed live but momentum held"]
+            }
+          ]
+        },
+        {
+          "step_id": "cont",
+          "template": "adapter_continuous_state",
+          "stored_at": "2026-03-23T10:36:04Z",
+          "observed_at": "2026-03-23T10:36:04Z",
+          "last_price": 21578.25,
+          "local_low": 21565.0,
+          "local_high": 21578.25,
+          "net_delta": 860,
+          "volume": 1440,
+          "side": "buy",
+          "drive_low": 21565.0,
+          "drive_high": 21578.25
+        }
+      ],
+      "expected": {
+        "top_event_kind": "momentum_continuation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 4,
+        "minimum_episode_count": 1,
+        "minimum_evaluation_count": 1,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": ["momentum_continuation"],
+        "required_episode_resolutions": ["confirmed"],
+        "required_evaluation_failure_modes": ["none"],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    }
+  ]
+}

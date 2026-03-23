@@ -1,0 +1,196 @@
+{
+  "belief_state_id": "bs-nq-20260323020000",
+  "instrument_symbol": "NQ",
+  "observed_at": "2026-03-23T02:00:00Z",
+  "stored_at": "2026-03-23T03:20:12Z",
+  "schema_version": "belief_state_snapshot_v1",
+  "profile_version": "nq_profile_v1_default",
+  "engine_version": "recognizer_deterministic_v1",
+  "recognition_mode": "degraded_no_depth",
+  "data_status": {
+    "data_freshness_ms": 4811970,
+    "feature_completeness": 0.6,
+    "depth_available": false,
+    "dom_available": false,
+    "ai_available": false,
+    "degraded_modes": [
+      "degraded_no_depth",
+      "degraded_no_dom",
+      "degraded_no_ai",
+      "degraded_stale_macro"
+    ],
+    "freshness": "stale",
+    "completeness": "partial"
+  },
+  "regime_posteriors": [
+    {
+      "regime": "balance_mean_reversion",
+      "probability": 0.326032,
+      "evidence": [
+        "balance",
+        "path_dependency",
+        "volatility_range"
+      ]
+    },
+    {
+      "regime": "transition_exhaustion",
+      "probability": 0.203036,
+      "evidence": [
+        "balance",
+        "path_dependency",
+        "volatility_range"
+      ]
+    },
+    {
+      "regime": "compression",
+      "probability": 0.168409,
+      "evidence": [
+        "balance",
+        "path_dependency",
+        "volatility_range"
+      ]
+    }
+  ],
+  "event_hypotheses": [
+    {
+      "hypothesis_id": "hyp-nq-distribution_balance-20260323020000",
+      "hypothesis_kind": "distribution_balance",
+      "mapped_event_kind": "balance_mean_reversion",
+      "phase": "building",
+      "posterior_probability": 0.367835,
+      "supporting_evidence": [
+        "balance_center_defined",
+        "initiative_weakened",
+        "anchor_as_center_magnet"
+      ],
+      "missing_confirmation": [
+        "continued_return_to_center",
+        "avoid_fresh_single_sided_acceptance"
+      ],
+      "invalidating_signals": [],
+      "transition_watch": [
+        "watch_reversal_preparation",
+        "watch_absorption_accumulation"
+      ],
+      "data_quality_score": 0.6,
+      "evidence_density_score": 0.5,
+      "model_stability_score": 1.0,
+      "anchor_dependence_score": 1.0
+    },
+    {
+      "hypothesis_id": "hyp-nq-reversal_preparation-20260323020000",
+      "hypothesis_kind": "reversal_preparation",
+      "mapped_event_kind": "absorption_to_reversal_preparation",
+      "phase": "emerging",
+      "posterior_probability": 0.252736,
+      "supporting_evidence": [
+        "transition_regime_support"
+      ],
+      "missing_confirmation": [
+        "need_clear_opposite_push",
+        "need_follow_through_away_from_edge"
+      ],
+      "invalidating_signals": [],
+      "transition_watch": [
+        "watch_distribution_balance",
+        "watch_absorption_accumulation"
+      ],
+      "data_quality_score": 0.6,
+      "evidence_density_score": 0.16666666666666666,
+      "model_stability_score": 1.0,
+      "anchor_dependence_score": 1.0
+    },
+    {
+      "hypothesis_id": "hyp-nq-absorption_accumulation-20260323020000",
+      "hypothesis_kind": "absorption_accumulation",
+      "mapped_event_kind": "absorption_to_reversal_preparation",
+      "phase": "emerging",
+      "posterior_probability": 0.245845,
+      "supporting_evidence": [
+        "trend_efficiency_fading",
+        "anchor_proximity_support"
+      ],
+      "missing_confirmation": [
+        "need_sustained_hold",
+        "need_opposite_initiative_hint"
+      ],
+      "invalidating_signals": [],
+      "transition_watch": [
+        "watch_distribution_balance",
+        "watch_reversal_preparation"
+      ],
+      "data_quality_score": 0.6,
+      "evidence_density_score": 0.3333333333333333,
+      "model_stability_score": 1.0,
+      "anchor_dependence_score": 1.0
+    }
+  ],
+  "active_anchors": [
+    {
+      "anchor_id": "anc-eceac957ddd64bad",
+      "anchor_type": "balance_center",
+      "reference_price": 21500.0,
+      "reference_time": "2026-03-23T02:00:00Z",
+      "freshness": "fresh",
+      "distance_ticks": 0.0,
+      "influence": 1.0,
+      "role_profile": {
+        "magnet": 0.82,
+        "reversal_reference": 0.42,
+        "take_profit_target": 0.64
+      },
+      "profile_version": "nq_profile_v1_default"
+    },
+    {
+      "anchor_id": "anc-d0342c37e8c422a3",
+      "anchor_type": "failed_breakout_reference",
+      "reference_price": 21500.0,
+      "reference_time": "2026-03-23T01:45:00Z",
+      "freshness": "fresh",
+      "distance_ticks": 0.0,
+      "influence": 1.0,
+      "role_profile": {
+        "magnet": 0.66,
+        "reversal_reference": 0.72
+      },
+      "profile_version": "nq_profile_v1_default"
+    },
+    {
+      "anchor_id": "anc-7fe3b52c0b48dc99",
+      "anchor_type": "gap_edge",
+      "reference_price": 21498.0,
+      "reference_time": "2026-03-23T01:00:00Z",
+      "freshness": "fresh",
+      "distance_ticks": 8.0,
+      "influence": 0.8333,
+      "role_profile": {
+        "magnet": 0.58,
+        "reversal_reference": 0.63
+      },
+      "profile_version": "nq_profile_v1_default"
+    }
+  ],
+  "missing_confirmation": [
+    "continued_return_to_center",
+    "avoid_fresh_single_sided_acceptance",
+    "need_clear_opposite_push",
+    "need_follow_through_away_from_edge",
+    "need_sustained_hold",
+    "need_opposite_initiative_hint"
+  ],
+  "invalidating_signals_seen": [],
+  "transition_watch": [
+    "watch_reversal_preparation",
+    "watch_absorption_accumulation",
+    "watch_distribution_balance"
+  ],
+  "notes": [
+    "feature_bar_count=6",
+    "depth evidence unavailable; related weights were reduced.",
+    "DOM evidence unavailable; hard confirms were suppressed.",
+    "macro/process context stale; regime confidence will be flattened.",
+    "triggered_by=sample_balance",
+    "recognition_mode=bar_anchor_only",
+    "top_regime=balance_mean_reversion"
+  ]
+}

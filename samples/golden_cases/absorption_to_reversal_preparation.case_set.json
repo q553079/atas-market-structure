@@ -1,0 +1,216 @@
+{
+  "schema_version": "golden_replay_case_set_v1",
+  "case_group": "absorption_to_reversal_preparation",
+  "cases": [
+    {
+      "case_id": "absorption_nq_normal_01",
+      "title": "NQ sweep absorbed into reversal preparation",
+      "scenario": "absorption_to_reversal_preparation",
+      "instrument": "NQ",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "evt",
+          "template": "event_snapshot",
+          "stored_at": "2026-03-23T11:00:01Z",
+          "observed_at": "2026-03-23T11:00:00Z",
+          "trigger_price": 21580.75
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T11:00:02Z",
+          "observed_at": "2026-03-23T11:00:00Z",
+          "point_of_control": 21572.0,
+          "initiative_side": "sell",
+          "zone_low": 21579.75,
+          "zone_high": 21580.75,
+          "include_initiative": false,
+          "include_liquidity_episode": true
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T11:00:03Z",
+          "observed_at": "2026-03-23T11:00:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 21569.0,
+          "best_ask": 21569.25,
+          "reference_price": 21569.0,
+          "significant_levels": [
+            {
+              "track_id": "ask-21569-reverse",
+              "side": "sell",
+              "price": 21569.25,
+              "current_size": 180,
+              "max_seen_size": 260,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 4,
+              "executed_volume_estimate": 24,
+              "replenishment_count": 4,
+              "price_reaction_ticks": 10,
+              "heat_score": 0.88,
+              "notes": ["offers stayed thick after the sweep"]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "top_event_kind": "absorption_to_reversal_preparation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 3,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "absorption_es_normal_02",
+      "title": "ES sweep stalls under replenishing offers",
+      "scenario": "absorption_to_reversal_preparation",
+      "instrument": "ES",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "evt",
+          "template": "event_snapshot",
+          "stored_at": "2026-03-23T11:30:01Z",
+          "observed_at": "2026-03-23T11:30:00Z",
+          "trigger_price": 5308.5
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T11:30:02Z",
+          "observed_at": "2026-03-23T11:30:00Z",
+          "point_of_control": 5301.0,
+          "initiative_side": "sell",
+          "zone_low": 5307.75,
+          "zone_high": 5308.25,
+          "include_initiative": false,
+          "include_liquidity_episode": true
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T11:30:03Z",
+          "observed_at": "2026-03-23T11:30:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 5298.75,
+          "best_ask": 5299.0,
+          "reference_price": 5298.75,
+          "significant_levels": [
+            {
+              "track_id": "ask-5299-reverse",
+              "side": "sell",
+              "price": 5299.0,
+              "current_size": 176,
+              "max_seen_size": 252,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 4,
+              "executed_volume_estimate": 22,
+              "replenishment_count": 4,
+              "price_reaction_ticks": 10,
+              "heat_score": 0.86,
+              "notes": ["sell wall kept refreshing after the stop-run"]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "top_event_kind": "absorption_to_reversal_preparation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 3,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    },
+    {
+      "case_id": "absorption_nq_normal_03",
+      "title": "NQ second absorption case with the same reversal-prep structure",
+      "scenario": "absorption_to_reversal_preparation",
+      "instrument": "NQ",
+      "ai_available": true,
+      "steps": [
+        {
+          "step_id": "evt",
+          "template": "event_snapshot",
+          "stored_at": "2026-03-23T12:00:01Z",
+          "observed_at": "2026-03-23T12:00:00Z",
+          "trigger_price": 21620.75
+        },
+        {
+          "step_id": "proc",
+          "template": "process_context",
+          "stored_at": "2026-03-23T12:00:02Z",
+          "observed_at": "2026-03-23T12:00:00Z",
+          "point_of_control": 21612.0,
+          "initiative_side": "sell",
+          "zone_low": 21619.75,
+          "zone_high": 21620.75,
+          "include_initiative": false,
+          "include_liquidity_episode": true
+        },
+        {
+          "step_id": "depth",
+          "template": "depth_snapshot",
+          "stored_at": "2026-03-23T12:00:03Z",
+          "observed_at": "2026-03-23T12:00:03Z",
+          "coverage_state": "depth_live",
+          "best_bid": 21609.0,
+          "best_ask": 21609.25,
+          "reference_price": 21609.0,
+          "significant_levels": [
+            {
+              "track_id": "ask-21609-reverse",
+              "side": "sell",
+              "price": 21609.25,
+              "current_size": 182,
+              "max_seen_size": 264,
+              "distance_from_price_ticks": 1,
+              "status": "active",
+              "touch_count": 4,
+              "executed_volume_estimate": 24,
+              "replenishment_count": 4,
+              "price_reaction_ticks": 10,
+              "heat_score": 0.87,
+              "notes": ["selling stayed passive and sticky after the sweep"]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "top_event_kind": "absorption_to_reversal_preparation",
+        "recognition_mode": "normal",
+        "required_degraded_modes": [],
+        "forbidden_degraded_modes": ["no_depth", "no_dom", "no_ai", "stale_macro", "replay_rebuild"],
+        "minimum_belief_count": 3,
+        "minimum_episode_count": 0,
+        "minimum_evaluation_count": 0,
+        "minimum_active_anchor_count": 1,
+        "required_episode_event_kinds": [],
+        "required_episode_resolutions": [],
+        "required_evaluation_failure_modes": [],
+        "data_completeness": "complete",
+        "data_freshness": "fresh"
+      }
+    }
+  ]
+}

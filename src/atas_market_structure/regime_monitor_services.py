@@ -266,8 +266,10 @@ class RegimeMonitor:
             current.low = min(current.low, price_state.local_range_low, price_state.last_price)
             current.close = price_state.last_price
             current.ended_at = max(current.ended_at, payload.observed_window_end.astimezone(UTC), bucket_end)
-            current.volume += volume
-            current.delta += delta
+            # Continuous-state payloads already represent the current minute snapshot.
+            # Preserve replacement semantics for same-minute updates instead of accumulating.
+            current.volume = volume
+            current.delta = delta
         else:
             open_price = bars[-1].close if bars else price_state.last_price
             bars.append(
@@ -444,7 +446,7 @@ class RegimeMonitor:
             delta=delta,
             updated_at=now,
         )
-        self._repository.replace_chart_candles([candle])
+        self._replace_or_upsert_chart_candles([candle])
 
     def persist_history_bars_native(
         self,
@@ -513,7 +515,7 @@ class RegimeMonitor:
                 )
             )
 
-        self._repository.replace_chart_candles(candles)
+        self._replace_or_upsert_chart_candles(candles)
         LOGGER.info(
             "[ChartCandle] persisted %d native candles (%s) for %s",
             len(candles),
@@ -521,3 +523,16 @@ class RegimeMonitor:
             symbol,
         )
         return len(candles)
+
+    def _replace_or_upsert_chart_candles(self, candles: list[ChartCandle]) -> int:
+        """Prefer exact-replacement writes, but fall back for older repository doubles."""
+
+        replace = getattr(self._repository, "replace_chart_candles", None)
+        if callable(replace):
+            return int(replace(candles))
+
+        upsert = getattr(self._repository, "upsert_chart_candles", None)
+        if callable(upsert):
+            return int(upsert(candles))
+
+        raise AttributeError("chart candle repository does not implement replace_chart_candles or upsert_chart_candles")

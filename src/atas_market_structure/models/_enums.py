@@ -240,12 +240,11 @@ class EventPhase(str, Enum):
     """Lifecycle phase for one event hypothesis or episode."""
 
     EMERGING = "emerging"
+    BUILDING = "building"
     CONFIRMING = "confirming"
-    CONFIRMED = "confirmed"
     WEAKENING = "weakening"
+    RESOLVED = "resolved"
     INVALIDATED = "invalidated"
-    REPLACED = "replaced"
-    CLOSED = "closed"
 
 
 class EpisodeResolution(str, Enum):
@@ -262,13 +261,12 @@ class EvaluationFailureMode(str, Enum):
     """Standardized evaluation failure modes for episode review."""
 
     NONE = "none"
-    EARLY_TRIGGER = "early_trigger"
-    LATE_TRIGGER = "late_trigger"
-    WEAK_CONFIRMATION = "weak_confirmation"
-    MISSING_CONFIRMATION = "missing_confirmation"
-    REGIME_MISMATCH = "regime_mismatch"
-    ANCHOR_CONFLICT = "anchor_conflict"
-    DATA_DEGRADED = "data_degraded"
+    EARLY_CONFIRMATION = "early_confirmation"
+    LATE_CONFIRMATION = "late_confirmation"
+    LATE_INVALIDATION = "late_invalidation"
+    MISSED_TRANSITION = "missed_transition"
+    FALSE_POSITIVE = "false_positive"
+    FALSE_NEGATIVE = "false_negative"
 
 
 class ReviewSource(str, Enum):
@@ -280,23 +278,58 @@ class ReviewSource(str, Enum):
 
 
 class RecognitionMode(str, Enum):
-    """Recognition operating mode attached to belief-state outputs."""
+    """Recognition operating mode attached to belief-state outputs.
+
+    The canonical V1 surface follows Master Spec v2 naming. Legacy
+    values are still accepted through `_missing_` so older samples and
+    tests can be read during the closeout transition.
+    """
 
     NORMAL = "normal"
-    BAR_ANCHOR_ONLY = "bar_anchor_only"
     DEGRADED_NO_DEPTH = "degraded_no_depth"
+    DEGRADED_NO_DOM = "degraded_no_dom"
     REPLAY_REBUILD_MODE = "replay_rebuild_mode"
+    BAR_ANCHOR_ONLY = "degraded_no_depth"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "RecognitionMode" | None:
+        legacy_map = {
+            "bar_anchor_only": cls.DEGRADED_NO_DEPTH,
+            "degraded_sparse_microstructure": cls.DEGRADED_NO_DEPTH,
+            "degraded_stale_context": cls.DEGRADED_NO_DOM,
+        }
+        if isinstance(value, str):
+            return legacy_map.get(value)
+        return None
 
 
 class DegradedMode(str, Enum):
-    """Explicit degraded conditions that should not stop the engine."""
+    """Explicit degraded conditions that should not stop the engine.
+
+    Canonical values are prefixed to match Master Spec v2 and health/UI
+    badges. Legacy unprefixed inputs are still accepted for backward
+    compatibility with older persisted payloads and samples.
+    """
 
     NONE = "none"
-    NO_DEPTH = "no_depth"
-    NO_DOM = "no_dom"
-    NO_AI = "no_ai"
-    STALE_MACRO = "stale_macro"
-    REPLAY_REBUILD = "replay_rebuild"
+    NO_DEPTH = "degraded_no_depth"
+    NO_DOM = "degraded_no_dom"
+    NO_AI = "degraded_no_ai"
+    STALE_MACRO = "degraded_stale_macro"
+    REPLAY_REBUILD = "replay_rebuild_mode"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "DegradedMode" | None:
+        legacy_map = {
+            "no_depth": cls.NO_DEPTH,
+            "no_dom": cls.NO_DOM,
+            "no_ai": cls.NO_AI,
+            "stale_macro": cls.STALE_MACRO,
+            "replay_rebuild": cls.REPLAY_REBUILD,
+        }
+        if isinstance(value, str):
+            return legacy_map.get(value)
+        return None
 
 
 class ServiceHealthStatus(str, Enum):
@@ -306,4 +339,20 @@ class ServiceHealthStatus(str, Enum):
     DEGRADED = "degraded"
     REBUILD_REQUIRED = "rebuild_required"
     PAUSED = "paused"
+
+
+class ParameterCriticality(str, Enum):
+    """Risk level for one tunable profile parameter."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class PatchValidationStatus(str, Enum):
+    """Validation result for one profile patch candidate."""
+
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 

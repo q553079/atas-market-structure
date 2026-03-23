@@ -1,0 +1,71 @@
+name: Acceptance And Regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "samples/**"
+      - "scripts/**"
+      - "docs/**"
+      - "pyproject.toml"
+      - ".github/workflows/acceptance-and-regression.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "samples/**"
+      - "scripts/**"
+      - "docs/**"
+      - "pyproject.toml"
+      - ".github/workflows/acceptance-and-regression.yml"
+
+jobs:
+  acceptance-and-regression:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev]
+
+      - name: Ruff
+        run: python -m ruff check src tests scripts
+
+      - name: Type Check
+        run: >
+          python -m mypy
+          src/atas_market_structure/golden_cases.py
+          src/atas_market_structure/rebuild_runner.py
+          src/atas_market_structure/sample_validation.py
+
+      - name: Validate Samples
+        run: python scripts/validate/validate_samples.py
+
+      - name: Run Acceptance Suite
+        run: >
+          pytest
+          tests/test_app.py
+          tests/test_ingestion_reliability.py
+          tests/test_recognition_pipeline.py
+          tests/test_episode_evaluation.py
+          tests/test_tuning_services.py
+          tests/test_storage_migrations.py
+          tests/test_storage_blueprint_repository.py
+          tests/test_workbench_projection_api.py
+          tests/test_golden_replay_cases.py
+          tests/test_rebuild_runner.py
+          tests/test_sample_validation.py
+          -q
