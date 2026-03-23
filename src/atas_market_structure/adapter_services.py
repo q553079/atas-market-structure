@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import logging
+from threading import Lock
 from uuid import uuid4
 
 from atas_market_structure.adapter_bridge import AdapterPayloadBridge
@@ -25,6 +26,7 @@ LOGGER = logging.getLogger(__name__)
 class AdapterIngestionService:
     """Validates and stores low-latency adapter messages without forcing full analysis."""
 
+    _UNRESOLVED_TICK_SIZE_LOG_INTERVAL = timedelta(minutes=1)
     _HISTORY_RETENTION_DAYS_BY_SYMBOL = {
         "NQ": 30,
         "ES": 15,
@@ -40,16 +42,11 @@ class AdapterIngestionService:
         self._repository = repository
         self._orchestrator = orchestrator or IngestionOrchestrator(repository=repository)
         self._bridge = bridge or AdapterPayloadBridge(regime_monitor=RegimeMonitor(repository=repository))
+        self._unresolved_tick_size_logged_at: dict[str, datetime] = {}
+        self._unresolved_tick_size_lock = Lock()
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> AdapterAcceptedResponse:
-        if payload.instrument.tick_size <= 0:
-            LOGGER.warning(
-                "ingest_continuous_state: unresolved tick_size for symbol=%s root_symbol=%s contract_symbol=%s chart_instance_id=%s",
-                payload.instrument.symbol,
-                payload.instrument.root_symbol,
-                payload.instrument.contract_symbol,
-                payload.source.chart_instance_id,
-            )
+        self._warn_on_unresolved_tick_size("ingest_continuous_state", payload)
         self._bridge.regime_monitor.ingest_continuous_state(payload)
         LOGGER.info(
             "ingest_continuous_state: symbol=%s root_symbol=%s chart_instance_id=%s",
@@ -103,14 +100,7 @@ class AdapterIngestionService:
         )
 
     def ingest_trigger_burst(self, payload: AdapterTriggerBurstPayload) -> AdapterAcceptedResponse:
-        if payload.instrument.tick_size <= 0:
-            LOGGER.warning(
-                "ingest_trigger_burst: unresolved tick_size for symbol=%s root_symbol=%s contract_symbol=%s chart_instance_id=%s",
-                payload.instrument.symbol,
-                payload.instrument.root_symbol,
-                payload.instrument.contract_symbol,
-                payload.source.chart_instance_id,
-            )
+        self._warn_on_unresolved_tick_size("ingest_trigger_burst", payload)
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
             observed_window_start=payload.observed_window_start,
@@ -393,3 +383,38 @@ class AdapterIngestionService:
                 )
             )
         return raw_bars
+
+    def _warn_on_unresolved_tick_size(
+        self,
+        operation: str,
+        payload: AdapterContinuousStatePayload | AdapterTriggerBurstPayload,
+    ) -> None:
+        if payload.instrument.tick_size > 0:
+            return
+
+        warning_key = "|".join(
+            (
+                operation,
+                payload.instrument.symbol or "",
+                payload.instrument.root_symbol or "",
+                payload.instrument.contract_symbol or "",
+                payload.source.chart_instance_id or "",
+            ),
+        )
+        now = datetime.now(tz=UTC)
+        should_log = False
+        with self._unresolved_tick_size_lock:
+            last_logged_at = self._unresolved_tick_size_logged_at.get(warning_key)
+            if last_logged_at is None or now - last_logged_at >= self._UNRESOLVED_TICK_SIZE_LOG_INTERVAL:
+                self._unresolved_tick_size_logged_at[warning_key] = now
+                should_log = True
+
+        if should_log:
+            LOGGER.warning(
+                "%s: unresolved tick_size for symbol=%s root_symbol=%s contract_symbol=%s chart_instance_id=%s",
+                operation,
+                payload.instrument.symbol,
+                payload.instrument.root_symbol,
+                payload.instrument.contract_symbol,
+                payload.source.chart_instance_id,
+            )
