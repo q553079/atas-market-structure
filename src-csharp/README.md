@@ -127,7 +127,12 @@ This is the intended default for manual trading alongside collection.
 
 - `trigger_burst` is currently emitted immediately, so the `post_window` is intentionally minimal.
 - session references like prior RTH close or prior value area still rely on indicator settings for now.
-- continuous root-symbol candles are separated from raw contract mirror bars, but full contract-roll adjustment logic is still a later step.
+- continuous and raw mirror are now separated, but the current continuous layer only supports:
+  - `roll_mode=none`
+  - `roll_mode=by_contract_start`
+  - `roll_mode=manual_sequence`
+- `roll_mode=by_volume_proxy` is still intentionally unsupported.
+- `adjustment_mode=gap_shift` is only a simple additive gap removal, not a full back-adjusted main contract.
 - the collector uses a first-pass heuristic for:
   - initiative drives
   - same-price replenishment strength
@@ -135,3 +140,30 @@ This is the intended default for manual trading alongside collection.
 
 That is acceptable for phase 1 infrastructure.
 Later iterations should improve fidelity, not add auto-trading.
+
+## Manual Verification
+
+After the Python service is running, the shortest operator validation path is:
+
+```powershell
+python .\tools\verify_mirror_vs_continuous.py `
+  --contract-symbol NQM6 `
+  --root-symbol NQ `
+  --timeframe 1m `
+  --window-start-utc 2026-03-22T09:30:00Z `
+  --window-end-utc 2026-03-22T10:00:00Z
+```
+
+```powershell
+python .\tools\verify_backfill_ack_flow.py `
+  --instrument-symbol NQH6 `
+  --contract-symbol NQH6 `
+  --root-symbol NQ `
+  --chart-instance-id chart-abc `
+  --window-start-utc 2026-03-22T09:30:00Z `
+  --window-end-utc 2026-03-22T10:00:00Z
+```
+
+```powershell
+python .\tools\verify_timezone_fields.py .\samples\atas_adapter.history_bars.sample.json
+```

@@ -33,16 +33,18 @@ flowchart LR
     A --> C["Mirror: history_bars + history_footprint"]
     D["Backfill Control"] --> A
     C --> E["atas_chart_bars_raw"]
-    B --> F["chart_candles (root symbol)"]
+    E --> F["ContinuousContractService"]
     E --> G["mirror-bars API"]
     F --> H["continuous-bars API"]
+    B --> J["analysis bridge / replay overlays"]
     G --> I["Replay Packet Builder"]
     H --> I
-    I --> J["Replay Workbench Snapshot"]
-    J --> K["Standalone UI Chart"]
-    J --> L["Strategy Library Matcher"]
-    L --> M["AI Briefing Packet"]
-    M --> K
+    J --> I
+    I --> K["Replay Workbench Snapshot"]
+    K --> L["Standalone UI Chart"]
+    K --> M["Strategy Library Matcher"]
+    M --> N["AI Briefing Packet"]
+    N --> L
 ```
 
 ## Current Runtime Architecture
@@ -53,11 +55,20 @@ The system now uses a dual-layer chart architecture:
   - raw ATAS chart mirror
   - keyed by `chart_instance_id + contract_symbol + timeframe + started_at_utc`
   - preserves timezone-capture metadata and original bar time text
+- `ContinuousContractService`
+  - derives root-symbol bars from `atas_chart_bars_raw`
+  - emits explicit `contract_segments`
+  - supports:
+    - `roll_mode=none`
+    - `roll_mode=by_contract_start`
+    - `roll_mode=manual_sequence`
+  - supports:
+    - `adjustment_mode=none`
+    - `adjustment_mode=gap_shift`
 - `chart_candles`
-  - continuous-analysis storage
-  - keyed by `root_symbol + timeframe + started_at`
-  - only native timeframe history is written directly
-  - higher timeframes should be aggregated from reliable lower timeframes later
+  - remains a compatibility / analysis table
+  - no longer powers `GET /api/v1/chart/continuous-bars`
+  - higher timeframes should still be aggregated from reliable lower timeframes later
 
 This separation prevents contract-specific mirror data from overwriting the continuous analysis layer.
 
@@ -211,9 +222,15 @@ Additional runtime APIs:
 - `GET /api/v1/adapter/backfill-command`
 - `POST /api/v1/adapter/backfill-ack`
 
+Manual verification helpers:
+
+- [verify_mirror_vs_continuous.py](../tools/verify_mirror_vs_continuous.py)
+- [verify_backfill_ack_flow.py](../tools/verify_backfill_ack_flow.py)
+- [verify_timezone_fields.py](../tools/verify_timezone_fields.py)
+
 ## Next Implementation Steps
 
-1. Add contract-roll logic on top of the continuous layer instead of treating root-symbol candles as already fully rolled.
-2. Aggregate higher timeframes from reliable lower-timeframe continuous data instead of writing synthetic fanout during history ingestion.
-3. Add footprint-aware replay packet rebuild so raw mirror bars and footprint chunks can be stitched into one review packet.
-4. Extend replay verification to compare requested backfill ranges with actual mirror coverage before rebuilding.
+1. Implement a real `by_volume_proxy` or open-interest-aware roll decision instead of returning an explicit not-supported error.
+2. Add footprint-aware replay packet rebuild so raw mirror bars and footprint chunks can be stitched into one review packet.
+3. Persist backfill control-plane state if operators need durable auditing across process restarts.
+4. Aggregate higher timeframes from reliable lower-timeframe continuous data instead of relying on simple segment stitching alone.

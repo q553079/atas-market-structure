@@ -187,10 +187,21 @@ class AdapterTriggerType(str, Enum):
 class RollMode(str, Enum):
     """Continuous contract roll mode specification."""
 
+    NONE = "none"
+    BY_CONTRACT_START = "by_contract_start"
+    BY_VOLUME_PROXY = "by_volume_proxy"
+    MANUAL_SEQUENCE = "manual_sequence"
     FRONT_MONTH = "front_month"
     PASSIVE_ROLL = "passive_roll"
     NEAR_ROLL = "near_roll"
     ALL_CONTRACTS = "all_contracts"
+
+
+class ContinuousAdjustmentMode(str, Enum):
+    """Explicit adjustment mode for derived continuous bars."""
+
+    NONE = "none"
+    GAP_SHIFT = "gap_shift"
 
 
 class RegimeKind(str, Enum):

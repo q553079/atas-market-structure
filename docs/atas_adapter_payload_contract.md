@@ -324,6 +324,67 @@ Request fields:
 - optional `note`
 - timezone fields mirroring the adapter's export basis
 
+The current Python service reflects these ack fields back through:
+
+- `AdapterBackfillAcknowledgeRequest`
+- `ReplayWorkbenchAtasBackfillRecord`
+- `POST /api/v1/adapter/backfill-ack`
+
+Backfill target routing fields that remain important on the server side:
+
+- `contract_symbol`
+- `root_symbol`
+- `target_contract_symbol`
+- `target_root_symbol`
+- `chart_instance_id`
+
+## Mirror And Continuous API Projection
+
+The current API split is:
+
+- `GET /api/v1/chart/mirror-bars`
+  - returns raw `atas_chart_bars_raw` rows
+  - includes:
+    - `chart_instance_id`
+    - `contract_symbol`
+    - `root_symbol`
+    - `bar_timestamp_utc`
+    - `started_at_utc`
+    - `ended_at_utc`
+    - `source_started_at`
+    - timezone audit fields
+- `GET /api/v1/chart/continuous-bars`
+  - derives a root-symbol series from raw mirror rows
+  - includes:
+    - `root_symbol`
+    - `roll_mode`
+    - `adjustment_mode`
+    - `contract_segments`
+    - derived `candles`
+
+Important rule:
+
+- mirror is the exact contract view
+- continuous is a derived root-symbol view
+- continuous must never write back into raw mirror storage
+
+## Current Continuous Support
+
+Currently supported:
+
+- `roll_mode=none`
+- `roll_mode=by_contract_start`
+- `roll_mode=manual_sequence`
+- `adjustment_mode=none`
+- `adjustment_mode=gap_shift`
+
+Currently not supported:
+
+- `roll_mode=by_volume_proxy`
+- full back-adjusted main-contract logic
+
+When the system cannot execute a requested roll mode, it returns an explicit error instead of silently falling back to raw mirror semantics.
+
 ## `continuous_state` Contract
 
 Purpose:

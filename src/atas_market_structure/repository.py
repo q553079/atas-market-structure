@@ -1030,6 +1030,7 @@ class SQLiteAnalysisRepository:
                     symbol TEXT NOT NULL,
                     venue TEXT,
                     timeframe TEXT NOT NULL,
+                    bar_timestamp_utc TEXT,
                     started_at_utc TEXT NOT NULL,
                     ended_at_utc TEXT NOT NULL,
                     source_started_at TEXT NOT NULL,
@@ -1089,6 +1090,14 @@ class SQLiteAnalysisRepository:
                 pass
             try:
                 connection.execute("ALTER TABLE chart_candles ADD COLUMN source_timezone TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute("ALTER TABLE atas_chart_bars_raw ADD COLUMN bar_timestamp_utc TEXT")
+                connection.execute(
+                    "UPDATE atas_chart_bars_raw SET bar_timestamp_utc = started_at_utc "
+                    "WHERE bar_timestamp_utc IS NULL OR bar_timestamp_utc = ''"
+                )
             except sqlite3.OperationalError:
                 pass
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_time ON chat_messages (session_id, created_at)")
@@ -2296,6 +2305,7 @@ class SQLiteAnalysisRepository:
             symbol=row["symbol"],
             venue=row["venue"] or None,
             timeframe=Timeframe(row["timeframe"]),
+            bar_timestamp_utc=self._parse_datetime(row["bar_timestamp_utc"]) if row["bar_timestamp_utc"] else None,
             started_at_utc=self._parse_datetime(row["started_at_utc"]),
             ended_at_utc=self._parse_datetime(row["ended_at_utc"]),
             source_started_at=self._parse_datetime(row["source_started_at"]),
@@ -2559,6 +2569,7 @@ class SQLiteAnalysisRepository:
                 bar.symbol,
                 bar.venue,
                 bar.timeframe.value,
+                self._serialize_datetime(bar.bar_timestamp_utc) if bar.bar_timestamp_utc is not None else None,
                 self._serialize_datetime(bar.started_at_utc),
                 self._serialize_datetime(bar.ended_at_utc),
                 self._serialize_datetime(bar.source_started_at),
@@ -2591,17 +2602,19 @@ class SQLiteAnalysisRepository:
                 """
                 INSERT INTO atas_chart_bars_raw (
                     chart_instance_id, root_symbol, contract_symbol, symbol, venue, timeframe,
+                    bar_timestamp_utc,
                     started_at_utc, ended_at_utc, source_started_at, original_bar_time_text,
                     timestamp_basis, chart_display_timezone_mode, chart_display_timezone_name,
                     chart_display_utc_offset_minutes, instrument_timezone_value, instrument_timezone_source,
                     collector_local_timezone_name, collector_local_utc_offset_minutes,
                     timezone_capture_confidence, open, high, low, close, volume, bid_volume,
                     ask_volume, delta, trade_count, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chart_instance_id, contract_symbol, timeframe, started_at_utc) DO UPDATE SET
                     root_symbol = excluded.root_symbol,
                     symbol = excluded.symbol,
                     venue = excluded.venue,
+                    bar_timestamp_utc = COALESCE(excluded.bar_timestamp_utc, atas_chart_bars_raw.bar_timestamp_utc),
                     ended_at_utc = excluded.ended_at_utc,
                     source_started_at = excluded.source_started_at,
                     original_bar_time_text = excluded.original_bar_time_text,
@@ -2667,7 +2680,7 @@ class SQLiteAnalysisRepository:
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         query = (
             "SELECT chart_instance_id, root_symbol, contract_symbol, symbol, venue, timeframe, "
-            "started_at_utc, ended_at_utc, source_started_at, original_bar_time_text, "
+            "bar_timestamp_utc, started_at_utc, ended_at_utc, source_started_at, original_bar_time_text, "
             "timestamp_basis, chart_display_timezone_mode, chart_display_timezone_name, "
             "chart_display_utc_offset_minutes, instrument_timezone_value, instrument_timezone_source, "
             "collector_local_timezone_name, collector_local_utc_offset_minutes, timezone_capture_confidence, "

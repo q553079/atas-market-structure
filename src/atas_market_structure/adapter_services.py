@@ -350,6 +350,7 @@ class AdapterIngestionService:
                     symbol=payload.instrument.symbol,
                     venue=payload.instrument.venue,
                     timeframe=timeframe,
+                    bar_timestamp_utc=bar.bar_timestamp_utc.astimezone(UTC) if bar.bar_timestamp_utc is not None else None,
                     started_at_utc=started_at_utc.astimezone(UTC),
                     ended_at_utc=bar.ended_at.astimezone(UTC),
                     source_started_at=bar.started_at.astimezone(UTC),

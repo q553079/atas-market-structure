@@ -14,6 +14,7 @@ from atas_market_structure.models._adapter_states import (
     AdapterTradeSummary,
 )
 from atas_market_structure.models._enums import (
+    ContinuousAdjustmentMode,
     DegradedMode,
     EpisodeResolution,
     EventHypothesisKind,
@@ -307,6 +308,10 @@ class AtasChartBarRaw(BaseModel):
     symbol: str = Field(..., description="Display symbol as emitted by the adapter.")
     venue: str | None = Field(None, description="Execution or quote venue when known.")
     timeframe: Timeframe = Field(..., description="Native timeframe of the mirrored chart bars.")
+    bar_timestamp_utc: datetime | None = Field(
+        None,
+        description="UTC-normalised bar timestamp preserved from the adapter payload before repository normalization.",
+    )
     started_at_utc: datetime = Field(..., description="UTC-normalized bar start used as the primary time key.")
     ended_at_utc: datetime = Field(..., description="UTC-normalized bar end.")
     source_started_at: datetime = Field(
@@ -430,24 +435,87 @@ class MirrorBarsEnvelope(BaseModel):
     window_start: datetime = Field(..., description="Query window start (inclusive).")
     window_end: datetime = Field(..., description="Query window end (inclusive).")
     count: int = Field(default=0, description="Number of bars returned.")
-    bars: list[ReplayChartBar] = Field(default_factory=list, description="Raw contract bars.")
+    bars: list[AtasChartBarRaw] = Field(default_factory=list, description="Raw contract bars.")
+
+
+class ContinuousContractSegment(BaseModel):
+    """One contract slice contributing to a derived continuous series."""
+
+    contract_symbol: str = Field(..., description="Contract selected for this continuous segment.")
+    segment_start_utc: datetime = Field(..., description="UTC start of the derived segment.")
+    segment_end_utc: datetime = Field(..., description="UTC end of the derived segment.")
+    roll_reason: str = Field(..., description="Why the service switched into this contract segment.")
+    source_bar_count: int = Field(..., ge=0, description="How many raw bars from this contract were used.")
+    adjustment_offset: float = Field(
+        0.0,
+        description="Additive offset applied to this segment when adjustment_mode requires gap shifting.",
+    )
+
+
+class ContinuousContractMarker(BaseModel):
+    """Optional marker rendered at a contract boundary for manual inspection."""
+
+    contract_symbol: str = Field(..., description="Contract associated with this marker.")
+    marker_time_utc: datetime = Field(..., description="UTC timestamp of the boundary marker.")
+    marker_kind: Literal["segment_start", "segment_end"] = Field(..., description="Boundary marker type.")
+    roll_reason: str = Field(..., description="Human-readable explanation for this boundary.")
+
+
+class ContinuousDerivedBar(BaseModel):
+    """One derived bar in the continuous layer."""
+
+    started_at_utc: datetime = Field(..., description="UTC start of the derived bar.")
+    ended_at_utc: datetime = Field(..., description="UTC end of the derived bar.")
+    open: float = Field(..., description="Adjusted or unadjusted open depending on adjustment_mode.")
+    high: float = Field(..., description="Adjusted or unadjusted high depending on adjustment_mode.")
+    low: float = Field(..., description="Adjusted or unadjusted low depending on adjustment_mode.")
+    close: float = Field(..., description="Adjusted or unadjusted close depending on adjustment_mode.")
+    volume: int | None = Field(None, ge=0, description="Total volume preserved from the source contract bar.")
+    delta: int | None = Field(None, description="Net delta preserved from the source contract bar.")
+    bid_volume: int | None = Field(None, ge=0, description="Bid-side volume preserved from the source contract bar.")
+    ask_volume: int | None = Field(None, ge=0, description="Ask-side volume preserved from the source contract bar.")
+    source_contract_symbol: str = Field(..., description="Contract symbol that supplied this derived bar.")
+    source_started_at_utc: datetime = Field(..., description="UTC start of the original raw mirror bar.")
+    adjustment_offset: float = Field(
+        0.0,
+        description="Additive offset applied to this candle relative to the raw mirror source bar.",
+    )
+    adjustment_mode: ContinuousAdjustmentMode = Field(
+        ...,
+        description="Adjustment mode that produced this continuous candle.",
+    )
 
 
 class ContinuousBarsEnvelope(BaseModel):
     """REST response for continuous-series bar queries.
 
-    Continuous bars return price bars adjusted for contract rolls,
-    providing a seamless series across expiration dates. The roll_mode
-    parameter controls how adjustments are applied.
+    Continuous bars are a derived layer assembled from raw mirror rows.
+    They must never be mistaken for raw contract bars.
     """
 
     root_symbol: str = Field(..., description="Root/continuous symbol queried.")
     timeframe: Timeframe = Field(..., description="Bar timeframe.")
     roll_mode: RollMode = Field(..., description="Roll mode used for this continuous series.")
+    adjustment_mode: ContinuousAdjustmentMode = Field(
+        ...,
+        description="Adjustment mode applied to each derived segment or candle.",
+    )
     window_start: datetime = Field(..., description="Query window start (inclusive).")
     window_end: datetime = Field(..., description="Query window end (inclusive).")
     count: int = Field(default=0, description="Number of bars returned.")
-    bars: list[ReplayChartBar] = Field(default_factory=list, description="Continuous-series bars.")
+    contract_segments: list[ContinuousContractSegment] = Field(
+        default_factory=list,
+        description="Contract-by-contract segmentation used to derive the continuous response.",
+    )
+    candles: list[ContinuousDerivedBar] = Field(default_factory=list, description="Derived continuous-series bars.")
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Explicit downgrade, unsupported-mode, or explainability notes for operators.",
+    )
+    contract_markers: list[ContinuousContractMarker] = Field(
+        default_factory=list,
+        description="Optional boundary markers included when the caller asked for contract markers.",
+    )
 
 
 class ReplayEventAnnotation(BaseModel):

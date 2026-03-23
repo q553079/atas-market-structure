@@ -24,6 +24,10 @@ from atas_market_structure.app_routes import handle_analysis_routes, handle_chat
 from atas_market_structure.chart_candle_service import ChartCandleService
 from atas_market_structure.app_shared import NotFoundError
 from atas_market_structure.config import AppConfig
+from atas_market_structure.continuous_contract_service import (
+    ContinuousContractService,
+    ContinuousContractServiceError,
+)
 from atas_market_structure.depth_services import DepthMonitoringService
 from atas_market_structure.models import (
     AdapterBackfillAcknowledgeRequest,
@@ -36,6 +40,7 @@ from atas_market_structure.models import (
     AdapterTriggerBurstPayload,
     AnalysisEnvelope,
     ChartCandleEnvelope,
+    ContinuousAdjustmentMode,
     ContinuousBarsEnvelope,
     DepthSnapshotAcceptedResponse,
     DepthSnapshotPayload,
@@ -101,6 +106,7 @@ class MarketStructureApplication:
         depth_monitoring_service: DepthMonitoringService | None = None,
         adapter_ingestion_service: AdapterIngestionService | None = None,
         replay_workbench_service: ReplayWorkbenchService | None = None,
+        continuous_contract_service: ContinuousContractService | None = None,
         replay_ai_review_service: ReplayAiReviewService | None = None,
         replay_ai_chat_service: ReplayAiChatService | None = None,
         config: AppConfig | None = None,
@@ -114,6 +120,7 @@ class MarketStructureApplication:
             orchestrator=self._orchestrator,
         )
         self._replay_workbench_service = replay_workbench_service or ReplayWorkbenchService(repository=repository)
+        self._continuous_contract_service = continuous_contract_service or ContinuousContractService(repository=repository)
         self._replay_ai_review_service = replay_ai_review_service
         self._replay_ai_chat_service = replay_ai_chat_service
         self._replay_workbench_chat_service = ReplayWorkbenchChatService(
@@ -390,14 +397,16 @@ class MarketStructureApplication:
                     tf = Timeframe(tf_raw)
                     ws = self._parse_datetime_arg(ws_raw)
                     we = self._parse_datetime_arg(we_raw)
+                    limit = self._parse_positive_int_arg(query.get("limit", [None])[0], default=5000)
                 except (ValueError, TypeError) as e:
                     return self._json_response(400, {"error": "invalid_parameter", "detail": str(e)})
-                bars = self._replay_workbench_service.get_mirror_bars(
+                bars = self._repository.list_atas_chart_bars_raw(
                     chart_instance_id=chart_instance_id,
                     contract_symbol=contract_symbol,
-                    timeframe=tf,
+                    timeframe=tf.value,
                     window_start=ws,
                     window_end=we,
+                    limit=limit,
                 )
                 return self._json_model_response(
                     200,
@@ -432,29 +441,37 @@ class MarketStructureApplication:
                 try:
                     tf = Timeframe(tf_raw)
                     roll_mode = RollMode(roll_mode_raw)
+                    adjustment_mode = ContinuousAdjustmentMode(
+                        query.get("adjustment_mode", [ContinuousAdjustmentMode.NONE.value])[0]
+                    )
                     ws = self._parse_datetime_arg(ws_raw)
                     we = self._parse_datetime_arg(we_raw)
+                    limit = self._parse_positive_int_arg(query.get("limit", [None])[0], default=5000)
+                    include_contract_markers = self._parse_bool_arg(
+                        query.get("include_contract_markers", [None])[0],
+                        default=False,
+                    )
                 except (ValueError, TypeError) as e:
                     return self._json_response(400, {"error": "invalid_parameter", "detail": str(e)})
-                bars = self._replay_workbench_service.get_continuous_bars(
-                    root_symbol=root_symbol,
-                    timeframe=tf,
-                    roll_mode=roll_mode,
-                    window_start=ws,
-                    window_end=we,
-                )
-                return self._json_model_response(
-                    200,
-                    ContinuousBarsEnvelope(
+                manual_sequence = self._parse_csv_list(query.get("contract_sequence", [None])[0])
+                try:
+                    envelope = self._continuous_contract_service.query_continuous_bars(
                         root_symbol=root_symbol,
                         timeframe=tf,
                         roll_mode=roll_mode,
                         window_start=ws,
                         window_end=we,
-                        count=len(bars),
-                        bars=bars,
-                    ),
-                )
+                        limit=limit,
+                        include_contract_markers=include_contract_markers,
+                        adjustment_mode=adjustment_mode,
+                        manual_sequence=manual_sequence,
+                    )
+                except ContinuousContractServiceError as exc:
+                    return self._json_response(
+                        400,
+                        {"error": "continuous_query_invalid", "detail": str(exc)},
+                    )
+                return self._json_model_response(200, envelope)
 
             if method == "POST" and route_path == "/api/v1/workbench/operator-entries":
                 payload = ReplayOperatorEntryRequest.model_validate_json(body or b"{}")
@@ -596,6 +613,32 @@ class MarketStructureApplication:
             raise TypeError("datetime value must not be None")
         normalized = _normalize_query_datetime(value)
         return datetime.fromisoformat(normalized).astimezone(UTC)
+
+    @staticmethod
+    def _parse_positive_int_arg(value: str | None, *, default: int) -> int:
+        if value is None or value == "":
+            return default
+        parsed = int(value)
+        if parsed <= 0:
+            raise ValueError("limit must be greater than zero")
+        return parsed
+
+    @staticmethod
+    def _parse_bool_arg(value: str | None, *, default: bool) -> bool:
+        if value is None or value == "":
+            return default
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+        raise ValueError(f"invalid boolean value: {value}")
+
+    @staticmethod
+    def _parse_csv_list(value: str | None) -> list[str] | None:
+        if value is None or value.strip() == "":
+            return None
+        return [item.strip() for item in value.split(",") if item.strip()]
 
     @staticmethod
     def _json_response(status_code: int, payload: dict[str, Any]) -> HttpResponse:

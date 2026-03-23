@@ -4,6 +4,7 @@ from typing import Any
 
 from atas_market_structure.models._enums import (
     AdapterTriggerType,
+    ContinuousAdjustmentMode,
     DegradedMode,
     DepthCoverageState,
     DerivedBias,
@@ -121,6 +122,9 @@ from atas_market_structure.models._replay import (
     ChartCandleBackfillRequest,
     ChartCandleEnvelope,
     ChartCandleUpsertRequest,
+    ContinuousContractMarker,
+    ContinuousContractSegment,
+    ContinuousDerivedBar,
     ContinuousBarsEnvelope,
     EpisodeEvaluation,
     EpisodeEvaluationEnvelope,

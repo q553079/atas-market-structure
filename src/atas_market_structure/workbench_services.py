@@ -21,6 +21,7 @@ def _parse_utc(value: str) -> datetime:
     return dt.astimezone(UTC)
 
 
+from atas_market_structure.continuous_contract_service import ContinuousContractService
 from atas_market_structure.models import (
     AdapterBackfillAcknowledgeRequest,
     AdapterBackfillAcknowledgeResponse,
@@ -52,6 +53,7 @@ from atas_market_structure.models import (
     ChatWindowRange,
     CreateChatMessageRequest,
     CreateChatSessionRequest,
+    ContinuousAdjustmentMode,
     PromptBlock,
     PromptBlocksEnvelope,
     SessionMemory,
@@ -1795,6 +1797,7 @@ class ReplayWorkbenchService:
     def __init__(self, repository: AnalysisRepository) -> None:
         self._repository = repository
         self._replay_ai_chat_service = None
+        self._continuous_contract_service = ContinuousContractService(repository=repository)
         self._backfill_lock = Lock()
         self._backfill_requests: dict[str, ReplayWorkbenchAtasBackfillRecord] = {}
 
@@ -2852,55 +2855,47 @@ class ReplayWorkbenchService:
         window_start: datetime,
         window_end: datetime,
         limit: int = 5000,
+        adjustment_mode: ContinuousAdjustmentMode = ContinuousAdjustmentMode.NONE,
+        manual_sequence: list[str] | None = None,
     ) -> list[ReplayChartBar]:
-        """Query continuous-series bars with roll adjustments applied.
-
-        Continuous bars provide a seamless price series across contract
-        expirations. The roll_mode parameter controls how adjustments
-        and transitions between contracts are handled.
-
-        Args:
-            root_symbol: Root/continuous symbol (e.g. "NQ").
-            timeframe: Target timeframe for the bars.
-            roll_mode: Roll mode controlling contract transitions.
-            window_start: Inclusive query window start.
-            window_end: Inclusive query window end.
-            limit: Maximum bars to return.
-
-        Returns:
-            List of ReplayChartBar representing continuous adjusted data.
-        """
-        candles = self._repository.list_chart_candles(
-            symbol=root_symbol.upper(),
-            timeframe=timeframe.value,
+        """Compatibility helper that projects the continuous layer into ReplayChartBar."""
+        envelope = self._continuous_contract_service.query_continuous_bars(
+            root_symbol=root_symbol,
+            timeframe=timeframe,
+            roll_mode=roll_mode,
             window_start=window_start,
             window_end=window_end,
             limit=limit,
+            adjustment_mode=adjustment_mode,
+            manual_sequence=manual_sequence,
         )
         bars: list[ReplayChartBar] = []
-        for candle in candles:
+        for candle in envelope.candles:
             bars.append(
                 ReplayChartBar(
-                    started_at=candle.started_at,
-                    ended_at=candle.ended_at,
+                    started_at=candle.started_at_utc,
+                    ended_at=candle.ended_at_utc,
                     open=candle.open,
                     high=candle.high,
                     low=candle.low,
                     close=candle.close,
                     volume=candle.volume,
                     delta=candle.delta,
-                    bid_volume=None,
-                    ask_volume=None,
-                    source_kind="chart_candles",
+                    bid_volume=candle.bid_volume,
+                    ask_volume=candle.ask_volume,
+                    source_kind="continuous_derived",
                     is_synthetic=False,
+                    bar_timestamp_utc=candle.started_at_utc,
                 )
             )
         LOGGER.info(
-            "get_continuous_bars: root_symbol=%s timeframe=%s roll_mode=%s count=%s",
+            "get_continuous_bars: root_symbol=%s timeframe=%s roll_mode=%s adjustment_mode=%s count=%s warnings=%s",
             root_symbol,
             timeframe.value,
-            roll_mode.value,
+            envelope.roll_mode.value,
+            adjustment_mode.value,
             len(bars),
+            len(envelope.warnings),
         )
         return bars[:limit]
 
@@ -3734,8 +3729,6 @@ class ReplayWorkbenchService:
             ingestion_kind="adapter_continuous_state",
             instrument_symbol=request.instrument_symbol,
             limit=10000,
-            stored_at_after=request.window_start,
-            stored_at_before=request.window_end,
         )
         matched: list[StoredIngestion] = []
         for stored in candidates:

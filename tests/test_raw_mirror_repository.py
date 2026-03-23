@@ -693,7 +693,7 @@ def test_contract_rollover_no_cross_contamination_after_rollover() -> None:
 
 
 def test_mirror_and_continuous_queries_return_different_semantics() -> None:
-    """Mirror queries return raw contract bars; continuous queries return root-symbol chart candles."""
+    """Mirror queries return raw contract bars; continuous queries return root-symbol derived segments."""
     with _temp_repo() as repo:
         service = AdapterIngestionService(repository=repo)
         workbench = ReplayWorkbenchService(repository=repo)
@@ -721,28 +721,27 @@ def test_mirror_and_continuous_queries_return_different_semantics() -> None:
                 )
             )
         )
-
-        from atas_market_structure.models import ChartCandle
-
-        repo.replace_chart_candles(
-            [
-                ChartCandle(
-                    symbol="NQ",
-                    timeframe=Timeframe.MIN_1,
-                    started_at=t0,
-                    ended_at=t0 + timedelta(seconds=59),
-                    source_started_at=t0,
-                    open=300.0,
-                    high=301.0,
-                    low=299.0,
-                    close=300.5,
-                    volume=99,
-                    tick_volume=1,
-                    delta=8,
-                    updated_at=t0 + timedelta(minutes=1),
-                    source_timezone="UTC",
+        service.ingest_history_bars(
+            AdapterHistoryBarsPayload.model_validate(
+                _build_history_payload_dict(
+                    symbol="NQM6",
+                    timeframe="1m",
+                    bars=[
+                        {
+                            "started_at": (t0 + timedelta(minutes=1)).isoformat(),
+                            "ended_at": (t0 + timedelta(minutes=1, seconds=59)).isoformat(),
+                            "open": 210.0,
+                            "high": 211.0,
+                            "low": 209.0,
+                            "close": 210.5,
+                            "volume": 30,
+                            "delta": 7,
+                            "bar_timestamp_utc": (t0 + timedelta(minutes=1)).isoformat(),
+                            "original_bar_time_text": "2026-03-22 09:31:00 ET",
+                        }
+                    ],
                 )
-            ]
+            )
         )
 
         mirror = workbench.get_mirror_bars(
@@ -750,19 +749,117 @@ def test_mirror_and_continuous_queries_return_different_semantics() -> None:
             contract_symbol="NQH6",
             timeframe=Timeframe.MIN_1,
             window_start=t0,
-            window_end=t0,
+            window_end=t0 + timedelta(minutes=1),
         )
         continuous = workbench.get_continuous_bars(
             root_symbol="NQ",
             timeframe=Timeframe.MIN_1,
-            roll_mode=RollMode.FRONT_MONTH,
+            roll_mode=RollMode.BY_CONTRACT_START,
             window_start=t0,
-            window_end=t0,
+            window_end=t0 + timedelta(minutes=1),
         )
 
         assert len(mirror) == 1
-        assert len(continuous) == 1
+        assert len(continuous) == 2
         assert mirror[0].open == 200.0
         assert mirror[0].bar_timestamp_utc == t0
-        assert continuous[0].open == 300.0
-        assert continuous[0].bar_timestamp_utc is None
+        assert [bar.open for bar in continuous] == [200.0, 210.0]
+        assert [bar.bar_timestamp_utc for bar in continuous] == [t0, t0 + timedelta(minutes=1)]
+
+
+def test_raw_mirror_repository_root_symbol_filter_returns_multiple_contracts() -> None:
+    """Repository root_symbol queries return all matching contracts without mixing chart instances."""
+    with _temp_repo() as repo:
+        service = AdapterIngestionService(repository=repo)
+        t0 = datetime(2026, 3, 22, 9, 30, tzinfo=UTC)
+        service.ingest_history_bars(
+            AdapterHistoryBarsPayload.model_validate(
+                _build_history_payload_dict(
+                    symbol="NQH6",
+                    timeframe="1m",
+                    bars=[
+                        {
+                            "started_at": t0.isoformat(),
+                            "ended_at": (t0 + timedelta(seconds=59)).isoformat(),
+                            "open": 100.0,
+                            "high": 101.0,
+                            "low": 99.0,
+                            "close": 100.5,
+                            "volume": 10,
+                            "delta": 2,
+                            "bar_timestamp_utc": t0.isoformat(),
+                            "original_bar_time_text": "2026-03-22 09:30:00 ET",
+                        }
+                    ],
+                    chart_instance_id="chart-abc",
+                )
+            )
+        )
+        service.ingest_history_bars(
+            AdapterHistoryBarsPayload.model_validate(
+                _build_history_payload_dict(
+                    symbol="NQM6",
+                    timeframe="1m",
+                    bars=[
+                        {
+                            "started_at": (t0 + timedelta(minutes=1)).isoformat(),
+                            "ended_at": (t0 + timedelta(minutes=1, seconds=59)).isoformat(),
+                            "open": 110.0,
+                            "high": 111.0,
+                            "low": 109.0,
+                            "close": 110.5,
+                            "volume": 11,
+                            "delta": 3,
+                            "bar_timestamp_utc": (t0 + timedelta(minutes=1)).isoformat(),
+                            "original_bar_time_text": "2026-03-22 09:31:00 ET",
+                        }
+                    ],
+                    chart_instance_id="chart-abc",
+                )
+            )
+        )
+
+        rows = repo.list_atas_chart_bars_raw(root_symbol="NQ", timeframe="1m", limit=10)
+        assert len(rows) == 2
+        assert {row.contract_symbol for row in rows} == {"NQH6", "NQM6"}
+        assert {row.root_symbol for row in rows} == {"NQ"}
+
+
+def test_raw_mirror_repository_same_key_upsert_is_idempotent() -> None:
+    """The raw mirror primary key stays idempotent for repeated UTC bars from the same chart+contract."""
+    with _temp_repo() as repo:
+        service = AdapterIngestionService(repository=repo)
+        t0 = datetime(2026, 3, 22, 9, 30, tzinfo=UTC)
+        payload = AdapterHistoryBarsPayload.model_validate(
+            _build_history_payload_dict(
+                symbol="NQH6",
+                timeframe="1m",
+                bars=[
+                    {
+                        "started_at": t0.isoformat(),
+                        "ended_at": (t0 + timedelta(seconds=59)).isoformat(),
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.5,
+                        "volume": 10,
+                        "delta": 2,
+                        "bar_timestamp_utc": t0.isoformat(),
+                        "original_bar_time_text": "2026-03-22 09:30:00 ET",
+                    }
+                ],
+                chart_instance_id="chart-abc",
+            )
+        )
+
+        service.ingest_history_bars(payload)
+        service.ingest_history_bars(payload.model_copy(update={"message_id": "msg-repeat"}))
+
+        rows = repo.list_atas_chart_bars_raw(
+            chart_instance_id="chart-abc",
+            contract_symbol="NQH6",
+            timeframe="1m",
+            limit=10,
+        )
+        assert len(rows) == 1
+        assert rows[0].bar_timestamp_utc == t0

@@ -157,6 +157,10 @@ def test_history_bars_with_complete_timezone_stored() -> None:
             timeframe="1m",
         )
         assert len(raw_rows) == 5
+        assert raw_rows[0].bar_timestamp_utc == datetime(2026, 3, 22, 9, 30, tzinfo=UTC)
+        assert raw_rows[0].started_at_utc.tzinfo == UTC
+        assert raw_rows[0].ended_at_utc.tzinfo == UTC
+        assert raw_rows[0].source_started_at.tzinfo == UTC
         assert raw_rows[0].chart_display_timezone_name == "America/New_York"
         assert raw_rows[0].timestamp_basis == "chart_display_timezone"
         assert raw_rows[0].original_bar_time_text == "2026-03-22 09:30:00 ET"
@@ -263,6 +267,11 @@ def test_history_bars_timezone_fallback_from_instrument_timezone() -> None:
         obs = stored.observed_payload
         assert obs["time_context"]["chart_display_timezone_source"] == "instrument_timezone"
         assert obs["time_context"]["timezone_capture_confidence"] == "medium"
+        raw_rows = repo.list_atas_chart_bars_raw(contract_symbol="NQH6", timeframe="1m")
+        assert raw_rows[0].chart_display_timezone_name is None
+        assert raw_rows[0].instrument_timezone_source == "exchange_metadata"
+        assert raw_rows[0].timestamp_basis == "instrument_timezone"
+        assert raw_rows[0].timezone_capture_confidence == "medium"
 
 
 # ---------------------------------------------------------------------------
