@@ -1794,6 +1794,7 @@ class ReplayWorkbenchService:
 
     def __init__(self, repository: AnalysisRepository) -> None:
         self._repository = repository
+        self._replay_ai_chat_service = None
         self._backfill_lock = Lock()
         self._backfill_requests: dict[str, ReplayWorkbenchAtasBackfillRecord] = {}
 
@@ -1922,6 +1923,8 @@ class ReplayWorkbenchService:
             completeness=completeness,
         )
 
+    @staticmethod
+    def _gap_segments_from_gap_dicts(candle_gaps: list[dict[str, Any]]) -> list[ReplayWorkbenchGapSegment]:
         segments: list[ReplayWorkbenchGapSegment] = []
         for item in candle_gaps:
             next_started_at = item.get("next_started_at")
@@ -3152,9 +3155,17 @@ class ReplayWorkbenchService:
         footprint_digest = self._build_footprint_digest(footprint_payloads, request) if footprint_payloads else None
         history_coverage_start = min(payload.observed_window_start for payload in history_payloads)
         history_coverage_end = max(payload.observed_window_end for payload in history_payloads)
+        data_status = self._build_data_status(
+            latest_adapter_sync_at=history_coverage_end,
+            integrity=integrity,
+            ai_available=self._replay_ai_chat_service is not None,
+        )
 
         return ReplayWorkbenchSnapshotPayload(
             schema_version="1.1.0",
+            profile_version=self._PROFILE_VERSION,
+            engine_version=self._ENGINE_VERSION,
+            data_status=data_status,
             replay_snapshot_id=replay_snapshot_id,
             cache_key=request.cache_key,
             acquisition_mode=ReplayAcquisitionMode.ATAS_FETCH,
@@ -3502,9 +3513,22 @@ class ReplayWorkbenchService:
         chart_instance_id = request.chart_instance_id
         if chart_instance_id is None and isinstance(source_payload, dict):
             chart_instance_id = source_payload.get("chart_instance_id")
+        latest_adapter_sync_at: datetime | None = None
+        if last_payload is not None:
+            latest_adapter_sync_at = self._payload_observed_at(last_payload)
+        elif candles:
+            latest_adapter_sync_at = candles[-1].ended_at
+        data_status = self._build_data_status(
+            latest_adapter_sync_at=latest_adapter_sync_at,
+            integrity=integrity,
+            ai_available=self._replay_ai_chat_service is not None,
+        )
 
         return ReplayWorkbenchSnapshotPayload(
             schema_version="1.1.0",
+            profile_version=self._PROFILE_VERSION,
+            engine_version=self._ENGINE_VERSION,
+            data_status=data_status,
             replay_snapshot_id=replay_snapshot_id,
             cache_key=request.cache_key,
             acquisition_mode=ReplayAcquisitionMode.CACHE_REUSE,

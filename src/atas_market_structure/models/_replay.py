@@ -30,6 +30,9 @@ from atas_market_structure.models._enums import (
     TradableEventKind,
 )
 from atas_market_structure.models._refs import InstrumentRef, SourceRef
+
+
+class ReplayAiBriefing(BaseModel):
     """Compact AI briefing packet derived from replay events and strategy-library matches."""
 
     objective: str = Field(
