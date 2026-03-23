@@ -157,6 +157,8 @@ class _FakeIngestionRepository:
         instrument_symbol: str | None = None,
         source_snapshot_id: str | None = None,
         limit: int = 100,
+        stored_at_after: datetime | None = None,
+        stored_at_before: datetime | None = None,
     ) -> list[StoredIngestion]:
         rows = list(self.rows.values())
         if ingestion_kind is not None:
@@ -165,6 +167,10 @@ class _FakeIngestionRepository:
             rows = [row for row in rows if row.instrument_symbol == instrument_symbol]
         if source_snapshot_id is not None:
             rows = [row for row in rows if row.source_snapshot_id == source_snapshot_id]
+        if stored_at_after is not None:
+            rows = [row for row in rows if row.stored_at >= stored_at_after]
+        if stored_at_before is not None:
+            rows = [row for row in rows if row.stored_at <= stored_at_before]
         rows.sort(key=lambda row: row.stored_at, reverse=True)
         return rows[:limit]
 

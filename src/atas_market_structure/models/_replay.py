@@ -14,21 +14,22 @@ from atas_market_structure.models._adapter_states import (
     AdapterTradeSummary,
 )
 from atas_market_structure.models._enums import (
+    DegradedMode,
+    EpisodeResolution,
+    EventHypothesisKind,
+    EventPhase,
+    EvaluationFailureMode,
+    RecognitionMode,
+    RegimeKind,
     ReplayAcquisitionMode,
     ReplayVerificationStatus,
+    ReviewSource,
     RollMode,
     StructureSide,
     Timeframe,
+    TradableEventKind,
 )
 from atas_market_structure.models._refs import InstrumentRef, SourceRef
-
-class ReplayAcquisitionMode(str, Enum):
-    CACHE_REUSE = "cache_reuse"
-    ATAS_FETCH = "atas_fetch"
-
-
-
-class ReplayAiBriefing(BaseModel):
     """Compact AI briefing packet derived from replay events and strategy-library matches."""
 
     objective: str = Field(
@@ -277,6 +278,11 @@ class ReplayChartBar(BaseModel):
     delta: int | None = Field(None, description="Optional net delta for the bar.", examples=[121])
     bid_volume: int | None = Field(None, ge=0, description="Optional bid-side traded volume.", examples=[360])
     ask_volume: int | None = Field(None, ge=0, description="Optional ask-side traded volume.", examples=[481])
+    source_kind: str | None = Field(
+        None,
+        description="Normalized candle source, for example history_bars, continuous_state, chart_candles, or synthetic_gap_fill.",
+    )
+    is_synthetic: bool = Field(False, description="Whether this candle is synthetic gap-fill rather than observed market data.")
     bar_timestamp_utc: datetime | None = Field(
         None,
         description="UTC-normalised bar timestamp preserved from ATAS metadata before timezone normalisation.",
@@ -287,6 +293,46 @@ class ReplayChartBar(BaseModel):
         examples=["2026-03-17 09:30:00 EST"],
     )
 
+
+
+class AtasChartBarRaw(BaseModel):
+    """Raw ATAS chart bar mirrored exactly as received from one chart instance."""
+
+    chart_instance_id: str | None = Field(None, description="ATAS chart-instance identifier when known.")
+    root_symbol: str | None = Field(None, description="Root or continuous symbol when known.")
+    contract_symbol: str | None = Field(None, description="Resolved contract symbol when known.")
+    symbol: str = Field(..., description="Display symbol as emitted by the adapter.")
+    venue: str | None = Field(None, description="Execution or quote venue when known.")
+    timeframe: Timeframe = Field(..., description="Native timeframe of the mirrored chart bars.")
+    started_at_utc: datetime = Field(..., description="UTC-normalized bar start used as the primary time key.")
+    ended_at_utc: datetime = Field(..., description="UTC-normalized bar end.")
+    source_started_at: datetime = Field(
+        ...,
+        description="Original source bar start preserved alongside the UTC key.",
+    )
+    original_bar_time_text: str | None = Field(
+        None,
+        description="Raw bar time text as it appeared in ATAS before timezone normalization.",
+    )
+    timestamp_basis: str | None = Field(None, description="Primary basis used to normalize timestamps to UTC.")
+    chart_display_timezone_mode: str | None = Field(None, description="ATAS chart display timezone mode when known.")
+    chart_display_timezone_name: str | None = Field(None, description="ATAS chart display timezone name when known.")
+    chart_display_utc_offset_minutes: int | None = Field(None, description="Chart display UTC offset in minutes.")
+    instrument_timezone_value: str | None = Field(None, description="Raw instrument timezone metadata value.")
+    instrument_timezone_source: str | None = Field(None, description="Where the instrument timezone came from.")
+    collector_local_timezone_name: str | None = Field(None, description="Collector machine local timezone name.")
+    collector_local_utc_offset_minutes: int | None = Field(None, description="Collector machine local UTC offset in minutes.")
+    timezone_capture_confidence: str | None = Field(None, description="Confidence level of the timezone capture.")
+    open: float = Field(..., description="Bar open.")
+    high: float = Field(..., description="Bar high.")
+    low: float = Field(..., description="Bar low.")
+    close: float = Field(..., description="Bar close.")
+    volume: int | None = Field(None, ge=0, description="Optional total volume.")
+    bid_volume: int | None = Field(None, ge=0, description="Optional bid-side volume.")
+    ask_volume: int | None = Field(None, ge=0, description="Optional ask-side volume.")
+    delta: int | None = Field(None, description="Optional net delta.")
+    trade_count: int | None = Field(None, ge=0, description="Optional trade count.")
+    updated_at: datetime = Field(..., description="When this raw mirror row was last updated.")
 
 
 class ChartCandle(BaseModel):
@@ -661,6 +707,9 @@ class ReplayWorkbenchIntegrity(BaseModel):
     window_days: int = Field(..., ge=1, description="Whole-day window size used for integrity evaluation.")
     gap_count: int = Field(0, ge=0, description="How many missing candle segments were detected.")
     missing_bar_count: int = Field(0, ge=0, description="Total missing bar count across all detected segments.")
+    completeness: str | None = Field(None, description="Compact completeness label for UI and downstream consumers.")
+    freshness: str | None = Field(None, description="Compact freshness label for UI and downstream consumers.")
+    latest_data_status: str | None = Field(None, description="Compact data-status classification such as complete, degraded, or no_live_data.")
     missing_segments: list[ReplayWorkbenchGapSegment] = Field(default_factory=list, description="Missing candle segments normalized for backfill requests.")
     latest_backfill_request_id: str | None = Field(None, description="Most recent related backfill request id when available.")
     latest_backfill_status: ReplayWorkbenchAtasBackfillStatus | None = Field(None, description="Status of the most recent related backfill request when available.")
@@ -736,6 +785,14 @@ class ReplayWorkbenchAtasBackfillRecord(BaseModel):
     instrument_symbol: str = Field(..., description="Instrument symbol being repaired.")
     contract_symbol: str | None = Field(None, description="Specific contract symbol to backfill.")
     root_symbol: str | None = Field(None, description="Root/continuous symbol for the backfill.")
+    target_contract_symbol: str | None = Field(
+        None,
+        description="Explicit target contract symbol preferred for the repair when distinct from instrument_symbol.",
+    )
+    target_root_symbol: str | None = Field(
+        None,
+        description="Explicit target root symbol preferred for the repair when distinct from instrument_symbol.",
+    )
     display_timeframe: Timeframe = Field(..., description="Timeframe where the gap was observed.")
     window_start: datetime = Field(..., description="Inclusive replay window start.")
     window_end: datetime = Field(..., description="Inclusive replay window end.")
@@ -790,6 +847,14 @@ class ReplayWorkbenchAtasBackfillRequest(BaseModel):
     root_symbol: str | None = Field(
         None,
         description="Optional root/continuous symbol for the backfill request.",
+    )
+    target_contract_symbol: str | None = Field(
+        None,
+        description="Optional explicit target contract symbol for the adapter-facing command.",
+    )
+    target_root_symbol: str | None = Field(
+        None,
+        description="Optional explicit target root symbol for the adapter-facing command.",
     )
     display_timeframe: Timeframe = Field(..., description="Display timeframe where the missing bars were detected.")
     window_start: datetime = Field(..., description="Inclusive replay window start needing repair.")
@@ -879,6 +944,10 @@ class ReplayWorkbenchBuildRequest(BaseModel):
 class ReplayWorkbenchBuildResponse(BaseModel):
     """Result of a replay-workbench build attempt."""
 
+    schema_version: str = Field(..., description="Response schema version for this build result.")
+    profile_version: str = Field(..., description="Instrument-profile version attached to the derived replay output.")
+    engine_version: str = Field(..., description="Recognizer engine version attached to the derived replay output.")
+    data_status: BeliefDataStatus = Field(..., description="Freshness, completeness, and degraded-mode summary for this build result.")
     action: ReplayWorkbenchBuildAction = Field(..., description="Whether the builder reused cache, built locally, or needs ATAS history.")
     cache_key: str = Field(..., description="Replay cache key handled by this request.")
     reason: str = Field(..., description="Short explanation of the chosen action.")
@@ -1021,6 +1090,10 @@ class ReplayWorkbenchLiveSourceStatus(BaseModel):
 class ReplayWorkbenchLiveStatusResponse(BaseModel):
     """Freshness summary used by the workbench to decide whether an old replay can be reused."""
 
+    schema_version: str = Field(..., description="Response schema version for live status.")
+    profile_version: str = Field(..., description="Instrument-profile version attached to this live-status view.")
+    engine_version: str = Field(..., description="Recognizer engine version attached to this live-status view.")
+    data_status: BeliefDataStatus = Field(..., description="Freshness, completeness, and degraded-mode summary for this live-status view.")
     instrument_symbol: str = Field(..., description="Instrument symbol being checked.")
     replay_ingestion_id: str | None = Field(None, description="Replay ingestion currently shown in the UI, when known.")
     replay_snapshot_stored_at: datetime | None = Field(None, description="Stored_at timestamp of the replay currently shown.")
@@ -1037,6 +1110,10 @@ class ReplayWorkbenchLiveStatusResponse(BaseModel):
 class ReplayWorkbenchLiveTailResponse(BaseModel):
     """Latest in-flight tail built from continuous adapter messages for realtime UI patching."""
 
+    schema_version: str = Field(..., description="Response schema version for live tail.")
+    profile_version: str = Field(..., description="Instrument-profile version attached to this live-tail view.")
+    engine_version: str = Field(..., description="Recognizer engine version attached to this live-tail view.")
+    data_status: BeliefDataStatus = Field(..., description="Freshness, completeness, and degraded-mode summary for this live-tail view.")
     instrument_symbol: str = Field(..., description="Instrument symbol being patched in realtime.")
     display_timeframe: Timeframe = Field(..., description="Display timeframe used to bucket the live tail.")
     latest_observed_at: datetime | None = Field(
@@ -1118,6 +1195,170 @@ class ReplayWorkbenchLiveTailResponse(BaseModel):
     )
 
 
+class InstrumentProfile(BaseModel):
+    """Versioned instrument profile used by the deterministic recognizer."""
+
+    instrument_symbol: str = Field(..., description="Instrument symbol that this profile applies to.")
+    profile_version: str = Field(..., description="Version identifier for this profile.")
+    schema_version: str = Field(..., description="Schema version for the profile payload.")
+    ontology_version: str = Field(..., description="Fixed ontology version referenced by this profile.")
+    is_active: bool = Field(True, description="Whether this profile is currently active for the instrument.")
+    normalization: dict[str, Any] = Field(default_factory=dict, description="Normalization and scaling settings.")
+    time_windows: dict[str, Any] = Field(default_factory=dict, description="Session or replay time-window settings.")
+    thresholds: dict[str, Any] = Field(default_factory=dict, description="Threshold parameters used by the recognizer.")
+    weights: dict[str, Any] = Field(default_factory=dict, description="Relative weights for evidence buckets.")
+    decay: dict[str, Any] = Field(default_factory=dict, description="Decay settings for stale evidence and anchors.")
+    priors: dict[str, Any] = Field(default_factory=dict, description="Prior probabilities for regimes and event hypotheses.")
+    safety: dict[str, Any] = Field(default_factory=dict, description="Safety bounds for degraded operation and evaluation.")
+    created_at: datetime = Field(..., description="When this profile version was created.")
+
+
+class RecognizerBuild(BaseModel):
+    """Versioned recognizer build metadata attached to all derived outputs."""
+
+    engine_version: str = Field(..., description="Recognizer engine build identifier.")
+    schema_version: str = Field(..., description="Schema version used by this build.")
+    ontology_version: str = Field(..., description="Ontology version used by this build.")
+    is_active: bool = Field(True, description="Whether this recognizer build is the active engine build.")
+    status: str = Field("active", description="Build lifecycle status.")
+    notes: list[str] = Field(default_factory=list, description="Operator-facing notes about this build.")
+    created_at: datetime = Field(..., description="When this recognizer build was created.")
+
+
+class BeliefDataStatus(BaseModel):
+    """Freshness, completeness, and degraded-signal state for one belief snapshot."""
+
+    data_freshness_ms: int = Field(..., ge=0, description="Estimated freshness lag in milliseconds.")
+    feature_completeness: float = Field(..., ge=0.0, le=1.0, description="Fraction of expected features available to the recognizer.")
+    depth_available: bool = Field(..., description="Whether depth-derived evidence was available.")
+    dom_available: bool = Field(..., description="Whether DOM-derived evidence was available.")
+    ai_available: bool = Field(..., description="Whether AI services were available for optional review layers.")
+    degraded_modes: list[DegradedMode] = Field(default_factory=list, description="Explicit degraded modes active for this snapshot.")
+    freshness: str | None = Field(None, description="Compact freshness label for UI display.")
+    completeness: str | None = Field(None, description="Compact completeness label for UI display.")
+
+
+class RegimePosteriorRecord(BaseModel):
+    """Append-only probability snapshot for one regime candidate."""
+
+    regime: RegimeKind = Field(..., description="Fixed regime ontology label.")
+    probability: float = Field(..., ge=0.0, le=1.0, description="Posterior probability for this regime.")
+    evidence: list[str] = Field(default_factory=list, description="Observed evidence supporting this regime probability.")
+
+
+class EventHypothesisState(BaseModel):
+    """Append-only event-hypothesis state emitted by the recognizer."""
+
+    hypothesis_id: str = Field(..., description="Stable hypothesis identifier within one belief snapshot.")
+    hypothesis_kind: EventHypothesisKind = Field(..., description="Fixed event-hypothesis ontology label.")
+    mapped_event_kind: TradableEventKind | None = Field(None, description="Optional tradable event kind mapped from this hypothesis.")
+    phase: EventPhase = Field(..., description="Lifecycle phase of the hypothesis.")
+    posterior_probability: float = Field(..., ge=0.0, le=1.0, description="Posterior probability for this hypothesis.")
+    supporting_evidence: list[str] = Field(default_factory=list, description="Evidence currently supporting the hypothesis.")
+    missing_confirmation: list[str] = Field(default_factory=list, description="Evidence still missing before stronger confirmation.")
+    invalidating_signals: list[str] = Field(default_factory=list, description="Signals that would weaken or invalidate the hypothesis.")
+    transition_watch: list[str] = Field(default_factory=list, description="Competing transitions that the engine is watching.")
+
+
+class MemoryAnchorSnapshot(BaseModel):
+    """Versioned memory-anchor view attached to one belief snapshot."""
+
+    anchor_id: str = Field(..., description="Stable memory-anchor identifier.")
+    anchor_type: str = Field(..., description="Anchor ontology type such as balance_center or gap_edge.")
+    reference_price: float | None = Field(None, description="Primary price reference for the anchor.")
+    reference_time: datetime | None = Field(None, description="Primary time reference for the anchor.")
+    freshness: str | None = Field(None, description="Anchor freshness label.")
+    profile_version: str = Field(..., description="Profile version used to emit this anchor snapshot.")
+
+
+class BeliefStateSnapshot(BaseModel):
+    """Append-only current market-understanding snapshot consumed by UI and review flows."""
+
+    belief_state_id: str = Field(..., description="Stable belief-state identifier.")
+    instrument_symbol: str = Field(..., description="Instrument symbol described by this belief state.")
+    observed_at: datetime = Field(..., description="Observed market timestamp represented by the belief state.")
+    stored_at: datetime = Field(..., description="Persistence timestamp for the belief state.")
+    schema_version: str = Field(..., description="Belief-state schema version.")
+    profile_version: str = Field(..., description="Instrument-profile version used for this belief state.")
+    engine_version: str = Field(..., description="Recognizer build version used for this belief state.")
+    recognition_mode: RecognitionMode = Field(..., description="Recognition operating mode used for this belief state.")
+    data_status: BeliefDataStatus = Field(..., description="Freshness, completeness, and degraded-signal state.")
+    regime_posteriors: list[RegimePosteriorRecord] = Field(default_factory=list, description="Top regime posteriors for the current state.")
+    event_hypotheses: list[EventHypothesisState] = Field(default_factory=list, description="Parallel event hypotheses for the current state.")
+    active_anchors: list[MemoryAnchorSnapshot] = Field(default_factory=list, description="Active memory anchors that influence the current posterior.")
+    notes: list[str] = Field(default_factory=list, description="Additional operator-facing notes emitted by the recognizer.")
+
+
+class EventEpisode(BaseModel):
+    """Append-only closed event trajectory emitted by the recognizer."""
+
+    episode_id: str = Field(..., description="Stable closed-episode identifier.")
+    instrument_symbol: str = Field(..., description="Instrument symbol for this episode.")
+    event_kind: TradableEventKind = Field(..., description="V1 tradable event kind represented by this episode.")
+    hypothesis_kind: EventHypothesisKind = Field(..., description="Dominant event-hypothesis kind behind the episode.")
+    phase: EventPhase = Field(..., description="Final phase reached by the episode.")
+    resolution: EpisodeResolution = Field(..., description="Terminal episode resolution.")
+    started_at: datetime = Field(..., description="When the episode started forming.")
+    ended_at: datetime = Field(..., description="When the episode closed.")
+    peak_probability: float = Field(..., ge=0.0, le=1.0, description="Highest posterior probability reached during the episode.")
+    dominant_regime: RegimeKind = Field(..., description="Dominant regime during the episode.")
+    supporting_evidence: list[str] = Field(default_factory=list, description="Key evidence that supported the episode.")
+    invalidating_evidence: list[str] = Field(default_factory=list, description="Key evidence that weakened or ended the episode.")
+    active_anchor_ids: list[str] = Field(default_factory=list, description="Relevant memory anchors referenced by the episode.")
+    replacement_episode_id: str | None = Field(None, description="Replacement episode identifier when this one was superseded.")
+    schema_version: str = Field(..., description="Episode schema version.")
+    profile_version: str = Field(..., description="Instrument-profile version used for this episode.")
+    engine_version: str = Field(..., description="Recognizer build version used for this episode.")
+    data_status: BeliefDataStatus = Field(..., description="Data state captured when the episode closed.")
+
+
+class EpisodeEvaluationScorecard(BaseModel):
+    """Standardized scorecard for one episode evaluation."""
+
+    structure_alignment: float = Field(..., ge=0.0, le=1.0, description="Alignment between episode structure and the observed path.")
+    timing_quality: float = Field(..., ge=0.0, le=1.0, description="Whether the episode progressed within the declared time window.")
+    confirmation_quality: float = Field(..., ge=0.0, le=1.0, description="Strength and cleanliness of the confirmation sequence.")
+    overall_score: float = Field(..., ge=0.0, le=1.0, description="Overall normalized episode score.")
+
+
+class EpisodeEvaluation(BaseModel):
+    """Append-only standardized evaluation over one closed event episode."""
+
+    evaluation_id: str = Field(..., description="Stable evaluation identifier.")
+    episode_id: str = Field(..., description="Closed event episode being evaluated.")
+    instrument_symbol: str = Field(..., description="Instrument symbol for the episode.")
+    event_kind: TradableEventKind = Field(..., description="V1 tradable event kind evaluated.")
+    judgement_source: ReviewSource = Field(..., description="Source that produced this evaluation.")
+    failure_mode: EvaluationFailureMode = Field(..., description="Primary failure mode for this evaluation.")
+    summary: str = Field(..., description="Compact evaluation summary.")
+    strengths: list[str] = Field(default_factory=list, description="What worked well in the episode lifecycle.")
+    weaknesses: list[str] = Field(default_factory=list, description="Where the episode or confirmation sequence was weak.")
+    tuning_hints: list[str] = Field(default_factory=list, description="Non-binding tuning hints for later review.")
+    scorecard: EpisodeEvaluationScorecard = Field(..., description="Normalized scorecard for this evaluation.")
+    schema_version: str = Field(..., description="Evaluation schema version.")
+    profile_version: str = Field(..., description="Instrument-profile version used for this evaluation.")
+    engine_version: str = Field(..., description="Recognizer build version used for this evaluation.")
+    evaluated_at: datetime = Field(..., description="When this evaluation was produced.")
+
+
+class BeliefLatestEnvelope(BaseModel):
+    """REST response envelope returning the latest belief-state snapshot."""
+
+    belief: BeliefStateSnapshot | None = Field(None, description="Latest belief-state snapshot when available.")
+
+
+class EpisodeListEnvelope(BaseModel):
+    """REST response envelope returning recently closed event episodes."""
+
+    instrument_symbol: str = Field(..., description="Instrument symbol that was queried.")
+    episodes: list[EventEpisode] = Field(default_factory=list, description="Recently closed episodes for the instrument.")
+
+
+class EpisodeEvaluationEnvelope(BaseModel):
+    """REST response envelope returning one stored episode evaluation."""
+
+    evaluation: EpisodeEvaluation | None = Field(None, description="Stored episode evaluation when available.")
+
 
 class ReplayWorkbenchRebuildLatestRequest(BaseModel):
     """One-shot request that invalidates the current cache and rebuilds it from the latest synced data."""
@@ -1170,6 +1411,9 @@ class ReplayWorkbenchSnapshotPayload(BaseModel):
     """Standalone replay-workbench packet used by the future UI and AI review loop."""
 
     schema_version: str = Field(..., description="Payload schema version.", examples=["1.0.0"])
+    profile_version: str = Field(..., description="Instrument-profile version attached to this derived replay snapshot.")
+    engine_version: str = Field(..., description="Recognizer engine version attached to this derived replay snapshot.")
+    data_status: BeliefDataStatus = Field(..., description="Freshness, completeness, and degraded-mode summary for this replay snapshot.")
     replay_snapshot_id: str = Field(..., description="Replay packet identifier.", examples=["replay-20260317-nq-europe-01"])
     cache_key: str = Field(
         ...,

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import logging
 from uuid import uuid4
 
 from atas_market_structure.adapter_bridge import AdapterPayloadBridge
 from atas_market_structure.models import (
+    AtasChartBarRaw,
     AdapterAcceptedResponse,
     AdapterAcceptedSummary,
     AdapterBridgedArtifact,
@@ -16,6 +18,8 @@ from atas_market_structure.models import (
 from atas_market_structure.regime_monitor_services import RegimeMonitor
 from atas_market_structure.repository import AnalysisRepository
 from atas_market_structure.services import IngestionOrchestrator
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AdapterIngestionService:
@@ -39,6 +43,12 @@ class AdapterIngestionService:
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> AdapterAcceptedResponse:
         self._bridge.regime_monitor.ingest_continuous_state(payload)
+        LOGGER.info(
+            "ingest_continuous_state: symbol=%s root_symbol=%s chart_instance_id=%s",
+            payload.instrument.symbol,
+            payload.instrument.root_symbol,
+            payload.source.chart_instance_id,
+        )
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
             observed_window_start=payload.observed_window_start,
@@ -142,13 +152,29 @@ class AdapterIngestionService:
         )
 
     def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> AdapterAcceptedResponse:
-        self._purge_expired_history(payload.instrument.symbol)
+        self._purge_expired_history(
+            instrument_symbol=payload.instrument.symbol,
+            root_symbol=payload.instrument.root_symbol,
+            contract_symbol=payload.instrument.contract_symbol,
+        )
         self._bridge.regime_monitor.ingest_history_bars(payload)
+        raw_mirror_bars = self._build_raw_mirror_bars(payload)
+        raw_written = self._repository.upsert_atas_chart_bars_raw(raw_mirror_bars)
+        analysis_symbol = (payload.instrument.root_symbol or payload.instrument.symbol).upper()
         bars_dicts = [b.model_dump() for b in payload.bars]
         self._bridge.regime_monitor.persist_history_bars_native(
-            symbol=payload.instrument.symbol.upper(),
+            symbol=analysis_symbol,
             bars=bars_dicts,
             native_timeframe=payload.bar_timeframe,
+        )
+        LOGGER.info(
+            "ingest_history_bars: raw_written=%s analysis_symbol=%s contract_symbol=%s chart_instance_id=%s timeframe=%s bars=%s",
+            raw_written,
+            analysis_symbol,
+            payload.instrument.contract_symbol,
+            payload.source.chart_instance_id,
+            payload.bar_timeframe.value,
+            len(payload.bars),
         )
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
@@ -177,7 +203,21 @@ class AdapterIngestionService:
         )
 
     def ingest_history_footprint(self, payload: AdapterHistoryFootprintPayload) -> AdapterAcceptedResponse:
-        self._purge_expired_history(payload.instrument.symbol)
+        self._purge_expired_history(
+            instrument_symbol=payload.instrument.symbol,
+            root_symbol=payload.instrument.root_symbol,
+            contract_symbol=payload.instrument.contract_symbol,
+        )
+        LOGGER.info(
+            "ingest_history_footprint: symbol=%s contract_symbol=%s chart_instance_id=%s timeframe=%s chunk=%s/%s bars=%s",
+            payload.instrument.symbol,
+            payload.instrument.contract_symbol,
+            payload.source.chart_instance_id,
+            payload.bar_timeframe.value,
+            payload.chunk_index,
+            payload.chunk_count,
+            len(payload.bars),
+        )
         summary = AdapterAcceptedSummary(
             instrument_symbol=payload.instrument.symbol,
             observed_window_start=payload.observed_window_start,
@@ -235,9 +275,16 @@ class AdapterIngestionService:
             summary=summary,
         )
 
-    def _purge_expired_history(self, instrument_symbol: str) -> None:
+    def _purge_expired_history(
+        self,
+        *,
+        instrument_symbol: str,
+        root_symbol: str | None,
+        contract_symbol: str | None,
+    ) -> None:
+        retention_key = (root_symbol or instrument_symbol).upper()
         retention_days = self._HISTORY_RETENTION_DAYS_BY_SYMBOL.get(
-            instrument_symbol.upper(),
+            retention_key,
             self._DEFAULT_HISTORY_RETENTION_DAYS,
         )
         cutoff = datetime.now(tz=UTC) - timedelta(days=retention_days)
@@ -246,3 +293,86 @@ class AdapterIngestionService:
             instrument_symbol=instrument_symbol,
             cutoff=cutoff,
         )
+        self._repository.purge_atas_chart_bars_raw(
+            older_than=cutoff,
+            contract_symbol=(contract_symbol or instrument_symbol).upper(),
+            root_symbol=retention_key,
+        )
+        LOGGER.info(
+            "_purge_expired_history: instrument_symbol=%s root_symbol=%s contract_symbol=%s retention_days=%s cutoff=%s",
+            instrument_symbol,
+            root_symbol,
+            contract_symbol,
+            retention_days,
+            cutoff.isoformat(),
+        )
+
+    def _build_raw_mirror_bars(self, payload: AdapterHistoryBarsPayload) -> list[AtasChartBarRaw]:
+        timezone_mode = payload.source.chart_display_timezone_mode or (
+            payload.time_context.chart_display_timezone_mode if payload.time_context is not None else None
+        )
+        timezone_name = payload.source.chart_display_timezone_name or (
+            payload.time_context.chart_display_timezone_name if payload.time_context is not None else None
+        )
+        timezone_offset = payload.source.chart_display_utc_offset_minutes
+        if timezone_offset is None and payload.time_context is not None:
+            timezone_offset = payload.time_context.chart_display_utc_offset_minutes
+        instrument_timezone_value = payload.source.instrument_timezone_value
+        if instrument_timezone_value is None and payload.time_context is not None:
+            instrument_timezone_value = payload.time_context.instrument_timezone_value
+        instrument_timezone_value = None if instrument_timezone_value is None else str(instrument_timezone_value)
+        instrument_timezone_source = payload.source.instrument_timezone_source or (
+            payload.time_context.instrument_timezone_source if payload.time_context is not None else None
+        )
+        collector_local_timezone_name = payload.source.collector_local_timezone_name or (
+            payload.time_context.collector_local_timezone_name if payload.time_context is not None else None
+        )
+        collector_local_utc_offset_minutes = payload.source.collector_local_utc_offset_minutes
+        if collector_local_utc_offset_minutes is None and payload.time_context is not None:
+            collector_local_utc_offset_minutes = payload.time_context.collector_local_utc_offset_minutes
+        timestamp_basis = payload.source.timestamp_basis or (
+            payload.time_context.timestamp_basis if payload.time_context is not None else None
+        )
+        timezone_capture_confidence = payload.source.timezone_capture_confidence or (
+            payload.time_context.timezone_capture_confidence if payload.time_context is not None else None
+        )
+        updated_at = datetime.now(tz=UTC)
+        timeframe = payload.bar_timeframe
+
+        raw_bars: list[AtasChartBarRaw] = []
+        for bar in payload.bars:
+            started_at_utc = bar.bar_timestamp_utc or bar.started_at
+            raw_bars.append(
+                AtasChartBarRaw(
+                    chart_instance_id=payload.source.chart_instance_id,
+                    root_symbol=payload.instrument.root_symbol,
+                    contract_symbol=payload.instrument.contract_symbol or payload.instrument.symbol,
+                    symbol=payload.instrument.symbol,
+                    venue=payload.instrument.venue,
+                    timeframe=timeframe,
+                    started_at_utc=started_at_utc.astimezone(UTC),
+                    ended_at_utc=bar.ended_at.astimezone(UTC),
+                    source_started_at=bar.started_at.astimezone(UTC),
+                    original_bar_time_text=bar.original_bar_time_text,
+                    timestamp_basis=timestamp_basis,
+                    chart_display_timezone_mode=timezone_mode,
+                    chart_display_timezone_name=timezone_name,
+                    chart_display_utc_offset_minutes=timezone_offset,
+                    instrument_timezone_value=instrument_timezone_value,
+                    instrument_timezone_source=instrument_timezone_source,
+                    collector_local_timezone_name=collector_local_timezone_name,
+                    collector_local_utc_offset_minutes=collector_local_utc_offset_minutes,
+                    timezone_capture_confidence=timezone_capture_confidence,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                    bid_volume=bar.bid_volume,
+                    ask_volume=bar.ask_volume,
+                    delta=bar.delta,
+                    trade_count=getattr(bar, "trade_count", None),
+                    updated_at=updated_at,
+                )
+            )
+        return raw_bars

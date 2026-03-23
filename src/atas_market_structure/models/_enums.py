@@ -192,3 +192,107 @@ class RollMode(str, Enum):
     NEAR_ROLL = "near_roll"
     ALL_CONTRACTS = "all_contracts"
 
+
+class RegimeKind(str, Enum):
+    """Fixed V1 regime ontology from Master Spec v2."""
+
+    STRONG_MOMENTUM_TREND = "strong_momentum_trend"
+    WEAK_MOMENTUM_TREND_NARROW = "weak_momentum_trend_narrow"
+    WEAK_MOMENTUM_TREND_WIDE = "weak_momentum_trend_wide"
+    BALANCE_MEAN_REVERSION = "balance_mean_reversion"
+    COMPRESSION = "compression"
+    TRANSITION_EXHAUSTION = "transition_exhaustion"
+
+
+class EventHypothesisKind(str, Enum):
+    """Fixed V1 event-hypothesis ontology from Master Spec v2."""
+
+    CONTINUATION_BASE = "continuation_base"
+    ABSORPTION_ACCUMULATION = "absorption_accumulation"
+    PROFIT_TAKING_PAUSE = "profit_taking_pause"
+    REVERSAL_PREPARATION = "reversal_preparation"
+    BREAKOUT_ACCEPTANCE = "breakout_acceptance"
+    BREAKOUT_REJECTION = "breakout_rejection"
+    FAILED_REVERSAL = "failed_reversal"
+    DISTRIBUTION_BALANCE = "distribution_balance"
+
+
+class TradableEventKind(str, Enum):
+    """V1 tradable event ontology required by Master Spec v2."""
+
+    MOMENTUM_CONTINUATION = "momentum_continuation"
+    BALANCE_MEAN_REVERSION = "balance_mean_reversion"
+    ABSORPTION_TO_REVERSAL_PREPARATION = "absorption_to_reversal_preparation"
+
+
+class EventPhase(str, Enum):
+    """Lifecycle phase for one event hypothesis or episode."""
+
+    EMERGING = "emerging"
+    CONFIRMING = "confirming"
+    CONFIRMED = "confirmed"
+    WEAKENING = "weakening"
+    INVALIDATED = "invalidated"
+    REPLACED = "replaced"
+    CLOSED = "closed"
+
+
+class EpisodeResolution(str, Enum):
+    """Terminal resolution for one closed event episode."""
+
+    CONFIRMED = "confirmed"
+    INVALIDATED = "invalidated"
+    TIMED_OUT = "timed_out"
+    REPLACED = "replaced"
+    EXPIRED = "expired"
+
+
+class EvaluationFailureMode(str, Enum):
+    """Standardized evaluation failure modes for episode review."""
+
+    NONE = "none"
+    EARLY_TRIGGER = "early_trigger"
+    LATE_TRIGGER = "late_trigger"
+    WEAK_CONFIRMATION = "weak_confirmation"
+    MISSING_CONFIRMATION = "missing_confirmation"
+    REGIME_MISMATCH = "regime_mismatch"
+    ANCHOR_CONFLICT = "anchor_conflict"
+    DATA_DEGRADED = "data_degraded"
+
+
+class ReviewSource(str, Enum):
+    """Source that produced an episode evaluation."""
+
+    RULE_REVIEW_V1 = "rule_review_v1"
+    HUMAN_REVIEW_V1 = "human_review_v1"
+    HYBRID_REVIEW_V1 = "hybrid_review_v1"
+
+
+class RecognitionMode(str, Enum):
+    """Recognition operating mode attached to belief-state outputs."""
+
+    NORMAL = "normal"
+    BAR_ANCHOR_ONLY = "bar_anchor_only"
+    DEGRADED_NO_DEPTH = "degraded_no_depth"
+    REPLAY_REBUILD_MODE = "replay_rebuild_mode"
+
+
+class DegradedMode(str, Enum):
+    """Explicit degraded conditions that should not stop the engine."""
+
+    NONE = "none"
+    NO_DEPTH = "no_depth"
+    NO_DOM = "no_dom"
+    NO_AI = "no_ai"
+    STALE_MACRO = "stale_macro"
+    REPLAY_REBUILD = "replay_rebuild"
+
+
+class ServiceHealthStatus(str, Enum):
+    """High-level health state for ingestion and recognition services."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    REBUILD_REQUIRED = "rebuild_required"
+    PAUSED = "paused"
+

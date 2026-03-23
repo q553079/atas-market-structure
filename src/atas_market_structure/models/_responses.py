@@ -107,6 +107,7 @@ class AdapterBackfillAcknowledgeRequest(BaseModel):
     """Adapter callback confirming whether a dispatched backfill request was actioned."""
 
     request_id: str = Field(..., description="Request identifier previously dispatched by the server.")
+    cache_key: str | None = Field(None, description="Replay cache key associated with the dispatched request.")
     instrument_symbol: str = Field(..., description="Instrument symbol that acknowledged the request.")
     chart_instance_id: str | None = Field(None, description="Chart instance that handled the request.")
     acknowledged_at: datetime = Field(..., description="When the adapter finished handling the request.")
@@ -147,6 +148,10 @@ class AdapterBackfillCommand(BaseModel):
     request_id: str = Field(..., description="Server-generated request identifier.")
     cache_key: str = Field(..., description="Replay cache key affected by this request.")
     instrument_symbol: str = Field(..., description="Instrument symbol to repair.")
+    contract_symbol: str | None = Field(None, description="Specific contract symbol to repair when available.")
+    root_symbol: str | None = Field(None, description="Root/continuous symbol associated with the repair.")
+    target_contract_symbol: str | None = Field(None, description="Explicit adapter-facing contract target when set.")
+    target_root_symbol: str | None = Field(None, description="Explicit adapter-facing root-symbol target when set.")
     display_timeframe: Timeframe = Field(..., description="Display timeframe where the gap was detected.")
     window_start: datetime = Field(..., description="Inclusive replay window start.")
     window_end: datetime = Field(..., description="Inclusive replay window end.")

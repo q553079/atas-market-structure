@@ -30,7 +30,12 @@ internal interface IAdapterTransport : IDisposable
 
     bool TryEnqueueTriggerBurst(TriggerBurstPayload payload);
 
-    Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(string instrumentSymbol, string? chartInstanceId, CancellationToken ct);
+    Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
+        string instrumentSymbol,
+        string? chartInstanceId,
+        string? contractSymbol,
+        string? rootSymbol,
+        CancellationToken ct);
 
     Task<bool> SendBackfillAckAsync(AdapterBackfillAcknowledgeRequestPayload ack, CancellationToken ct);
 
@@ -80,7 +85,12 @@ internal interface IHistoryTransport : IDisposable
 
     bool TryEnqueueHistoryFootprint(HistoryFootprintPayload payload);
 
-    Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(string instrumentSymbol, string? chartInstanceId, CancellationToken ct);
+    Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
+        string instrumentSymbol,
+        string? chartInstanceId,
+        string? contractSymbol,
+        string? rootSymbol,
+        CancellationToken ct);
 
     Task<bool> SendBackfillAckAsync(AdapterBackfillAcknowledgeRequestPayload ack, CancellationToken ct);
 
@@ -372,7 +382,8 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
 {
     private readonly HttpClient _barsClient;
     private readonly HttpClient _footprintClient;
-    private readonly HttpClient _backfillClient;
+    private readonly HttpClient _backfillCommandClient;
+    private readonly HttpClient _backfillAckClient;
     private readonly string _historyBarsEndpoint;
     private readonly string _historyFootprintEndpoint;
     private readonly Action<string> _infoLogger;
@@ -446,13 +457,21 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
         _footprintClient.DefaultRequestHeaders.Accept.Clear();
         _footprintClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-        _backfillClient = new HttpClient
+        _backfillCommandClient = new HttpClient
+        {
+            BaseAddress = baseUri,
+            Timeout = TimeSpan.FromSeconds(3),
+        };
+        _backfillCommandClient.DefaultRequestHeaders.Accept.Clear();
+        _backfillCommandClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        _backfillAckClient = new HttpClient
         {
             BaseAddress = baseUri,
             Timeout = TimeSpan.FromSeconds(10),
         };
-        _backfillClient.DefaultRequestHeaders.Accept.Clear();
-        _backfillClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        _backfillAckClient.DefaultRequestHeaders.Accept.Clear();
+        _backfillAckClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         _barsPumpTask = Task.Run(BarsPumpAsync);
         _footprintPumpTask = Task.Run(FootprintPumpAsync);
@@ -498,6 +517,8 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
     public async Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
         string instrumentSymbol,
         string? chartInstanceId,
+        string? contractSymbol,
+        string? rootSymbol,
         CancellationToken ct)
     {
         Interlocked.Increment(ref _backfillCommandPolledCount);
@@ -507,12 +528,20 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
         {
             endpoint += $"&chart_instance_id={Uri.EscapeDataString(chartInstanceId)}";
         }
+        if (!string.IsNullOrWhiteSpace(contractSymbol))
+        {
+            endpoint += $"&contract_symbol={Uri.EscapeDataString(contractSymbol)}";
+        }
+        if (!string.IsNullOrWhiteSpace(rootSymbol))
+        {
+            endpoint += $"&root_symbol={Uri.EscapeDataString(rootSymbol)}";
+        }
 
         try
         {
             _lastAttemptUtc = DateTime.UtcNow;
             using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-            using var response = await _backfillClient.SendAsync(request, ct).ConfigureAwait(false);
+            using var response = await _backfillCommandClient.SendAsync(request, ct).ConfigureAwait(false);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
             {
@@ -556,7 +585,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             _lastAttemptUtc = DateTime.UtcNow;
 
-            using var response = await _backfillClient.PostAsync("/api/v1/adapter/backfill-ack", content, ct).ConfigureAwait(false);
+            using var response = await _backfillAckClient.PostAsync("/api/v1/adapter/backfill-ack", content, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -666,7 +695,8 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
             _cts.Dispose();
             _barsClient.Dispose();
             _footprintClient.Dispose();
-            _backfillClient.Dispose();
+            _backfillCommandClient.Dispose();
+            _backfillAckClient.Dispose();
         }
     }
 
@@ -905,8 +935,15 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
     public async Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
         string instrumentSymbol,
         string? chartInstanceId,
+        string? contractSymbol,
+        string? rootSymbol,
         CancellationToken ct)
-        => await _historyTransport.PollBackfillCommandAsync(instrumentSymbol, chartInstanceId, ct).ConfigureAwait(false);
+        => await _historyTransport.PollBackfillCommandAsync(
+            instrumentSymbol,
+            chartInstanceId,
+            contractSymbol,
+            rootSymbol,
+            ct).ConfigureAwait(false);
 
     public async Task<bool> SendBackfillAckAsync(
         AdapterBackfillAcknowledgeRequestPayload ack,

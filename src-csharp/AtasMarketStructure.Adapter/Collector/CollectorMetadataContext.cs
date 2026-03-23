@@ -10,6 +10,8 @@ internal sealed class ChartIdentity
 
     public string ContractSymbol { get; init; } = string.Empty;
 
+    public string DisplaySymbol { get; init; } = string.Empty;
+
     public string Venue { get; init; } = string.Empty;
 
     public string Currency { get; init; } = string.Empty;
@@ -35,6 +37,10 @@ internal sealed class ResolvedTimeContext
 
     public string ChartDisplayTimezoneSource { get; init; } = "unavailable";
 
+    public string? ChartDisplayTimezoneName { get; init; }
+
+    public TimeZoneInfo? ChartDisplayTimeZone { get; init; }
+
     public int? ChartDisplayUtcOffsetMinutes { get; init; }
 
     public string CollectorLocalTimezoneName { get; init; } = TimeZoneInfo.Local.Id;
@@ -45,24 +51,28 @@ internal sealed class ResolvedTimeContext
 
     public string StartedAtTimeSource { get; init; } = "collector_local_timezone";
 
+    public string TimezoneCaptureConfidence { get; init; } = "unknown";
+
     public TimeContextPayload ToPayload() => new()
     {
         InstrumentTimezoneValue = InstrumentTimezoneValue,
         InstrumentTimezoneSource = InstrumentTimezoneSource,
         ChartDisplayTimezoneMode = ChartDisplayTimezoneMode,
         ChartDisplayTimezoneSource = ChartDisplayTimezoneSource,
+        ChartDisplayTimezoneName = ChartDisplayTimezoneName,
         ChartDisplayUtcOffsetMinutes = ChartDisplayUtcOffsetMinutes,
         CollectorLocalTimezoneName = CollectorLocalTimezoneName,
         CollectorLocalUtcOffsetMinutes = CollectorLocalUtcOffsetMinutes,
         TimestampBasis = TimestampBasis,
         StartedAtOutputTimezone = "UTC",
         StartedAtTimeSource = StartedAtTimeSource,
+        TimezoneCaptureConfidence = TimezoneCaptureConfidence,
     };
 }
 
 internal static class CollectorMetadataResolver
 {
-    private static readonly string[][] SymbolCandidatePaths =
+    private static readonly string[][] ContractSymbolCandidatePaths =
     {
         new[] { "Instrument" },
         new[] { "InstrumentInfo", "Instrument" },
@@ -74,6 +84,20 @@ internal static class CollectorMetadataResolver
         new[] { "SourceDataSeries", "FullName" },
         new[] { "DataProvider", "Instrument", "Name" },
         new[] { "DataProvider", "Instrument", "Symbol" },
+    };
+
+    private static readonly string[][] DisplaySymbolCandidatePaths =
+    {
+        new[] { "ChartInfo", "Symbol" },
+        new[] { "ChartInfo", "Instrument" },
+        new[] { "Chart", "Symbol" },
+        new[] { "Chart", "Instrument" },
+        new[] { "SourceDataSeries", "SourceName" },
+        new[] { "SourceDataSeries", "FullName" },
+        new[] { "Security", "Name" },
+        new[] { "Security", "Symbol" },
+        new[] { "InstrumentInfo", "Instrument" },
+        new[] { "Instrument" },
     };
 
     private static readonly string[][] RootSymbolCandidatePaths =
@@ -165,6 +189,20 @@ internal static class CollectorMetadataResolver
         new[] { "TimeZoneMode" },
     };
 
+    private static readonly string[][] ChartDisplayTimezoneNameCandidatePaths =
+    {
+        new[] { "ChartInfo", "DisplayTimeZone" },
+        new[] { "ChartInfo", "TimeZone" },
+        new[] { "ChartInfo", "Timezone" },
+        new[] { "Chart", "DisplayTimeZone" },
+        new[] { "Chart", "TimeZone" },
+        new[] { "Chart", "Timezone" },
+        new[] { "Container", "DisplayTimeZone" },
+        new[] { "Container", "TimeZone" },
+        new[] { "Container", "Timezone" },
+        new[] { "DisplayTimeZone" },
+    };
+
     private static readonly string[][] ChartDisplayUtcOffsetCandidatePaths =
     {
         new[] { "ChartInfo", "DisplayUtcOffsetMinutes" },
@@ -220,14 +258,18 @@ internal static class CollectorMetadataResolver
         string? fallbackCurrency,
         Func<TimeSpan> inferBarSpan)
     {
-        var contractSymbol = NormalizeSymbolCandidate(symbolOverride);
-        if (string.IsNullOrWhiteSpace(contractSymbol))
-        {
-            contractSymbol = ResolveFirstString(indicator, SymbolCandidatePaths, NormalizeSymbolCandidate) ?? "UNKNOWN";
-        }
+        var overrideSymbol = NormalizeSymbolCandidate(symbolOverride);
+        var contractSymbol = ResolveFirstString(indicator, ContractSymbolCandidatePaths, NormalizeSymbolCandidate);
+        var displaySymbol = overrideSymbol
+            ?? ResolveFirstString(indicator, DisplaySymbolCandidatePaths, NormalizeSymbolCandidate)
+            ?? contractSymbol;
+        contractSymbol ??= overrideSymbol ?? displaySymbol ?? "UNKNOWN";
+        displaySymbol ??= contractSymbol;
 
         var rootSymbol = ResolveFirstString(indicator, RootSymbolCandidatePaths, NormalizeSymbolCandidate)
+            ?? ParseRootSymbol(displaySymbol)
             ?? ParseRootSymbol(contractSymbol)
+            ?? displaySymbol
             ?? contractSymbol;
         var venue = ResolveFirstString(indicator, VenueCandidatePaths, NormalizeFreeText)
             ?? NormalizeFreeText(fallbackVenue)
@@ -250,6 +292,7 @@ internal static class CollectorMetadataResolver
         {
             RootSymbol = rootSymbol,
             ContractSymbol = contractSymbol,
+            DisplaySymbol = displaySymbol,
             Venue = venue,
             Currency = currency,
             TickSize = tickSize,
@@ -271,30 +314,95 @@ internal static class CollectorMetadataResolver
 
         var rawChartMode = ResolveFirstObject(indicator, ChartDisplayTimezoneModeCandidatePaths);
         var chartMode = NormalizeTimeZoneMode(rawChartMode);
-        var chartModeSource = rawChartMode is null ? "inferred" : "metadata";
+        var rawChartTimezone = ResolveFirstObject(indicator, ChartDisplayTimezoneNameCandidatePaths);
+        var rawChartTimezoneName = NormalizeFreeText(DescribeTimeZoneValue(rawChartTimezone));
+        var chartDisplayTimeZone = TryResolveTimeZoneInfo(rawChartTimezone, out var chartDisplayFixedOffsetMinutes)
+            ?? TryResolveTimeZoneInfo(rawChartTimezoneName, out chartDisplayFixedOffsetMinutes);
+        var directChartOffsetMinutes = ResolveFirstUtcOffsetMinutes(indicator, ChartDisplayUtcOffsetCandidatePaths);
 
-        var chartDisplayUtcOffsetMinutes = ResolveFirstUtcOffsetMinutes(indicator, ChartDisplayUtcOffsetCandidatePaths)
-            ?? InferUtcOffsetMinutes(chartMode, instrumentTimeZone, instrumentUtcOffsetMinutes, localZone, observedAtUtc);
-        if (string.IsNullOrWhiteSpace(chartMode))
+        string chartDisplayTimezoneSource;
+        string timestampBasis;
+        string startedAtTimeSource;
+        string timezoneCaptureConfidence;
+        string? chartDisplayTimezoneName;
+        int? chartDisplayUtcOffsetMinutes;
+
+        if (chartDisplayTimeZone is not null || !string.IsNullOrWhiteSpace(rawChartTimezoneName) || directChartOffsetMinutes is not null)
         {
-            chartMode = chartDisplayUtcOffsetMinutes is not null
-                ? "custom_offset"
-                : instrumentTimeZone is not null || instrumentUtcOffsetMinutes is not null
-                    ? "instrument"
-                    : "local";
+            chartMode ??= chartDisplayTimeZone is not null || !string.IsNullOrWhiteSpace(rawChartTimezoneName)
+                ? "named_zone"
+                : "custom_offset";
+            chartDisplayUtcOffsetMinutes = directChartOffsetMinutes
+                ?? chartDisplayFixedOffsetMinutes
+                ?? (chartDisplayTimeZone is not null
+                    ? (int)Math.Round(chartDisplayTimeZone.GetUtcOffset(observedAtUtc).TotalMinutes, MidpointRounding.AwayFromZero)
+                    : null);
+            chartDisplayTimezoneName = rawChartTimezoneName
+                ?? chartDisplayTimeZone?.Id
+                ?? FormatUtcOffsetName(chartDisplayUtcOffsetMinutes);
+            chartDisplayTimezoneSource = "direct_metadata";
+            timestampBasis = "chart_display_timezone_direct";
+            startedAtTimeSource = "chart_display_timezone_direct";
+            timezoneCaptureConfidence = "high";
         }
-
-        var timestampBasis = chartDisplayUtcOffsetMinutes is not null
-            ? "chart_display_timezone"
-            : instrumentTimeZone is not null || instrumentUtcOffsetMinutes is not null
-                ? "instrument_timezone"
-                : "collector_local_timezone";
-        var startedAtTimeSource = timestampBasis switch
+        else if (string.Equals(chartMode, "utc", StringComparison.Ordinal))
         {
-            "chart_display_timezone" => "chart_display_timezone",
-            "instrument_timezone" => "instrument_timezone",
-            _ => "collector_local_timezone",
-        };
+            chartDisplayTimezoneName = "UTC";
+            chartDisplayUtcOffsetMinutes = 0;
+            chartDisplayTimezoneSource = rawChartMode is null ? "derived_utc" : "direct_metadata";
+            timestampBasis = rawChartMode is null ? "chart_display_timezone_derived_utc" : "chart_display_timezone_direct";
+            startedAtTimeSource = timestampBasis;
+            timezoneCaptureConfidence = rawChartMode is null ? "medium" : "high";
+        }
+        else if (string.Equals(chartMode, "instrument", StringComparison.Ordinal)
+            && (instrumentTimeZone is not null || instrumentUtcOffsetMinutes is not null || !string.IsNullOrWhiteSpace(instrumentTimezoneValue)))
+        {
+            chartDisplayTimezoneName = instrumentTimeZone?.Id
+                ?? instrumentTimezoneValue
+                ?? FormatUtcOffsetName(instrumentUtcOffsetMinutes);
+            chartDisplayUtcOffsetMinutes = instrumentUtcOffsetMinutes
+                ?? (instrumentTimeZone is not null
+                    ? (int)Math.Round(instrumentTimeZone.GetUtcOffset(observedAtUtc).TotalMinutes, MidpointRounding.AwayFromZero)
+                    : null);
+            chartDisplayTimezoneSource = "derived_from_instrument";
+            timestampBasis = "chart_display_timezone_derived_from_instrument";
+            startedAtTimeSource = "chart_display_timezone_derived_from_instrument";
+            timezoneCaptureConfidence = instrumentTimeZone is not null || instrumentUtcOffsetMinutes is not null ? "medium" : "low";
+        }
+        else if (string.Equals(chartMode, "local", StringComparison.Ordinal))
+        {
+            chartDisplayTimezoneName = localZone.Id;
+            chartDisplayUtcOffsetMinutes = localOffsetMinutes;
+            chartDisplayTimezoneSource = rawChartMode is null ? "collector_local_fallback" : "derived_from_local_mode";
+            timestampBasis = rawChartMode is null ? "collector_local_timezone_fallback" : "chart_display_timezone_derived_from_local";
+            startedAtTimeSource = timestampBasis;
+            timezoneCaptureConfidence = rawChartMode is null ? "low" : "medium";
+        }
+        else if (instrumentTimeZone is not null || instrumentUtcOffsetMinutes is not null || !string.IsNullOrWhiteSpace(instrumentTimezoneValue))
+        {
+            chartMode ??= "instrument";
+            chartDisplayTimezoneName = instrumentTimeZone?.Id
+                ?? instrumentTimezoneValue
+                ?? FormatUtcOffsetName(instrumentUtcOffsetMinutes);
+            chartDisplayUtcOffsetMinutes = instrumentUtcOffsetMinutes
+                ?? (instrumentTimeZone is not null
+                    ? (int)Math.Round(instrumentTimeZone.GetUtcOffset(observedAtUtc).TotalMinutes, MidpointRounding.AwayFromZero)
+                    : null);
+            chartDisplayTimezoneSource = "derived_from_instrument";
+            timestampBasis = "instrument_timezone_direct";
+            startedAtTimeSource = "instrument_timezone_direct";
+            timezoneCaptureConfidence = "medium";
+        }
+        else
+        {
+            chartMode ??= "local";
+            chartDisplayTimezoneName = localZone.Id;
+            chartDisplayUtcOffsetMinutes = localOffsetMinutes;
+            chartDisplayTimezoneSource = "collector_local_fallback";
+            timestampBasis = "collector_local_timezone_fallback";
+            startedAtTimeSource = "collector_local_timezone_fallback";
+            timezoneCaptureConfidence = "low";
+        }
 
         return new ResolvedTimeContext
         {
@@ -303,12 +411,15 @@ internal static class CollectorMetadataResolver
             InstrumentTimeZone = instrumentTimeZone,
             InstrumentUtcOffsetMinutes = instrumentUtcOffsetMinutes,
             ChartDisplayTimezoneMode = chartMode ?? "unknown",
-            ChartDisplayTimezoneSource = chartModeSource,
+            ChartDisplayTimezoneSource = chartDisplayTimezoneSource,
+            ChartDisplayTimezoneName = chartDisplayTimezoneName,
+            ChartDisplayTimeZone = chartDisplayTimeZone,
             ChartDisplayUtcOffsetMinutes = chartDisplayUtcOffsetMinutes,
             CollectorLocalTimezoneName = localZone.Id,
             CollectorLocalUtcOffsetMinutes = localOffsetMinutes,
             TimestampBasis = timestampBasis,
             StartedAtTimeSource = startedAtTimeSource,
+            TimezoneCaptureConfidence = timezoneCaptureConfidence,
         };
     }
 
@@ -326,7 +437,7 @@ internal static class CollectorMetadataResolver
     {
         var normalizedType = NormalizeIdentifier(messageType) ?? "unknown";
         var normalizedChartId = NormalizeIdentifier(chartIdentity.ChartInstanceId) ?? "unknown_chart";
-        var normalizedSymbol = NormalizeIdentifier(chartIdentity.ContractSymbol) ?? "unknown_symbol";
+        var normalizedSymbol = NormalizeIdentifier(chartIdentity.DisplaySymbol) ?? NormalizeIdentifier(chartIdentity.ContractSymbol) ?? "unknown_symbol";
         var normalizedTimeframe = NormalizeIdentifier(chartIdentity.DisplayTimeframe) ?? "unknown_tf";
         return string.Create(
             CultureInfo.InvariantCulture,
@@ -336,7 +447,34 @@ internal static class CollectorMetadataResolver
     public static string Describe(ChartIdentity chartIdentity, ResolvedTimeContext timeContext)
         => string.Create(
             CultureInfo.InvariantCulture,
-            $"root_symbol={SafeLogValue(chartIdentity.RootSymbol)} contract_symbol={SafeLogValue(chartIdentity.ContractSymbol)} chart_instance_id={SafeLogValue(chartIdentity.ChartInstanceId)} display_timeframe={SafeLogValue(chartIdentity.DisplayTimeframe)} instrument_timezone_value={SafeLogValue(timeContext.InstrumentTimezoneValue)} chart_display_timezone_mode={SafeLogValue(timeContext.ChartDisplayTimezoneMode)} chart_display_utc_offset_minutes={SafeLogValue(timeContext.ChartDisplayUtcOffsetMinutes)} collector_local_timezone_name={SafeLogValue(timeContext.CollectorLocalTimezoneName)} timestamp_basis={SafeLogValue(timeContext.TimestampBasis)}");
+            $"display_symbol={SafeLogValue(chartIdentity.DisplaySymbol)} root_symbol={SafeLogValue(chartIdentity.RootSymbol)} contract_symbol={SafeLogValue(chartIdentity.ContractSymbol)} chart_instance_id={SafeLogValue(chartIdentity.ChartInstanceId)} display_timeframe={SafeLogValue(chartIdentity.DisplayTimeframe)} instrument_timezone_value={SafeLogValue(timeContext.InstrumentTimezoneValue)} chart_display_timezone_mode={SafeLogValue(timeContext.ChartDisplayTimezoneMode)} chart_display_timezone_name={SafeLogValue(timeContext.ChartDisplayTimezoneName)} chart_display_utc_offset_minutes={SafeLogValue(timeContext.ChartDisplayUtcOffsetMinutes)} collector_local_timezone_name={SafeLogValue(timeContext.CollectorLocalTimezoneName)} timestamp_basis={SafeLogValue(timeContext.TimestampBasis)} timezone_capture_confidence={SafeLogValue(timeContext.TimezoneCaptureConfidence)}");
+
+    public static DateTimeOffset ToReferenceTime(DateTime utcValue, ResolvedTimeContext context)
+    {
+        var normalizedUtc = utcValue.Kind == DateTimeKind.Utc ? utcValue : utcValue.ToUniversalTime();
+        var utcOffsetValue = new DateTimeOffset(normalizedUtc, TimeSpan.Zero);
+        if (context.ChartDisplayTimeZone is not null)
+        {
+            return TimeZoneInfo.ConvertTime(utcOffsetValue, context.ChartDisplayTimeZone);
+        }
+
+        if (context.ChartDisplayUtcOffsetMinutes is int chartOffsetMinutes)
+        {
+            return utcOffsetValue.ToOffset(TimeSpan.FromMinutes(chartOffsetMinutes));
+        }
+
+        if (context.InstrumentTimeZone is not null)
+        {
+            return TimeZoneInfo.ConvertTime(utcOffsetValue, context.InstrumentTimeZone);
+        }
+
+        if (context.InstrumentUtcOffsetMinutes is int instrumentOffsetMinutes)
+        {
+            return utcOffsetValue.ToOffset(TimeSpan.FromMinutes(instrumentOffsetMinutes));
+        }
+
+        return utcOffsetValue.ToOffset(TimeSpan.FromMinutes(context.CollectorLocalUtcOffsetMinutes));
+    }
 
     public static string FormatTimeframe(TimeSpan span)
     {
@@ -386,6 +524,11 @@ internal static class CollectorMetadataResolver
     private static DateTime ConvertUnspecifiedToUtc(DateTime value, ResolvedTimeContext context)
     {
         var unspecified = DateTime.SpecifyKind(value, DateTimeKind.Unspecified);
+        if (context.ChartDisplayTimeZone is not null)
+        {
+            return new DateTimeOffset(unspecified, context.ChartDisplayTimeZone.GetUtcOffset(unspecified)).UtcDateTime;
+        }
+
         if (context.ChartDisplayUtcOffsetMinutes is int chartOffsetMinutes)
         {
             return new DateTimeOffset(unspecified, TimeSpan.FromMinutes(chartOffsetMinutes)).UtcDateTime;
@@ -717,6 +860,19 @@ internal static class CollectorMetadataResolver
             "instrument" when instrumentUtcOffsetMinutes is not null => instrumentUtcOffsetMinutes,
             _ => null,
         };
+    }
+
+    private static string? FormatUtcOffsetName(int? offsetMinutes)
+    {
+        if (offsetMinutes is null)
+        {
+            return null;
+        }
+
+        var offset = TimeSpan.FromMinutes(offsetMinutes.Value);
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+        var absolute = offset.Duration();
+        return $"UTC{sign}{absolute:hh\\:mm}";
     }
 
     private static string BuildFallbackChartInstanceId(string contractSymbol, string displayTimeframe, string venue, string currency)

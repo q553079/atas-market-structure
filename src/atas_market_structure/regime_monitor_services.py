@@ -226,7 +226,7 @@ class RegimeMonitor:
         )
 
     def ingest_history_bars(self, payload: AdapterHistoryBarsPayload) -> None:
-        symbol = payload.instrument.symbol.upper()
+        symbol = (payload.instrument.root_symbol or payload.instrument.symbol).upper()
         bars = self._rolling_bars.setdefault(symbol, deque(maxlen=self._max_cached_bars))
         by_start = {item.started_at: item for item in bars}
         for item in payload.bars:
@@ -243,9 +243,16 @@ class RegimeMonitor:
         merged = sorted(by_start.values(), key=lambda item: item.started_at)
         self._rolling_bars[symbol] = deque(merged[-self._max_cached_bars :], maxlen=self._max_cached_bars)
         self._evict_cache_for_symbol(symbol)
+        LOGGER.info(
+            "[RegimeMonitor] ingest_history_bars symbol=%s contract_symbol=%s timeframe=%s bars=%s",
+            symbol,
+            payload.instrument.contract_symbol,
+            payload.bar_timeframe.value,
+            len(payload.bars),
+        )
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> None:
-        symbol = payload.instrument.symbol.upper()
+        symbol = (payload.instrument.root_symbol or payload.instrument.symbol).upper()
         bars = self._rolling_bars.setdefault(symbol, deque(maxlen=self._max_cached_bars))
         bucket_start = payload.observed_window_end.astimezone(UTC).replace(second=0, microsecond=0)
         bucket_end = bucket_start.replace(second=59)
@@ -290,6 +297,12 @@ class RegimeMonitor:
                 delta=bar.delta,
                 timeframe=Timeframe.MIN_1,
             )
+        LOGGER.debug(
+            "[RegimeMonitor] ingest_continuous_state symbol=%s source_symbol=%s window_end=%s",
+            symbol,
+            payload.instrument.symbol,
+            payload.observed_window_end.isoformat(),
+        )
 
     def get_dynamic_thresholds(
         self,
@@ -431,7 +444,7 @@ class RegimeMonitor:
             delta=delta,
             updated_at=now,
         )
-        self._repository.upsert_chart_candles([candle])
+        self._repository.replace_chart_candles([candle])
 
     def persist_history_bars_native(
         self,
@@ -500,7 +513,7 @@ class RegimeMonitor:
                 )
             )
 
-        self._repository.upsert_chart_candles(candles)
+        self._repository.replace_chart_candles(candles)
         LOGGER.info(
             "[ChartCandle] persisted %d native candles (%s) for %s",
             len(candles),
