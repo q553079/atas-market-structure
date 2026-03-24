@@ -1,5 +1,94 @@
 {
   "$defs": {
+    "BeliefDataStatus": {
+      "description": "Freshness, completeness, and degraded-signal state for one belief snapshot.",
+      "properties": {
+        "data_freshness_ms": {
+          "description": "Estimated freshness lag in milliseconds.",
+          "minimum": 0,
+          "title": "Data Freshness Ms",
+          "type": "integer"
+        },
+        "feature_completeness": {
+          "description": "Fraction of expected features available to the recognizer.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Feature Completeness",
+          "type": "number"
+        },
+        "depth_available": {
+          "description": "Whether depth-derived evidence was available.",
+          "title": "Depth Available",
+          "type": "boolean"
+        },
+        "dom_available": {
+          "description": "Whether DOM-derived evidence was available.",
+          "title": "Dom Available",
+          "type": "boolean"
+        },
+        "ai_available": {
+          "description": "Whether AI services were available for optional review layers.",
+          "title": "Ai Available",
+          "type": "boolean"
+        },
+        "degraded_modes": {
+          "description": "Explicit degraded modes active for this snapshot.",
+          "items": {
+            "$ref": "#/$defs/DegradedMode"
+          },
+          "title": "Degraded Modes",
+          "type": "array"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI display.",
+          "title": "Freshness"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI display.",
+          "title": "Completeness"
+        }
+      },
+      "required": [
+        "data_freshness_ms",
+        "feature_completeness",
+        "depth_available",
+        "dom_available",
+        "ai_available"
+      ],
+      "title": "BeliefDataStatus",
+      "type": "object"
+    },
+    "DegradedMode": {
+      "description": "Explicit degraded conditions that should not stop the engine.\n\nCanonical values are prefixed to match Master Spec v2 and health/UI\nbadges. Legacy unprefixed inputs are still accepted for backward\ncompatibility with older persisted payloads and samples.",
+      "enum": [
+        "none",
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro",
+        "replay_rebuild_mode"
+      ],
+      "title": "DegradedMode",
+      "type": "string"
+    },
     "InstrumentRef": {
       "description": "Stable instrument metadata for replay and backtests.",
       "properties": {
@@ -11,6 +100,38 @@
           "title": "Symbol",
           "type": "string"
         },
+        "root_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Root or continuous symbol when known.",
+          "examples": [
+            "NQ"
+          ],
+          "title": "Root Symbol"
+        },
+        "contract_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resolved contract symbol when known.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Contract Symbol"
+        },
         "venue": {
           "description": "Execution or quote venue.",
           "examples": [
@@ -20,11 +141,11 @@
           "type": "string"
         },
         "tick_size": {
-          "description": "Minimum price increment.",
+          "description": "Minimum price increment. A value of 0 means the collector could not resolve tick size and the payload is degraded.",
           "examples": [
             0.25
           ],
-          "exclusiveMinimum": 0,
+          "minimum": 0,
           "title": "Tick Size",
           "type": "number"
         },
@@ -242,6 +363,55 @@
             481
           ],
           "title": "Ask Volume"
+        },
+        "source_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized candle source, for example history_bars, continuous_state, chart_candles, or synthetic_gap_fill.",
+          "title": "Source Kind"
+        },
+        "is_synthetic": {
+          "default": false,
+          "description": "Whether this candle is synthetic gap-fill rather than observed market data.",
+          "title": "Is Synthetic",
+          "type": "boolean"
+        },
+        "bar_timestamp_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC-normalised bar timestamp preserved from ATAS metadata before timezone normalisation.",
+          "title": "Bar Timestamp Utc"
+        },
+        "original_bar_time_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw bar time text string as it appeared in ATAS before any timezone interpretation.",
+          "examples": [
+            "2026-03-17 09:30:00 EST"
+          ],
+          "title": "Original Bar Time Text"
         }
       },
       "required": [
@@ -624,6 +794,176 @@
       "title": "ReplayVerificationStatus",
       "type": "string"
     },
+    "ReplayWorkbenchAtasBackfillStatus": {
+      "description": "Lifecycle state of a server-side request asking the ATAS adapter to resend history.",
+      "enum": [
+        "pending",
+        "dispatched",
+        "acknowledged",
+        "expired"
+      ],
+      "title": "ReplayWorkbenchAtasBackfillStatus",
+      "type": "string"
+    },
+    "ReplayWorkbenchGapSegment": {
+      "description": "One missing candle-time segment detected in a rebuilt replay packet.",
+      "properties": {
+        "prev_ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End timestamp of the candle immediately before the gap when available.",
+          "title": "Prev Ended At"
+        },
+        "next_started_at": {
+          "description": "Start timestamp of the first observed candle after the gap.",
+          "format": "date-time",
+          "title": "Next Started At",
+          "type": "string"
+        },
+        "missing_bar_count": {
+          "description": "How many bars are missing between prev_ended_at and next_started_at.",
+          "minimum": 1,
+          "title": "Missing Bar Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "next_started_at",
+        "missing_bar_count"
+      ],
+      "title": "ReplayWorkbenchGapSegment",
+      "type": "object"
+    },
+    "ReplayWorkbenchIntegrity": {
+      "description": "Unified replay data integrity state shared by build, snapshot, and live-tail APIs.",
+      "properties": {
+        "status": {
+          "description": "High-level integrity status such as complete, missing_local_history, or gaps_detected.",
+          "title": "Status",
+          "type": "string"
+        },
+        "window_start": {
+          "description": "Integrity evaluation window start.",
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "description": "Integrity evaluation window end.",
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "window_days": {
+          "description": "Whole-day window size used for integrity evaluation.",
+          "minimum": 1,
+          "title": "Window Days",
+          "type": "integer"
+        },
+        "gap_count": {
+          "default": 0,
+          "description": "How many missing candle segments were detected.",
+          "minimum": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "missing_bar_count": {
+          "default": 0,
+          "description": "Total missing bar count across all detected segments.",
+          "minimum": 0,
+          "title": "Missing Bar Count",
+          "type": "integer"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI and downstream consumers.",
+          "title": "Completeness"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI and downstream consumers.",
+          "title": "Freshness"
+        },
+        "latest_data_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact data-status classification such as complete, degraded, or no_live_data.",
+          "title": "Latest Data Status"
+        },
+        "missing_segments": {
+          "description": "Missing candle segments normalized for backfill requests.",
+          "items": {
+            "$ref": "#/$defs/ReplayWorkbenchGapSegment"
+          },
+          "title": "Missing Segments",
+          "type": "array"
+        },
+        "latest_backfill_request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Most recent related backfill request id when available.",
+          "title": "Latest Backfill Request Id"
+        },
+        "latest_backfill_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchAtasBackfillStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Status of the most recent related backfill request when available."
+        }
+      },
+      "required": [
+        "status",
+        "window_start",
+        "window_end",
+        "window_days"
+      ],
+      "title": "ReplayWorkbenchIntegrity",
+      "type": "object"
+    },
     "SourceRef": {
       "description": "Producer metadata for tracing and support.",
       "properties": {
@@ -666,6 +1006,160 @@
           ],
           "title": "Adapter Version",
           "type": "string"
+        },
+        "chart_display_timezone_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display timezone mode captured at payload emission.",
+          "examples": [
+            "exchange",
+            "local",
+            "exchange_dst"
+          ],
+          "title": "Chart Display Timezone Mode"
+        },
+        "chart_display_timezone_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display timezone name or abbreviation captured at payload emission.",
+          "examples": [
+            "America/New_York",
+            "EST5EDT",
+            "UTC"
+          ],
+          "title": "Chart Display Timezone Name"
+        },
+        "chart_display_utc_offset_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display UTC offset in minutes captured at payload emission.",
+          "examples": [
+            -300
+          ],
+          "title": "Chart Display Utc Offset Minutes"
+        },
+        "instrument_timezone_value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw instrument timezone value from ATAS metadata captured at payload emission.",
+          "title": "Instrument Timezone Value"
+        },
+        "instrument_timezone_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the instrument timezone came from, captured at payload emission.",
+          "examples": [
+            "exchange_profile",
+            "symbol_suffix"
+          ],
+          "title": "Instrument Timezone Source"
+        },
+        "collector_local_timezone_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collector machine local timezone name at payload emission.",
+          "examples": [
+            "America/New_York"
+          ],
+          "title": "Collector Local Timezone Name"
+        },
+        "collector_local_utc_offset_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collector machine local UTC offset in minutes at payload emission.",
+          "examples": [
+            -300
+          ],
+          "title": "Collector Local Utc Offset Minutes"
+        },
+        "timestamp_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary basis used to normalize timestamps to UTC at payload emission.",
+          "examples": [
+            "exchange_tick_time",
+            "collector_local_time",
+            "chart_display_time"
+          ],
+          "title": "Timestamp Basis"
+        },
+        "timezone_capture_confidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Confidence level of the timezone capture at payload emission: high, medium, low, or unknown.",
+          "examples": [
+            "high",
+            "medium",
+            "low",
+            "unknown"
+          ],
+          "title": "Timezone Capture Confidence"
         }
       },
       "required": [
@@ -692,6 +1186,7 @@
         "1d",
         "3d",
         "1h",
+        "4h",
         "30m",
         "15m",
         "5m",
@@ -712,6 +1207,20 @@
       ],
       "title": "Schema Version",
       "type": "string"
+    },
+    "profile_version": {
+      "description": "Instrument-profile version attached to this derived replay snapshot.",
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "engine_version": {
+      "description": "Recognizer engine version attached to this derived replay snapshot.",
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "data_status": {
+      "$ref": "#/$defs/BeliefDataStatus",
+      "description": "Freshness, completeness, and degraded-mode summary for this replay snapshot."
     },
     "replay_snapshot_id": {
       "description": "Replay packet identifier.",
@@ -771,6 +1280,18 @@
       "$ref": "#/$defs/ReplayVerificationState",
       "description": "Current verification state for this replay packet."
     },
+    "integrity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReplayWorkbenchIntegrity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Unified replay integrity state captured at snapshot build time."
+    },
     "candles": {
       "description": "Reconstructed bar series used by the standalone replay UI.",
       "items": {
@@ -824,6 +1345,9 @@
   },
   "required": [
     "schema_version",
+    "profile_version",
+    "engine_version",
+    "data_status",
     "replay_snapshot_id",
     "cache_key",
     "acquisition_mode",

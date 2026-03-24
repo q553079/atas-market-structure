@@ -9,6 +9,7 @@ Environment variables:
   CLICKHOUSE_USER (default: default)
   CLICKHOUSE_PASSWORD (default: "")
   CLICKHOUSE_DB (default: market_data)
+  CLICKHOUSE_ENABLE_INGESTIONS (default: false)
 """
 
 from __future__ import annotations
@@ -29,6 +30,13 @@ def _env_int(name: str, default: int) -> int:
 
 def _env_float(name: str, default: float) -> float:
     return float(_env(name, str(default)))
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _ticks_to_chart_candles_mv_ddl(database: str, *, timeframe: str, interval_seconds: int) -> str:
@@ -66,7 +74,7 @@ def _ticks_to_chart_candles_mv_ddl(database: str, *, timeframe: str, interval_se
     """
 
 
-def build_ddl(database: str) -> list[str]:
+def build_ddl(database: str, *, include_ingestion_tables: bool = False) -> list[str]:
     create_db_sql = f"CREATE DATABASE IF NOT EXISTS {database}"
 
     create_table_sql = f"""
@@ -109,6 +117,25 @@ def build_ddl(database: str) -> list[str]:
     ORDER BY (symbol, timeframe, started_at, source_started_at)
     """
 
+    ticks_to_chart_candles_mv_ddls = [
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="1m", interval_seconds=60),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="5m", interval_seconds=300),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="15m", interval_seconds=900),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="30m", interval_seconds=1800),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="1h", interval_seconds=3600),
+        _ticks_to_chart_candles_mv_ddl(database, timeframe="4h", interval_seconds=14400),
+    ]
+
+    ddls = [
+        create_db_sql,
+        create_table_sql,
+        chart_candles_table_sql,
+        *ticks_to_chart_candles_mv_ddls,
+    ]
+
+    if not include_ingestion_tables:
+        return ddls
+
     ingestions_table_sql = f"""
     CREATE TABLE IF NOT EXISTS {database}.ingestions
     (
@@ -131,19 +158,6 @@ def build_ddl(database: str) -> list[str]:
     ORDER BY (ingestion_kind, instrument_symbol, source_snapshot_id, stored_at, ingestion_id)
     """
 
-    ticks_to_chart_candles_mv_ddls = [
-        _ticks_to_chart_candles_mv_ddl(database, timeframe="1m", interval_seconds=60),
-        _ticks_to_chart_candles_mv_ddl(database, timeframe="5m", interval_seconds=300),
-        _ticks_to_chart_candles_mv_ddl(database, timeframe="15m", interval_seconds=900),
-        _ticks_to_chart_candles_mv_ddl(database, timeframe="30m", interval_seconds=1800),
-        _ticks_to_chart_candles_mv_ddl(database, timeframe="1h", interval_seconds=3600),
-        _ticks_to_chart_candles_mv_ddl(database, timeframe="4h", interval_seconds=14400),
-    ]
-
-    # ─── Pre-aggregated continuous-state candle view ──────────────────────────
-    # Aggregates adapter_continuous_state messages into 1-minute buckets.
-    # Replaces the need to query + re-aggregate 109,000+ raw JSON messages
-    # on every UI build request.  Sub-100ms queries regardless of window size.
     continuous_state_candles_ddl = f"""
     CREATE TABLE IF NOT EXISTS {database}.continuous_state_candles
     (
@@ -205,9 +219,6 @@ def build_ddl(database: str) -> list[str]:
     WHERE ingestion_kind = 'adapter_continuous_state'
     """
 
-    # ─── Event pre-aggregate: replenishments per bucket ───────────────────────
-    # Stores one row per replenishment event per minute bucket.
-    # Used to reconstruct event_annotations without re-reading raw messages.
     continuous_state_events_ddl = f"""
     CREATE TABLE IF NOT EXISTS {database}.continuous_state_events
     (
@@ -246,15 +257,12 @@ def build_ddl(database: str) -> list[str]:
     """
 
     return [
-        create_db_sql,
-        create_table_sql,
-        chart_candles_table_sql,
+        *ddls,
         ingestions_table_sql,
         continuous_state_candles_ddl,
         continuous_state_mv_ddl,
         continuous_state_events_ddl,
         continuous_state_events_mv_ddl,
-        *ticks_to_chart_candles_mv_ddls,
     ]
 
 
@@ -297,6 +305,7 @@ def main() -> None:
     database = _env("CLICKHOUSE_DB", "market_data")
     connect_retries = _env_int("CLICKHOUSE_CONNECT_RETRIES", 5)
     retry_delay_seconds = _env_float("CLICKHOUSE_RETRY_DELAY_SECONDS", 1.5)
+    include_ingestion_tables = _env_bool("CLICKHOUSE_ENABLE_INGESTIONS", default=False)
 
     client = _connect_with_retry(
         host=host,
@@ -308,21 +317,22 @@ def main() -> None:
     )
 
     try:
-        for sql in build_ddl(database):
+        for sql in build_ddl(database, include_ingestion_tables=include_ingestion_tables):
             client.command(sql)
     finally:
         client.close()
 
     print(f"ClickHouse initialized: {database}.ticks_raw")
-    print(f"Materialized views created:")
-    print(f"  {database}.continuous_state_candles_mv  →  {database}.continuous_state_candles")
-    print(f"  {database}.continuous_state_events_mv  →  {database}.continuous_state_events")
+    print("Materialized views created:")
     print(f"  {database}.ticks_raw_to_chart_candles_60s_mv   →  {database}.chart_candles (1m)")
     print(f"  {database}.ticks_raw_to_chart_candles_300s_mv  →  {database}.chart_candles (5m)")
     print(f"  {database}.ticks_raw_to_chart_candles_900s_mv  →  {database}.chart_candles (15m)")
     print(f"  {database}.ticks_raw_to_chart_candles_1800s_mv →  {database}.chart_candles (30m)")
     print(f"  {database}.ticks_raw_to_chart_candles_3600s_mv →  {database}.chart_candles (1h)")
     print(f"  {database}.ticks_raw_to_chart_candles_14400s_mv →  {database}.chart_candles (4h)")
+    if include_ingestion_tables:
+        print(f"  {database}.continuous_state_candles_mv  →  {database}.continuous_state_candles")
+        print(f"  {database}.continuous_state_events_mv  →  {database}.continuous_state_events")
 
 
 if __name__ == "__main__":

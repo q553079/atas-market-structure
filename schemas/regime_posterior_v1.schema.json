@@ -1,0 +1,158 @@
+{
+  "$defs": {
+    "RegimeKind": {
+      "description": "Fixed V1 regime ontology from Master Spec v2.",
+      "enum": [
+        "strong_momentum_trend",
+        "weak_momentum_trend_narrow",
+        "weak_momentum_trend_wide",
+        "balance_mean_reversion",
+        "compression",
+        "transition_exhaustion"
+      ],
+      "title": "RegimeKind",
+      "type": "string"
+    },
+    "RegimePosteriorPayload": {
+      "additionalProperties": false,
+      "description": "Structured payload persisted in regime_posterior_v1.",
+      "properties": {
+        "regime_posteriors": {
+          "description": "Ordered regime posterior records emitted by the recognizer.",
+          "items": {
+            "$ref": "#/$defs/RegimePosteriorRecord"
+          },
+          "title": "Regime Posteriors",
+          "type": "array"
+        },
+        "top_regime": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegimeKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Top regime selected from the posterior list."
+        }
+      },
+      "title": "RegimePosteriorPayload",
+      "type": "object"
+    },
+    "RegimePosteriorRecord": {
+      "description": "Append-only probability snapshot for one regime candidate.",
+      "properties": {
+        "regime": {
+          "$ref": "#/$defs/RegimeKind",
+          "description": "Fixed regime ontology label."
+        },
+        "probability": {
+          "description": "Posterior probability for this regime.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Probability",
+          "type": "number"
+        },
+        "evidence": {
+          "description": "Observed evidence supporting this regime probability.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "regime",
+        "probability"
+      ],
+      "title": "RegimePosteriorRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Public append-only contract for regime_posterior_v1 rows.",
+  "properties": {
+    "posterior_id": {
+      "description": "Stable regime-posterior identifier.",
+      "title": "Posterior Id",
+      "type": "string"
+    },
+    "instrument_symbol": {
+      "description": "Instrument symbol for this posterior row.",
+      "title": "Instrument Symbol",
+      "type": "string"
+    },
+    "market_time": {
+      "description": "Market timestamp represented by this posterior row.",
+      "format": "date-time",
+      "title": "Market Time",
+      "type": "string"
+    },
+    "session_date": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional session date label.",
+      "title": "Session Date"
+    },
+    "ingested_at": {
+      "description": "Persistence timestamp.",
+      "format": "date-time",
+      "title": "Ingested At",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Canonical schema version for the regime posterior.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "profile_version": {
+      "description": "Instrument profile version used to emit the posterior.",
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "engine_version": {
+      "description": "Recognizer engine version used to emit the posterior.",
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "feature_slice_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Upstream feature-slice identifier.",
+      "title": "Feature Slice Id"
+    },
+    "posterior_payload": {
+      "$ref": "#/$defs/RegimePosteriorPayload",
+      "description": "Structured regime posterior payload."
+    }
+  },
+  "required": [
+    "posterior_id",
+    "instrument_symbol",
+    "market_time",
+    "ingested_at",
+    "schema_version",
+    "profile_version",
+    "engine_version",
+    "posterior_payload"
+  ],
+  "title": "RegimePosteriorContract",
+  "type": "object"
+}

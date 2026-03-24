@@ -1,0 +1,54 @@
+{
+  "description": "Versioned recognizer build metadata attached to all derived outputs.",
+  "properties": {
+    "engine_version": {
+      "description": "Recognizer engine build identifier.",
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Schema version used by this build.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "ontology_version": {
+      "description": "Ontology version used by this build.",
+      "title": "Ontology Version",
+      "type": "string"
+    },
+    "is_active": {
+      "default": true,
+      "description": "Whether this recognizer build is the active engine build.",
+      "title": "Is Active",
+      "type": "boolean"
+    },
+    "status": {
+      "default": "active",
+      "description": "Build lifecycle status.",
+      "title": "Status",
+      "type": "string"
+    },
+    "notes": {
+      "description": "Operator-facing notes about this build.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "created_at": {
+      "description": "When this recognizer build was created.",
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "engine_version",
+    "schema_version",
+    "ontology_version",
+    "created_at"
+  ],
+  "title": "RecognizerBuild",
+  "type": "object"
+}

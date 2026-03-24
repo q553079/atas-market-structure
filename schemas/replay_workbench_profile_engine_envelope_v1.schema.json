@@ -1,0 +1,1654 @@
+{
+  "$defs": {
+    "BalanceReturnPenaltyTrigger": {
+      "additionalProperties": false,
+      "properties": {
+        "distance_to_balance_ticks": {
+          "description": "Distance threshold used to mark a return toward prior balance.",
+          "maximum": 64.0,
+          "minimum": 0.0,
+          "title": "Distance To Balance Ticks",
+          "type": "number"
+        }
+      },
+      "required": [
+        "distance_to_balance_ticks"
+      ],
+      "title": "BalanceReturnPenaltyTrigger",
+      "type": "object"
+    },
+    "Decay": {
+      "additionalProperties": false,
+      "description": "Typed decay block for instrument_profile_v1.",
+      "properties": {
+        "stale_macro_penalty": {
+          "description": "Penalty factor applied when macro/process context is stale.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Stale Macro Penalty",
+          "type": "number"
+        },
+        "missing_depth_penalty": {
+          "description": "Penalty factor applied when depth is missing.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Missing Depth Penalty",
+          "type": "number"
+        },
+        "missing_dom_penalty": {
+          "description": "Penalty factor applied when DOM is missing.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Missing Dom Penalty",
+          "type": "number"
+        },
+        "anchor_freshness_hours": {
+          "description": "Maximum freshness horizon for active anchors.",
+          "maximum": 720,
+          "minimum": 1,
+          "title": "Anchor Freshness Hours",
+          "type": "integer"
+        },
+        "balance_center_half_life_bars": {
+          "description": "Half-life for balance-center anchors.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Balance Center Half Life Bars",
+          "type": "integer"
+        },
+        "gap_edge_half_life_bars": {
+          "description": "Half-life for gap-edge anchors.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Gap Edge Half Life Bars",
+          "type": "integer"
+        },
+        "initiative_origin_half_life_bars": {
+          "description": "Half-life for initiative-origin anchors.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Initiative Origin Half Life Bars",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stale_macro_penalty",
+        "missing_depth_penalty",
+        "missing_dom_penalty",
+        "anchor_freshness_hours",
+        "balance_center_half_life_bars",
+        "gap_edge_half_life_bars",
+        "initiative_origin_half_life_bars"
+      ],
+      "title": "Decay",
+      "type": "object"
+    },
+    "DeepPullback": {
+      "additionalProperties": false,
+      "properties": {
+        "retrace_ratio_min": {
+          "description": "Minimum retrace ratio for a deep pullback.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Retrace Ratio Min",
+          "type": "number"
+        }
+      },
+      "required": [
+        "retrace_ratio_min"
+      ],
+      "title": "DeepPullback",
+      "type": "object"
+    },
+    "EventWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "normal": {
+          "$ref": "#/$defs/WindowRange",
+          "description": "Primary tempo window for the mapped tradable event."
+        }
+      },
+      "required": [
+        "normal"
+      ],
+      "title": "EventWindow",
+      "type": "object"
+    },
+    "Hypotheses": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation_base": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Continuation Base",
+          "type": "number"
+        },
+        "distribution_balance": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Distribution Balance",
+          "type": "number"
+        },
+        "absorption_accumulation": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Absorption Accumulation",
+          "type": "number"
+        },
+        "reversal_preparation": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Reversal Preparation",
+          "type": "number"
+        }
+      },
+      "required": [
+        "continuation_base",
+        "distribution_balance",
+        "absorption_accumulation",
+        "reversal_preparation"
+      ],
+      "title": "Hypotheses",
+      "type": "object"
+    },
+    "InitiativePush": {
+      "additionalProperties": false,
+      "properties": {
+        "displacement_zscore": {
+          "description": "Normalized displacement threshold for initiative pushes.",
+          "maximum": 5.0,
+          "minimum": 0.0,
+          "title": "Displacement Zscore",
+          "type": "number"
+        },
+        "efficiency_min": {
+          "description": "Minimum efficiency needed to treat a push as initiative.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Efficiency Min",
+          "type": "number"
+        }
+      },
+      "required": [
+        "displacement_zscore",
+        "efficiency_min"
+      ],
+      "title": "InitiativePush",
+      "type": "object"
+    },
+    "InstrumentProfile": {
+      "additionalProperties": false,
+      "description": "Versioned instrument profile used by the deterministic recognizer.",
+      "properties": {
+        "instrument": {
+          "description": "Instrument symbol that this profile applies to.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Version identifier for this profile.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Schema version for the profile payload.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ontology_version": {
+          "description": "Fixed ontology version referenced by this profile.",
+          "title": "Ontology Version",
+          "type": "string"
+        },
+        "is_active": {
+          "default": true,
+          "description": "Whether this profile is currently active for the instrument.",
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "normalization": {
+          "$ref": "#/$defs/Normalization",
+          "description": "Normalization and scaling settings."
+        },
+        "time_windows": {
+          "$ref": "#/$defs/TimeWindows",
+          "description": "Session or replay time-window settings."
+        },
+        "thresholds": {
+          "$ref": "#/$defs/Thresholds",
+          "description": "Threshold parameters used by the recognizer."
+        },
+        "weights": {
+          "$ref": "#/$defs/Weights",
+          "description": "Relative weights for evidence buckets."
+        },
+        "decay": {
+          "$ref": "#/$defs/Decay",
+          "description": "Decay settings for stale evidence and anchors."
+        },
+        "priors": {
+          "$ref": "#/$defs/Priors",
+          "description": "Prior probabilities for regimes and event hypotheses."
+        },
+        "safety": {
+          "$ref": "#/$defs/Safety",
+          "description": "Safety bounds and fixed patch gates."
+        },
+        "created_at": {
+          "description": "When this profile version was created.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instrument",
+        "profile_version",
+        "schema_version",
+        "ontology_version",
+        "normalization",
+        "time_windows",
+        "thresholds",
+        "weights",
+        "decay",
+        "priors",
+        "safety",
+        "created_at"
+      ],
+      "title": "InstrumentProfile",
+      "type": "object"
+    },
+    "InstrumentProfileParameterMetadata": {
+      "additionalProperties": false,
+      "description": "Metadata and safe boundary definition for one adjustable profile parameter.",
+      "properties": {
+        "path": {
+          "description": "Dot-path to the adjustable parameter inside instrument_profile_v1.",
+          "title": "Path",
+          "type": "string"
+        },
+        "value_type": {
+          "description": "Primitive numeric type expected at the parameter path.",
+          "enum": [
+            "int",
+            "float"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        },
+        "min": {
+          "description": "Inclusive lower bound.",
+          "title": "Min",
+          "type": "number"
+        },
+        "max": {
+          "description": "Inclusive upper bound.",
+          "title": "Max",
+          "type": "number"
+        },
+        "step": {
+          "description": "Allowed adjustment step.",
+          "exclusiveMinimum": 0.0,
+          "title": "Step",
+          "type": "number"
+        },
+        "safe_default": {
+          "description": "Safe default value used by the profile registry.",
+          "title": "Safe Default",
+          "type": "number"
+        },
+        "criticality": {
+          "$ref": "#/$defs/ParameterCriticality",
+          "description": "Risk level attached to this parameter."
+        },
+        "applies_to_events": {
+          "description": "Tradable events that are most directly affected by this parameter.",
+          "items": {
+            "$ref": "#/$defs/TradableEventKind"
+          },
+          "title": "Applies To Events",
+          "type": "array"
+        },
+        "description": {
+          "description": "Operator-facing explanation for the parameter.",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "value_type",
+        "min",
+        "max",
+        "step",
+        "safe_default",
+        "criticality",
+        "description"
+      ],
+      "title": "InstrumentProfileParameterMetadata",
+      "type": "object"
+    },
+    "MomentumContinuation": {
+      "additionalProperties": false,
+      "properties": {
+        "strong": {
+          "$ref": "#/$defs/WindowRange",
+          "description": "Expected tempo for strong momentum continuation sequences."
+        },
+        "normal": {
+          "$ref": "#/$defs/WindowRange",
+          "description": "Expected tempo for regular momentum continuation sequences."
+        }
+      },
+      "required": [
+        "strong",
+        "normal"
+      ],
+      "title": "MomentumContinuation",
+      "type": "object"
+    },
+    "Normalization": {
+      "additionalProperties": false,
+      "description": "Typed normalization block for instrument_profile_v1.",
+      "properties": {
+        "price_unit": {
+          "const": "ticks",
+          "default": "ticks",
+          "description": "Price normalization unit for V1 profiles.",
+          "title": "Price Unit",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Native instrument tick size.",
+          "exclusiveMinimum": 0.0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "atr_window_bars": {
+          "default": 20,
+          "description": "ATR lookback used by normalized movement helpers.",
+          "maximum": 200,
+          "minimum": 2,
+          "title": "Atr Window Bars",
+          "type": "integer"
+        },
+        "displacement_normalizer": {
+          "const": "atr_fraction",
+          "default": "atr_fraction",
+          "description": "Fixed displacement normalization mode for V1.",
+          "title": "Displacement Normalizer",
+          "type": "string"
+        },
+        "volume_normalizer": {
+          "const": "rolling_quantile",
+          "default": "rolling_quantile",
+          "description": "Fixed volume normalization mode for V1.",
+          "title": "Volume Normalizer",
+          "type": "string"
+        },
+        "range_ticks_reference": {
+          "description": "Reference range in ticks for compact scaling heuristics.",
+          "exclusiveMinimum": 0.0,
+          "title": "Range Ticks Reference",
+          "type": "number"
+        },
+        "anchor_active_distance_ticks": {
+          "description": "Distance in ticks below which anchors stay operationally relevant.",
+          "exclusiveMinimum": 0.0,
+          "title": "Anchor Active Distance Ticks",
+          "type": "number"
+        }
+      },
+      "required": [
+        "tick_size",
+        "range_ticks_reference",
+        "anchor_active_distance_ticks"
+      ],
+      "title": "Normalization",
+      "type": "object"
+    },
+    "OfflineReplayValidationSummary": {
+      "additionalProperties": false,
+      "description": "Offline replay validation hook result for one patch candidate.",
+      "properties": {
+        "status": {
+          "default": "not_run",
+          "description": "Offline replay validation status for the candidate patch.",
+          "enum": [
+            "not_run",
+            "passed",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "runner": {
+          "default": "local_stub",
+          "description": "Offline validator implementation that produced this summary.",
+          "title": "Runner",
+          "type": "string"
+        },
+        "compared_episode_count": {
+          "default": 0,
+          "description": "How many evaluated episodes were included in the offline compare scope.",
+          "minimum": 0,
+          "title": "Compared Episode Count",
+          "type": "integer"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Compact deterministic compare metrics emitted by the offline runner.",
+          "title": "Metrics",
+          "type": "object"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operator-facing summary of the offline replay compare result.",
+          "title": "Summary"
+        },
+        "notes": {
+          "description": "Additional validation notes preserved for auditability.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "validated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the offline replay validation completed.",
+          "title": "Validated At"
+        }
+      },
+      "title": "OfflineReplayValidationSummary",
+      "type": "object"
+    },
+    "ParameterCriticality": {
+      "description": "Risk level for one tunable profile parameter.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "ParameterCriticality",
+      "type": "string"
+    },
+    "PatchHumanApproval": {
+      "additionalProperties": false,
+      "description": "Human approval placeholder required before any patch promotion.",
+      "properties": {
+        "required": {
+          "const": true,
+          "default": true,
+          "description": "Patch promotion always requires explicit human approval.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "pending",
+          "description": "Current human approval state for this candidate patch.",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operator or reviewer that approved or rejected the candidate.",
+          "title": "Approved By"
+        },
+        "approved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the approval decision was recorded.",
+          "title": "Approved At"
+        },
+        "notes": {
+          "description": "Operator notes recorded during the approval stage.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "title": "PatchHumanApproval",
+      "type": "object"
+    },
+    "PatchValidationStatus": {
+      "description": "Validation result for one profile patch candidate.",
+      "enum": [
+        "accepted",
+        "rejected"
+      ],
+      "title": "PatchValidationStatus",
+      "type": "string"
+    },
+    "Priors": {
+      "additionalProperties": false,
+      "description": "Typed prior block for instrument_profile_v1.",
+      "properties": {
+        "regimes": {
+          "$ref": "#/$defs/Regimes",
+          "description": "Priors for the fixed regime ontology."
+        },
+        "hypotheses": {
+          "$ref": "#/$defs/Hypotheses",
+          "description": "Priors for the V1 hypothesis subset used by the deterministic recognizer."
+        }
+      },
+      "required": [
+        "regimes",
+        "hypotheses"
+      ],
+      "title": "Priors",
+      "type": "object"
+    },
+    "ProfilePatchCandidate": {
+      "additionalProperties": false,
+      "description": "Structured append-only profile patch candidate.",
+      "properties": {
+        "candidate_id": {
+          "description": "Stable patch candidate identifier.",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Instrument symbol targeted by the patch.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Schema version for this patch candidate.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ontology_version": {
+          "description": "Ontology version inherited from the base profile.",
+          "title": "Ontology Version",
+          "type": "string"
+        },
+        "base_profile_version": {
+          "description": "Profile version used as the patch baseline.",
+          "title": "Base Profile Version",
+          "type": "string"
+        },
+        "proposed_profile_version": {
+          "description": "Profile version that would be produced if this patch is promoted.",
+          "title": "Proposed Profile Version",
+          "type": "string"
+        },
+        "recommendation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional upstream recommendation identifier.",
+          "title": "Recommendation Id"
+        },
+        "candidate_parameters": {
+          "description": "Parameter paths touched by this candidate.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Parameters",
+          "type": "array"
+        },
+        "suggested_changes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ProfileSuggestedChange"
+          },
+          "description": "Explicit parameter changes expressed as from/to transitions.",
+          "title": "Suggested Changes",
+          "type": "object"
+        },
+        "risk_notes": {
+          "description": "Aggregated risk notes for operator review.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        },
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "Hard gate preventing automatic patch promotion.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        },
+        "created_at": {
+          "description": "When this patch candidate was generated.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "instrument",
+        "schema_version",
+        "ontology_version",
+        "base_profile_version",
+        "proposed_profile_version",
+        "created_at"
+      ],
+      "title": "ProfilePatchCandidate",
+      "type": "object"
+    },
+    "ProfilePatchFieldDiff": {
+      "additionalProperties": false,
+      "description": "Detailed diff row used by compare/preview output.",
+      "properties": {
+        "path": {
+          "description": "Dot-path for the changed parameter.",
+          "title": "Path",
+          "type": "string"
+        },
+        "action": {
+          "description": "Direction of the change.",
+          "enum": [
+            "increase",
+            "decrease",
+            "set"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "previous_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Current value before patch application.",
+          "title": "Previous Value"
+        },
+        "next_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Value proposed by the patch.",
+          "title": "Next Value"
+        },
+        "metadata": {
+          "$ref": "#/$defs/InstrumentProfileParameterMetadata",
+          "description": "Boundary metadata for the changed parameter."
+        },
+        "risk_notes": {
+          "description": "Risk notes specific to this field change.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "path",
+        "action",
+        "previous_value",
+        "next_value",
+        "metadata"
+      ],
+      "title": "ProfilePatchFieldDiff",
+      "type": "object"
+    },
+    "ProfilePatchPreview": {
+      "additionalProperties": false,
+      "description": "Preview output comparing one base profile against a validated patch.",
+      "properties": {
+        "instrument_symbol": {
+          "description": "Instrument symbol affected by the patch preview.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "base_profile_version": {
+          "description": "Current profile version used as the compare baseline.",
+          "title": "Base Profile Version",
+          "type": "string"
+        },
+        "proposed_profile_version": {
+          "description": "Candidate profile version after patch application.",
+          "title": "Proposed Profile Version",
+          "type": "string"
+        },
+        "candidate_parameters": {
+          "description": "Changed parameter paths included in the patch.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Parameters",
+          "type": "array"
+        },
+        "changed_fields": {
+          "description": "Detailed diff rows for each changed field.",
+          "items": {
+            "$ref": "#/$defs/ProfilePatchFieldDiff"
+          },
+          "title": "Changed Fields",
+          "type": "array"
+        },
+        "risk_notes": {
+          "description": "Aggregated risk notes for the patch preview.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        },
+        "requires_human_review": {
+          "default": true,
+          "description": "Patch promotion requires explicit human review.",
+          "title": "Requires Human Review",
+          "type": "boolean"
+        },
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "AI auto-apply remains disabled in preview output.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "instrument_symbol",
+        "base_profile_version",
+        "proposed_profile_version"
+      ],
+      "title": "ProfilePatchPreview",
+      "type": "object"
+    },
+    "ProfilePatchValidationIssue": {
+      "additionalProperties": false,
+      "description": "One validation issue emitted by the boundary validator.",
+      "properties": {
+        "path": {
+          "description": "Affected dot-path when available.",
+          "title": "Path",
+          "type": "string"
+        },
+        "code": {
+          "description": "Stable machine-readable issue code.",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "description": "Operator-facing validation message.",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "code",
+        "message"
+      ],
+      "title": "ProfilePatchValidationIssue",
+      "type": "object"
+    },
+    "ProfilePatchValidationResult": {
+      "additionalProperties": false,
+      "description": "Boundary-validation result for one patch candidate.",
+      "properties": {
+        "schema_version": {
+          "default": "patch_validation_result_v1",
+          "description": "Schema version for this patch validation result payload.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "candidate_id": {
+          "description": "Patch candidate identifier being validated.",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol targeted by the patch.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "validation_status": {
+          "$ref": "#/$defs/PatchValidationStatus",
+          "description": "Accepted or rejected validation result."
+        },
+        "boundary_validation_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PatchValidationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit boundary-validation status before offline replay and human approval are considered."
+        },
+        "recommendation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upstream tuning recommendation linked to this validation run when available.",
+          "title": "Recommendation Id"
+        },
+        "base_profile_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base profile version used by the candidate under validation.",
+          "title": "Base Profile Version"
+        },
+        "proposed_profile_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Proposed profile version that would be promoted after validation.",
+          "title": "Proposed Profile Version"
+        },
+        "errors": {
+          "description": "Hard validation failures.",
+          "items": {
+            "$ref": "#/$defs/ProfilePatchValidationIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "description": "Non-blocking validation warnings.",
+          "items": {
+            "$ref": "#/$defs/ProfilePatchValidationIssue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "changed_fields": {
+          "description": "Changed parameter paths observed during validation.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Fields",
+          "type": "array"
+        },
+        "risk_notes": {
+          "description": "Aggregated patch risk notes.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProfilePatchPreview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Patch preview when validation succeeded."
+        },
+        "offline_replay_validation": {
+          "$ref": "#/$defs/OfflineReplayValidationSummary",
+          "description": "Offline replay validation hook output for this candidate."
+        },
+        "human_approval": {
+          "$ref": "#/$defs/PatchHumanApproval",
+          "description": "Human approval placeholder that must be resolved before promotion."
+        },
+        "promotion_ready": {
+          "default": false,
+          "description": "Whether the candidate is ready for explicit promotion after all safety gates.",
+          "title": "Promotion Ready",
+          "type": "boolean"
+        },
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "Hard gate preventing automatic patch promotion.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        },
+        "validated_at": {
+          "description": "When validation completed.",
+          "format": "date-time",
+          "title": "Validated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "instrument_symbol",
+        "validation_status",
+        "validated_at"
+      ],
+      "title": "ProfilePatchValidationResult",
+      "type": "object"
+    },
+    "ProfileSuggestedChange": {
+      "additionalProperties": false,
+      "description": "One explicit from/to change in a patch candidate.",
+      "properties": {
+        "action": {
+          "description": "Direction of the proposed change.",
+          "enum": [
+            "increase",
+            "decrease",
+            "set"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Current parameter value.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Proposed parameter value.",
+          "title": "To"
+        }
+      },
+      "required": [
+        "action",
+        "from",
+        "to"
+      ],
+      "title": "ProfileSuggestedChange",
+      "type": "object"
+    },
+    "RecognizerBuild": {
+      "description": "Versioned recognizer build metadata attached to all derived outputs.",
+      "properties": {
+        "engine_version": {
+          "description": "Recognizer engine build identifier.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Schema version used by this build.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ontology_version": {
+          "description": "Ontology version used by this build.",
+          "title": "Ontology Version",
+          "type": "string"
+        },
+        "is_active": {
+          "default": true,
+          "description": "Whether this recognizer build is the active engine build.",
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "active",
+          "description": "Build lifecycle status.",
+          "title": "Status",
+          "type": "string"
+        },
+        "notes": {
+          "description": "Operator-facing notes about this build.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "created_at": {
+          "description": "When this recognizer build was created.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "engine_version",
+        "schema_version",
+        "ontology_version",
+        "created_at"
+      ],
+      "title": "RecognizerBuild",
+      "type": "object"
+    },
+    "Regimes": {
+      "additionalProperties": false,
+      "properties": {
+        "strong_momentum_trend": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Strong Momentum Trend",
+          "type": "number"
+        },
+        "weak_momentum_trend_narrow": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Weak Momentum Trend Narrow",
+          "type": "number"
+        },
+        "weak_momentum_trend_wide": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Weak Momentum Trend Wide",
+          "type": "number"
+        },
+        "balance_mean_reversion": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Balance Mean Reversion",
+          "type": "number"
+        },
+        "compression": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Compression",
+          "type": "number"
+        },
+        "transition_exhaustion": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Transition Exhaustion",
+          "type": "number"
+        }
+      },
+      "required": [
+        "strong_momentum_trend",
+        "weak_momentum_trend_narrow",
+        "weak_momentum_trend_wide",
+        "balance_mean_reversion",
+        "compression",
+        "transition_exhaustion"
+      ],
+      "title": "Regimes",
+      "type": "object"
+    },
+    "ReplayProjectionQuery": {
+      "additionalProperties": false,
+      "description": "Filter metadata shared by replay workbench read/projection endpoints.",
+      "properties": {
+        "instrument": {
+          "description": "Instrument symbol scoped by the read-model query.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time lower bound for the query.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time upper bound for the query.",
+          "title": "To"
+        },
+        "session_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional YYYY-MM-DD session/date filter.",
+          "title": "Session Date"
+        },
+        "limit": {
+          "default": 100,
+          "description": "Maximum number of rows returned per section.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instrument"
+      ],
+      "title": "ReplayProjectionQuery",
+      "type": "object"
+    },
+    "Safety": {
+      "additionalProperties": false,
+      "description": "Typed safety block for instrument_profile_v1.",
+      "properties": {
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "Hard safety gate: AI may not auto-apply instrument profile patches.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        },
+        "require_offline_validation": {
+          "const": true,
+          "default": true,
+          "description": "Hard safety gate: offline validation is always required before promotion.",
+          "title": "Require Offline Validation",
+          "type": "boolean"
+        },
+        "max_belief_regimes": {
+          "description": "Maximum number of regimes kept in one belief snapshot.",
+          "maximum": 6,
+          "minimum": 1,
+          "title": "Max Belief Regimes",
+          "type": "integer"
+        },
+        "max_belief_hypotheses": {
+          "description": "Maximum number of hypotheses kept in one belief snapshot.",
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Belief Hypotheses",
+          "type": "integer"
+        },
+        "max_active_anchors": {
+          "description": "Maximum number of active anchors kept in one belief snapshot.",
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Active Anchors",
+          "type": "integer"
+        },
+        "minimum_bar_count_for_primary_features": {
+          "description": "Minimum bar count before primary bar-based features may dominate the slice.",
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Minimum Bar Count For Primary Features",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_belief_regimes",
+        "max_belief_hypotheses",
+        "max_active_anchors",
+        "minimum_bar_count_for_primary_features"
+      ],
+      "title": "Safety",
+      "type": "object"
+    },
+    "ShallowPullback": {
+      "additionalProperties": false,
+      "properties": {
+        "retrace_ratio_max": {
+          "description": "Maximum retrace ratio for a shallow pullback.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Retrace Ratio Max",
+          "type": "number"
+        }
+      },
+      "required": [
+        "retrace_ratio_max"
+      ],
+      "title": "ShallowPullback",
+      "type": "object"
+    },
+    "Thresholds": {
+      "additionalProperties": false,
+      "description": "Typed threshold block for instrument_profile_v1.",
+      "properties": {
+        "active_hypothesis_probability": {
+          "description": "Minimum posterior needed to keep a hypothesis active.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Active Hypothesis Probability",
+          "type": "number"
+        },
+        "building_hypothesis_probability": {
+          "description": "Posterior threshold for the building phase.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Building Hypothesis Probability",
+          "type": "number"
+        },
+        "confirming_hypothesis_probability": {
+          "description": "Posterior threshold for the confirming phase.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confirming Hypothesis Probability",
+          "type": "number"
+        },
+        "resolved_hypothesis_probability": {
+          "description": "Posterior threshold for resolved episodes.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Resolved Hypothesis Probability",
+          "type": "number"
+        },
+        "weakening_drop_threshold": {
+          "description": "Required posterior drop before a state is tagged weakening.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Weakening Drop Threshold",
+          "type": "number"
+        },
+        "momentum_efficiency_high": {
+          "description": "High-confidence efficiency marker for momentum.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Momentum Efficiency High",
+          "type": "number"
+        },
+        "balance_score_high": {
+          "description": "High-confidence balance marker.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Balance Score High",
+          "type": "number"
+        },
+        "compression_score_high": {
+          "description": "High-confidence compression marker.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Compression Score High",
+          "type": "number"
+        },
+        "absorption_score_high": {
+          "description": "High-confidence absorption marker.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Absorption Score High",
+          "type": "number"
+        },
+        "center_hit_ticks": {
+          "description": "Distance threshold used to treat price as back at balance center.",
+          "maximum": 64.0,
+          "minimum": 0.0,
+          "title": "Center Hit Ticks",
+          "type": "number"
+        },
+        "anchor_near_ticks": {
+          "description": "Anchor activation distance for localized confirmation logic.",
+          "maximum": 128.0,
+          "minimum": 0.0,
+          "title": "Anchor Near Ticks",
+          "type": "number"
+        },
+        "initiative_reacceleration_score": {
+          "description": "Threshold for reacceleration invalidation checks.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Initiative Reacceleration Score",
+          "type": "number"
+        },
+        "initiative_push": {
+          "$ref": "#/$defs/InitiativePush",
+          "description": "Boundaries for initiative push detection."
+        },
+        "shallow_pullback": {
+          "$ref": "#/$defs/ShallowPullback",
+          "description": "Boundaries for shallow pullback classification."
+        },
+        "deep_pullback": {
+          "$ref": "#/$defs/DeepPullback",
+          "description": "Boundaries for deep pullback classification."
+        },
+        "balance_return_penalty_trigger": {
+          "$ref": "#/$defs/BalanceReturnPenaltyTrigger",
+          "description": "Return-to-balance boundary used by continuation logic."
+        }
+      },
+      "required": [
+        "active_hypothesis_probability",
+        "building_hypothesis_probability",
+        "confirming_hypothesis_probability",
+        "resolved_hypothesis_probability",
+        "weakening_drop_threshold",
+        "momentum_efficiency_high",
+        "balance_score_high",
+        "compression_score_high",
+        "absorption_score_high",
+        "center_hit_ticks",
+        "anchor_near_ticks",
+        "initiative_reacceleration_score",
+        "initiative_push",
+        "shallow_pullback",
+        "deep_pullback",
+        "balance_return_penalty_trigger"
+      ],
+      "title": "Thresholds",
+      "type": "object"
+    },
+    "TimeWindows": {
+      "additionalProperties": false,
+      "description": "Typed time-window block for instrument_profile_v1.",
+      "properties": {
+        "feature_lookback_bars": {
+          "default": 20,
+          "description": "Historical bar lookback for feature assembly.",
+          "maximum": 200,
+          "minimum": 4,
+          "title": "Feature Lookback Bars",
+          "type": "integer"
+        },
+        "feature_lookback_minutes": {
+          "default": 60,
+          "description": "Historical minute lookback for feature assembly.",
+          "maximum": 480,
+          "minimum": 5,
+          "title": "Feature Lookback Minutes",
+          "type": "integer"
+        },
+        "momentum_continuation": {
+          "$ref": "#/$defs/MomentumContinuation",
+          "description": "Tempo windows for the momentum_continuation tradable event."
+        },
+        "balance_mean_reversion": {
+          "$ref": "#/$defs/EventWindow",
+          "description": "Tempo window for the balance_mean_reversion tradable event."
+        },
+        "absorption_to_reversal_preparation": {
+          "$ref": "#/$defs/EventWindow",
+          "description": "Tempo window for the absorption_to_reversal_preparation tradable event."
+        }
+      },
+      "required": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TimeWindows",
+      "type": "object"
+    },
+    "TradableEventKind": {
+      "description": "V1 tradable event ontology required by Master Spec v2.",
+      "enum": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TradableEventKind",
+      "type": "string"
+    },
+    "Weights": {
+      "additionalProperties": false,
+      "description": "Typed evidence-weight block for instrument_profile_v1.",
+      "properties": {
+        "bar_structure": {
+          "description": "Weight for bar-structure evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Bar Structure",
+          "type": "number"
+        },
+        "volatility_range": {
+          "description": "Weight for volatility/range evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Volatility Range",
+          "type": "number"
+        },
+        "trend_efficiency": {
+          "description": "Weight for trend-efficiency evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Trend Efficiency",
+          "type": "number"
+        },
+        "initiative": {
+          "description": "Weight for initiative evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Initiative",
+          "type": "number"
+        },
+        "balance": {
+          "description": "Weight for balance evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Balance",
+          "type": "number"
+        },
+        "absorption": {
+          "description": "Weight for absorption evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Absorption",
+          "type": "number"
+        },
+        "depth_dom": {
+          "description": "Weight for depth/DOM evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Depth Dom",
+          "type": "number"
+        },
+        "anchor_interaction": {
+          "description": "Weight for anchor-interaction evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Anchor Interaction",
+          "type": "number"
+        },
+        "path_dependency": {
+          "description": "Weight for path-dependency evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Path Dependency",
+          "type": "number"
+        }
+      },
+      "required": [
+        "bar_structure",
+        "volatility_range",
+        "trend_efficiency",
+        "initiative",
+        "balance",
+        "absorption",
+        "depth_dom",
+        "anchor_interaction",
+        "path_dependency"
+      ],
+      "title": "Weights",
+      "type": "object"
+    },
+    "WindowRange": {
+      "additionalProperties": false,
+      "description": "Bounded bar-count window for one event tempo profile.",
+      "properties": {
+        "bars_min": {
+          "description": "Minimum bars expected for this tempo bucket.",
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Bars Min",
+          "type": "integer"
+        },
+        "bars_max": {
+          "description": "Maximum bars expected for this tempo bucket.",
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Bars Max",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bars_min",
+        "bars_max"
+      ],
+      "title": "WindowRange",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Current profile/build metadata shown by replay workbench review panels.",
+  "properties": {
+    "schema_version": {
+      "description": "Schema version for this profile/build metadata response.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "query": {
+      "$ref": "#/$defs/ReplayProjectionQuery",
+      "description": "Filters used to resolve the active metadata."
+    },
+    "active_profile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InstrumentProfile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Currently active instrument profile when available."
+    },
+    "active_build": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RecognizerBuild"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Currently active recognizer build when available."
+    },
+    "latest_patch_candidate_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stored lifecycle status for the latest patch candidate when available.",
+      "title": "Latest Patch Candidate Status"
+    },
+    "latest_patch_candidate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProfilePatchCandidate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Most recent patch candidate for the instrument when available."
+    },
+    "latest_patch_validation_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProfilePatchValidationResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Latest validation result linked to the latest patch candidate when available."
+    }
+  },
+  "required": [
+    "schema_version",
+    "query"
+  ],
+  "title": "ReplayWorkbenchProfileEngineEnvelope",
+  "type": "object"
+}

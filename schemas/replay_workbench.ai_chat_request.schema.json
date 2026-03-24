@@ -1,5 +1,43 @@
 {
   "$defs": {
+    "ReplayAiChatAttachment": {
+      "description": "Optional image attachment sent with one replay-workbench AI chat request.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional attachment name shown in the UI.",
+          "title": "Name"
+        },
+        "media_type": {
+          "description": "Attachment MIME type.",
+          "examples": [
+            "image/png"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "data_url": {
+          "description": "Inline data URL used for lightweight pasted screenshots.",
+          "minLength": 16,
+          "title": "Data Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_type",
+        "data_url"
+      ],
+      "title": "ReplayAiChatAttachment",
+      "type": "object"
+    },
     "ReplayAiChatMessage": {
       "description": "Conversation turn shown in the replay workbench AI pane.",
       "properties": {
@@ -82,6 +120,14 @@
       "description": "Whether to merge the latest live adapter context into the discussion.",
       "title": "Include Live Context",
       "type": "boolean"
+    },
+    "attachments": {
+      "description": "Optional pasted screenshots or chart snippets attached to the question.",
+      "items": {
+        "$ref": "#/$defs/ReplayAiChatAttachment"
+      },
+      "title": "Attachments",
+      "type": "array"
     }
   },
   "required": [

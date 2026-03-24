@@ -115,8 +115,16 @@ python .\scripts\rebuild\run_replay_rebuild.py `
 
 ```powershell
 pytest `
-  tests/test_app.py `
+  tests/test_app_ingestion_routes.py `
+  tests/test_app_review_routes.py `
+  tests/test_app_workbench_routes.py `
+  tests/test_app_workbench_live_routes.py `
+  tests/test_app_workbench_backfill_routes.py `
   tests/test_ingestion_reliability.py `
+  tests/test_contract_schema_versions.py `
+  tests/test_contract_api_aliases.py `
+  tests/test_contract_degraded_modes.py `
+  tests/test_degraded_mode_acceptance.py `
   tests/test_recognition_pipeline.py `
   tests/test_episode_evaluation.py `
   tests/test_tuning_services.py `
@@ -125,6 +133,7 @@ pytest `
   tests/test_workbench_projection_api.py `
   tests/test_golden_replay_cases.py `
   tests/test_rebuild_runner.py `
+  tests/test_file_size_budget.py `
   tests/test_sample_validation.py `
   -q
 ```
@@ -183,6 +192,7 @@ CI workflow 在 `.github/workflows/acceptance-and-regression.yml`，固定执行
   - `src/atas_market_structure/sample_validation.py`
 - `python scripts/validate/validate_samples.py`
 - acceptance pytest suite
+- `python scripts/check_file_size_budget.py`
 
 这样可以把：
 

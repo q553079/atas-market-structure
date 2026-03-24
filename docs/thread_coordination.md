@@ -7,7 +7,7 @@ If this file changed since the last read, re-read it before continuing.
 
 - Do not modify the ATAS collector.
 - Do not modify replay or workbench routes.
-- Do not modify existing replay, AI, or adapter contracts in `src/atas_market_structure/models.py`.
+- Do not modify existing replay, AI, or adapter contracts in `src/atas_market_structure/models/`.
 - Do not directly change UI behavior logic.
 
 ## Current Work Split

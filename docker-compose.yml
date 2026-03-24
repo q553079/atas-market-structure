@@ -51,6 +51,7 @@ services:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ""
       CLICKHOUSE_DB: market_data
+      CLICKHOUSE_ENABLE_INGESTIONS: ${CLICKHOUSE_ENABLE_INGESTIONS:-false}
     depends_on:
       clickhouse:
         condition: service_healthy

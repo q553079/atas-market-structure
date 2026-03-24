@@ -28,7 +28,9 @@ Existing files reused:
 - `src/atas_market_structure/models/_replay.py`
 - `src/atas_market_structure/models/_enums.py`
 - `src/atas_market_structure/models/__init__.py`
-- `src/atas_market_structure/repository.py`
+- `src/atas_market_structure/repository_recognition.py`
+- `src/atas_market_structure/repository_evaluation_tuning.py`
+- `src/atas_market_structure/repository.py` (compatibility facade only)
 - `src/atas_market_structure/profile_services.py`
 - `src/atas_market_structure/recognition/pipeline.py`
 - `src/atas_market_structure/recognition/episode_closer.py`
@@ -218,6 +220,8 @@ Stored records continue to use the existing append-only repository path:
 
 - legacy table: `episode_evaluations`
 - storage blueprint table: `episode_evaluation`
+- focused repository ownership now lives in `repository_recognition.py` / `repository_evaluation_tuning.py`
+- `repository.py` remains import-compatible glue only and should not take new evaluation logic
 
 ## Sample Payloads
 
@@ -240,7 +244,8 @@ Recommended regressions after changing evaluation rules:
 - `python -m pytest tests/test_recognition_pipeline.py -q`
 - `python -m pytest tests/test_profile_services.py -q`
 - `python -m pytest tests/test_storage_blueprint_repository.py -q`
-- `python -m pytest tests/test_app.py -q`
+- `python -m pytest tests/test_app_review_routes.py -q`
+- `python -m pytest tests/test_workbench_projection_api.py -q`
 
 Covered behaviors:
 

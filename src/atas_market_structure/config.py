@@ -9,6 +9,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "market_structure.db"
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """Runtime configuration for the local REST service."""
@@ -32,6 +39,7 @@ class AppConfig:
     clickhouse_database: str = "market_data"
     clickhouse_chart_candles_table: str = "chart_candles"
     clickhouse_ingestions_table: str = "ingestions"
+    clickhouse_enable_ingestions: bool = False
     clickhouse_connect_retries: int = 5
     clickhouse_retry_delay_seconds: float = 1.5
 
@@ -62,6 +70,10 @@ class AppConfig:
             clickhouse_database=os.getenv("ATAS_MS_CLICKHOUSE_DATABASE", os.getenv("CLICKHOUSE_DB", "market_data")),
             clickhouse_chart_candles_table=os.getenv("ATAS_MS_CLICKHOUSE_CHART_CANDLES_TABLE", "chart_candles"),
             clickhouse_ingestions_table=os.getenv("ATAS_MS_CLICKHOUSE_INGESTIONS_TABLE", "ingestions"),
+            clickhouse_enable_ingestions=_env_bool(
+                "ATAS_MS_CLICKHOUSE_ENABLE_INGESTIONS",
+                default=_env_bool("CLICKHOUSE_ENABLE_INGESTIONS", default=False),
+            ),
             clickhouse_connect_retries=int(
                 os.getenv("ATAS_MS_CLICKHOUSE_CONNECT_RETRIES", os.getenv("CLICKHOUSE_CONNECT_RETRIES", "5"))
             ),

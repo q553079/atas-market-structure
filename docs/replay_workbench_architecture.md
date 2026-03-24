@@ -97,7 +97,7 @@ It should consume a structured historical window containing:
 
 This packet is now represented by:
 
-- [ReplayWorkbenchSnapshotPayload](D:/docker/atas-market-structure/src/atas_market_structure/models.py)
+- [ReplayWorkbenchSnapshotPayload](D:/docker/atas-market-structure/src/atas_market_structure/models/_replay.py)
 
 The packet now carries explicit cache policy and verification state so the UI and later AI review can distinguish:
 
@@ -210,9 +210,12 @@ The backend now has a dedicated storage contract and endpoint for replay packets
 
 Relevant files:
 
-- [workbench_services.py](D:/docker/atas-market-structure/src/atas_market_structure/workbench_services.py)
-- [models.py](D:/docker/atas-market-structure/src/atas_market_structure/models.py)
-- [repository.py](D:/docker/atas-market-structure/src/atas_market_structure/repository.py)
+- [workbench_replay_service.py](D:/docker/atas-market-structure/src/atas_market_structure/workbench_replay_service.py)
+- [models/_replay.py](D:/docker/atas-market-structure/src/atas_market_structure/models/_replay.py)
+- [repository_raw_ingestion.py](D:/docker/atas-market-structure/src/atas_market_structure/repository_raw_ingestion.py)
+- [repository_projection.py](D:/docker/atas-market-structure/src/atas_market_structure/repository_projection.py)
+- [workbench_services.py](D:/docker/atas-market-structure/src/atas_market_structure/workbench_services.py) compatibility facade only
+- [repository.py](D:/docker/atas-market-structure/src/atas_market_structure/repository.py) compatibility facade only
 - [replay_workbench.snapshot.sample.json](D:/docker/atas-market-structure/samples/replay_workbench.snapshot.sample.json)
 
 Additional runtime APIs:

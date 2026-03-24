@@ -1,0 +1,39 @@
+{
+  "episode_id": "ep-momentum_continuation-1000",
+  "instrument_symbol": "NQ",
+  "event_kind": "momentum_continuation",
+  "hypothesis_kind": "continuation_base",
+  "phase": "resolved",
+  "resolution": "confirmed",
+  "started_at": "2026-03-23T10:00:00Z",
+  "ended_at": "2026-03-23T10:03:00Z",
+  "peak_probability": 0.8,
+  "dominant_regime": "weak_momentum_trend_narrow",
+  "supporting_evidence": [
+    "trend_efficiency",
+    "initiative_push"
+  ],
+  "invalidating_evidence": [],
+  "key_evidence_summary": [
+    "trend_efficiency",
+    "initiative_push"
+  ],
+  "active_anchor_ids": [
+    "anc-balance"
+  ],
+  "replacement_episode_id": null,
+  "replacement_event_kind": null,
+  "schema_version": "event_episode_v1",
+  "profile_version": "nq-profile-test",
+  "engine_version": "recognizer-test",
+  "data_status": {
+    "data_freshness_ms": 0,
+    "feature_completeness": 1.0,
+    "depth_available": true,
+    "dom_available": true,
+    "ai_available": false,
+    "degraded_modes": [],
+    "freshness": "fresh",
+    "completeness": "complete"
+  }
+}

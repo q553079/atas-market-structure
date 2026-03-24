@@ -93,9 +93,10 @@ def _extract_ingestion_metadata(observed_payload: dict[str, Any]) -> dict[str, A
 class ClickHouseChartCandleRepository:
     """ClickHouse-backed store for market-data tables used by the replay UI.
 
-    This repository handles both pre-aggregated chart candles and high-volume
-    adapter/replay ingestions. Low-frequency collaborative metadata can stay in
-    SQLite while market data is cut over to ClickHouse.
+    This repository is primarily optimized for chart reads and tick-derived
+    candle aggregation. The optional ingestion mirror can be enabled for
+    backfills or analytics, but it is intentionally decoupled from the main
+    chart path so auxiliary ingestion tables cannot take down K-line queries.
     """
 
     def __init__(
@@ -109,6 +110,7 @@ class ClickHouseChartCandleRepository:
         table: str,
         workspace_root: Path,
         ingestions_table: str = "ingestions",
+        manage_ingestion_tables: bool = True,
         connect_retries: int = 5,
         retry_delay_seconds: float = 1.5,
     ) -> None:
@@ -119,11 +121,13 @@ class ClickHouseChartCandleRepository:
         self._database = database
         self._chart_candles_table = table
         self._ingestions_table = ingestions_table
+        self._manage_ingestion_tables = manage_ingestion_tables
         self._workspace_root = workspace_root
         self._connect_retries = max(1, connect_retries)
         self._retry_delay_seconds = max(0.0, retry_delay_seconds)
         self._lock = threading.Lock()
         self._client: Client | None = None
+        self._optional_feature_warnings_emitted: set[str] = set()
 
     @property
     def workspace_root(self) -> Path:
@@ -132,7 +136,6 @@ class ClickHouseChartCandleRepository:
     def initialize(self) -> None:
         database_name = _quote_identifier(self._database)
         chart_candles_table_name = _quote_identifier(f"{self._database}.{self._chart_candles_table}")
-        ingestions_table_name = _quote_identifier(f"{self._database}.{self._ingestions_table}")
         self._execute(lambda client: client.command(f"CREATE DATABASE IF NOT EXISTS {database_name}"))
         self._execute(
             lambda client: client.command(
@@ -160,31 +163,47 @@ class ClickHouseChartCandleRepository:
                 """
             )
         )
-        self._execute(
-            lambda client: client.command(
-                f"""
-                CREATE TABLE IF NOT EXISTS {ingestions_table_name}
-                (
-                    ingestion_id String,
-                    ingestion_kind LowCardinality(String),
-                    source_snapshot_id String,
-                    instrument_symbol LowCardinality(String),
-                    chart_instance_id Nullable(String),
-                    message_id Nullable(String),
-                    message_type Nullable(String),
-                    observed_window_start Nullable(DateTime64(3, 'UTC')),
-                    observed_window_end Nullable(DateTime64(3, 'UTC')),
-                    emitted_at Nullable(DateTime64(3, 'UTC')),
-                    observed_payload_json String,
-                    stored_at DateTime64(3, 'UTC'),
-                    version_at DateTime64(3, 'UTC')
+        if self._manage_ingestion_tables:
+            ingestions_table_name = _quote_identifier(f"{self._database}.{self._ingestions_table}")
+            self._execute(
+                lambda client: client.command(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {ingestions_table_name}
+                    (
+                        ingestion_id String,
+                        ingestion_kind LowCardinality(String),
+                        source_snapshot_id String,
+                        instrument_symbol LowCardinality(String),
+                        chart_instance_id Nullable(String),
+                        message_id Nullable(String),
+                        message_type Nullable(String),
+                        observed_window_start Nullable(DateTime64(3, 'UTC')),
+                        observed_window_end Nullable(DateTime64(3, 'UTC')),
+                        emitted_at Nullable(DateTime64(3, 'UTC')),
+                        observed_payload_json String,
+                        stored_at DateTime64(3, 'UTC'),
+                        version_at DateTime64(3, 'UTC')
+                    )
+                    ENGINE = ReplacingMergeTree(version_at)
+                    PARTITION BY (ingestion_kind, toYYYYMM(stored_at))
+                    ORDER BY (ingestion_kind, instrument_symbol, source_snapshot_id, stored_at, ingestion_id)
+                    """
                 )
-                ENGINE = ReplacingMergeTree(version_at)
-                PARTITION BY (ingestion_kind, toYYYYMM(stored_at))
-                ORDER BY (ingestion_kind, instrument_symbol, source_snapshot_id, stored_at, ingestion_id)
-                """
             )
+
+    def _require_ingestion_tables_enabled(self) -> None:
+        if self._manage_ingestion_tables:
+            return
+        raise RuntimeError(
+            "ClickHouse ingestion tables are disabled for this repository instance. "
+            "Use SQLite for authoritative ingestions or enable ATAS_MS_CLICKHOUSE_ENABLE_INGESTIONS."
         )
+
+    def _log_optional_feature_unavailable_once(self, key: str, message: str) -> None:
+        if key in self._optional_feature_warnings_emitted:
+            return
+        self._optional_feature_warnings_emitted.add(key)
+        LOGGER.warning(message)
 
     # --- Chart candles -------------------------------------------------
 
@@ -402,7 +421,14 @@ class ClickHouseChartCandleRepository:
         ORDER BY bucket_start ASC
         LIMIT {int(limit)}
         """
-        result = self._execute(lambda client: client.query(query))
+        try:
+            result = self._execute(lambda client: client.query(query))
+        except Exception as exc:
+            self._log_optional_feature_unavailable_once(
+                "continuous_state_candles",
+                f"ClickHouse continuous-state candles are unavailable; returning an empty result. error={exc}",
+            )
+            return []
         return [
             {
                 "started_at": _normalize_utc(row[0]),
@@ -454,7 +480,14 @@ class ClickHouseChartCandleRepository:
         ORDER BY bucket_start ASC
         LIMIT {int(limit)}
         """
-        result = self._execute(lambda client: client.query(query))
+        try:
+            result = self._execute(lambda client: client.query(query))
+        except Exception as exc:
+            self._log_optional_feature_unavailable_once(
+                "continuous_state_events",
+                f"ClickHouse continuous-state events are unavailable; returning an empty result. error={exc}",
+            )
+            return []
         return [
             {
                 "bucket_start": _normalize_utc(row[0]),
@@ -541,6 +574,7 @@ class ClickHouseChartCandleRepository:
     # --- Ingestions ----------------------------------------------------
 
     def save_ingestions(self, ingestions: list[StoredIngestion]) -> int:
+        self._require_ingestion_tables_enabled()
         if not ingestions:
             return 0
 
@@ -579,6 +613,7 @@ class ClickHouseChartCandleRepository:
         observed_payload: dict[str, Any],
         stored_at: datetime,
     ) -> StoredIngestion:
+        self._require_ingestion_tables_enabled()
         stored_at_utc = _normalize_utc(stored_at)
         self.save_ingestions(
             [
@@ -602,6 +637,7 @@ class ClickHouseChartCandleRepository:
         )
 
     def get_ingestion(self, ingestion_id: str) -> StoredIngestion | None:
+        self._require_ingestion_tables_enabled()
         query = f"""
         SELECT
             ingestion_id,
@@ -626,6 +662,7 @@ class ClickHouseChartCandleRepository:
         ingestion_id: str,
         observed_payload: dict[str, Any],
     ) -> StoredIngestion | None:
+        self._require_ingestion_tables_enabled()
         existing = self.get_ingestion(ingestion_id)
         if existing is None:
             return None
@@ -662,6 +699,7 @@ class ClickHouseChartCandleRepository:
         stored_at_after: datetime | None = None,
         stored_at_before: datetime | None = None,
     ) -> list[StoredIngestion]:
+        self._require_ingestion_tables_enabled()
         return self._list_ingestions_page(
             ingestion_kind=ingestion_kind,
             instrument_symbol=instrument_symbol,
@@ -683,6 +721,7 @@ class ClickHouseChartCandleRepository:
     ):
         """Yield ingestion rows in stable descending pages for large replay scans."""
 
+        self._require_ingestion_tables_enabled()
         safe_page_size = max(1, int(page_size))
         cursor_stored_at: datetime | None = None
         cursor_ingestion_id: str | None = None
@@ -771,6 +810,7 @@ class ClickHouseChartCandleRepository:
         instrument_symbol: str | None,
         cutoff: datetime,
     ) -> int:
+        self._require_ingestion_tables_enabled()
         if not ingestion_kinds:
             return 0
 

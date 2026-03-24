@@ -69,6 +69,7 @@ def build_repository(config: AppConfig) -> AnalysisRepository:
         )
         return sqlite_repository
 
+    use_clickhouse_ingestions = config.clickhouse_enable_ingestions
     market_data_repository = ClickHouseChartCandleRepository(
         host=config.clickhouse_host,
         port=config.clickhouse_port,
@@ -78,20 +79,22 @@ def build_repository(config: AppConfig) -> AnalysisRepository:
         table=config.clickhouse_chart_candles_table,
         workspace_root=sqlite_repository.workspace_root,
         ingestions_table=config.clickhouse_ingestions_table,
+        manage_ingestion_tables=use_clickhouse_ingestions,
         connect_retries=config.clickhouse_connect_retries,
         retry_delay_seconds=config.clickhouse_retry_delay_seconds,
     )
     LOGGER.info(
-        "build_repository: using hybrid storage mode (sqlite=%s clickhouse=%s:%s db=%s).",
+        "build_repository: using hybrid storage mode (sqlite=%s clickhouse=%s:%s db=%s clickhouse_ingestions=%s).",
         str(config.database_path.resolve()),
         config.clickhouse_host,
         config.clickhouse_port,
         config.clickhouse_database,
+        "enabled" if use_clickhouse_ingestions else "disabled",
     )
     return HybridAnalysisRepository(
         metadata_repository=sqlite_repository,
         chart_candle_repository=market_data_repository,
-        ingestion_repository=market_data_repository,
+        ingestion_repository=(market_data_repository if use_clickhouse_ingestions else sqlite_repository),
     )
 
 

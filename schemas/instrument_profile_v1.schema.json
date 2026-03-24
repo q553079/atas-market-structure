@@ -1,98 +1,509 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "instrument_profile_v1.schema.json",
-  "title": "instrument_profile_v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "instrument",
-    "profile_version",
-    "schema_version",
-    "ontology_version",
-    "normalization",
-    "time_windows",
-    "thresholds",
-    "weights",
-    "decay",
-    "priors",
-    "safety",
-    "created_at"
-  ],
-  "properties": {
-    "instrument": {
-      "type": "string",
-      "minLength": 1
-    },
-    "profile_version": {
-      "type": "string",
-      "minLength": 1
-    },
-    "schema_version": {
-      "type": "string",
-      "const": "1.0.0"
-    },
-    "ontology_version": {
-      "type": "string",
-      "minLength": 1
-    },
-    "is_active": {
-      "type": "boolean"
-    },
-    "created_at": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "normalization": {
-      "type": "object",
+  "$defs": {
+    "BalanceReturnPenaltyTrigger": {
       "additionalProperties": false,
+      "properties": {
+        "distance_to_balance_ticks": {
+          "description": "Distance threshold used to mark a return toward prior balance.",
+          "maximum": 64.0,
+          "minimum": 0.0,
+          "title": "Distance To Balance Ticks",
+          "type": "number"
+        }
+      },
       "required": [
-        "price_unit",
+        "distance_to_balance_ticks"
+      ],
+      "title": "BalanceReturnPenaltyTrigger",
+      "type": "object"
+    },
+    "Decay": {
+      "additionalProperties": false,
+      "description": "Typed decay block for instrument_profile_v1.",
+      "properties": {
+        "stale_macro_penalty": {
+          "description": "Penalty factor applied when macro/process context is stale.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Stale Macro Penalty",
+          "type": "number"
+        },
+        "missing_depth_penalty": {
+          "description": "Penalty factor applied when depth is missing.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Missing Depth Penalty",
+          "type": "number"
+        },
+        "missing_dom_penalty": {
+          "description": "Penalty factor applied when DOM is missing.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Missing Dom Penalty",
+          "type": "number"
+        },
+        "anchor_freshness_hours": {
+          "description": "Maximum freshness horizon for active anchors.",
+          "maximum": 720,
+          "minimum": 1,
+          "title": "Anchor Freshness Hours",
+          "type": "integer"
+        },
+        "balance_center_half_life_bars": {
+          "description": "Half-life for balance-center anchors.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Balance Center Half Life Bars",
+          "type": "integer"
+        },
+        "gap_edge_half_life_bars": {
+          "description": "Half-life for gap-edge anchors.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Gap Edge Half Life Bars",
+          "type": "integer"
+        },
+        "initiative_origin_half_life_bars": {
+          "description": "Half-life for initiative-origin anchors.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Initiative Origin Half Life Bars",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stale_macro_penalty",
+        "missing_depth_penalty",
+        "missing_dom_penalty",
+        "anchor_freshness_hours",
+        "balance_center_half_life_bars",
+        "gap_edge_half_life_bars",
+        "initiative_origin_half_life_bars"
+      ],
+      "title": "Decay",
+      "type": "object"
+    },
+    "DeepPullback": {
+      "additionalProperties": false,
+      "properties": {
+        "retrace_ratio_min": {
+          "description": "Minimum retrace ratio for a deep pullback.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Retrace Ratio Min",
+          "type": "number"
+        }
+      },
+      "required": [
+        "retrace_ratio_min"
+      ],
+      "title": "DeepPullback",
+      "type": "object"
+    },
+    "EventWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "normal": {
+          "$ref": "#/$defs/WindowRange",
+          "description": "Primary tempo window for the mapped tradable event."
+        }
+      },
+      "required": [
+        "normal"
+      ],
+      "title": "EventWindow",
+      "type": "object"
+    },
+    "Hypotheses": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation_base": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Continuation Base",
+          "type": "number"
+        },
+        "distribution_balance": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Distribution Balance",
+          "type": "number"
+        },
+        "absorption_accumulation": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Absorption Accumulation",
+          "type": "number"
+        },
+        "reversal_preparation": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Reversal Preparation",
+          "type": "number"
+        }
+      },
+      "required": [
+        "continuation_base",
+        "distribution_balance",
+        "absorption_accumulation",
+        "reversal_preparation"
+      ],
+      "title": "Hypotheses",
+      "type": "object"
+    },
+    "InitiativePush": {
+      "additionalProperties": false,
+      "properties": {
+        "displacement_zscore": {
+          "description": "Normalized displacement threshold for initiative pushes.",
+          "maximum": 5.0,
+          "minimum": 0.0,
+          "title": "Displacement Zscore",
+          "type": "number"
+        },
+        "efficiency_min": {
+          "description": "Minimum efficiency needed to treat a push as initiative.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Efficiency Min",
+          "type": "number"
+        }
+      },
+      "required": [
+        "displacement_zscore",
+        "efficiency_min"
+      ],
+      "title": "InitiativePush",
+      "type": "object"
+    },
+    "MomentumContinuation": {
+      "additionalProperties": false,
+      "properties": {
+        "strong": {
+          "$ref": "#/$defs/WindowRange",
+          "description": "Expected tempo for strong momentum continuation sequences."
+        },
+        "normal": {
+          "$ref": "#/$defs/WindowRange",
+          "description": "Expected tempo for regular momentum continuation sequences."
+        }
+      },
+      "required": [
+        "strong",
+        "normal"
+      ],
+      "title": "MomentumContinuation",
+      "type": "object"
+    },
+    "Normalization": {
+      "additionalProperties": false,
+      "description": "Typed normalization block for instrument_profile_v1.",
+      "properties": {
+        "price_unit": {
+          "const": "ticks",
+          "default": "ticks",
+          "description": "Price normalization unit for V1 profiles.",
+          "title": "Price Unit",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Native instrument tick size.",
+          "exclusiveMinimum": 0.0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "atr_window_bars": {
+          "default": 20,
+          "description": "ATR lookback used by normalized movement helpers.",
+          "maximum": 200,
+          "minimum": 2,
+          "title": "Atr Window Bars",
+          "type": "integer"
+        },
+        "displacement_normalizer": {
+          "const": "atr_fraction",
+          "default": "atr_fraction",
+          "description": "Fixed displacement normalization mode for V1.",
+          "title": "Displacement Normalizer",
+          "type": "string"
+        },
+        "volume_normalizer": {
+          "const": "rolling_quantile",
+          "default": "rolling_quantile",
+          "description": "Fixed volume normalization mode for V1.",
+          "title": "Volume Normalizer",
+          "type": "string"
+        },
+        "range_ticks_reference": {
+          "description": "Reference range in ticks for compact scaling heuristics.",
+          "exclusiveMinimum": 0.0,
+          "title": "Range Ticks Reference",
+          "type": "number"
+        },
+        "anchor_active_distance_ticks": {
+          "description": "Distance in ticks below which anchors stay operationally relevant.",
+          "exclusiveMinimum": 0.0,
+          "title": "Anchor Active Distance Ticks",
+          "type": "number"
+        }
+      },
+      "required": [
         "tick_size",
-        "atr_window_bars",
-        "displacement_normalizer",
-        "volume_normalizer",
         "range_ticks_reference",
         "anchor_active_distance_ticks"
       ],
-      "properties": {
-        "price_unit": { "const": "ticks" },
-        "tick_size": { "type": "number", "exclusiveMinimum": 0 },
-        "atr_window_bars": { "type": "integer", "minimum": 2, "maximum": 200 },
-        "displacement_normalizer": { "const": "atr_fraction" },
-        "volume_normalizer": { "const": "rolling_quantile" },
-        "range_ticks_reference": { "type": "number", "exclusiveMinimum": 0 },
-        "anchor_active_distance_ticks": { "type": "number", "exclusiveMinimum": 0 }
-      }
+      "title": "Normalization",
+      "type": "object"
     },
-    "time_windows": {
-      "type": "object",
+    "Priors": {
       "additionalProperties": false,
-      "required": [
-        "feature_lookback_bars",
-        "feature_lookback_minutes",
-        "momentum_continuation",
-        "balance_mean_reversion",
-        "absorption_to_reversal_preparation"
-      ],
+      "description": "Typed prior block for instrument_profile_v1.",
       "properties": {
-        "feature_lookback_bars": { "type": "integer", "minimum": 4, "maximum": 200 },
-        "feature_lookback_minutes": { "type": "integer", "minimum": 5, "maximum": 480 },
-        "momentum_continuation": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["strong", "normal"],
-          "properties": {
-            "strong": { "$ref": "#/$defs/window_range" },
-            "normal": { "$ref": "#/$defs/window_range" }
-          }
+        "regimes": {
+          "$ref": "#/$defs/Regimes",
+          "description": "Priors for the fixed regime ontology."
         },
-        "balance_mean_reversion": { "$ref": "#/$defs/event_window" },
-        "absorption_to_reversal_preparation": { "$ref": "#/$defs/event_window" }
-      }
+        "hypotheses": {
+          "$ref": "#/$defs/Hypotheses",
+          "description": "Priors for the V1 hypothesis subset used by the deterministic recognizer."
+        }
+      },
+      "required": [
+        "regimes",
+        "hypotheses"
+      ],
+      "title": "Priors",
+      "type": "object"
     },
-    "thresholds": {
-      "type": "object",
+    "Regimes": {
       "additionalProperties": false,
+      "properties": {
+        "strong_momentum_trend": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Strong Momentum Trend",
+          "type": "number"
+        },
+        "weak_momentum_trend_narrow": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Weak Momentum Trend Narrow",
+          "type": "number"
+        },
+        "weak_momentum_trend_wide": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Weak Momentum Trend Wide",
+          "type": "number"
+        },
+        "balance_mean_reversion": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Balance Mean Reversion",
+          "type": "number"
+        },
+        "compression": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Compression",
+          "type": "number"
+        },
+        "transition_exhaustion": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Transition Exhaustion",
+          "type": "number"
+        }
+      },
+      "required": [
+        "strong_momentum_trend",
+        "weak_momentum_trend_narrow",
+        "weak_momentum_trend_wide",
+        "balance_mean_reversion",
+        "compression",
+        "transition_exhaustion"
+      ],
+      "title": "Regimes",
+      "type": "object"
+    },
+    "Safety": {
+      "additionalProperties": false,
+      "description": "Typed safety block for instrument_profile_v1.",
+      "properties": {
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "Hard safety gate: AI may not auto-apply instrument profile patches.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        },
+        "require_offline_validation": {
+          "const": true,
+          "default": true,
+          "description": "Hard safety gate: offline validation is always required before promotion.",
+          "title": "Require Offline Validation",
+          "type": "boolean"
+        },
+        "max_belief_regimes": {
+          "description": "Maximum number of regimes kept in one belief snapshot.",
+          "maximum": 6,
+          "minimum": 1,
+          "title": "Max Belief Regimes",
+          "type": "integer"
+        },
+        "max_belief_hypotheses": {
+          "description": "Maximum number of hypotheses kept in one belief snapshot.",
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Belief Hypotheses",
+          "type": "integer"
+        },
+        "max_active_anchors": {
+          "description": "Maximum number of active anchors kept in one belief snapshot.",
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Active Anchors",
+          "type": "integer"
+        },
+        "minimum_bar_count_for_primary_features": {
+          "description": "Minimum bar count before primary bar-based features may dominate the slice.",
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Minimum Bar Count For Primary Features",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_belief_regimes",
+        "max_belief_hypotheses",
+        "max_active_anchors",
+        "minimum_bar_count_for_primary_features"
+      ],
+      "title": "Safety",
+      "type": "object"
+    },
+    "ShallowPullback": {
+      "additionalProperties": false,
+      "properties": {
+        "retrace_ratio_max": {
+          "description": "Maximum retrace ratio for a shallow pullback.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Retrace Ratio Max",
+          "type": "number"
+        }
+      },
+      "required": [
+        "retrace_ratio_max"
+      ],
+      "title": "ShallowPullback",
+      "type": "object"
+    },
+    "Thresholds": {
+      "additionalProperties": false,
+      "description": "Typed threshold block for instrument_profile_v1.",
+      "properties": {
+        "active_hypothesis_probability": {
+          "description": "Minimum posterior needed to keep a hypothesis active.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Active Hypothesis Probability",
+          "type": "number"
+        },
+        "building_hypothesis_probability": {
+          "description": "Posterior threshold for the building phase.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Building Hypothesis Probability",
+          "type": "number"
+        },
+        "confirming_hypothesis_probability": {
+          "description": "Posterior threshold for the confirming phase.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confirming Hypothesis Probability",
+          "type": "number"
+        },
+        "resolved_hypothesis_probability": {
+          "description": "Posterior threshold for resolved episodes.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Resolved Hypothesis Probability",
+          "type": "number"
+        },
+        "weakening_drop_threshold": {
+          "description": "Required posterior drop before a state is tagged weakening.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Weakening Drop Threshold",
+          "type": "number"
+        },
+        "momentum_efficiency_high": {
+          "description": "High-confidence efficiency marker for momentum.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Momentum Efficiency High",
+          "type": "number"
+        },
+        "balance_score_high": {
+          "description": "High-confidence balance marker.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Balance Score High",
+          "type": "number"
+        },
+        "compression_score_high": {
+          "description": "High-confidence compression marker.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Compression Score High",
+          "type": "number"
+        },
+        "absorption_score_high": {
+          "description": "High-confidence absorption marker.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Absorption Score High",
+          "type": "number"
+        },
+        "center_hit_ticks": {
+          "description": "Distance threshold used to treat price as back at balance center.",
+          "maximum": 64.0,
+          "minimum": 0.0,
+          "title": "Center Hit Ticks",
+          "type": "number"
+        },
+        "anchor_near_ticks": {
+          "description": "Anchor activation distance for localized confirmation logic.",
+          "maximum": 128.0,
+          "minimum": 0.0,
+          "title": "Anchor Near Ticks",
+          "type": "number"
+        },
+        "initiative_reacceleration_score": {
+          "description": "Threshold for reacceleration invalidation checks.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Initiative Reacceleration Score",
+          "type": "number"
+        },
+        "initiative_push": {
+          "$ref": "#/$defs/InitiativePush",
+          "description": "Boundaries for initiative push detection."
+        },
+        "shallow_pullback": {
+          "$ref": "#/$defs/ShallowPullback",
+          "description": "Boundaries for shallow pullback classification."
+        },
+        "deep_pullback": {
+          "$ref": "#/$defs/DeepPullback",
+          "description": "Boundaries for deep pullback classification."
+        },
+        "balance_return_penalty_trigger": {
+          "$ref": "#/$defs/BalanceReturnPenaltyTrigger",
+          "description": "Return-to-balance boundary used by continuation logic."
+        }
+      },
       "required": [
         "active_hypothesis_probability",
         "building_hypothesis_probability",
@@ -111,57 +522,118 @@
         "deep_pullback",
         "balance_return_penalty_trigger"
       ],
-      "properties": {
-        "active_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
-        "building_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
-        "confirming_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
-        "resolved_hypothesis_probability": { "type": "number", "minimum": 0, "maximum": 1 },
-        "weakening_drop_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
-        "momentum_efficiency_high": { "type": "number", "minimum": 0, "maximum": 1 },
-        "balance_score_high": { "type": "number", "minimum": 0, "maximum": 1 },
-        "compression_score_high": { "type": "number", "minimum": 0, "maximum": 1 },
-        "absorption_score_high": { "type": "number", "minimum": 0, "maximum": 1 },
-        "center_hit_ticks": { "type": "number", "minimum": 0, "maximum": 64 },
-        "anchor_near_ticks": { "type": "number", "minimum": 0, "maximum": 128 },
-        "initiative_reacceleration_score": { "type": "number", "minimum": 0, "maximum": 1 },
-        "initiative_push": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["displacement_zscore", "efficiency_min"],
-          "properties": {
-            "displacement_zscore": { "type": "number", "minimum": 0, "maximum": 5 },
-            "efficiency_min": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
-        },
-        "shallow_pullback": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["retrace_ratio_max"],
-          "properties": {
-            "retrace_ratio_max": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
-        },
-        "deep_pullback": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["retrace_ratio_min"],
-          "properties": {
-            "retrace_ratio_min": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
-        },
-        "balance_return_penalty_trigger": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["distance_to_balance_ticks"],
-          "properties": {
-            "distance_to_balance_ticks": { "type": "number", "minimum": 0, "maximum": 64 }
-          }
-        }
-      }
+      "title": "Thresholds",
+      "type": "object"
     },
-    "weights": {
-      "type": "object",
+    "TimeWindows": {
       "additionalProperties": false,
+      "description": "Typed time-window block for instrument_profile_v1.",
+      "properties": {
+        "feature_lookback_bars": {
+          "default": 20,
+          "description": "Historical bar lookback for feature assembly.",
+          "maximum": 200,
+          "minimum": 4,
+          "title": "Feature Lookback Bars",
+          "type": "integer"
+        },
+        "feature_lookback_minutes": {
+          "default": 60,
+          "description": "Historical minute lookback for feature assembly.",
+          "maximum": 480,
+          "minimum": 5,
+          "title": "Feature Lookback Minutes",
+          "type": "integer"
+        },
+        "momentum_continuation": {
+          "$ref": "#/$defs/MomentumContinuation",
+          "description": "Tempo windows for the momentum_continuation tradable event."
+        },
+        "balance_mean_reversion": {
+          "$ref": "#/$defs/EventWindow",
+          "description": "Tempo window for the balance_mean_reversion tradable event."
+        },
+        "absorption_to_reversal_preparation": {
+          "$ref": "#/$defs/EventWindow",
+          "description": "Tempo window for the absorption_to_reversal_preparation tradable event."
+        }
+      },
+      "required": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TimeWindows",
+      "type": "object"
+    },
+    "Weights": {
+      "additionalProperties": false,
+      "description": "Typed evidence-weight block for instrument_profile_v1.",
+      "properties": {
+        "bar_structure": {
+          "description": "Weight for bar-structure evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Bar Structure",
+          "type": "number"
+        },
+        "volatility_range": {
+          "description": "Weight for volatility/range evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Volatility Range",
+          "type": "number"
+        },
+        "trend_efficiency": {
+          "description": "Weight for trend-efficiency evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Trend Efficiency",
+          "type": "number"
+        },
+        "initiative": {
+          "description": "Weight for initiative evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Initiative",
+          "type": "number"
+        },
+        "balance": {
+          "description": "Weight for balance evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Balance",
+          "type": "number"
+        },
+        "absorption": {
+          "description": "Weight for absorption evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Absorption",
+          "type": "number"
+        },
+        "depth_dom": {
+          "description": "Weight for depth/DOM evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Depth Dom",
+          "type": "number"
+        },
+        "anchor_interaction": {
+          "description": "Weight for anchor-interaction evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Anchor Interaction",
+          "type": "number"
+        },
+        "path_dependency": {
+          "description": "Weight for path-dependency evidence.",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Path Dependency",
+          "type": "number"
+        }
+      },
       "required": [
         "bar_structure",
         "volatility_range",
@@ -173,121 +645,114 @@
         "anchor_interaction",
         "path_dependency"
       ],
-      "properties": {
-        "bar_structure": { "type": "number", "minimum": 0, "maximum": 2 },
-        "volatility_range": { "type": "number", "minimum": 0, "maximum": 2 },
-        "trend_efficiency": { "type": "number", "minimum": 0, "maximum": 2 },
-        "initiative": { "type": "number", "minimum": 0, "maximum": 2 },
-        "balance": { "type": "number", "minimum": 0, "maximum": 2 },
-        "absorption": { "type": "number", "minimum": 0, "maximum": 2 },
-        "depth_dom": { "type": "number", "minimum": 0, "maximum": 2 },
-        "anchor_interaction": { "type": "number", "minimum": 0, "maximum": 2 },
-        "path_dependency": { "type": "number", "minimum": 0, "maximum": 2 }
-      }
+      "title": "Weights",
+      "type": "object"
     },
-    "decay": {
-      "type": "object",
+    "WindowRange": {
       "additionalProperties": false,
-      "required": [
-        "stale_macro_penalty",
-        "missing_depth_penalty",
-        "missing_dom_penalty",
-        "anchor_freshness_hours",
-        "balance_center_half_life_bars",
-        "gap_edge_half_life_bars",
-        "initiative_origin_half_life_bars"
-      ],
+      "description": "Bounded bar-count window for one event tempo profile.",
       "properties": {
-        "stale_macro_penalty": { "type": "number", "minimum": 0, "maximum": 1 },
-        "missing_depth_penalty": { "type": "number", "minimum": 0, "maximum": 1 },
-        "missing_dom_penalty": { "type": "number", "minimum": 0, "maximum": 1 },
-        "anchor_freshness_hours": { "type": "integer", "minimum": 1, "maximum": 720 },
-        "balance_center_half_life_bars": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "gap_edge_half_life_bars": { "type": "integer", "minimum": 1, "maximum": 1000 },
-        "initiative_origin_half_life_bars": { "type": "integer", "minimum": 1, "maximum": 1000 }
-      }
-    },
-    "priors": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["regimes", "hypotheses"],
-      "properties": {
-        "regimes": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "strong_momentum_trend",
-            "weak_momentum_trend_narrow",
-            "weak_momentum_trend_wide",
-            "balance_mean_reversion",
-            "compression",
-            "transition_exhaustion"
-          ],
-          "properties": {
-            "strong_momentum_trend": { "type": "number", "minimum": 0, "maximum": 1 },
-            "weak_momentum_trend_narrow": { "type": "number", "minimum": 0, "maximum": 1 },
-            "weak_momentum_trend_wide": { "type": "number", "minimum": 0, "maximum": 1 },
-            "balance_mean_reversion": { "type": "number", "minimum": 0, "maximum": 1 },
-            "compression": { "type": "number", "minimum": 0, "maximum": 1 },
-            "transition_exhaustion": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
+        "bars_min": {
+          "description": "Minimum bars expected for this tempo bucket.",
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Bars Min",
+          "type": "integer"
         },
-        "hypotheses": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "continuation_base",
-            "distribution_balance",
-            "absorption_accumulation",
-            "reversal_preparation"
-          ],
-          "properties": {
-            "continuation_base": { "type": "number", "minimum": 0, "maximum": 1 },
-            "distribution_balance": { "type": "number", "minimum": 0, "maximum": 1 },
-            "absorption_accumulation": { "type": "number", "minimum": 0, "maximum": 1 },
-            "reversal_preparation": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
+        "bars_max": {
+          "description": "Maximum bars expected for this tempo bucket.",
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Bars Max",
+          "type": "integer"
         }
-      }
-    },
-    "safety": {
-      "type": "object",
-      "additionalProperties": false,
+      },
       "required": [
-        "allow_ai_auto_apply",
-        "require_offline_validation",
-        "max_belief_regimes",
-        "max_belief_hypotheses",
-        "max_active_anchors",
-        "minimum_bar_count_for_primary_features"
+        "bars_min",
+        "bars_max"
       ],
-      "properties": {
-        "allow_ai_auto_apply": { "const": false },
-        "require_offline_validation": { "const": true },
-        "max_belief_regimes": { "type": "integer", "minimum": 1, "maximum": 6 },
-        "max_belief_hypotheses": { "type": "integer", "minimum": 1, "maximum": 8 },
-        "max_active_anchors": { "type": "integer", "minimum": 1, "maximum": 8 },
-        "minimum_bar_count_for_primary_features": { "type": "integer", "minimum": 1, "maximum": 32 }
-      }
+      "title": "WindowRange",
+      "type": "object"
     }
   },
-  "$defs": {
-    "window_range": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["bars_min", "bars_max"],
-      "properties": {
-        "bars_min": { "type": "integer", "minimum": 1, "maximum": 64 },
-        "bars_max": { "type": "integer", "minimum": 1, "maximum": 128 }
-      }
+  "additionalProperties": false,
+  "description": "Versioned instrument profile used by the deterministic recognizer.",
+  "properties": {
+    "instrument": {
+      "description": "Instrument symbol that this profile applies to.",
+      "title": "Instrument",
+      "type": "string"
     },
-    "event_window": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["normal"],
-      "properties": {
-        "normal": { "$ref": "#/$defs/window_range" }
-      }
+    "profile_version": {
+      "description": "Version identifier for this profile.",
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Schema version for the profile payload.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "ontology_version": {
+      "description": "Fixed ontology version referenced by this profile.",
+      "title": "Ontology Version",
+      "type": "string"
+    },
+    "is_active": {
+      "default": true,
+      "description": "Whether this profile is currently active for the instrument.",
+      "title": "Is Active",
+      "type": "boolean"
+    },
+    "normalization": {
+      "$ref": "#/$defs/Normalization",
+      "description": "Normalization and scaling settings."
+    },
+    "time_windows": {
+      "$ref": "#/$defs/TimeWindows",
+      "description": "Session or replay time-window settings."
+    },
+    "thresholds": {
+      "$ref": "#/$defs/Thresholds",
+      "description": "Threshold parameters used by the recognizer."
+    },
+    "weights": {
+      "$ref": "#/$defs/Weights",
+      "description": "Relative weights for evidence buckets."
+    },
+    "decay": {
+      "$ref": "#/$defs/Decay",
+      "description": "Decay settings for stale evidence and anchors."
+    },
+    "priors": {
+      "$ref": "#/$defs/Priors",
+      "description": "Prior probabilities for regimes and event hypotheses."
+    },
+    "safety": {
+      "$ref": "#/$defs/Safety",
+      "description": "Safety bounds and fixed patch gates."
+    },
+    "created_at": {
+      "description": "When this profile version was created.",
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
     }
-  }
+  },
+  "required": [
+    "instrument",
+    "profile_version",
+    "schema_version",
+    "ontology_version",
+    "normalization",
+    "time_windows",
+    "thresholds",
+    "weights",
+    "decay",
+    "priors",
+    "safety",
+    "created_at"
+  ],
+  "title": "InstrumentProfile",
+  "type": "object"
 }

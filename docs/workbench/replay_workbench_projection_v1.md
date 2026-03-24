@@ -134,6 +134,7 @@ Invoke-RestMethod `
 
 ```json
 {
+  "schema_version": "replay_workbench_projection_envelope_v1",
   "query": {
     "instrument_symbol": "NQ",
     "window_start": "2026-03-23T09:29:00Z",
@@ -142,6 +143,7 @@ Invoke-RestMethod `
     "limit": 20
   },
   "health_status": {
+    "schema_version": "replay_workbench_health_status_envelope_v1",
     "health": {
       "status": "degraded",
       "degraded_reasons": ["degraded_no_depth", "degraded_no_ai"],
@@ -230,10 +232,12 @@ Invoke-RestMethod `
 ## 实现文件
 
 - `src/atas_market_structure/workbench_projection_services.py`
-- `src/atas_market_structure/app.py`
-- `src/atas_market_structure/repository.py`
-- `src/atas_market_structure/storage_repository.py`
+- `src/atas_market_structure/repository_projection.py`
+- `src/atas_market_structure/models/_api_envelopes.py`
 - `src/atas_market_structure/models/_replay.py`
+- `src/atas_market_structure/app.py` 只负责装配与注册
+- `src/atas_market_structure/app_routes/_review_routes.py`
+- `src/atas_market_structure/repository.py` 仅保留 compatibility facade
 - `src/atas_market_structure/static/replay_workbench_state.js`
 - `src/atas_market_structure/static/replay_workbench_replay_loader.js`
 - `src/atas_market_structure/static/replay_workbench_bootstrap.js`
@@ -251,5 +255,5 @@ Invoke-RestMethod `
 
 ```powershell
 pytest tests/test_workbench_projection_api.py -q
-pytest tests/test_tuning_services.py tests/test_app.py -q
+pytest tests/test_tuning_services.py tests/test_app_review_routes.py tests/test_app_workbench_routes.py -q
 ```

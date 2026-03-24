@@ -1,7 +1,12 @@
 .pytest_cache/
+.pytest-tmp/
 __pycache__/
 .venv/
 *.pyc
+*.egg-info/
+.env
+.env.*
+!.env.example
 data/
 *.db
 pytest-cache-files-*/
@@ -20,5 +25,10 @@ check_*.py
 runtime/
 test-results/
 tmp/
+_tmp_*
 tmp_*.py
 tmp_*.log
+tmp_*.txt
+tmp_*.js
+tmp_*.diff
+tmp_*.out

@@ -22,7 +22,9 @@ Existing files reused as the backbone:
 - `src/atas_market_structure/models/_replay.py`
 - `src/atas_market_structure/models/_enums.py`
 - `src/atas_market_structure/models/__init__.py`
-- `src/atas_market_structure/repository.py`
+- `src/atas_market_structure/repository_recognition.py`
+- `src/atas_market_structure/repository_evaluation_tuning.py`
+- `src/atas_market_structure/repository.py` (compatibility facade only)
 - `src/atas_market_structure/storage_repository.py`
 - `src/atas_market_structure/storage_models.py`
 - `src/atas_market_structure/recognition/defaults.py`
@@ -218,6 +220,8 @@ Profile patch auditing reuses the storage blueprint tables added in the storage 
 - `profile_patch_candidate`
 - `patch_validation_result`
 
+Current repository ownership for these writes is split across focused repository modules; do not add new profile/tuning persistence logic back into `repository.py`.
+
 Repository bridge methods:
 
 - `save_profile_patch_candidate(...)`
@@ -278,7 +282,8 @@ Useful regression coverage after profile changes:
 - `python -m pytest tests/test_storage_migrations.py -q`
 - `python -m pytest tests/test_recognition_pipeline.py -q`
 - `python -m pytest tests/test_ingestion_reliability.py -q`
-- `python -m pytest tests/test_app.py -q`
+- `python -m pytest tests/test_app_review_routes.py -q`
+- `python -m pytest tests/test_contract_schema_versions.py -q`
 
 Covered behaviors include:
 

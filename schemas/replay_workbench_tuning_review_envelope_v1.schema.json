@@ -1,0 +1,1190 @@
+{
+  "$defs": {
+    "EvaluationFailureMode": {
+      "description": "Standardized evaluation failure modes for episode review.",
+      "enum": [
+        "none",
+        "early_confirmation",
+        "late_confirmation",
+        "late_invalidation",
+        "missed_transition",
+        "false_positive",
+        "false_negative"
+      ],
+      "title": "EvaluationFailureMode",
+      "type": "string"
+    },
+    "InstrumentProfileParameterMetadata": {
+      "additionalProperties": false,
+      "description": "Metadata and safe boundary definition for one adjustable profile parameter.",
+      "properties": {
+        "path": {
+          "description": "Dot-path to the adjustable parameter inside instrument_profile_v1.",
+          "title": "Path",
+          "type": "string"
+        },
+        "value_type": {
+          "description": "Primitive numeric type expected at the parameter path.",
+          "enum": [
+            "int",
+            "float"
+          ],
+          "title": "Value Type",
+          "type": "string"
+        },
+        "min": {
+          "description": "Inclusive lower bound.",
+          "title": "Min",
+          "type": "number"
+        },
+        "max": {
+          "description": "Inclusive upper bound.",
+          "title": "Max",
+          "type": "number"
+        },
+        "step": {
+          "description": "Allowed adjustment step.",
+          "exclusiveMinimum": 0.0,
+          "title": "Step",
+          "type": "number"
+        },
+        "safe_default": {
+          "description": "Safe default value used by the profile registry.",
+          "title": "Safe Default",
+          "type": "number"
+        },
+        "criticality": {
+          "$ref": "#/$defs/ParameterCriticality",
+          "description": "Risk level attached to this parameter."
+        },
+        "applies_to_events": {
+          "description": "Tradable events that are most directly affected by this parameter.",
+          "items": {
+            "$ref": "#/$defs/TradableEventKind"
+          },
+          "title": "Applies To Events",
+          "type": "array"
+        },
+        "description": {
+          "description": "Operator-facing explanation for the parameter.",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "value_type",
+        "min",
+        "max",
+        "step",
+        "safe_default",
+        "criticality",
+        "description"
+      ],
+      "title": "InstrumentProfileParameterMetadata",
+      "type": "object"
+    },
+    "OfflineReplayValidationSummary": {
+      "additionalProperties": false,
+      "description": "Offline replay validation hook result for one patch candidate.",
+      "properties": {
+        "status": {
+          "default": "not_run",
+          "description": "Offline replay validation status for the candidate patch.",
+          "enum": [
+            "not_run",
+            "passed",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "runner": {
+          "default": "local_stub",
+          "description": "Offline validator implementation that produced this summary.",
+          "title": "Runner",
+          "type": "string"
+        },
+        "compared_episode_count": {
+          "default": 0,
+          "description": "How many evaluated episodes were included in the offline compare scope.",
+          "minimum": 0,
+          "title": "Compared Episode Count",
+          "type": "integer"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Compact deterministic compare metrics emitted by the offline runner.",
+          "title": "Metrics",
+          "type": "object"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operator-facing summary of the offline replay compare result.",
+          "title": "Summary"
+        },
+        "notes": {
+          "description": "Additional validation notes preserved for auditability.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "validated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the offline replay validation completed.",
+          "title": "Validated At"
+        }
+      },
+      "title": "OfflineReplayValidationSummary",
+      "type": "object"
+    },
+    "ParameterCriticality": {
+      "description": "Risk level for one tunable profile parameter.",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "ParameterCriticality",
+      "type": "string"
+    },
+    "PatchHumanApproval": {
+      "additionalProperties": false,
+      "description": "Human approval placeholder required before any patch promotion.",
+      "properties": {
+        "required": {
+          "const": true,
+          "default": true,
+          "description": "Patch promotion always requires explicit human approval.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "pending",
+          "description": "Current human approval state for this candidate patch.",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operator or reviewer that approved or rejected the candidate.",
+          "title": "Approved By"
+        },
+        "approved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the approval decision was recorded.",
+          "title": "Approved At"
+        },
+        "notes": {
+          "description": "Operator notes recorded during the approval stage.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "title": "PatchHumanApproval",
+      "type": "object"
+    },
+    "PatchValidationStatus": {
+      "description": "Validation result for one profile patch candidate.",
+      "enum": [
+        "accepted",
+        "rejected"
+      ],
+      "title": "PatchValidationStatus",
+      "type": "string"
+    },
+    "ProfilePatchCandidate": {
+      "additionalProperties": false,
+      "description": "Structured append-only profile patch candidate.",
+      "properties": {
+        "candidate_id": {
+          "description": "Stable patch candidate identifier.",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Instrument symbol targeted by the patch.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Schema version for this patch candidate.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ontology_version": {
+          "description": "Ontology version inherited from the base profile.",
+          "title": "Ontology Version",
+          "type": "string"
+        },
+        "base_profile_version": {
+          "description": "Profile version used as the patch baseline.",
+          "title": "Base Profile Version",
+          "type": "string"
+        },
+        "proposed_profile_version": {
+          "description": "Profile version that would be produced if this patch is promoted.",
+          "title": "Proposed Profile Version",
+          "type": "string"
+        },
+        "recommendation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional upstream recommendation identifier.",
+          "title": "Recommendation Id"
+        },
+        "candidate_parameters": {
+          "description": "Parameter paths touched by this candidate.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Parameters",
+          "type": "array"
+        },
+        "suggested_changes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ProfileSuggestedChange"
+          },
+          "description": "Explicit parameter changes expressed as from/to transitions.",
+          "title": "Suggested Changes",
+          "type": "object"
+        },
+        "risk_notes": {
+          "description": "Aggregated risk notes for operator review.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        },
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "Hard gate preventing automatic patch promotion.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        },
+        "created_at": {
+          "description": "When this patch candidate was generated.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "instrument",
+        "schema_version",
+        "ontology_version",
+        "base_profile_version",
+        "proposed_profile_version",
+        "created_at"
+      ],
+      "title": "ProfilePatchCandidate",
+      "type": "object"
+    },
+    "ProfilePatchFieldDiff": {
+      "additionalProperties": false,
+      "description": "Detailed diff row used by compare/preview output.",
+      "properties": {
+        "path": {
+          "description": "Dot-path for the changed parameter.",
+          "title": "Path",
+          "type": "string"
+        },
+        "action": {
+          "description": "Direction of the change.",
+          "enum": [
+            "increase",
+            "decrease",
+            "set"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "previous_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Current value before patch application.",
+          "title": "Previous Value"
+        },
+        "next_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Value proposed by the patch.",
+          "title": "Next Value"
+        },
+        "metadata": {
+          "$ref": "#/$defs/InstrumentProfileParameterMetadata",
+          "description": "Boundary metadata for the changed parameter."
+        },
+        "risk_notes": {
+          "description": "Risk notes specific to this field change.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "path",
+        "action",
+        "previous_value",
+        "next_value",
+        "metadata"
+      ],
+      "title": "ProfilePatchFieldDiff",
+      "type": "object"
+    },
+    "ProfilePatchPreview": {
+      "additionalProperties": false,
+      "description": "Preview output comparing one base profile against a validated patch.",
+      "properties": {
+        "instrument_symbol": {
+          "description": "Instrument symbol affected by the patch preview.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "base_profile_version": {
+          "description": "Current profile version used as the compare baseline.",
+          "title": "Base Profile Version",
+          "type": "string"
+        },
+        "proposed_profile_version": {
+          "description": "Candidate profile version after patch application.",
+          "title": "Proposed Profile Version",
+          "type": "string"
+        },
+        "candidate_parameters": {
+          "description": "Changed parameter paths included in the patch.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Parameters",
+          "type": "array"
+        },
+        "changed_fields": {
+          "description": "Detailed diff rows for each changed field.",
+          "items": {
+            "$ref": "#/$defs/ProfilePatchFieldDiff"
+          },
+          "title": "Changed Fields",
+          "type": "array"
+        },
+        "risk_notes": {
+          "description": "Aggregated risk notes for the patch preview.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        },
+        "requires_human_review": {
+          "default": true,
+          "description": "Patch promotion requires explicit human review.",
+          "title": "Requires Human Review",
+          "type": "boolean"
+        },
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "AI auto-apply remains disabled in preview output.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "instrument_symbol",
+        "base_profile_version",
+        "proposed_profile_version"
+      ],
+      "title": "ProfilePatchPreview",
+      "type": "object"
+    },
+    "ProfilePatchValidationIssue": {
+      "additionalProperties": false,
+      "description": "One validation issue emitted by the boundary validator.",
+      "properties": {
+        "path": {
+          "description": "Affected dot-path when available.",
+          "title": "Path",
+          "type": "string"
+        },
+        "code": {
+          "description": "Stable machine-readable issue code.",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "description": "Operator-facing validation message.",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "code",
+        "message"
+      ],
+      "title": "ProfilePatchValidationIssue",
+      "type": "object"
+    },
+    "ProfilePatchValidationResult": {
+      "additionalProperties": false,
+      "description": "Boundary-validation result for one patch candidate.",
+      "properties": {
+        "schema_version": {
+          "default": "patch_validation_result_v1",
+          "description": "Schema version for this patch validation result payload.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "candidate_id": {
+          "description": "Patch candidate identifier being validated.",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol targeted by the patch.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "validation_status": {
+          "$ref": "#/$defs/PatchValidationStatus",
+          "description": "Accepted or rejected validation result."
+        },
+        "boundary_validation_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PatchValidationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit boundary-validation status before offline replay and human approval are considered."
+        },
+        "recommendation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upstream tuning recommendation linked to this validation run when available.",
+          "title": "Recommendation Id"
+        },
+        "base_profile_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base profile version used by the candidate under validation.",
+          "title": "Base Profile Version"
+        },
+        "proposed_profile_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Proposed profile version that would be promoted after validation.",
+          "title": "Proposed Profile Version"
+        },
+        "errors": {
+          "description": "Hard validation failures.",
+          "items": {
+            "$ref": "#/$defs/ProfilePatchValidationIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "description": "Non-blocking validation warnings.",
+          "items": {
+            "$ref": "#/$defs/ProfilePatchValidationIssue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "changed_fields": {
+          "description": "Changed parameter paths observed during validation.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Fields",
+          "type": "array"
+        },
+        "risk_notes": {
+          "description": "Aggregated patch risk notes.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Risk Notes",
+          "type": "array"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProfilePatchPreview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Patch preview when validation succeeded."
+        },
+        "offline_replay_validation": {
+          "$ref": "#/$defs/OfflineReplayValidationSummary",
+          "description": "Offline replay validation hook output for this candidate."
+        },
+        "human_approval": {
+          "$ref": "#/$defs/PatchHumanApproval",
+          "description": "Human approval placeholder that must be resolved before promotion."
+        },
+        "promotion_ready": {
+          "default": false,
+          "description": "Whether the candidate is ready for explicit promotion after all safety gates.",
+          "title": "Promotion Ready",
+          "type": "boolean"
+        },
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "Hard gate preventing automatic patch promotion.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        },
+        "validated_at": {
+          "description": "When validation completed.",
+          "format": "date-time",
+          "title": "Validated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "instrument_symbol",
+        "validation_status",
+        "validated_at"
+      ],
+      "title": "ProfilePatchValidationResult",
+      "type": "object"
+    },
+    "ProfileSuggestedChange": {
+      "additionalProperties": false,
+      "description": "One explicit from/to change in a patch candidate.",
+      "properties": {
+        "action": {
+          "description": "Direction of the proposed change.",
+          "enum": [
+            "increase",
+            "decrease",
+            "set"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Current parameter value.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Proposed parameter value.",
+          "title": "To"
+        }
+      },
+      "required": [
+        "action",
+        "from",
+        "to"
+      ],
+      "title": "ProfileSuggestedChange",
+      "type": "object"
+    },
+    "ReplayProjectionQuery": {
+      "additionalProperties": false,
+      "description": "Filter metadata shared by replay workbench read/projection endpoints.",
+      "properties": {
+        "instrument": {
+          "description": "Instrument symbol scoped by the read-model query.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time lower bound for the query.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time upper bound for the query.",
+          "title": "To"
+        },
+        "session_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional YYYY-MM-DD session/date filter.",
+          "title": "Session Date"
+        },
+        "limit": {
+          "default": 100,
+          "description": "Maximum number of rows returned per section.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instrument"
+      ],
+      "title": "ReplayProjectionQuery",
+      "type": "object"
+    },
+    "ReplayWorkbenchTuningReviewItem": {
+      "additionalProperties": false,
+      "description": "Tuning recommendation row enriched with patch candidate and validation state.",
+      "properties": {
+        "market_time": {
+          "description": "Recommendation generation time used for ordering.",
+          "format": "date-time",
+          "title": "Market Time",
+          "type": "string"
+        },
+        "session_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Session/date label for this tuning row.",
+          "title": "Session Date"
+        },
+        "degraded_badges": {
+          "description": "Compact badges derived from the linked bundle degradation statistics when available.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Degraded Badges",
+          "type": "array"
+        },
+        "patch_candidate_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stored patch candidate lifecycle status when available.",
+          "title": "Patch Candidate Status"
+        },
+        "recommendation": {
+          "$ref": "#/$defs/TuningRecommendation",
+          "description": "Stored tuning recommendation payload."
+        },
+        "patch_candidate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProfilePatchCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Linked profile patch candidate when available."
+        },
+        "latest_validation_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProfilePatchValidationResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Latest validation result linked to the patch candidate when available."
+        }
+      },
+      "required": [
+        "market_time",
+        "recommendation"
+      ],
+      "title": "ReplayWorkbenchTuningReviewItem",
+      "type": "object"
+    },
+    "TradableEventKind": {
+      "description": "V1 tradable event ontology required by Master Spec v2.",
+      "enum": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TradableEventKind",
+      "type": "string"
+    },
+    "TuningAnalysisWindow": {
+      "additionalProperties": false,
+      "description": "Closed-episode analysis window used by tuning bundle and recommendation payloads.",
+      "properties": {
+        "episode_count": {
+          "description": "Closed episode count included in the tuning window.",
+          "minimum": 0,
+          "title": "Episode Count",
+          "type": "integer"
+        },
+        "evaluation_count": {
+          "description": "Episode evaluation count available inside the tuning window.",
+          "minimum": 0,
+          "title": "Evaluation Count",
+          "type": "integer"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive start of the tuning analysis window.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive end of the tuning analysis window.",
+          "title": "To"
+        }
+      },
+      "required": [
+        "episode_count",
+        "evaluation_count"
+      ],
+      "title": "TuningAnalysisWindow",
+      "type": "object"
+    },
+    "TuningFailureModeSummary": {
+      "additionalProperties": false,
+      "description": "One aggregated failure-mode summary used by the tuning advisor.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/EvaluationFailureMode",
+          "description": "Failure mode summarized across recent evaluations."
+        },
+        "count": {
+          "description": "How many evaluations surfaced this failure mode.",
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "summary": {
+          "description": "Compact explanation of the recurring failure pattern.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "count",
+        "summary"
+      ],
+      "title": "TuningFailureModeSummary",
+      "type": "object"
+    },
+    "TuningRecommendation": {
+      "additionalProperties": false,
+      "description": "Structured tuning recommendation output produced by the offline advisor layer.",
+      "properties": {
+        "recommendation_id": {
+          "description": "Stable recommendation identifier.",
+          "title": "Recommendation Id",
+          "type": "string"
+        },
+        "bundle_id": {
+          "description": "Source bundle identifier used to generate this recommendation.",
+          "title": "Bundle Id",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Instrument symbol under tuning review.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Schema version for this tuning recommendation payload.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Profile version evaluated by the advisor.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "engine_version": {
+          "description": "Recognizer build evaluated by the advisor.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "description": "When the recommendation was generated.",
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "advisor_kind": {
+          "description": "Offline advisor implementation that produced this recommendation.",
+          "title": "Advisor Kind",
+          "type": "string"
+        },
+        "analysis_window": {
+          "$ref": "#/$defs/TuningAnalysisWindow",
+          "description": "Episode window summarized by the recommendation."
+        },
+        "top_failure_modes": {
+          "description": "Most common recent failure modes that motivated the recommendation.",
+          "items": {
+            "$ref": "#/$defs/TuningFailureModeSummary"
+          },
+          "title": "Top Failure Modes",
+          "type": "array"
+        },
+        "recommendations": {
+          "description": "Structured, bounded parameter recommendations.",
+          "items": {
+            "$ref": "#/$defs/TuningRecommendationItem"
+          },
+          "title": "Recommendations",
+          "type": "array"
+        },
+        "expected_improvement": {
+          "description": "Top-level expected improvement narrative.",
+          "title": "Expected Improvement",
+          "type": "string"
+        },
+        "risk": {
+          "description": "Top-level risk narrative for the combined recommendation.",
+          "title": "Risk",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "Overall confidence for the recommendation set.",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "patch_candidate_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Patch candidate identifier generated from this recommendation when available.",
+          "title": "Patch Candidate Ref"
+        },
+        "allow_ai_auto_apply": {
+          "const": false,
+          "default": false,
+          "description": "Hard safety gate preventing AI recommendation auto-apply.",
+          "title": "Allow Ai Auto Apply",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recommendation_id",
+        "bundle_id",
+        "instrument",
+        "schema_version",
+        "profile_version",
+        "engine_version",
+        "generated_at",
+        "advisor_kind",
+        "analysis_window",
+        "expected_improvement",
+        "risk",
+        "confidence"
+      ],
+      "title": "TuningRecommendation",
+      "type": "object"
+    },
+    "TuningRecommendationItem": {
+      "additionalProperties": false,
+      "description": "One structured AI-generated parameter recommendation.",
+      "properties": {
+        "event_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tradable event most directly impacted by this parameter change."
+        },
+        "parameter": {
+          "description": "Instrument-profile parameter path proposed for tuning.",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "direction": {
+          "description": "Suggested direction of change for the parameter.",
+          "enum": [
+            "increase",
+            "decrease",
+            "hold",
+            "set"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "current_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Current parameter value in the active profile.",
+          "title": "Current Value"
+        },
+        "proposed_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Suggested bounded next value for offline validation.",
+          "title": "Proposed Value"
+        },
+        "support_count": {
+          "description": "Number of evaluations that supported this recommendation.",
+          "minimum": 0,
+          "title": "Support Count",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "Compact diagnosis-backed reason for the recommendation.",
+          "title": "Reason",
+          "type": "string"
+        },
+        "expected_improvement": {
+          "description": "Expected improvement if the patch is validated offline.",
+          "title": "Expected Improvement",
+          "type": "string"
+        },
+        "risk": {
+          "description": "Primary risk introduced by applying the recommendation.",
+          "title": "Risk",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "Advisor confidence for this one recommendation item.",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parameter",
+        "direction",
+        "current_value",
+        "proposed_value",
+        "support_count",
+        "reason",
+        "expected_improvement",
+        "risk",
+        "confidence"
+      ],
+      "title": "TuningRecommendationItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Read-model response for replay workbench tuning recommendation review.",
+  "properties": {
+    "schema_version": {
+      "description": "Schema version for this tuning-review response.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "query": {
+      "$ref": "#/$defs/ReplayProjectionQuery",
+      "description": "Filters used to build this tuning section."
+    },
+    "items": {
+      "description": "Tuning review rows in descending time order.",
+      "items": {
+        "$ref": "#/$defs/ReplayWorkbenchTuningReviewItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "query"
+  ],
+  "title": "ReplayWorkbenchTuningReviewEnvelope",
+  "type": "object"
+}

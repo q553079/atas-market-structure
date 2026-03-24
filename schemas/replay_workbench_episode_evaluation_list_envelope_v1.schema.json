@@ -1,0 +1,1015 @@
+{
+  "$defs": {
+    "BeliefDataStatus": {
+      "description": "Freshness, completeness, and degraded-signal state for one belief snapshot.",
+      "properties": {
+        "data_freshness_ms": {
+          "description": "Estimated freshness lag in milliseconds.",
+          "minimum": 0,
+          "title": "Data Freshness Ms",
+          "type": "integer"
+        },
+        "feature_completeness": {
+          "description": "Fraction of expected features available to the recognizer.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Feature Completeness",
+          "type": "number"
+        },
+        "depth_available": {
+          "description": "Whether depth-derived evidence was available.",
+          "title": "Depth Available",
+          "type": "boolean"
+        },
+        "dom_available": {
+          "description": "Whether DOM-derived evidence was available.",
+          "title": "Dom Available",
+          "type": "boolean"
+        },
+        "ai_available": {
+          "description": "Whether AI services were available for optional review layers.",
+          "title": "Ai Available",
+          "type": "boolean"
+        },
+        "degraded_modes": {
+          "description": "Explicit degraded modes active for this snapshot.",
+          "items": {
+            "$ref": "#/$defs/DegradedMode"
+          },
+          "title": "Degraded Modes",
+          "type": "array"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI display.",
+          "title": "Freshness"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI display.",
+          "title": "Completeness"
+        }
+      },
+      "required": [
+        "data_freshness_ms",
+        "feature_completeness",
+        "depth_available",
+        "dom_available",
+        "ai_available"
+      ],
+      "title": "BeliefDataStatus",
+      "type": "object"
+    },
+    "DegradedMode": {
+      "description": "Explicit degraded conditions that should not stop the engine.\n\nCanonical values are prefixed to match Master Spec v2 and health/UI\nbadges. Legacy unprefixed inputs are still accepted for backward\ncompatibility with older persisted payloads and samples.",
+      "enum": [
+        "none",
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro",
+        "replay_rebuild_mode"
+      ],
+      "title": "DegradedMode",
+      "type": "string"
+    },
+    "EpisodeEvaluation": {
+      "additionalProperties": false,
+      "description": "Append-only episode_evaluation_v1 payload aligned to Master Spec v2.",
+      "properties": {
+        "evaluation_id": {
+          "description": "Stable evaluation identifier.",
+          "title": "Evaluation Id",
+          "type": "string"
+        },
+        "episode_id": {
+          "description": "Closed event episode being evaluated.",
+          "title": "Episode Id",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Instrument symbol for the reviewed episode.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Session label when available.",
+          "title": "Session"
+        },
+        "bar_tf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bar timeframe label when available.",
+          "title": "Bar Tf"
+        },
+        "market_time_start": {
+          "description": "Episode market start timestamp.",
+          "format": "date-time",
+          "title": "Market Time Start",
+          "type": "string"
+        },
+        "market_time_end": {
+          "description": "Episode market end timestamp.",
+          "format": "date-time",
+          "title": "Market Time End",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Instrument-profile version used for this evaluation.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "engine_version": {
+          "description": "Recognizer build version used for this evaluation.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Evaluation schema version.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "initial_regime_top1": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegimeKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Top initial regime when the episode began."
+        },
+        "initial_regime_prob": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Probability attached to the top initial regime.",
+          "title": "Initial Regime Prob"
+        },
+        "evaluated_event_kind": {
+          "$ref": "#/$defs/TradableEventKind",
+          "description": "V1 tradable event being evaluated."
+        },
+        "initial_phase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventPhase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Initial phase of the event when the episode began."
+        },
+        "initial_prob": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Initial probability for the evaluated event.",
+          "title": "Initial Prob"
+        },
+        "declared_time_window": {
+          "$ref": "#/$defs/EpisodeEvaluationDeclaredTimeWindow",
+          "description": "Declared event window used during rule review."
+        },
+        "anchor_context": {
+          "description": "Compact anchor context captured at episode start.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Anchor Context",
+          "type": "array"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/EpisodeEvaluationLifecycle",
+          "description": "Lifecycle landmarks reconstructed for the episode."
+        },
+        "outcome": {
+          "$ref": "#/$defs/EpisodeEvaluationOutcome",
+          "description": "Rule-review outcome summary."
+        },
+        "scores": {
+          "$ref": "#/$defs/EpisodeEvaluationScorecard",
+          "description": "Five-dimensional V1 episode scorecard."
+        },
+        "diagnosis": {
+          "$ref": "#/$defs/EpisodeEvaluationDiagnosis",
+          "description": "Structured diagnosis for operator review and tuning inputs."
+        },
+        "tuning_hints": {
+          "$ref": "#/$defs/EpisodeEvaluationTuningHints",
+          "description": "Compact tuning hints derived from the diagnosis."
+        },
+        "evaluated_at": {
+          "description": "When this evaluation was produced.",
+          "format": "date-time",
+          "title": "Evaluated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "episode_id",
+        "instrument",
+        "market_time_start",
+        "market_time_end",
+        "profile_version",
+        "engine_version",
+        "schema_version",
+        "evaluated_event_kind",
+        "declared_time_window",
+        "lifecycle",
+        "outcome",
+        "scores",
+        "diagnosis",
+        "tuning_hints",
+        "evaluated_at"
+      ],
+      "title": "EpisodeEvaluation",
+      "type": "object"
+    },
+    "EpisodeEvaluationDeclaredTimeWindow": {
+      "additionalProperties": false,
+      "description": "Declared event window used for timing-oriented episode review.",
+      "properties": {
+        "mode": {
+          "description": "Compact window label such as next_5_bars.",
+          "title": "Mode",
+          "type": "string"
+        },
+        "bars_min": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Earliest bar count at which validation is expected.",
+          "title": "Bars Min"
+        },
+        "bars_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Latest bar count by which validation should occur.",
+          "title": "Bars Max"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "EpisodeEvaluationDeclaredTimeWindow",
+      "type": "object"
+    },
+    "EpisodeEvaluationDiagnosis": {
+      "additionalProperties": false,
+      "description": "Structured diagnosis consumed by operators and downstream AI tuning workflows.",
+      "properties": {
+        "primary_failure_mode": {
+          "$ref": "#/$defs/EvaluationFailureMode",
+          "description": "Primary V1 failure mode classification."
+        },
+        "supporting_reasons": {
+          "description": "Rule-review reason codes supporting the diagnosis.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Reasons",
+          "type": "array"
+        },
+        "missing_confirmation": {
+          "description": "Confirmation items still missing at the point of failure.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Confirmation",
+          "type": "array"
+        },
+        "invalidating_signals_seen": {
+          "description": "Invalidating signals observed during the evaluated lifecycle.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidating Signals Seen",
+          "type": "array"
+        },
+        "candidate_parameters": {
+          "description": "Profile parameter paths that are plausible tuning candidates.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Parameters",
+          "type": "array"
+        },
+        "suggested_direction": {
+          "additionalProperties": {
+            "enum": [
+              "increase",
+              "decrease",
+              "hold"
+            ],
+            "type": "string"
+          },
+          "description": "Suggested parameter adjustment direction keyed by profile parameter path.",
+          "title": "Suggested Direction",
+          "type": "object"
+        }
+      },
+      "required": [
+        "primary_failure_mode"
+      ],
+      "title": "EpisodeEvaluationDiagnosis",
+      "type": "object"
+    },
+    "EpisodeEvaluationLifecycle": {
+      "additionalProperties": false,
+      "description": "Lifecycle landmarks reconstructed from belief-state history and the closed episode.",
+      "properties": {
+        "started_at": {
+          "description": "When the reviewed episode started forming.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "first_validation_hit_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First time the event reached a validating state.",
+          "title": "First Validation Hit At"
+        },
+        "peak_prob": {
+          "description": "Highest posterior probability reached by the event.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Peak Prob",
+          "type": "number"
+        },
+        "peak_prob_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Timestamp of the highest posterior probability.",
+          "title": "Peak Prob At"
+        },
+        "first_invalidation_hit_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First time invalidation was explicitly recognized.",
+          "title": "First Invalidation Hit At"
+        },
+        "downgraded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First time the event entered a weakening state.",
+          "title": "Downgraded At"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the event closed as confirmed.",
+          "title": "Resolved At"
+        },
+        "resolution": {
+          "$ref": "#/$defs/EpisodeResolution",
+          "description": "Terminal resolution used for evaluation."
+        },
+        "replacement_event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replacement event when the narrative was superseded."
+        }
+      },
+      "required": [
+        "started_at",
+        "peak_prob",
+        "resolution"
+      ],
+      "title": "EpisodeEvaluationLifecycle",
+      "type": "object"
+    },
+    "EpisodeEvaluationOutcome": {
+      "additionalProperties": false,
+      "description": "Rule-review outcome summary for one episode.",
+      "properties": {
+        "did_event_materialize": {
+          "description": "Whether the event completed as a confirmed materialization.",
+          "title": "Did Event Materialize",
+          "type": "boolean"
+        },
+        "did_partial_materialize": {
+          "description": "Whether the event partially formed before failing or being replaced.",
+          "title": "Did Partial Materialize",
+          "type": "boolean"
+        },
+        "dominant_final_event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dominant final event when known."
+        },
+        "judgement_source": {
+          "$ref": "#/$defs/ReviewSource",
+          "description": "Which review source produced the evaluation."
+        }
+      },
+      "required": [
+        "did_event_materialize",
+        "did_partial_materialize",
+        "judgement_source"
+      ],
+      "title": "EpisodeEvaluationOutcome",
+      "type": "object"
+    },
+    "EpisodeEvaluationScorecard": {
+      "additionalProperties": false,
+      "description": "Five-dimensional episode_evaluation_v1 scorecard using the Master Spec v2 scale.",
+      "properties": {
+        "hypothesis_selection_score": {
+          "description": "Whether the event hypothesis was selected correctly.",
+          "maximum": 2,
+          "minimum": -2,
+          "title": "Hypothesis Selection Score",
+          "type": "integer"
+        },
+        "confirmation_timing_score": {
+          "description": "Whether confirmation happened within the declared window.",
+          "maximum": 2,
+          "minimum": -2,
+          "title": "Confirmation Timing Score",
+          "type": "integer"
+        },
+        "invalidation_timing_score": {
+          "description": "Whether invalidation happened promptly after negative evidence.",
+          "maximum": 2,
+          "minimum": -2,
+          "title": "Invalidation Timing Score",
+          "type": "integer"
+        },
+        "transition_handling_score": {
+          "description": "Whether transition watch and replacement handling were appropriate.",
+          "maximum": 2,
+          "minimum": -2,
+          "title": "Transition Handling Score",
+          "type": "integer"
+        },
+        "calibration_score": {
+          "description": "Whether confidence levels were consistent with the observed outcome.",
+          "maximum": 2,
+          "minimum": -2,
+          "title": "Calibration Score",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hypothesis_selection_score",
+        "confirmation_timing_score",
+        "invalidation_timing_score",
+        "transition_handling_score",
+        "calibration_score"
+      ],
+      "title": "EpisodeEvaluationScorecard",
+      "type": "object"
+    },
+    "EpisodeEvaluationTuningHints": {
+      "additionalProperties": false,
+      "description": "Compact tuning-hint packet aligned with the structured diagnosis.",
+      "properties": {
+        "candidate_parameters": {
+          "description": "Candidate parameter paths for offline review.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Parameters",
+          "type": "array"
+        },
+        "suggested_direction": {
+          "additionalProperties": {
+            "enum": [
+              "increase",
+              "decrease",
+              "hold"
+            ],
+            "type": "string"
+          },
+          "description": "Suggested direction for each candidate parameter.",
+          "title": "Suggested Direction",
+          "type": "object"
+        },
+        "confidence": {
+          "default": "low",
+          "description": "Operator-facing confidence for these tuning hints.",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        }
+      },
+      "title": "EpisodeEvaluationTuningHints",
+      "type": "object"
+    },
+    "EpisodeResolution": {
+      "description": "Terminal resolution for one closed event episode.",
+      "enum": [
+        "confirmed",
+        "invalidated",
+        "timed_out",
+        "replaced",
+        "expired"
+      ],
+      "title": "EpisodeResolution",
+      "type": "string"
+    },
+    "EvaluationFailureMode": {
+      "description": "Standardized evaluation failure modes for episode review.",
+      "enum": [
+        "none",
+        "early_confirmation",
+        "late_confirmation",
+        "late_invalidation",
+        "missed_transition",
+        "false_positive",
+        "false_negative"
+      ],
+      "title": "EvaluationFailureMode",
+      "type": "string"
+    },
+    "EventEpisode": {
+      "description": "Append-only closed event trajectory emitted by the recognizer.",
+      "properties": {
+        "episode_id": {
+          "description": "Stable closed-episode identifier.",
+          "title": "Episode Id",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol for this episode.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "event_kind": {
+          "$ref": "#/$defs/TradableEventKind",
+          "description": "V1 tradable event kind represented by this episode."
+        },
+        "hypothesis_kind": {
+          "$ref": "#/$defs/EventHypothesisKind",
+          "description": "Dominant event-hypothesis kind behind the episode."
+        },
+        "phase": {
+          "$ref": "#/$defs/EventPhase",
+          "description": "Final phase reached by the episode."
+        },
+        "resolution": {
+          "$ref": "#/$defs/EpisodeResolution",
+          "description": "Terminal episode resolution."
+        },
+        "started_at": {
+          "description": "When the episode started forming.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "When the episode closed.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "peak_probability": {
+          "description": "Highest posterior probability reached during the episode.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Peak Probability",
+          "type": "number"
+        },
+        "dominant_regime": {
+          "$ref": "#/$defs/RegimeKind",
+          "description": "Dominant regime during the episode."
+        },
+        "supporting_evidence": {
+          "description": "Key evidence that supported the episode.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence",
+          "type": "array"
+        },
+        "invalidating_evidence": {
+          "description": "Key evidence that weakened or ended the episode.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidating Evidence",
+          "type": "array"
+        },
+        "key_evidence_summary": {
+          "description": "Condensed evidence summary suitable for replay review and audit.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Key Evidence Summary",
+          "type": "array"
+        },
+        "active_anchor_ids": {
+          "description": "Relevant memory anchors referenced by the episode.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Active Anchor Ids",
+          "type": "array"
+        },
+        "replacement_episode_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replacement episode identifier when this one was superseded.",
+          "title": "Replacement Episode Id"
+        },
+        "replacement_event_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replacement tradable event kind when this episode was superseded."
+        },
+        "schema_version": {
+          "description": "Episode schema version.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Instrument-profile version used for this episode.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "engine_version": {
+          "description": "Recognizer build version used for this episode.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "data_status": {
+          "$ref": "#/$defs/BeliefDataStatus",
+          "description": "Data state captured when the episode closed."
+        }
+      },
+      "required": [
+        "episode_id",
+        "instrument_symbol",
+        "event_kind",
+        "hypothesis_kind",
+        "phase",
+        "resolution",
+        "started_at",
+        "ended_at",
+        "peak_probability",
+        "dominant_regime",
+        "schema_version",
+        "profile_version",
+        "engine_version",
+        "data_status"
+      ],
+      "title": "EventEpisode",
+      "type": "object"
+    },
+    "EventHypothesisKind": {
+      "description": "Fixed V1 event-hypothesis ontology from Master Spec v2.",
+      "enum": [
+        "continuation_base",
+        "absorption_accumulation",
+        "profit_taking_pause",
+        "reversal_preparation",
+        "breakout_acceptance",
+        "breakout_rejection",
+        "failed_reversal",
+        "distribution_balance"
+      ],
+      "title": "EventHypothesisKind",
+      "type": "string"
+    },
+    "EventPhase": {
+      "description": "Lifecycle phase for one event hypothesis or episode.",
+      "enum": [
+        "emerging",
+        "building",
+        "confirming",
+        "weakening",
+        "resolved",
+        "invalidated"
+      ],
+      "title": "EventPhase",
+      "type": "string"
+    },
+    "RegimeKind": {
+      "description": "Fixed V1 regime ontology from Master Spec v2.",
+      "enum": [
+        "strong_momentum_trend",
+        "weak_momentum_trend_narrow",
+        "weak_momentum_trend_wide",
+        "balance_mean_reversion",
+        "compression",
+        "transition_exhaustion"
+      ],
+      "title": "RegimeKind",
+      "type": "string"
+    },
+    "ReplayProjectionQuery": {
+      "additionalProperties": false,
+      "description": "Filter metadata shared by replay workbench read/projection endpoints.",
+      "properties": {
+        "instrument": {
+          "description": "Instrument symbol scoped by the read-model query.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time lower bound for the query.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time upper bound for the query.",
+          "title": "To"
+        },
+        "session_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional YYYY-MM-DD session/date filter.",
+          "title": "Session Date"
+        },
+        "limit": {
+          "default": 100,
+          "description": "Maximum number of rows returned per section.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instrument"
+      ],
+      "title": "ReplayProjectionQuery",
+      "type": "object"
+    },
+    "ReplayWorkbenchEpisodeEvaluationItem": {
+      "additionalProperties": false,
+      "description": "Timeline-oriented episode evaluation row for replay review UIs.",
+      "properties": {
+        "market_time": {
+          "description": "Evaluation timestamp used for ordering.",
+          "format": "date-time",
+          "title": "Market Time",
+          "type": "string"
+        },
+        "session_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Session/date label for this evaluation row.",
+          "title": "Session Date"
+        },
+        "primary_failure_mode": {
+          "$ref": "#/$defs/EvaluationFailureMode",
+          "description": "Primary V1 failure mode classification."
+        },
+        "candidate_parameters": {
+          "description": "Candidate profile parameter paths extracted from the diagnosis.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Parameters",
+          "type": "array"
+        },
+        "episode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventEpisode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Linked closed event episode when available."
+        },
+        "evaluation": {
+          "$ref": "#/$defs/EpisodeEvaluation",
+          "description": "Stored episode evaluation payload."
+        }
+      },
+      "required": [
+        "market_time",
+        "primary_failure_mode",
+        "evaluation"
+      ],
+      "title": "ReplayWorkbenchEpisodeEvaluationItem",
+      "type": "object"
+    },
+    "ReviewSource": {
+      "description": "Source that produced an episode evaluation.",
+      "enum": [
+        "rule_review_v1",
+        "human_review_v1",
+        "hybrid_review_v1"
+      ],
+      "title": "ReviewSource",
+      "type": "string"
+    },
+    "TradableEventKind": {
+      "description": "V1 tradable event ontology required by Master Spec v2.",
+      "enum": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TradableEventKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Read-model response for replay workbench episode-evaluation timelines.",
+  "properties": {
+    "schema_version": {
+      "description": "Schema version for this episode-evaluation response.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "query": {
+      "$ref": "#/$defs/ReplayProjectionQuery",
+      "description": "Filters used to build this evaluation section."
+    },
+    "items": {
+      "description": "Evaluation rows in descending time order.",
+      "items": {
+        "$ref": "#/$defs/ReplayWorkbenchEpisodeEvaluationItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "query"
+  ],
+  "title": "ReplayWorkbenchEpisodeEvaluationListEnvelope",
+  "type": "object"
+}

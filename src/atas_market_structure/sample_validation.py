@@ -13,6 +13,7 @@ from atas_market_structure.models import (
     BeliefStateSnapshot,
     DepthSnapshotPayload,
     EpisodeEvaluation,
+    EventEpisode,
     EventSnapshotPayload,
     MarketStructurePayload,
     ProcessContextPayload,
@@ -22,6 +23,8 @@ from atas_market_structure.models import (
     ReplayAiReviewRequest,
     ReplayOperatorEntryRequest,
     ReplayWorkbenchBuildRequest,
+    ReplayWorkbenchHealthStatusEnvelope,
+    ReplayWorkbenchProjectionEnvelope,
     ReplayWorkbenchRebuildLatestRequest,
     ReplayWorkbenchSnapshotPayload,
     TuningInputBundle,
@@ -87,9 +90,13 @@ class SampleValidationService:
         if rel.startswith("episode_evaluations/") and path.suffix.lower() == ".json":
             EpisodeEvaluation.model_validate_json(path.read_text(encoding="utf-8"))
             return 1
+        if rel.startswith("contracts/") and path.suffix.lower() == ".json":
+            return self._validate_contract_sample(path)
         if rel.startswith("recognition/") and path.suffix.lower() == ".json":
             BeliefStateSnapshot.model_validate_json(path.read_text(encoding="utf-8"))
             return 1
+        if rel.startswith("responses/") and path.suffix.lower() == ".json":
+            return self._validate_response_sample(path)
         if rel.startswith("tuning/") and path.suffix.lower() == ".json":
             return self._validate_tuning_sample(path)
         if rel.startswith("golden_cases/") and path.suffix.lower() == ".json":
@@ -116,6 +123,32 @@ class SampleValidationService:
             ProfilePatchValidationResult.model_validate_json(payload)
         else:
             raise ValueError("no tuning sample validator registered")
+        return 1
+
+    @staticmethod
+    def _validate_contract_sample(path: Path) -> int:
+        payload = path.read_text(encoding="utf-8")
+        if path.name == "belief_state_snapshot_v1.sample.json":
+            BeliefStateSnapshot.model_validate_json(payload)
+        elif path.name == "event_episode_v1.sample.json":
+            EventEpisode.model_validate_json(payload)
+        elif path.name == "episode_evaluation_v1.sample.json":
+            EpisodeEvaluation.model_validate_json(payload)
+        elif path.name == "tuning_recommendation_v1.sample.json":
+            TuningRecommendation.model_validate_json(payload)
+        else:
+            raise ValueError("no contract sample validator registered")
+        return 1
+
+    @staticmethod
+    def _validate_response_sample(path: Path) -> int:
+        payload = path.read_text(encoding="utf-8")
+        if path.name == "replay_workbench_health_status_envelope_v1.sample.json":
+            ReplayWorkbenchHealthStatusEnvelope.model_validate_json(payload)
+        elif path.name == "replay_workbench_projection_envelope_v1.sample.json":
+            ReplayWorkbenchProjectionEnvelope.model_validate_json(payload)
+        else:
+            raise ValueError("no response sample validator registered")
         return 1
 
 

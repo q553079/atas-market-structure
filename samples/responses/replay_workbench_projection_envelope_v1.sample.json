@@ -1,0 +1,184 @@
+{
+  "schema_version": "replay_workbench_projection_envelope_v1",
+  "query": {
+    "instrument_symbol": "NQ",
+    "window_start": "2026-03-23T09:29:00Z",
+    "window_end": "2026-03-23T10:05:00Z",
+    "session_date": null,
+    "limit": 20
+  },
+  "health_status": {
+    "schema_version": "replay_workbench_health_status_envelope_v1",
+    "query": {
+      "instrument_symbol": "NQ",
+      "window_start": "2026-03-23T09:29:00Z",
+      "window_end": "2026-03-23T10:05:00Z",
+      "session_date": null,
+      "limit": 20
+    },
+    "health": {
+      "status": "degraded",
+      "degraded_reasons": [
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro"
+      ],
+      "profile_version": "nq-profile-test",
+      "engine_version": "recognizer-test",
+      "schema_version": "1.0.0",
+      "data_status": {
+        "data_freshness_ms": 0,
+        "feature_completeness": 0.6,
+        "depth_available": false,
+        "dom_available": false,
+        "ai_available": false,
+        "degraded_modes": [
+          "degraded_no_depth",
+          "degraded_no_dom",
+          "degraded_no_ai",
+          "degraded_stale_macro"
+        ],
+        "freshness": "offline",
+        "completeness": "partial"
+      },
+      "freshness": "offline",
+      "completeness": "partial",
+      "last_success_at": null,
+      "last_dead_letter_at": null,
+      "last_run_at": null,
+      "metrics": {
+        "total_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "dead_letter_count": 0,
+        "downstream_failure_count": 0
+      },
+      "recent_runs": []
+    },
+    "data_quality": {
+      "status": "degraded",
+      "degraded_reasons": [
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro"
+      ],
+      "instrument_symbol": "NQ",
+      "profile_version": "nq-profile-test",
+      "engine_version": "recognizer-test",
+      "schema_version": "1.0.0",
+      "data_status": {
+        "data_freshness_ms": 0,
+        "feature_completeness": 0.6,
+        "depth_available": false,
+        "dom_available": false,
+        "ai_available": false,
+        "degraded_modes": [
+          "degraded_no_depth",
+          "degraded_no_dom",
+          "degraded_no_ai",
+          "degraded_stale_macro"
+        ],
+        "freshness": "offline",
+        "completeness": "partial"
+      },
+      "freshness": "offline",
+      "completeness": "partial",
+      "source_statuses": [
+        {
+          "source_kind": "market_structure",
+          "latest_observed_at": null,
+          "available": false,
+          "freshness_ms": null
+        },
+        {
+          "source_kind": "process_context",
+          "latest_observed_at": null,
+          "available": false,
+          "freshness_ms": null
+        },
+        {
+          "source_kind": "depth_snapshot",
+          "latest_observed_at": null,
+          "available": false,
+          "freshness_ms": null
+        },
+        {
+          "source_kind": "event_snapshot",
+          "latest_observed_at": null,
+          "available": false,
+          "freshness_ms": null
+        },
+        {
+          "source_kind": "adapter_payload",
+          "latest_observed_at": null,
+          "available": false,
+          "freshness_ms": null
+        }
+      ]
+    },
+    "latest_belief": null
+  },
+  "metadata": {
+    "schema_version": "replay_workbench_profile_engine_envelope_v1",
+    "query": {
+      "instrument_symbol": "NQ",
+      "window_start": "2026-03-23T09:29:00Z",
+      "window_end": "2026-03-23T10:05:00Z",
+      "session_date": null,
+      "limit": 20
+    },
+    "active_profile": null,
+    "active_build": null,
+    "latest_patch_candidate_status": null,
+    "latest_patch_candidate": null,
+    "latest_patch_validation_result": null
+  },
+  "belief_timeline": {
+    "schema_version": "replay_workbench_belief_timeline_envelope_v1",
+    "query": {
+      "instrument_symbol": "NQ",
+      "window_start": "2026-03-23T09:29:00Z",
+      "window_end": "2026-03-23T10:05:00Z",
+      "session_date": null,
+      "limit": 20
+    },
+    "current_belief": null,
+    "items": []
+  },
+  "episode_reviews": {
+    "schema_version": "replay_workbench_episode_review_envelope_v1",
+    "query": {
+      "instrument_symbol": "NQ",
+      "window_start": "2026-03-23T09:29:00Z",
+      "window_end": "2026-03-23T10:05:00Z",
+      "session_date": null,
+      "limit": 20
+    },
+    "items": []
+  },
+  "episode_evaluations": {
+    "schema_version": "replay_workbench_episode_evaluation_list_envelope_v1",
+    "query": {
+      "instrument_symbol": "NQ",
+      "window_start": "2026-03-23T09:29:00Z",
+      "window_end": "2026-03-23T10:05:00Z",
+      "session_date": null,
+      "limit": 20
+    },
+    "items": []
+  },
+  "tuning_reviews": {
+    "schema_version": "replay_workbench_tuning_review_envelope_v1",
+    "query": {
+      "instrument_symbol": "NQ",
+      "window_start": "2026-03-23T09:29:00Z",
+      "window_end": "2026-03-23T10:05:00Z",
+      "session_date": null,
+      "limit": 20
+    },
+    "items": []
+  },
+  "timeline": []
+}

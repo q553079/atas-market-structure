@@ -1,5 +1,426 @@
 {
   "$defs": {
+    "ReplayAiChatAnnotationCandidate": {
+      "properties": {
+        "type": {
+          "description": "Annotation type.",
+          "title": "Type",
+          "type": "string"
+        },
+        "subtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Annotation subtype.",
+          "title": "Subtype"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Annotation label.",
+          "title": "Label"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Annotation reason.",
+          "title": "Reason"
+        },
+        "start_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional start time.",
+          "title": "Start Time"
+        },
+        "end_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional end time.",
+          "title": "End Time"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional expiry time.",
+          "title": "Expires At"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional status.",
+          "title": "Status"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional priority.",
+          "title": "Priority"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional confidence.",
+          "title": "Confidence"
+        },
+        "visible": {
+          "default": true,
+          "description": "Whether annotation is visible.",
+          "title": "Visible",
+          "type": "boolean"
+        },
+        "pinned": {
+          "default": false,
+          "description": "Whether annotation is pinned.",
+          "title": "Pinned",
+          "type": "boolean"
+        },
+        "source_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source kind.",
+          "title": "Source Kind"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional side.",
+          "title": "Side"
+        },
+        "entry_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional entry price.",
+          "title": "Entry Price"
+        },
+        "stop_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional stop price.",
+          "title": "Stop Price"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional target price.",
+          "title": "Target Price"
+        },
+        "tp_level": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional take-profit level.",
+          "title": "Tp Level"
+        },
+        "price_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional zone low.",
+          "title": "Price Low"
+        },
+        "price_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional zone high.",
+          "title": "Price High"
+        },
+        "path_points": {
+          "description": "Optional path points.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Path Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ReplayAiChatAnnotationCandidate",
+      "type": "object"
+    },
+    "ReplayAiChatPlanCandidate": {
+      "properties": {
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional plan title.",
+          "title": "Title"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trade side.",
+          "title": "Side"
+        },
+        "entry_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Entry price.",
+          "title": "Entry Price"
+        },
+        "entry_price_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Entry range low.",
+          "title": "Entry Price Low"
+        },
+        "entry_price_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Entry range high.",
+          "title": "Entry Price High"
+        },
+        "stop_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop price.",
+          "title": "Stop Price"
+        },
+        "take_profits": {
+          "description": "Take profit definitions.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Take Profits",
+          "type": "array"
+        },
+        "invalidations": {
+          "description": "Invalidation rules.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidations",
+          "type": "array"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short plan summary.",
+          "title": "Summary"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Plan notes.",
+          "title": "Notes"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional confidence.",
+          "title": "Confidence"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional priority.",
+          "title": "Priority"
+        },
+        "supporting_zones": {
+          "description": "Supporting zones.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Supporting Zones",
+          "type": "array"
+        }
+      },
+      "title": "ReplayAiChatPlanCandidate",
+      "type": "object"
+    },
     "ReplayAiChatPreset": {
       "enum": [
         "general",
@@ -82,6 +503,30 @@
         "type": "string"
       },
       "title": "Follow Up Suggestions",
+      "type": "array"
+    },
+    "attachment_summaries": {
+      "description": "Short summaries of user-provided image attachments.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Attachment Summaries",
+      "type": "array"
+    },
+    "plan_cards": {
+      "description": "Structured plan cards returned by the model.",
+      "items": {
+        "$ref": "#/$defs/ReplayAiChatPlanCandidate"
+      },
+      "title": "Plan Cards",
+      "type": "array"
+    },
+    "annotations": {
+      "description": "Structured annotations returned by the model.",
+      "items": {
+        "$ref": "#/$defs/ReplayAiChatAnnotationCandidate"
+      },
+      "title": "Annotations",
       "type": "array"
     },
     "raw_text": {

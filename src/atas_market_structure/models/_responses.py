@@ -567,13 +567,6 @@ class AdapterZoneInteraction(BaseModel):
 
 
 
-class AnalysisEnvelope(BaseModel):
-    """REST response for analysis retrieval."""
-
-    analysis: DerivedStructureAnalysis
-
-
-
 class DecisionLayerSet(BaseModel):
     """Decision-layered market context. This is the canonical observed-facts container."""
 
@@ -936,16 +929,6 @@ class IngestionAcceptedResponse(BaseModel):
     stored_at: datetime = Field(..., description="Persistence timestamp.")
     analysis: DerivedStructureAnalysis = Field(..., description="Derived interpretation.")
 
-
-
-class IngestionEnvelope(BaseModel):
-    """REST response for observed payload retrieval."""
-
-    ingestion_id: str
-    ingestion_kind: str
-    source_snapshot_id: str
-    observed_payload: dict[str, Any]
-    stored_at: datetime
 
 
 class ReliableIngestionResponse(BaseModel):

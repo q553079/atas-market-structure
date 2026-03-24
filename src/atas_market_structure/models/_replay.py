@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -33,6 +33,17 @@ from atas_market_structure.models._enums import (
     TradableEventKind,
 )
 from atas_market_structure.models._refs import InstrumentRef, SourceRef
+from atas_market_structure.models._schema_versions import (
+    BELIEF_STATE_SCHEMA_VERSION,
+    CanonicalSchemaVersionedModel,
+    EPISODE_EVALUATION_SCHEMA_VERSION,
+    EVENT_EPISODE_SCHEMA_VERSION,
+    INSTRUMENT_PROFILE_SCHEMA_VERSION,
+    PROFILE_PATCH_CANDIDATE_SCHEMA_VERSION,
+    RECOGNIZER_BUILD_SCHEMA_VERSION,
+    TUNING_INPUT_BUNDLE_SCHEMA_VERSION,
+    TUNING_RECOMMENDATION_SCHEMA_VERSION,
+)
 
 
 class ReplayAiBriefing(BaseModel):
@@ -1342,10 +1353,11 @@ class ReplayWorkbenchLiveTailResponse(BaseModel):
     )
 
 
-class InstrumentProfile(BaseModel):
+class InstrumentProfile(CanonicalSchemaVersionedModel):
     """Versioned instrument profile used by the deterministic recognizer."""
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    canonical_schema_version: ClassVar[str] = INSTRUMENT_PROFILE_SCHEMA_VERSION
 
     class Normalization(BaseModel):
         """Typed normalization block for instrument_profile_v1."""
@@ -1636,10 +1648,11 @@ class ProfilePatchPreview(BaseModel):
     allow_ai_auto_apply: Literal[False] = Field(False, description="AI auto-apply remains disabled in preview output.")
 
 
-class ProfilePatchCandidate(BaseModel):
+class ProfilePatchCandidate(CanonicalSchemaVersionedModel):
     """Structured append-only profile patch candidate."""
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    canonical_schema_version: ClassVar[str] = PROFILE_PATCH_CANDIDATE_SCHEMA_VERSION
 
     candidate_id: str = Field(..., description="Stable patch candidate identifier.")
     instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol targeted by the patch.")
@@ -1780,8 +1793,10 @@ class ProfilePatchValidationResult(BaseModel):
     validated_at: datetime = Field(..., description="When validation completed.")
 
 
-class RecognizerBuild(BaseModel):
+class RecognizerBuild(CanonicalSchemaVersionedModel):
     """Versioned recognizer build metadata attached to all derived outputs."""
+
+    canonical_schema_version: ClassVar[str] = RECOGNIZER_BUILD_SCHEMA_VERSION
 
     engine_version: str = Field(..., description="Recognizer engine build identifier.")
     schema_version: str = Field(..., description="Schema version used by this build.")
@@ -1845,8 +1860,10 @@ class MemoryAnchorSnapshot(BaseModel):
     profile_version: str = Field(..., description="Profile version used to emit this anchor snapshot.")
 
 
-class BeliefStateSnapshot(BaseModel):
+class BeliefStateSnapshot(CanonicalSchemaVersionedModel):
     """Append-only current market-understanding snapshot consumed by UI and review flows."""
+
+    canonical_schema_version: ClassVar[str] = BELIEF_STATE_SCHEMA_VERSION
 
     belief_state_id: str = Field(..., description="Stable belief-state identifier.")
     instrument_symbol: str = Field(..., description="Instrument symbol described by this belief state.")
@@ -1866,8 +1883,10 @@ class BeliefStateSnapshot(BaseModel):
     notes: list[str] = Field(default_factory=list, description="Additional operator-facing notes emitted by the recognizer.")
 
 
-class EventEpisode(BaseModel):
+class EventEpisode(CanonicalSchemaVersionedModel):
     """Append-only closed event trajectory emitted by the recognizer."""
+
+    canonical_schema_version: ClassVar[str] = EVENT_EPISODE_SCHEMA_VERSION
 
     episode_id: str = Field(..., description="Stable closed-episode identifier.")
     instrument_symbol: str = Field(..., description="Instrument symbol for this episode.")
@@ -1969,10 +1988,11 @@ class EpisodeEvaluationTuningHints(BaseModel):
     confidence: Literal["low", "medium", "high"] = Field("low", description="Operator-facing confidence for these tuning hints.")
 
 
-class EpisodeEvaluation(BaseModel):
+class EpisodeEvaluation(CanonicalSchemaVersionedModel):
     """Append-only episode_evaluation_v1 payload aligned to Master Spec v2."""
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    canonical_schema_version: ClassVar[str] = EPISODE_EVALUATION_SCHEMA_VERSION
 
     evaluation_id: str = Field(..., description="Stable evaluation identifier.")
     episode_id: str = Field(..., description="Closed event episode being evaluated.")
@@ -2095,10 +2115,11 @@ class PatchPromotionHistoryEntry(BaseModel):
     promotion_notes: str = Field(default="", description="Optional notes recorded at promotion time.")
 
 
-class TuningInputBundle(BaseModel):
+class TuningInputBundle(CanonicalSchemaVersionedModel):
     """Structured AI-facing bundle built from profile, episodes, evaluations, and ops history."""
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    canonical_schema_version: ClassVar[str] = TUNING_INPUT_BUNDLE_SCHEMA_VERSION
 
     bundle_id: str = Field(..., description="Stable bundle identifier for one advisory run.")
     instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol under tuning review.")
@@ -2164,10 +2185,11 @@ class TuningRecommendationItem(BaseModel):
     )
 
 
-class TuningRecommendation(BaseModel):
+class TuningRecommendation(CanonicalSchemaVersionedModel):
     """Structured tuning recommendation output produced by the offline advisor layer."""
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    canonical_schema_version: ClassVar[str] = TUNING_RECOMMENDATION_SCHEMA_VERSION
 
     recommendation_id: str = Field(..., description="Stable recommendation identifier.")
     bundle_id: str = Field(..., description="Source bundle identifier used to generate this recommendation.")
@@ -2253,16 +2275,6 @@ class ReplayWorkbenchBeliefTimelineEntry(BaseModel):
     belief: BeliefStateSnapshot = Field(..., description="Full belief-state snapshot payload.")
 
 
-class ReplayWorkbenchBeliefTimelineEnvelope(BaseModel):
-    """Read-model response for replay workbench belief-state timelines."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: ReplayProjectionQuery = Field(..., description="Filters used to build this timeline.")
-    current_belief: BeliefStateSnapshot | None = Field(None, description="Latest belief-state snapshot in scope when available.")
-    items: list[ReplayWorkbenchBeliefTimelineEntry] = Field(default_factory=list, description="Timeline-ordered belief-state rows.")
-
-
 class ReplayWorkbenchEpisodeReviewItem(BaseModel):
     """Episode row enriched with the latest stored evaluation for workbench review."""
 
@@ -2276,15 +2288,6 @@ class ReplayWorkbenchEpisodeReviewItem(BaseModel):
     evaluation: EpisodeEvaluation | None = Field(None, description="Latest stored evaluation linked to the episode when available.")
 
 
-class ReplayWorkbenchEpisodeReviewEnvelope(BaseModel):
-    """Read-model response for replay workbench event episode review."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: ReplayProjectionQuery = Field(..., description="Filters used to build this review section.")
-    items: list[ReplayWorkbenchEpisodeReviewItem] = Field(default_factory=list, description="Episode review rows in descending time order.")
-
-
 class ReplayWorkbenchEpisodeEvaluationItem(BaseModel):
     """Timeline-oriented episode evaluation row for replay review UIs."""
 
@@ -2296,15 +2299,6 @@ class ReplayWorkbenchEpisodeEvaluationItem(BaseModel):
     candidate_parameters: list[str] = Field(default_factory=list, description="Candidate profile parameter paths extracted from the diagnosis.")
     episode: EventEpisode | None = Field(None, description="Linked closed event episode when available.")
     evaluation: EpisodeEvaluation = Field(..., description="Stored episode evaluation payload.")
-
-
-class ReplayWorkbenchEpisodeEvaluationListEnvelope(BaseModel):
-    """Read-model response for replay workbench episode-evaluation timelines."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: ReplayProjectionQuery = Field(..., description="Filters used to build this evaluation section.")
-    items: list[ReplayWorkbenchEpisodeEvaluationItem] = Field(default_factory=list, description="Evaluation rows in descending time order.")
 
 
 class ReplayWorkbenchTuningReviewItem(BaseModel):
@@ -2322,76 +2316,6 @@ class ReplayWorkbenchTuningReviewItem(BaseModel):
         None,
         description="Latest validation result linked to the patch candidate when available.",
     )
-
-
-class ReplayWorkbenchTuningReviewEnvelope(BaseModel):
-    """Read-model response for replay workbench tuning recommendation review."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: ReplayProjectionQuery = Field(..., description="Filters used to build this tuning section.")
-    items: list[ReplayWorkbenchTuningReviewItem] = Field(default_factory=list, description="Tuning review rows in descending time order.")
-
-
-class ReplayWorkbenchProfileEngineEnvelope(BaseModel):
-    """Current profile/build metadata shown by replay workbench review panels."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: ReplayProjectionQuery = Field(..., description="Filters used to resolve the active metadata.")
-    active_profile: InstrumentProfile | None = Field(None, description="Currently active instrument profile when available.")
-    active_build: RecognizerBuild | None = Field(None, description="Currently active recognizer build when available.")
-    latest_patch_candidate_status: str | None = Field(None, description="Stored lifecycle status for the latest patch candidate when available.")
-    latest_patch_candidate: ProfilePatchCandidate | None = Field(None, description="Most recent patch candidate for the instrument when available.")
-    latest_patch_validation_result: ProfilePatchValidationResult | None = Field(
-        None,
-        description="Latest validation result linked to the latest patch candidate when available.",
-    )
-
-
-class ReplayWorkbenchHealthStatusEnvelope(BaseModel):
-    """Combined health/data-quality view consumed by replay workbench review UIs."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: ReplayProjectionQuery = Field(..., description="Filters used to scope the health view.")
-    health: IngestionHealthResponse = Field(..., description="Current ingestion-plane health payload.")
-    data_quality: DataQualityResponse = Field(..., description="Current data-quality payload for recognition/UI consumers.")
-    latest_belief: BeliefStateSnapshot | None = Field(None, description="Latest belief-state snapshot available for the instrument.")
-
-
-class ReplayWorkbenchProjectionEnvelope(BaseModel):
-    """Full replay workbench projection/read-model bundle for timeline and review panels."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: ReplayProjectionQuery = Field(..., description="Filters used to build this projection.")
-    health_status: ReplayWorkbenchHealthStatusEnvelope = Field(..., description="Health and degraded-state view.")
-    metadata: ReplayWorkbenchProfileEngineEnvelope = Field(..., description="Current profile/build metadata view.")
-    belief_timeline: ReplayWorkbenchBeliefTimelineEnvelope = Field(..., description="Belief-state timeline section.")
-    episode_reviews: ReplayWorkbenchEpisodeReviewEnvelope = Field(..., description="Closed-episode review section.")
-    episode_evaluations: ReplayWorkbenchEpisodeEvaluationListEnvelope = Field(..., description="Episode-evaluation review section.")
-    tuning_reviews: ReplayWorkbenchTuningReviewEnvelope = Field(..., description="Tuning recommendation review section.")
-    timeline: list[ReplayProjectionTimelineEntry] = Field(default_factory=list, description="Merged timeline-friendly projection rows.")
-
-
-class BeliefLatestEnvelope(BaseModel):
-    """REST response envelope returning the latest belief-state snapshot."""
-
-    belief: BeliefStateSnapshot | None = Field(None, description="Latest belief-state snapshot when available.")
-
-
-class EpisodeListEnvelope(BaseModel):
-    """REST response envelope returning recently closed event episodes."""
-
-    instrument_symbol: str = Field(..., description="Instrument symbol that was queried.")
-    episodes: list[EventEpisode] = Field(default_factory=list, description="Recently closed episodes for the instrument.")
-
-
-class EpisodeEvaluationEnvelope(BaseModel):
-    """REST response envelope returning one stored episode evaluation."""
-
-    evaluation: EpisodeEvaluation | None = Field(None, description="Stored episode evaluation when available.")
 
 
 class ReplayWorkbenchRebuildLatestRequest(BaseModel):

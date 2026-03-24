@@ -1,0 +1,267 @@
+{
+  "$defs": {
+    "EventHypothesisKind": {
+      "description": "Fixed V1 event-hypothesis ontology from Master Spec v2.",
+      "enum": [
+        "continuation_base",
+        "absorption_accumulation",
+        "profit_taking_pause",
+        "reversal_preparation",
+        "breakout_acceptance",
+        "breakout_rejection",
+        "failed_reversal",
+        "distribution_balance"
+      ],
+      "title": "EventHypothesisKind",
+      "type": "string"
+    },
+    "EventHypothesisState": {
+      "description": "Append-only event-hypothesis state emitted by the recognizer.",
+      "properties": {
+        "hypothesis_id": {
+          "description": "Stable hypothesis identifier within one belief snapshot.",
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "hypothesis_kind": {
+          "$ref": "#/$defs/EventHypothesisKind",
+          "description": "Fixed event-hypothesis ontology label."
+        },
+        "mapped_event_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tradable event kind mapped from this hypothesis."
+        },
+        "phase": {
+          "$ref": "#/$defs/EventPhase",
+          "description": "Lifecycle phase of the hypothesis."
+        },
+        "posterior_probability": {
+          "description": "Posterior probability for this hypothesis.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Posterior Probability",
+          "type": "number"
+        },
+        "supporting_evidence": {
+          "description": "Evidence currently supporting the hypothesis.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence",
+          "type": "array"
+        },
+        "missing_confirmation": {
+          "description": "Evidence still missing before stronger confirmation.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Confirmation",
+          "type": "array"
+        },
+        "invalidating_signals": {
+          "description": "Signals that would weaken or invalidate the hypothesis.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidating Signals",
+          "type": "array"
+        },
+        "transition_watch": {
+          "description": "Competing transitions that the engine is watching.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Transition Watch",
+          "type": "array"
+        },
+        "data_quality_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How much the current data quality supports this hypothesis.",
+          "title": "Data Quality Score"
+        },
+        "evidence_density_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How dense and coherent the supporting evidence is.",
+          "title": "Evidence Density Score"
+        },
+        "model_stability_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How stable the hypothesis posterior is versus recent prior states.",
+          "title": "Model Stability Score"
+        },
+        "anchor_dependence_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How strongly this hypothesis depends on nearby memory anchors.",
+          "title": "Anchor Dependence Score"
+        }
+      },
+      "required": [
+        "hypothesis_id",
+        "hypothesis_kind",
+        "phase",
+        "posterior_probability"
+      ],
+      "title": "EventHypothesisState",
+      "type": "object"
+    },
+    "EventPhase": {
+      "description": "Lifecycle phase for one event hypothesis or episode.",
+      "enum": [
+        "emerging",
+        "building",
+        "confirming",
+        "weakening",
+        "resolved",
+        "invalidated"
+      ],
+      "title": "EventPhase",
+      "type": "string"
+    },
+    "TradableEventKind": {
+      "description": "V1 tradable event ontology required by Master Spec v2.",
+      "enum": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TradableEventKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Public append-only contract for event_hypothesis_state_v1 rows.",
+  "properties": {
+    "hypothesis_state_id": {
+      "description": "Stable hypothesis-state identifier.",
+      "title": "Hypothesis State Id",
+      "type": "string"
+    },
+    "instrument_symbol": {
+      "description": "Instrument symbol for this hypothesis-state row.",
+      "title": "Instrument Symbol",
+      "type": "string"
+    },
+    "market_time": {
+      "description": "Market timestamp represented by this hypothesis-state row.",
+      "format": "date-time",
+      "title": "Market Time",
+      "type": "string"
+    },
+    "session_date": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional session date label.",
+      "title": "Session Date"
+    },
+    "ingested_at": {
+      "description": "Persistence timestamp.",
+      "format": "date-time",
+      "title": "Ingested At",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Canonical schema version for the hypothesis-state contract.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "profile_version": {
+      "description": "Instrument profile version used to emit the state.",
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "engine_version": {
+      "description": "Recognizer engine version used to emit the state.",
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "feature_slice_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Upstream feature-slice identifier.",
+      "title": "Feature Slice Id"
+    },
+    "hypothesis_kind": {
+      "$ref": "#/$defs/EventHypothesisKind",
+      "description": "Top-level hypothesis kind for this row."
+    },
+    "hypothesis_payload": {
+      "$ref": "#/$defs/EventHypothesisState",
+      "description": "Structured hypothesis-state payload."
+    }
+  },
+  "required": [
+    "hypothesis_state_id",
+    "instrument_symbol",
+    "market_time",
+    "ingested_at",
+    "schema_version",
+    "profile_version",
+    "engine_version",
+    "hypothesis_kind",
+    "hypothesis_payload"
+  ],
+  "title": "EventHypothesisStateContract",
+  "type": "object"
+}

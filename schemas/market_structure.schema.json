@@ -2272,6 +2272,160 @@
           ],
           "title": "Adapter Version",
           "type": "string"
+        },
+        "chart_display_timezone_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display timezone mode captured at payload emission.",
+          "examples": [
+            "exchange",
+            "local",
+            "exchange_dst"
+          ],
+          "title": "Chart Display Timezone Mode"
+        },
+        "chart_display_timezone_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display timezone name or abbreviation captured at payload emission.",
+          "examples": [
+            "America/New_York",
+            "EST5EDT",
+            "UTC"
+          ],
+          "title": "Chart Display Timezone Name"
+        },
+        "chart_display_utc_offset_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display UTC offset in minutes captured at payload emission.",
+          "examples": [
+            -300
+          ],
+          "title": "Chart Display Utc Offset Minutes"
+        },
+        "instrument_timezone_value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw instrument timezone value from ATAS metadata captured at payload emission.",
+          "title": "Instrument Timezone Value"
+        },
+        "instrument_timezone_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the instrument timezone came from, captured at payload emission.",
+          "examples": [
+            "exchange_profile",
+            "symbol_suffix"
+          ],
+          "title": "Instrument Timezone Source"
+        },
+        "collector_local_timezone_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collector machine local timezone name at payload emission.",
+          "examples": [
+            "America/New_York"
+          ],
+          "title": "Collector Local Timezone Name"
+        },
+        "collector_local_utc_offset_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collector machine local UTC offset in minutes at payload emission.",
+          "examples": [
+            -300
+          ],
+          "title": "Collector Local Utc Offset Minutes"
+        },
+        "timestamp_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary basis used to normalize timestamps to UTC at payload emission.",
+          "examples": [
+            "exchange_tick_time",
+            "collector_local_time",
+            "chart_display_time"
+          ],
+          "title": "Timestamp Basis"
+        },
+        "timezone_capture_confidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Confidence level of the timezone capture at payload emission: high, medium, low, or unknown.",
+          "examples": [
+            "high",
+            "medium",
+            "low",
+            "unknown"
+          ],
+          "title": "Timezone Capture Confidence"
         }
       },
       "required": [
@@ -2306,6 +2460,7 @@
         "1d",
         "3d",
         "1h",
+        "4h",
         "30m",
         "15m",
         "5m",

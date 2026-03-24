@@ -1,0 +1,79 @@
+{
+  "belief_state_id": "b3-ok",
+  "instrument_symbol": "NQ",
+  "observed_at": "2026-03-23T10:03:00Z",
+  "stored_at": "2026-03-23T10:03:00Z",
+  "schema_version": "belief_state_snapshot_v1",
+  "profile_version": "nq-profile-test",
+  "engine_version": "recognizer-test",
+  "recognition_mode": "normal",
+  "data_status": {
+    "data_freshness_ms": 0,
+    "feature_completeness": 1.0,
+    "depth_available": true,
+    "dom_available": true,
+    "ai_available": false,
+    "degraded_modes": [],
+    "freshness": "fresh",
+    "completeness": "complete"
+  },
+  "regime_posteriors": [
+    {
+      "regime": "weak_momentum_trend_narrow",
+      "probability": 0.46,
+      "evidence": [
+        "trend_efficiency"
+      ]
+    },
+    {
+      "regime": "balance_mean_reversion",
+      "probability": 0.25,
+      "evidence": [
+        "balance"
+      ]
+    }
+  ],
+  "event_hypotheses": [
+    {
+      "hypothesis_id": "hyp-continuation_base-resolved-80",
+      "hypothesis_kind": "continuation_base",
+      "mapped_event_kind": "momentum_continuation",
+      "phase": "resolved",
+      "posterior_probability": 0.8,
+      "supporting_evidence": [
+        "trend_efficiency",
+        "initiative_push"
+      ],
+      "missing_confirmation": [],
+      "invalidating_signals": [],
+      "transition_watch": [
+        "balance_mean_reversion"
+      ],
+      "data_quality_score": 1.0,
+      "evidence_density_score": 0.75,
+      "model_stability_score": 0.8,
+      "anchor_dependence_score": 0.5
+    }
+  ],
+  "active_anchors": [
+    {
+      "anchor_id": "anc-balance",
+      "anchor_type": "balance_center",
+      "reference_price": 21500.0,
+      "reference_time": "2026-03-23T10:03:00Z",
+      "freshness": "fresh",
+      "distance_ticks": 0.0,
+      "influence": 0.7,
+      "role_profile": {
+        "magnet": 0.8
+      },
+      "profile_version": "nq-profile-test"
+    }
+  ],
+  "missing_confirmation": [],
+  "invalidating_signals_seen": [],
+  "transition_watch": [
+    "absorption_to_reversal_preparation"
+  ],
+  "notes": []
+}

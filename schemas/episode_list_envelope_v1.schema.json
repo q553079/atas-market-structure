@@ -1,0 +1,331 @@
+{
+  "$defs": {
+    "BeliefDataStatus": {
+      "description": "Freshness, completeness, and degraded-signal state for one belief snapshot.",
+      "properties": {
+        "data_freshness_ms": {
+          "description": "Estimated freshness lag in milliseconds.",
+          "minimum": 0,
+          "title": "Data Freshness Ms",
+          "type": "integer"
+        },
+        "feature_completeness": {
+          "description": "Fraction of expected features available to the recognizer.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Feature Completeness",
+          "type": "number"
+        },
+        "depth_available": {
+          "description": "Whether depth-derived evidence was available.",
+          "title": "Depth Available",
+          "type": "boolean"
+        },
+        "dom_available": {
+          "description": "Whether DOM-derived evidence was available.",
+          "title": "Dom Available",
+          "type": "boolean"
+        },
+        "ai_available": {
+          "description": "Whether AI services were available for optional review layers.",
+          "title": "Ai Available",
+          "type": "boolean"
+        },
+        "degraded_modes": {
+          "description": "Explicit degraded modes active for this snapshot.",
+          "items": {
+            "$ref": "#/$defs/DegradedMode"
+          },
+          "title": "Degraded Modes",
+          "type": "array"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI display.",
+          "title": "Freshness"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI display.",
+          "title": "Completeness"
+        }
+      },
+      "required": [
+        "data_freshness_ms",
+        "feature_completeness",
+        "depth_available",
+        "dom_available",
+        "ai_available"
+      ],
+      "title": "BeliefDataStatus",
+      "type": "object"
+    },
+    "DegradedMode": {
+      "description": "Explicit degraded conditions that should not stop the engine.\n\nCanonical values are prefixed to match Master Spec v2 and health/UI\nbadges. Legacy unprefixed inputs are still accepted for backward\ncompatibility with older persisted payloads and samples.",
+      "enum": [
+        "none",
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro",
+        "replay_rebuild_mode"
+      ],
+      "title": "DegradedMode",
+      "type": "string"
+    },
+    "EpisodeResolution": {
+      "description": "Terminal resolution for one closed event episode.",
+      "enum": [
+        "confirmed",
+        "invalidated",
+        "timed_out",
+        "replaced",
+        "expired"
+      ],
+      "title": "EpisodeResolution",
+      "type": "string"
+    },
+    "EventEpisode": {
+      "description": "Append-only closed event trajectory emitted by the recognizer.",
+      "properties": {
+        "episode_id": {
+          "description": "Stable closed-episode identifier.",
+          "title": "Episode Id",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol for this episode.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "event_kind": {
+          "$ref": "#/$defs/TradableEventKind",
+          "description": "V1 tradable event kind represented by this episode."
+        },
+        "hypothesis_kind": {
+          "$ref": "#/$defs/EventHypothesisKind",
+          "description": "Dominant event-hypothesis kind behind the episode."
+        },
+        "phase": {
+          "$ref": "#/$defs/EventPhase",
+          "description": "Final phase reached by the episode."
+        },
+        "resolution": {
+          "$ref": "#/$defs/EpisodeResolution",
+          "description": "Terminal episode resolution."
+        },
+        "started_at": {
+          "description": "When the episode started forming.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "When the episode closed.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "peak_probability": {
+          "description": "Highest posterior probability reached during the episode.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Peak Probability",
+          "type": "number"
+        },
+        "dominant_regime": {
+          "$ref": "#/$defs/RegimeKind",
+          "description": "Dominant regime during the episode."
+        },
+        "supporting_evidence": {
+          "description": "Key evidence that supported the episode.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence",
+          "type": "array"
+        },
+        "invalidating_evidence": {
+          "description": "Key evidence that weakened or ended the episode.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidating Evidence",
+          "type": "array"
+        },
+        "key_evidence_summary": {
+          "description": "Condensed evidence summary suitable for replay review and audit.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Key Evidence Summary",
+          "type": "array"
+        },
+        "active_anchor_ids": {
+          "description": "Relevant memory anchors referenced by the episode.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Active Anchor Ids",
+          "type": "array"
+        },
+        "replacement_episode_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replacement episode identifier when this one was superseded.",
+          "title": "Replacement Episode Id"
+        },
+        "replacement_event_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replacement tradable event kind when this episode was superseded."
+        },
+        "schema_version": {
+          "description": "Episode schema version.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Instrument-profile version used for this episode.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "engine_version": {
+          "description": "Recognizer build version used for this episode.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "data_status": {
+          "$ref": "#/$defs/BeliefDataStatus",
+          "description": "Data state captured when the episode closed."
+        }
+      },
+      "required": [
+        "episode_id",
+        "instrument_symbol",
+        "event_kind",
+        "hypothesis_kind",
+        "phase",
+        "resolution",
+        "started_at",
+        "ended_at",
+        "peak_probability",
+        "dominant_regime",
+        "schema_version",
+        "profile_version",
+        "engine_version",
+        "data_status"
+      ],
+      "title": "EventEpisode",
+      "type": "object"
+    },
+    "EventHypothesisKind": {
+      "description": "Fixed V1 event-hypothesis ontology from Master Spec v2.",
+      "enum": [
+        "continuation_base",
+        "absorption_accumulation",
+        "profit_taking_pause",
+        "reversal_preparation",
+        "breakout_acceptance",
+        "breakout_rejection",
+        "failed_reversal",
+        "distribution_balance"
+      ],
+      "title": "EventHypothesisKind",
+      "type": "string"
+    },
+    "EventPhase": {
+      "description": "Lifecycle phase for one event hypothesis or episode.",
+      "enum": [
+        "emerging",
+        "building",
+        "confirming",
+        "weakening",
+        "resolved",
+        "invalidated"
+      ],
+      "title": "EventPhase",
+      "type": "string"
+    },
+    "RegimeKind": {
+      "description": "Fixed V1 regime ontology from Master Spec v2.",
+      "enum": [
+        "strong_momentum_trend",
+        "weak_momentum_trend_narrow",
+        "weak_momentum_trend_wide",
+        "balance_mean_reversion",
+        "compression",
+        "transition_exhaustion"
+      ],
+      "title": "RegimeKind",
+      "type": "string"
+    },
+    "TradableEventKind": {
+      "description": "V1 tradable event ontology required by Master Spec v2.",
+      "enum": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TradableEventKind",
+      "type": "string"
+    }
+  },
+  "description": "REST response envelope returning recently closed event episodes.",
+  "properties": {
+    "schema_version": {
+      "description": "Schema version for this episode-list response.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "instrument_symbol": {
+      "description": "Instrument symbol that was queried.",
+      "title": "Instrument Symbol",
+      "type": "string"
+    },
+    "episodes": {
+      "description": "Recently closed episodes for the instrument.",
+      "items": {
+        "$ref": "#/$defs/EventEpisode"
+      },
+      "title": "Episodes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "instrument_symbol"
+  ],
+  "title": "EpisodeListEnvelope",
+  "type": "object"
+}

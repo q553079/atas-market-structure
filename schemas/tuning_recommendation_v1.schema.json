@@ -1,0 +1,331 @@
+{
+  "$defs": {
+    "EvaluationFailureMode": {
+      "description": "Standardized evaluation failure modes for episode review.",
+      "enum": [
+        "none",
+        "early_confirmation",
+        "late_confirmation",
+        "late_invalidation",
+        "missed_transition",
+        "false_positive",
+        "false_negative"
+      ],
+      "title": "EvaluationFailureMode",
+      "type": "string"
+    },
+    "TradableEventKind": {
+      "description": "V1 tradable event ontology required by Master Spec v2.",
+      "enum": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TradableEventKind",
+      "type": "string"
+    },
+    "TuningAnalysisWindow": {
+      "additionalProperties": false,
+      "description": "Closed-episode analysis window used by tuning bundle and recommendation payloads.",
+      "properties": {
+        "episode_count": {
+          "description": "Closed episode count included in the tuning window.",
+          "minimum": 0,
+          "title": "Episode Count",
+          "type": "integer"
+        },
+        "evaluation_count": {
+          "description": "Episode evaluation count available inside the tuning window.",
+          "minimum": 0,
+          "title": "Evaluation Count",
+          "type": "integer"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive start of the tuning analysis window.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive end of the tuning analysis window.",
+          "title": "To"
+        }
+      },
+      "required": [
+        "episode_count",
+        "evaluation_count"
+      ],
+      "title": "TuningAnalysisWindow",
+      "type": "object"
+    },
+    "TuningFailureModeSummary": {
+      "additionalProperties": false,
+      "description": "One aggregated failure-mode summary used by the tuning advisor.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/EvaluationFailureMode",
+          "description": "Failure mode summarized across recent evaluations."
+        },
+        "count": {
+          "description": "How many evaluations surfaced this failure mode.",
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "summary": {
+          "description": "Compact explanation of the recurring failure pattern.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "count",
+        "summary"
+      ],
+      "title": "TuningFailureModeSummary",
+      "type": "object"
+    },
+    "TuningRecommendationItem": {
+      "additionalProperties": false,
+      "description": "One structured AI-generated parameter recommendation.",
+      "properties": {
+        "event_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tradable event most directly impacted by this parameter change."
+        },
+        "parameter": {
+          "description": "Instrument-profile parameter path proposed for tuning.",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "direction": {
+          "description": "Suggested direction of change for the parameter.",
+          "enum": [
+            "increase",
+            "decrease",
+            "hold",
+            "set"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "current_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Current parameter value in the active profile.",
+          "title": "Current Value"
+        },
+        "proposed_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Suggested bounded next value for offline validation.",
+          "title": "Proposed Value"
+        },
+        "support_count": {
+          "description": "Number of evaluations that supported this recommendation.",
+          "minimum": 0,
+          "title": "Support Count",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "Compact diagnosis-backed reason for the recommendation.",
+          "title": "Reason",
+          "type": "string"
+        },
+        "expected_improvement": {
+          "description": "Expected improvement if the patch is validated offline.",
+          "title": "Expected Improvement",
+          "type": "string"
+        },
+        "risk": {
+          "description": "Primary risk introduced by applying the recommendation.",
+          "title": "Risk",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "Advisor confidence for this one recommendation item.",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parameter",
+        "direction",
+        "current_value",
+        "proposed_value",
+        "support_count",
+        "reason",
+        "expected_improvement",
+        "risk",
+        "confidence"
+      ],
+      "title": "TuningRecommendationItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Structured tuning recommendation output produced by the offline advisor layer.",
+  "properties": {
+    "recommendation_id": {
+      "description": "Stable recommendation identifier.",
+      "title": "Recommendation Id",
+      "type": "string"
+    },
+    "bundle_id": {
+      "description": "Source bundle identifier used to generate this recommendation.",
+      "title": "Bundle Id",
+      "type": "string"
+    },
+    "instrument": {
+      "description": "Instrument symbol under tuning review.",
+      "title": "Instrument",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Schema version for this tuning recommendation payload.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "profile_version": {
+      "description": "Profile version evaluated by the advisor.",
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "engine_version": {
+      "description": "Recognizer build evaluated by the advisor.",
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "generated_at": {
+      "description": "When the recommendation was generated.",
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "advisor_kind": {
+      "description": "Offline advisor implementation that produced this recommendation.",
+      "title": "Advisor Kind",
+      "type": "string"
+    },
+    "analysis_window": {
+      "$ref": "#/$defs/TuningAnalysisWindow",
+      "description": "Episode window summarized by the recommendation."
+    },
+    "top_failure_modes": {
+      "description": "Most common recent failure modes that motivated the recommendation.",
+      "items": {
+        "$ref": "#/$defs/TuningFailureModeSummary"
+      },
+      "title": "Top Failure Modes",
+      "type": "array"
+    },
+    "recommendations": {
+      "description": "Structured, bounded parameter recommendations.",
+      "items": {
+        "$ref": "#/$defs/TuningRecommendationItem"
+      },
+      "title": "Recommendations",
+      "type": "array"
+    },
+    "expected_improvement": {
+      "description": "Top-level expected improvement narrative.",
+      "title": "Expected Improvement",
+      "type": "string"
+    },
+    "risk": {
+      "description": "Top-level risk narrative for the combined recommendation.",
+      "title": "Risk",
+      "type": "string"
+    },
+    "confidence": {
+      "description": "Overall confidence for the recommendation set.",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "patch_candidate_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Patch candidate identifier generated from this recommendation when available.",
+      "title": "Patch Candidate Ref"
+    },
+    "allow_ai_auto_apply": {
+      "const": false,
+      "default": false,
+      "description": "Hard safety gate preventing AI recommendation auto-apply.",
+      "title": "Allow Ai Auto Apply",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "recommendation_id",
+    "bundle_id",
+    "instrument",
+    "schema_version",
+    "profile_version",
+    "engine_version",
+    "generated_at",
+    "advisor_kind",
+    "analysis_window",
+    "expected_improvement",
+    "risk",
+    "confidence"
+  ],
+  "title": "TuningRecommendation",
+  "type": "object"
+}

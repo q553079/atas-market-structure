@@ -1,0 +1,740 @@
+{
+  "$defs": {
+    "BeliefDataStatus": {
+      "description": "Freshness, completeness, and degraded-signal state for one belief snapshot.",
+      "properties": {
+        "data_freshness_ms": {
+          "description": "Estimated freshness lag in milliseconds.",
+          "minimum": 0,
+          "title": "Data Freshness Ms",
+          "type": "integer"
+        },
+        "feature_completeness": {
+          "description": "Fraction of expected features available to the recognizer.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Feature Completeness",
+          "type": "number"
+        },
+        "depth_available": {
+          "description": "Whether depth-derived evidence was available.",
+          "title": "Depth Available",
+          "type": "boolean"
+        },
+        "dom_available": {
+          "description": "Whether DOM-derived evidence was available.",
+          "title": "Dom Available",
+          "type": "boolean"
+        },
+        "ai_available": {
+          "description": "Whether AI services were available for optional review layers.",
+          "title": "Ai Available",
+          "type": "boolean"
+        },
+        "degraded_modes": {
+          "description": "Explicit degraded modes active for this snapshot.",
+          "items": {
+            "$ref": "#/$defs/DegradedMode"
+          },
+          "title": "Degraded Modes",
+          "type": "array"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI display.",
+          "title": "Freshness"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI display.",
+          "title": "Completeness"
+        }
+      },
+      "required": [
+        "data_freshness_ms",
+        "feature_completeness",
+        "depth_available",
+        "dom_available",
+        "ai_available"
+      ],
+      "title": "BeliefDataStatus",
+      "type": "object"
+    },
+    "BeliefStateSnapshot": {
+      "description": "Append-only current market-understanding snapshot consumed by UI and review flows.",
+      "properties": {
+        "belief_state_id": {
+          "description": "Stable belief-state identifier.",
+          "title": "Belief State Id",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol described by this belief state.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "observed_at": {
+          "description": "Observed market timestamp represented by the belief state.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "stored_at": {
+          "description": "Persistence timestamp for the belief state.",
+          "format": "date-time",
+          "title": "Stored At",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Belief-state schema version.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Instrument-profile version used for this belief state.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "engine_version": {
+          "description": "Recognizer build version used for this belief state.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "recognition_mode": {
+          "$ref": "#/$defs/RecognitionMode",
+          "description": "Recognition operating mode used for this belief state."
+        },
+        "data_status": {
+          "$ref": "#/$defs/BeliefDataStatus",
+          "description": "Freshness, completeness, and degraded-signal state."
+        },
+        "regime_posteriors": {
+          "description": "Top regime posteriors for the current state.",
+          "items": {
+            "$ref": "#/$defs/RegimePosteriorRecord"
+          },
+          "title": "Regime Posteriors",
+          "type": "array"
+        },
+        "event_hypotheses": {
+          "description": "Parallel event hypotheses for the current state.",
+          "items": {
+            "$ref": "#/$defs/EventHypothesisState"
+          },
+          "title": "Event Hypotheses",
+          "type": "array"
+        },
+        "active_anchors": {
+          "description": "Active memory anchors that influence the current posterior.",
+          "items": {
+            "$ref": "#/$defs/MemoryAnchorSnapshot"
+          },
+          "title": "Active Anchors",
+          "type": "array"
+        },
+        "missing_confirmation": {
+          "description": "Aggregated missing confirmations across the leading event hypotheses.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Confirmation",
+          "type": "array"
+        },
+        "invalidating_signals_seen": {
+          "description": "Aggregated invalidating or weakening signals currently in view.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidating Signals Seen",
+          "type": "array"
+        },
+        "transition_watch": {
+          "description": "Aggregated transition watch list across leading hypotheses.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Transition Watch",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Additional operator-facing notes emitted by the recognizer.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "belief_state_id",
+        "instrument_symbol",
+        "observed_at",
+        "stored_at",
+        "schema_version",
+        "profile_version",
+        "engine_version",
+        "recognition_mode",
+        "data_status"
+      ],
+      "title": "BeliefStateSnapshot",
+      "type": "object"
+    },
+    "DegradedMode": {
+      "description": "Explicit degraded conditions that should not stop the engine.\n\nCanonical values are prefixed to match Master Spec v2 and health/UI\nbadges. Legacy unprefixed inputs are still accepted for backward\ncompatibility with older persisted payloads and samples.",
+      "enum": [
+        "none",
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro",
+        "replay_rebuild_mode"
+      ],
+      "title": "DegradedMode",
+      "type": "string"
+    },
+    "EventHypothesisKind": {
+      "description": "Fixed V1 event-hypothesis ontology from Master Spec v2.",
+      "enum": [
+        "continuation_base",
+        "absorption_accumulation",
+        "profit_taking_pause",
+        "reversal_preparation",
+        "breakout_acceptance",
+        "breakout_rejection",
+        "failed_reversal",
+        "distribution_balance"
+      ],
+      "title": "EventHypothesisKind",
+      "type": "string"
+    },
+    "EventHypothesisState": {
+      "description": "Append-only event-hypothesis state emitted by the recognizer.",
+      "properties": {
+        "hypothesis_id": {
+          "description": "Stable hypothesis identifier within one belief snapshot.",
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "hypothesis_kind": {
+          "$ref": "#/$defs/EventHypothesisKind",
+          "description": "Fixed event-hypothesis ontology label."
+        },
+        "mapped_event_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TradableEventKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tradable event kind mapped from this hypothesis."
+        },
+        "phase": {
+          "$ref": "#/$defs/EventPhase",
+          "description": "Lifecycle phase of the hypothesis."
+        },
+        "posterior_probability": {
+          "description": "Posterior probability for this hypothesis.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Posterior Probability",
+          "type": "number"
+        },
+        "supporting_evidence": {
+          "description": "Evidence currently supporting the hypothesis.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence",
+          "type": "array"
+        },
+        "missing_confirmation": {
+          "description": "Evidence still missing before stronger confirmation.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Confirmation",
+          "type": "array"
+        },
+        "invalidating_signals": {
+          "description": "Signals that would weaken or invalidate the hypothesis.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidating Signals",
+          "type": "array"
+        },
+        "transition_watch": {
+          "description": "Competing transitions that the engine is watching.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Transition Watch",
+          "type": "array"
+        },
+        "data_quality_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How much the current data quality supports this hypothesis.",
+          "title": "Data Quality Score"
+        },
+        "evidence_density_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How dense and coherent the supporting evidence is.",
+          "title": "Evidence Density Score"
+        },
+        "model_stability_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How stable the hypothesis posterior is versus recent prior states.",
+          "title": "Model Stability Score"
+        },
+        "anchor_dependence_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How strongly this hypothesis depends on nearby memory anchors.",
+          "title": "Anchor Dependence Score"
+        }
+      },
+      "required": [
+        "hypothesis_id",
+        "hypothesis_kind",
+        "phase",
+        "posterior_probability"
+      ],
+      "title": "EventHypothesisState",
+      "type": "object"
+    },
+    "EventPhase": {
+      "description": "Lifecycle phase for one event hypothesis or episode.",
+      "enum": [
+        "emerging",
+        "building",
+        "confirming",
+        "weakening",
+        "resolved",
+        "invalidated"
+      ],
+      "title": "EventPhase",
+      "type": "string"
+    },
+    "MemoryAnchorSnapshot": {
+      "description": "Versioned memory-anchor view attached to one belief snapshot.",
+      "properties": {
+        "anchor_id": {
+          "description": "Stable memory-anchor identifier.",
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "anchor_type": {
+          "description": "Anchor ontology type such as balance_center or gap_edge.",
+          "title": "Anchor Type",
+          "type": "string"
+        },
+        "reference_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary price reference for the anchor.",
+          "title": "Reference Price"
+        },
+        "reference_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary time reference for the anchor.",
+          "title": "Reference Time"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Anchor freshness label.",
+          "title": "Freshness"
+        },
+        "distance_ticks": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Distance in ticks from current price to this anchor when the snapshot was emitted.",
+          "title": "Distance Ticks"
+        },
+        "influence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relative influence score of this anchor on the current posterior.",
+          "title": "Influence"
+        },
+        "role_profile": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Current anchor-role profile such as magnet or reversal reference.",
+          "title": "Role Profile",
+          "type": "object"
+        },
+        "profile_version": {
+          "description": "Profile version used to emit this anchor snapshot.",
+          "title": "Profile Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "anchor_id",
+        "anchor_type",
+        "profile_version"
+      ],
+      "title": "MemoryAnchorSnapshot",
+      "type": "object"
+    },
+    "RecognitionMode": {
+      "description": "Recognition operating mode attached to belief-state outputs.\n\nThe canonical V1 surface follows Master Spec v2 naming. Legacy\nvalues are still accepted through `_missing_` so older samples and\ntests can be read during the closeout transition.",
+      "enum": [
+        "normal",
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "replay_rebuild_mode",
+        "degraded_no_depth"
+      ],
+      "title": "RecognitionMode",
+      "type": "string"
+    },
+    "RegimeKind": {
+      "description": "Fixed V1 regime ontology from Master Spec v2.",
+      "enum": [
+        "strong_momentum_trend",
+        "weak_momentum_trend_narrow",
+        "weak_momentum_trend_wide",
+        "balance_mean_reversion",
+        "compression",
+        "transition_exhaustion"
+      ],
+      "title": "RegimeKind",
+      "type": "string"
+    },
+    "RegimePosteriorRecord": {
+      "description": "Append-only probability snapshot for one regime candidate.",
+      "properties": {
+        "regime": {
+          "$ref": "#/$defs/RegimeKind",
+          "description": "Fixed regime ontology label."
+        },
+        "probability": {
+          "description": "Posterior probability for this regime.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Probability",
+          "type": "number"
+        },
+        "evidence": {
+          "description": "Observed evidence supporting this regime probability.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "regime",
+        "probability"
+      ],
+      "title": "RegimePosteriorRecord",
+      "type": "object"
+    },
+    "ReplayProjectionQuery": {
+      "additionalProperties": false,
+      "description": "Filter metadata shared by replay workbench read/projection endpoints.",
+      "properties": {
+        "instrument": {
+          "description": "Instrument symbol scoped by the read-model query.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time lower bound for the query.",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive market-time upper bound for the query.",
+          "title": "To"
+        },
+        "session_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional YYYY-MM-DD session/date filter.",
+          "title": "Session Date"
+        },
+        "limit": {
+          "default": 100,
+          "description": "Maximum number of rows returned per section.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instrument"
+      ],
+      "title": "ReplayProjectionQuery",
+      "type": "object"
+    },
+    "ReplayWorkbenchBeliefTimelineEntry": {
+      "additionalProperties": false,
+      "description": "Belief-state row enriched with timeline-friendly summaries for the workbench.",
+      "properties": {
+        "market_time": {
+          "description": "Belief market timestamp.",
+          "format": "date-time",
+          "title": "Market Time",
+          "type": "string"
+        },
+        "session_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Session/date label for this belief row.",
+          "title": "Session Date"
+        },
+        "belief_state_id": {
+          "description": "Belief-state identifier.",
+          "title": "Belief State Id",
+          "type": "string"
+        },
+        "top_regimes": {
+          "description": "Top regime probability summaries.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Top Regimes",
+          "type": "array"
+        },
+        "top_event_hypotheses": {
+          "description": "Top event-hypothesis summaries.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Top Event Hypotheses",
+          "type": "array"
+        },
+        "degraded_badges": {
+          "description": "Degraded/freshness badges active for this belief.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Degraded Badges",
+          "type": "array"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label copied from the belief data status.",
+          "title": "Freshness"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label copied from the belief data status.",
+          "title": "Completeness"
+        },
+        "belief": {
+          "$ref": "#/$defs/BeliefStateSnapshot",
+          "description": "Full belief-state snapshot payload."
+        }
+      },
+      "required": [
+        "market_time",
+        "belief_state_id",
+        "belief"
+      ],
+      "title": "ReplayWorkbenchBeliefTimelineEntry",
+      "type": "object"
+    },
+    "TradableEventKind": {
+      "description": "V1 tradable event ontology required by Master Spec v2.",
+      "enum": [
+        "momentum_continuation",
+        "balance_mean_reversion",
+        "absorption_to_reversal_preparation"
+      ],
+      "title": "TradableEventKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Read-model response for replay workbench belief-state timelines.",
+  "properties": {
+    "schema_version": {
+      "description": "Schema version for this belief-timeline response.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "query": {
+      "$ref": "#/$defs/ReplayProjectionQuery",
+      "description": "Filters used to build this timeline."
+    },
+    "current_belief": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BeliefStateSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Latest belief-state snapshot in scope when available."
+    },
+    "items": {
+      "description": "Timeline-ordered belief-state rows.",
+      "items": {
+        "$ref": "#/$defs/ReplayWorkbenchBeliefTimelineEntry"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "query"
+  ],
+  "title": "ReplayWorkbenchBeliefTimelineEnvelope",
+  "type": "object"
+}

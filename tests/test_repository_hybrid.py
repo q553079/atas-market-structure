@@ -345,7 +345,7 @@ def test_hybrid_repository_can_delegate_tick_quote_lookup() -> None:
     assert quote["best_ask"] == 24843.25
 
 
-def test_build_repository_defaults_to_clickhouse_for_market_data(tmp_path: Path) -> None:
+def test_build_repository_defaults_to_clickhouse_for_chart_candles_and_sqlite_for_ingestions(tmp_path: Path) -> None:
     repository = build_repository(
         AppConfig(
             database_path=tmp_path / "data" / "market_structure.db",
@@ -363,7 +363,7 @@ def test_build_repository_defaults_to_clickhouse_for_market_data(tmp_path: Path)
     assert isinstance(repository, HybridAnalysisRepository)
     assert isinstance(repository._metadata_repository, SQLiteAnalysisRepository)
     assert repository._chart_candle_repository is not repository._metadata_repository
-    assert repository._ingestion_repository is not repository._metadata_repository
+    assert repository._ingestion_repository is repository._metadata_repository
 
 
 def test_build_repository_forwards_clickhouse_retry_settings(tmp_path: Path) -> None:
@@ -384,9 +384,58 @@ def test_build_repository_forwards_clickhouse_retry_settings(tmp_path: Path) -> 
     )
 
     assert isinstance(repository, HybridAnalysisRepository)
-    assert repository._chart_candle_repository is repository._ingestion_repository
+    assert repository._ingestion_repository is repository._metadata_repository
     assert repository._chart_candle_repository._connect_retries == 7
     assert repository._chart_candle_repository._retry_delay_seconds == 2.5
+    assert repository._chart_candle_repository._manage_ingestion_tables is False
+
+
+def test_build_repository_can_opt_in_clickhouse_ingestions(tmp_path: Path) -> None:
+    repository = build_repository(
+        AppConfig(
+            database_path=tmp_path / "data" / "market_structure.db",
+            storage_mode="clickhouse",
+            clickhouse_host="127.0.0.1",
+            clickhouse_port=8123,
+            clickhouse_user="default",
+            clickhouse_password="",
+            clickhouse_database="market_data",
+            clickhouse_chart_candles_table="chart_candles",
+            clickhouse_ingestions_table="ingestions",
+            clickhouse_enable_ingestions=True,
+        )
+    )
+
+    assert isinstance(repository, HybridAnalysisRepository)
+    assert repository._chart_candle_repository is repository._ingestion_repository
+    assert repository._chart_candle_repository._manage_ingestion_tables is True
+
+
+def test_clickhouse_repository_can_skip_ingestion_table_initialization(monkeypatch, tmp_path: Path) -> None:
+    commands: list[str] = []
+
+    class _FakeClient:
+        def command(self, sql: str) -> None:
+            commands.append(sql)
+
+    repository = ClickHouseChartCandleRepository(
+        host="127.0.0.1",
+        port=8123,
+        username="default",
+        password="",
+        database="market_data",
+        table="chart_candles",
+        workspace_root=tmp_path,
+        manage_ingestion_tables=False,
+    )
+    monkeypatch.setattr(repository, "_execute", lambda operation: operation(_FakeClient()))
+
+    repository.initialize()
+
+    rendered = "\n".join(commands)
+    assert "CREATE DATABASE IF NOT EXISTS" in rendered
+    assert "chart_candles" in rendered
+    assert "CREATE TABLE IF NOT EXISTS `market_data`.`ingestions`" not in rendered
 
 
 def test_clickhouse_repository_retries_initial_connection(monkeypatch, tmp_path: Path) -> None:

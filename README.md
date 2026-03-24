@@ -2,6 +2,11 @@
 
 本仓库当前收口到 `docs/k_repair/replay_workbench_master_spec_v2.md` 的 V1 范围，目标是一个本地可运行、可测试、可回放、可审计的 replay workbench 与 deterministic recognition/evaluation/tuning 基座。
 
+说明：
+
+- `docs/k_repair/` 仍保留主规格与历史修复上下文。
+- 当历史文档中的实现文件列表与当前代码不一致时，以本 README、`src/atas_market_structure/README.md`、`src/atas_market_structure/app_routes/README.md`、`src/atas_market_structure/models/README.md` 与实际代码为准。
+
 ## 主规格与入口
 
 主规格：
@@ -50,12 +55,12 @@
   - `balance_mean_reversion`
   - `absorption_to_reversal_preparation`
 - append-only 输出已覆盖：
-  - `feature_slice`
-  - `regime_posterior`
-  - `event_hypothesis_state`
-  - `belief_state_snapshot`
-  - `event_episode`
-  - `episode_evaluation`
+  - `feature_slice_v1`
+  - `regime_posterior_v1`
+  - `event_hypothesis_state_v1`
+  - `belief_state_snapshot_v1`
+  - `event_episode_v1`
+  - `episode_evaluation_v1`
 - 关键输出统一携带：
   - `schema_version`
   - `profile_version`
@@ -130,6 +135,32 @@
 - 当前仓库选择 `degraded_no_depth` 作为 canonical 输出
 - 读取层仍兼容旧值 `bar_anchor_only`
 
+## Contract Artifacts
+
+- `schemas/` 保存从当前 Pydantic 模型导出的 JSON schema artifacts。
+- `samples/contracts/` 保存核心 canonical domain payload 样例。
+- `samples/responses/` 保存关键 API/read-model response 样例。
+- 生成命令：
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python .\tools\export_json_schemas.py
+```
+
+当前重点对齐的 contract artifacts 包括：
+
+- `instrument_profile_v1.schema.json`
+- `recognizer_build_v1.schema.json`
+- `feature_slice_v1.schema.json`
+- `regime_posterior_v1.schema.json`
+- `event_hypothesis_state_v1.schema.json`
+- `belief_state_snapshot_v1.schema.json`
+- `event_episode_v1.schema.json`
+- `episode_evaluation_v1.schema.json`
+- `tuning_recommendation_v1.schema.json`
+- `replay_workbench_health_status_envelope_v1.schema.json`
+- `replay_workbench_projection_envelope_v1.schema.json`
+
 ## 运行
 
 ### 1. 准备环境
@@ -138,6 +169,11 @@
 New-Item -ItemType Directory -Force -Path .\data | Out-Null
 $env:PYTHONPATH = "$PWD\src"
 ```
+
+本地环境变量请使用仓库根目录的 `.env.example` 作为模板：
+
+- 真实 `.env` 仅供本地开发，不应提交到仓库
+- 新增环境变量时，同时更新 `.env.example`
 
 ### 2. 启动服务
 
@@ -277,5 +313,15 @@ docker compose -f .\docker-compose.yml up --build -d
 - `schemas/`: contract artifacts
 - `samples/`: sample payloads 与 golden cases
 - `scripts/`: launcher / validate / rebuild scripts
+- `tools/`: reusable diagnostics / export / inspection scripts
+- `tmp/`: local-only scratch outputs, screenshots, transcripts, pytest artifacts
 - `tests/`: unit / integration / replay / sample validation
 - `docs/`: architecture / ADR / implementation / recognition / tuning / workbench
+
+## 结构治理
+
+- 不要在仓库根目录提交 `_tmp_*`、`tmp_*`、临时 diff、临时 pytest 输出、一次性诊断脚本。
+- `repository.py` 与 `workbench_services.py` 是 compatibility facade only；不要继续向里面堆业务逻辑。
+- `app.py` 只负责应用装配、依赖注入、路由注册、生命周期管理。
+- 新逻辑优先进入对应 focused module，而不是回流到旧巨石文件。
+- 可复用诊断脚本放到 `tools/` 或 `scripts/`；临时输出只放 `tmp/`。

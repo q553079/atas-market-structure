@@ -1,5 +1,172 @@
 {
   "$defs": {
+    "BeliefDataStatus": {
+      "description": "Freshness, completeness, and degraded-signal state for one belief snapshot.",
+      "properties": {
+        "data_freshness_ms": {
+          "description": "Estimated freshness lag in milliseconds.",
+          "minimum": 0,
+          "title": "Data Freshness Ms",
+          "type": "integer"
+        },
+        "feature_completeness": {
+          "description": "Fraction of expected features available to the recognizer.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Feature Completeness",
+          "type": "number"
+        },
+        "depth_available": {
+          "description": "Whether depth-derived evidence was available.",
+          "title": "Depth Available",
+          "type": "boolean"
+        },
+        "dom_available": {
+          "description": "Whether DOM-derived evidence was available.",
+          "title": "Dom Available",
+          "type": "boolean"
+        },
+        "ai_available": {
+          "description": "Whether AI services were available for optional review layers.",
+          "title": "Ai Available",
+          "type": "boolean"
+        },
+        "degraded_modes": {
+          "description": "Explicit degraded modes active for this snapshot.",
+          "items": {
+            "$ref": "#/$defs/DegradedMode"
+          },
+          "title": "Degraded Modes",
+          "type": "array"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI display.",
+          "title": "Freshness"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI display.",
+          "title": "Completeness"
+        }
+      },
+      "required": [
+        "data_freshness_ms",
+        "feature_completeness",
+        "depth_available",
+        "dom_available",
+        "ai_available"
+      ],
+      "title": "BeliefDataStatus",
+      "type": "object"
+    },
+    "DegradedMode": {
+      "description": "Explicit degraded conditions that should not stop the engine.\n\nCanonical values are prefixed to match Master Spec v2 and health/UI\nbadges. Legacy unprefixed inputs are still accepted for backward\ncompatibility with older persisted payloads and samples.",
+      "enum": [
+        "none",
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro",
+        "replay_rebuild_mode"
+      ],
+      "title": "DegradedMode",
+      "type": "string"
+    },
+    "InstrumentRef": {
+      "description": "Stable instrument metadata for replay and backtests.",
+      "properties": {
+        "symbol": {
+          "description": "Trading symbol.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Symbol",
+          "type": "string"
+        },
+        "root_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Root or continuous symbol when known.",
+          "examples": [
+            "NQ"
+          ],
+          "title": "Root Symbol"
+        },
+        "contract_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resolved contract symbol when known.",
+          "examples": [
+            "NQH6"
+          ],
+          "title": "Contract Symbol"
+        },
+        "venue": {
+          "description": "Execution or quote venue.",
+          "examples": [
+            "CME"
+          ],
+          "title": "Venue",
+          "type": "string"
+        },
+        "tick_size": {
+          "description": "Minimum price increment. A value of 0 means the collector could not resolve tick size and the payload is degraded.",
+          "examples": [
+            0.25
+          ],
+          "minimum": 0,
+          "title": "Tick Size",
+          "type": "number"
+        },
+        "currency": {
+          "description": "PnL currency.",
+          "examples": [
+            "USD"
+          ],
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "venue",
+        "tick_size",
+        "currency"
+      ],
+      "title": "InstrumentRef",
+      "type": "object"
+    },
     "ReplayAcquisitionMode": {
       "enum": [
         "cache_reuse",
@@ -7,6 +174,48 @@
       ],
       "title": "ReplayAcquisitionMode",
       "type": "string"
+    },
+    "ReplayAiBriefing": {
+      "description": "Compact AI briefing packet derived from replay events and strategy-library matches.",
+      "properties": {
+        "objective": {
+          "description": "What the AI should decide or highlight for the operator.",
+          "examples": [
+            "Identify the most defensible support and resistance zones from the last 5 sessions."
+          ],
+          "title": "Objective",
+          "type": "string"
+        },
+        "focus_questions": {
+          "description": "Specific questions that the AI should answer.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Focus Questions",
+          "type": "array"
+        },
+        "required_outputs": {
+          "description": "Expected output sections for the AI response.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Outputs",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Additional operator instructions preserved in the packet.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "objective"
+      ],
+      "title": "ReplayAiBriefing",
+      "type": "object"
     },
     "ReplayCachePolicy": {
       "description": "Replay cache policy controlling when ATAS should be queried and when snapshots become durable.",
@@ -39,6 +248,460 @@
         }
       },
       "title": "ReplayCachePolicy",
+      "type": "object"
+    },
+    "ReplayChartBar": {
+      "description": "Chart bar reconstructed for the standalone replay workbench UI.",
+      "properties": {
+        "started_at": {
+          "description": "Inclusive bar start timestamp.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "description": "Inclusive bar end timestamp.",
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "open": {
+          "description": "Bar open.",
+          "examples": [
+            21540.25
+          ],
+          "title": "Open",
+          "type": "number"
+        },
+        "high": {
+          "description": "Bar high.",
+          "examples": [
+            21548.0
+          ],
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "Bar low.",
+          "examples": [
+            21535.5
+          ],
+          "title": "Low",
+          "type": "number"
+        },
+        "close": {
+          "description": "Bar close.",
+          "examples": [
+            21544.75
+          ],
+          "title": "Close",
+          "type": "number"
+        },
+        "volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional total volume for the bar.",
+          "examples": [
+            842
+          ],
+          "title": "Volume"
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional net delta for the bar.",
+          "examples": [
+            121
+          ],
+          "title": "Delta"
+        },
+        "bid_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional bid-side traded volume.",
+          "examples": [
+            360
+          ],
+          "title": "Bid Volume"
+        },
+        "ask_volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional ask-side traded volume.",
+          "examples": [
+            481
+          ],
+          "title": "Ask Volume"
+        },
+        "source_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized candle source, for example history_bars, continuous_state, chart_candles, or synthetic_gap_fill.",
+          "title": "Source Kind"
+        },
+        "is_synthetic": {
+          "default": false,
+          "description": "Whether this candle is synthetic gap-fill rather than observed market data.",
+          "title": "Is Synthetic",
+          "type": "boolean"
+        },
+        "bar_timestamp_utc": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC-normalised bar timestamp preserved from ATAS metadata before timezone normalisation.",
+          "title": "Bar Timestamp Utc"
+        },
+        "original_bar_time_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw bar time text string as it appeared in ATAS before any timezone interpretation.",
+          "examples": [
+            "2026-03-17 09:30:00 EST"
+          ],
+          "title": "Original Bar Time Text"
+        }
+      },
+      "required": [
+        "started_at",
+        "ended_at",
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "title": "ReplayChartBar",
+      "type": "object"
+    },
+    "ReplayEventAnnotation": {
+      "description": "Structured event marker rendered as an overlay on the replay UI.",
+      "properties": {
+        "event_id": {
+          "description": "Stable event identifier.",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_kind": {
+          "description": "Event family or pattern key.",
+          "examples": [
+            "initiative_drive",
+            "gap_first_touch"
+          ],
+          "title": "Event Kind",
+          "type": "string"
+        },
+        "source_kind": {
+          "description": "Where this event came from, for example collector, strategy_library, manual_review, or ai_review.",
+          "examples": [
+            "collector"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "observed_at": {
+          "description": "Timestamp of the event marker.",
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary event price.",
+          "examples": [
+            21544.75
+          ],
+          "title": "Price"
+        },
+        "price_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lower bound when the event spans a zone.",
+          "examples": [
+            21542.0
+          ],
+          "title": "Price Low"
+        },
+        "price_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upper bound when the event spans a zone.",
+          "examples": [
+            21545.0
+          ],
+          "title": "Price High"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StructureSide"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Associated directional side when applicable."
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional source-side confidence.",
+          "examples": [
+            0.74
+          ],
+          "title": "Confidence"
+        },
+        "linked_ids": {
+          "description": "Linked event, drive, zone, or strategy identifiers.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Ids",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Short render-ready notes shown in the UI.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "event_id",
+        "event_kind",
+        "source_kind",
+        "observed_at"
+      ],
+      "title": "ReplayEventAnnotation",
+      "type": "object"
+    },
+    "ReplayFocusRegion": {
+      "description": "Price region highlighted for operator review and AI focus.",
+      "properties": {
+        "region_id": {
+          "description": "Stable focus-region identifier.",
+          "title": "Region Id",
+          "type": "string"
+        },
+        "label": {
+          "description": "Short UI label for the region.",
+          "examples": [
+            "Europe defended bid"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "When this region became relevant.",
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When this region stopped being relevant, if known.",
+          "title": "Ended At"
+        },
+        "price_low": {
+          "description": "Lower boundary of the highlighted region.",
+          "examples": [
+            21538.0
+          ],
+          "title": "Price Low",
+          "type": "number"
+        },
+        "price_high": {
+          "description": "Upper boundary of the highlighted region.",
+          "examples": [
+            21544.0
+          ],
+          "title": "Price High",
+          "type": "number"
+        },
+        "priority": {
+          "description": "Priority for UI emphasis.",
+          "examples": [
+            8
+          ],
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Priority",
+          "type": "integer"
+        },
+        "reason_codes": {
+          "description": "Compact reason tags behind the focus region.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "linked_event_ids": {
+          "description": "Events that justify this focus region.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Linked Event Ids",
+          "type": "array"
+        },
+        "notes": {
+          "description": "Human-readable notes for the workbench sidebar.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "region_id",
+        "label",
+        "started_at",
+        "price_low",
+        "price_high",
+        "priority"
+      ],
+      "title": "ReplayFocusRegion",
+      "type": "object"
+    },
+    "ReplayStrategyCandidate": {
+      "description": "Strategy-library item matched to the current replay window.",
+      "properties": {
+        "strategy_id": {
+          "description": "Stable strategy-library candidate identifier.",
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "title": {
+          "description": "Short title displayed in the UI.",
+          "examples": [
+            "NQ replenished bid launchpad"
+          ],
+          "title": "Title",
+          "type": "string"
+        },
+        "source_path": {
+          "description": "Strategy-library document path or reference.",
+          "title": "Source Path",
+          "type": "string"
+        },
+        "matched_event_ids": {
+          "description": "Event ids that caused this candidate to be attached.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Matched Event Ids",
+          "type": "array"
+        },
+        "why_relevant": {
+          "description": "Short statements explaining why the candidate is attached.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Why Relevant",
+          "type": "array"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "title",
+        "source_path"
+      ],
+      "title": "ReplayStrategyCandidate",
       "type": "object"
     },
     "ReplayVerificationState": {
@@ -228,6 +891,310 @@
       "title": "ReplayWorkbenchAcceptedSummary",
       "type": "object"
     },
+    "ReplayWorkbenchAtasBackfillRecord": {
+      "description": "Durable server-side record for one ATAS history repair request.",
+      "properties": {
+        "request_id": {
+          "description": "Stable server-generated request identifier.",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "cache_key": {
+          "description": "Replay cache key whose coverage should be repaired.",
+          "title": "Cache Key",
+          "type": "string"
+        },
+        "instrument_symbol": {
+          "description": "Instrument symbol being repaired.",
+          "title": "Instrument Symbol",
+          "type": "string"
+        },
+        "contract_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Specific contract symbol to backfill.",
+          "title": "Contract Symbol"
+        },
+        "root_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Root/continuous symbol for the backfill.",
+          "title": "Root Symbol"
+        },
+        "target_contract_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit target contract symbol preferred for the repair when distinct from instrument_symbol.",
+          "title": "Target Contract Symbol"
+        },
+        "target_root_symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit target root symbol preferred for the repair when distinct from instrument_symbol.",
+          "title": "Target Root Symbol"
+        },
+        "display_timeframe": {
+          "$ref": "#/$defs/Timeframe",
+          "description": "Timeframe where the gap was observed."
+        },
+        "window_start": {
+          "description": "Inclusive replay window start.",
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "description": "Inclusive replay window end.",
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Preferred chart instance when explicitly targeted.",
+          "title": "Chart Instance Id"
+        },
+        "missing_segments": {
+          "description": "Observed missing segments.",
+          "items": {
+            "$ref": "#/$defs/ReplayWorkbenchGapSegment"
+          },
+          "title": "Missing Segments",
+          "type": "array"
+        },
+        "requested_ranges": {
+          "description": "Explicit bar-time ranges that should be resent during backfill.",
+          "items": {
+            "$ref": "#/$defs/ReplayWorkbenchBackfillRange"
+          },
+          "title": "Requested Ranges",
+          "type": "array"
+        },
+        "reason": {
+          "description": "Why the request exists.",
+          "title": "Reason",
+          "type": "string"
+        },
+        "request_history_bars": {
+          "description": "Whether history bars should be resent.",
+          "title": "Request History Bars",
+          "type": "boolean"
+        },
+        "request_history_footprint": {
+          "description": "Whether history footprint should be resent.",
+          "title": "Request History Footprint",
+          "type": "boolean"
+        },
+        "replace_existing_history": {
+          "default": false,
+          "description": "Whether the targeted history window was cleared before waiting for resent bars.",
+          "title": "Replace Existing History",
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/ReplayWorkbenchAtasBackfillStatus",
+          "description": "Current lifecycle state of the request."
+        },
+        "requested_at": {
+          "description": "When the request was created.",
+          "format": "date-time",
+          "title": "Requested At",
+          "type": "string"
+        },
+        "expires_at": {
+          "description": "When the request should no longer be dispatched.",
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "dispatch_count": {
+          "description": "How many times the request was handed to an adapter.",
+          "minimum": 0,
+          "title": "Dispatch Count",
+          "type": "integer"
+        },
+        "dispatched_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Last dispatch timestamp when handed to an adapter.",
+          "title": "Dispatched At"
+        },
+        "dispatched_chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart instance that most recently received this request.",
+          "title": "Dispatched Chart Instance Id"
+        },
+        "acknowledged_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the adapter acknowledged the request.",
+          "title": "Acknowledged At"
+        },
+        "acknowledged_chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart instance that acknowledged the request.",
+          "title": "Acknowledged Chart Instance Id"
+        },
+        "acknowledged_history_bars": {
+          "default": false,
+          "description": "Whether the adapter reported re-enqueuing history bars.",
+          "title": "Acknowledged History Bars",
+          "type": "boolean"
+        },
+        "acknowledged_history_footprint": {
+          "default": false,
+          "description": "Whether the adapter reported re-enqueuing history footprint payloads.",
+          "title": "Acknowledged History Footprint",
+          "type": "boolean"
+        },
+        "latest_loaded_bar_started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Latest loaded historical bar start known to the adapter when it acknowledged the request.",
+          "title": "Latest Loaded Bar Started At"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional adapter or server note attached to the request.",
+          "title": "Note"
+        }
+      },
+      "required": [
+        "request_id",
+        "cache_key",
+        "instrument_symbol",
+        "display_timeframe",
+        "window_start",
+        "window_end",
+        "reason",
+        "request_history_bars",
+        "request_history_footprint",
+        "status",
+        "requested_at",
+        "expires_at",
+        "dispatch_count"
+      ],
+      "title": "ReplayWorkbenchAtasBackfillRecord",
+      "type": "object"
+    },
+    "ReplayWorkbenchAtasBackfillStatus": {
+      "description": "Lifecycle state of a server-side request asking the ATAS adapter to resend history.",
+      "enum": [
+        "pending",
+        "dispatched",
+        "acknowledged",
+        "expired"
+      ],
+      "title": "ReplayWorkbenchAtasBackfillStatus",
+      "type": "string"
+    },
+    "ReplayWorkbenchBackfillRange": {
+      "description": "One explicit time range the adapter should prioritize during a backfill resend.",
+      "properties": {
+        "range_start": {
+          "description": "Inclusive backfill range start in UTC.",
+          "format": "date-time",
+          "title": "Range Start",
+          "type": "string"
+        },
+        "range_end": {
+          "description": "Inclusive backfill range end in UTC.",
+          "format": "date-time",
+          "title": "Range End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "range_start",
+        "range_end"
+      ],
+      "title": "ReplayWorkbenchBackfillRange",
+      "type": "object"
+    },
     "ReplayWorkbenchBuildAction": {
       "enum": [
         "cache_hit",
@@ -241,6 +1208,25 @@
     "ReplayWorkbenchBuildResponse": {
       "description": "Result of a replay-workbench build attempt.",
       "properties": {
+        "schema_version": {
+          "description": "Response schema version for this build result.",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Instrument-profile version attached to the derived replay output.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "engine_version": {
+          "description": "Recognizer engine version attached to the derived replay output.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "data_status": {
+          "$ref": "#/$defs/BeliefDataStatus",
+          "description": "Freshness, completeness, and degraded-mode summary for this build result."
+        },
         "action": {
           "$ref": "#/$defs/ReplayWorkbenchBuildAction",
           "description": "Whether the builder reused cache, built locally, or needs ATAS history."
@@ -287,6 +1273,18 @@
           "description": "Stored ingestion identifier when a packet exists or was built.",
           "title": "Ingestion Id"
         },
+        "core_snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchSnapshotPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Replay snapshot payload returned inline for first-screen rendering when immediately available."
+        },
         "summary": {
           "anyOf": [
             {
@@ -324,9 +1322,37 @@
           "default": null,
           "description": "Minimal ATAS history request guidance when local history is insufficient.",
           "title": "Atas Fetch Request"
+        },
+        "atas_backfill_request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchAtasBackfillRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Backfill request automatically created or reused for this replay window."
+        },
+        "integrity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchIntegrity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unified replay integrity state for the requested window."
         }
       },
       "required": [
+        "schema_version",
+        "profile_version",
+        "engine_version",
+        "data_status",
         "action",
         "cache_key",
         "reason",
@@ -450,6 +1476,165 @@
       "title": "ReplayWorkbenchCacheRecord",
       "type": "object"
     },
+    "ReplayWorkbenchGapSegment": {
+      "description": "One missing candle-time segment detected in a rebuilt replay packet.",
+      "properties": {
+        "prev_ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End timestamp of the candle immediately before the gap when available.",
+          "title": "Prev Ended At"
+        },
+        "next_started_at": {
+          "description": "Start timestamp of the first observed candle after the gap.",
+          "format": "date-time",
+          "title": "Next Started At",
+          "type": "string"
+        },
+        "missing_bar_count": {
+          "description": "How many bars are missing between prev_ended_at and next_started_at.",
+          "minimum": 1,
+          "title": "Missing Bar Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "next_started_at",
+        "missing_bar_count"
+      ],
+      "title": "ReplayWorkbenchGapSegment",
+      "type": "object"
+    },
+    "ReplayWorkbenchIntegrity": {
+      "description": "Unified replay data integrity state shared by build, snapshot, and live-tail APIs.",
+      "properties": {
+        "status": {
+          "description": "High-level integrity status such as complete, missing_local_history, or gaps_detected.",
+          "title": "Status",
+          "type": "string"
+        },
+        "window_start": {
+          "description": "Integrity evaluation window start.",
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "description": "Integrity evaluation window end.",
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "window_days": {
+          "description": "Whole-day window size used for integrity evaluation.",
+          "minimum": 1,
+          "title": "Window Days",
+          "type": "integer"
+        },
+        "gap_count": {
+          "default": 0,
+          "description": "How many missing candle segments were detected.",
+          "minimum": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "missing_bar_count": {
+          "default": 0,
+          "description": "Total missing bar count across all detected segments.",
+          "minimum": 0,
+          "title": "Missing Bar Count",
+          "type": "integer"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI and downstream consumers.",
+          "title": "Completeness"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI and downstream consumers.",
+          "title": "Freshness"
+        },
+        "latest_data_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact data-status classification such as complete, degraded, or no_live_data.",
+          "title": "Latest Data Status"
+        },
+        "missing_segments": {
+          "description": "Missing candle segments normalized for backfill requests.",
+          "items": {
+            "$ref": "#/$defs/ReplayWorkbenchGapSegment"
+          },
+          "title": "Missing Segments",
+          "type": "array"
+        },
+        "latest_backfill_request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Most recent related backfill request id when available.",
+          "title": "Latest Backfill Request Id"
+        },
+        "latest_backfill_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchAtasBackfillStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Status of the most recent related backfill request when available."
+        }
+      },
+      "required": [
+        "status",
+        "window_start",
+        "window_end",
+        "window_days"
+      ],
+      "title": "ReplayWorkbenchIntegrity",
+      "type": "object"
+    },
     "ReplayWorkbenchInvalidationResponse": {
       "description": "REST response after a replay cache record is manually invalidated.",
       "properties": {
@@ -501,6 +1686,385 @@
       "title": "ReplayWorkbenchInvalidationResponse",
       "type": "object"
     },
+    "ReplayWorkbenchSnapshotPayload": {
+      "description": "Standalone replay-workbench packet used by the future UI and AI review loop.",
+      "properties": {
+        "schema_version": {
+          "description": "Payload schema version.",
+          "examples": [
+            "1.0.0"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "profile_version": {
+          "description": "Instrument-profile version attached to this derived replay snapshot.",
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "engine_version": {
+          "description": "Recognizer engine version attached to this derived replay snapshot.",
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "data_status": {
+          "$ref": "#/$defs/BeliefDataStatus",
+          "description": "Freshness, completeness, and degraded-mode summary for this replay snapshot."
+        },
+        "replay_snapshot_id": {
+          "description": "Replay packet identifier.",
+          "examples": [
+            "replay-20260317-nq-europe-01"
+          ],
+          "title": "Replay Snapshot Id",
+          "type": "string"
+        },
+        "cache_key": {
+          "description": "Stable cache key used to decide whether the replay packet should be reused or reacquired.",
+          "examples": [
+            "NQ|5m|2026-03-12T07:00:00Z|2026-03-17T02:15:00Z"
+          ],
+          "title": "Cache Key",
+          "type": "string"
+        },
+        "acquisition_mode": {
+          "$ref": "#/$defs/ReplayAcquisitionMode",
+          "description": "Whether the packet came from local cache reuse or a fresh ATAS acquisition."
+        },
+        "created_at": {
+          "description": "When the replay packet was generated.",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef",
+          "description": "Source metadata."
+        },
+        "instrument": {
+          "$ref": "#/$defs/InstrumentRef",
+          "description": "Instrument metadata."
+        },
+        "display_timeframe": {
+          "$ref": "#/$defs/Timeframe",
+          "description": "Primary bar timeframe used by the UI replay chart."
+        },
+        "window_start": {
+          "description": "Inclusive replay window start.",
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "description": "Inclusive replay window end.",
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "cache_policy": {
+          "$ref": "#/$defs/ReplayCachePolicy",
+          "description": "Cache policy controlling replay reacquisition and verification cadence."
+        },
+        "verification_state": {
+          "$ref": "#/$defs/ReplayVerificationState",
+          "description": "Current verification state for this replay packet."
+        },
+        "integrity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayWorkbenchIntegrity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unified replay integrity state captured at snapshot build time."
+        },
+        "candles": {
+          "description": "Reconstructed bar series used by the standalone replay UI.",
+          "items": {
+            "$ref": "#/$defs/ReplayChartBar"
+          },
+          "title": "Candles",
+          "type": "array"
+        },
+        "event_annotations": {
+          "description": "Structured event overlays rendered on the replay chart.",
+          "items": {
+            "$ref": "#/$defs/ReplayEventAnnotation"
+          },
+          "title": "Event Annotations",
+          "type": "array"
+        },
+        "focus_regions": {
+          "description": "High-priority regions highlighted for operator and AI review.",
+          "items": {
+            "$ref": "#/$defs/ReplayFocusRegion"
+          },
+          "title": "Focus Regions",
+          "type": "array"
+        },
+        "strategy_candidates": {
+          "description": "Strategy-library candidates attached to this replay window.",
+          "items": {
+            "$ref": "#/$defs/ReplayStrategyCandidate"
+          },
+          "title": "Strategy Candidates",
+          "type": "array"
+        },
+        "ai_briefing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayAiBriefing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional AI briefing assembled from events, focus regions, and strategy-library matches."
+        },
+        "raw_features": {
+          "additionalProperties": true,
+          "description": "Additional replay metadata such as history depth or ATAS workspace info.",
+          "title": "Raw Features",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema_version",
+        "profile_version",
+        "engine_version",
+        "data_status",
+        "replay_snapshot_id",
+        "cache_key",
+        "acquisition_mode",
+        "created_at",
+        "source",
+        "instrument",
+        "display_timeframe",
+        "window_start",
+        "window_end"
+      ],
+      "title": "ReplayWorkbenchSnapshotPayload",
+      "type": "object"
+    },
+    "SourceRef": {
+      "description": "Producer metadata for tracing and support.",
+      "properties": {
+        "system": {
+          "description": "Source system name.",
+          "examples": [
+            "ATAS"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "instance_id": {
+          "description": "Producer instance identifier.",
+          "examples": [
+            "DESKTOP-ATAS-01"
+          ],
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "chart_instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chart or indicator-instance identifier used to separate multiple live ATAS charts.",
+          "examples": [
+            "NQM6-7fa31b2c"
+          ],
+          "title": "Chart Instance Id"
+        },
+        "adapter_version": {
+          "description": "Source adapter version.",
+          "examples": [
+            "0.1.0"
+          ],
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "chart_display_timezone_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display timezone mode captured at payload emission.",
+          "examples": [
+            "exchange",
+            "local",
+            "exchange_dst"
+          ],
+          "title": "Chart Display Timezone Mode"
+        },
+        "chart_display_timezone_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display timezone name or abbreviation captured at payload emission.",
+          "examples": [
+            "America/New_York",
+            "EST5EDT",
+            "UTC"
+          ],
+          "title": "Chart Display Timezone Name"
+        },
+        "chart_display_utc_offset_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ATAS chart display UTC offset in minutes captured at payload emission.",
+          "examples": [
+            -300
+          ],
+          "title": "Chart Display Utc Offset Minutes"
+        },
+        "instrument_timezone_value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw instrument timezone value from ATAS metadata captured at payload emission.",
+          "title": "Instrument Timezone Value"
+        },
+        "instrument_timezone_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the instrument timezone came from, captured at payload emission.",
+          "examples": [
+            "exchange_profile",
+            "symbol_suffix"
+          ],
+          "title": "Instrument Timezone Source"
+        },
+        "collector_local_timezone_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collector machine local timezone name at payload emission.",
+          "examples": [
+            "America/New_York"
+          ],
+          "title": "Collector Local Timezone Name"
+        },
+        "collector_local_utc_offset_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collector machine local UTC offset in minutes at payload emission.",
+          "examples": [
+            -300
+          ],
+          "title": "Collector Local Utc Offset Minutes"
+        },
+        "timestamp_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary basis used to normalize timestamps to UTC at payload emission.",
+          "examples": [
+            "exchange_tick_time",
+            "collector_local_time",
+            "chart_display_time"
+          ],
+          "title": "Timestamp Basis"
+        },
+        "timezone_capture_confidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Confidence level of the timezone capture at payload emission: high, medium, low, or unknown.",
+          "examples": [
+            "high",
+            "medium",
+            "low",
+            "unknown"
+          ],
+          "title": "Timezone Capture Confidence"
+        }
+      },
+      "required": [
+        "system",
+        "instance_id",
+        "adapter_version"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "StructureSide": {
+      "enum": [
+        "buy",
+        "sell",
+        "neutral"
+      ],
+      "title": "StructureSide",
+      "type": "string"
+    },
     "Timeframe": {
       "enum": [
         "1mo",
@@ -508,6 +2072,7 @@
         "1d",
         "3d",
         "1h",
+        "4h",
         "30m",
         "15m",
         "5m",

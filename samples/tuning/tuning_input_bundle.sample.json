@@ -1,6 +1,6 @@
 {
   "bundle_id": "bundle-sample-20260323-001",
-  "instrument": "NQ",
+  "instrument_symbol": "NQ",
   "schema_version": "tuning_input_bundle_v1",
   "built_at": "2026-03-23T05:02:20.342763Z",
   "profile_version": "nq-profile-test",
@@ -8,13 +8,13 @@
   "analysis_window": {
     "episode_count": 1,
     "evaluation_count": 1,
-    "from": "2026-03-23T09:30:00Z",
-    "to": "2026-03-23T09:31:00Z"
+    "date_from": "2026-03-23T09:30:00Z",
+    "date_to": "2026-03-23T09:31:00Z"
   },
   "instrument_profile": {
-    "instrument": "NQ",
+    "instrument_symbol": "NQ",
     "profile_version": "nq-profile-test",
-    "schema_version": "1.0.0",
+    "schema_version": "instrument_profile_v1",
     "ontology_version": "master_spec_v2_v1",
     "is_active": true,
     "normalization": {
@@ -162,7 +162,7 @@
       ],
       "replacement_episode_id": null,
       "replacement_event_kind": null,
-      "schema_version": "1.0.0",
+      "schema_version": "event_episode_v1",
       "profile_version": "nq-profile-test",
       "engine_version": "recognizer-test",
       "data_status": {
@@ -181,7 +181,7 @@
     {
       "evaluation_id": "eval-sample-20260323-001",
       "episode_id": "ep-momentum_continuation-0930",
-      "instrument": "NQ",
+      "instrument_symbol": "NQ",
       "session": null,
       "bar_tf": null,
       "market_time_start": "2026-03-23T09:30:00Z",

@@ -1,5 +1,94 @@
 {
   "$defs": {
+    "BeliefDataStatus": {
+      "description": "Freshness, completeness, and degraded-signal state for one belief snapshot.",
+      "properties": {
+        "data_freshness_ms": {
+          "description": "Estimated freshness lag in milliseconds.",
+          "minimum": 0,
+          "title": "Data Freshness Ms",
+          "type": "integer"
+        },
+        "feature_completeness": {
+          "description": "Fraction of expected features available to the recognizer.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Feature Completeness",
+          "type": "number"
+        },
+        "depth_available": {
+          "description": "Whether depth-derived evidence was available.",
+          "title": "Depth Available",
+          "type": "boolean"
+        },
+        "dom_available": {
+          "description": "Whether DOM-derived evidence was available.",
+          "title": "Dom Available",
+          "type": "boolean"
+        },
+        "ai_available": {
+          "description": "Whether AI services were available for optional review layers.",
+          "title": "Ai Available",
+          "type": "boolean"
+        },
+        "degraded_modes": {
+          "description": "Explicit degraded modes active for this snapshot.",
+          "items": {
+            "$ref": "#/$defs/DegradedMode"
+          },
+          "title": "Degraded Modes",
+          "type": "array"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact freshness label for UI display.",
+          "title": "Freshness"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compact completeness label for UI display.",
+          "title": "Completeness"
+        }
+      },
+      "required": [
+        "data_freshness_ms",
+        "feature_completeness",
+        "depth_available",
+        "dom_available",
+        "ai_available"
+      ],
+      "title": "BeliefDataStatus",
+      "type": "object"
+    },
+    "DegradedMode": {
+      "description": "Explicit degraded conditions that should not stop the engine.\n\nCanonical values are prefixed to match Master Spec v2 and health/UI\nbadges. Legacy unprefixed inputs are still accepted for backward\ncompatibility with older persisted payloads and samples.",
+      "enum": [
+        "none",
+        "degraded_no_depth",
+        "degraded_no_dom",
+        "degraded_no_ai",
+        "degraded_stale_macro",
+        "replay_rebuild_mode"
+      ],
+      "title": "DegradedMode",
+      "type": "string"
+    },
     "ReplayLiveStreamState": {
       "enum": [
         "live",
@@ -69,6 +158,25 @@
   },
   "description": "Freshness summary used by the workbench to decide whether an old replay can be reused.",
   "properties": {
+    "schema_version": {
+      "description": "Response schema version for live status.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "profile_version": {
+      "description": "Instrument-profile version attached to this live-status view.",
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "engine_version": {
+      "description": "Recognizer engine version attached to this live-status view.",
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "data_status": {
+      "$ref": "#/$defs/BeliefDataStatus",
+      "description": "Freshness, completeness, and degraded-mode summary for this live-status view."
+    },
     "instrument_symbol": {
       "description": "Instrument symbol being checked.",
       "title": "Instrument Symbol",
@@ -152,6 +260,10 @@
     }
   },
   "required": [
+    "schema_version",
+    "profile_version",
+    "engine_version",
+    "data_status",
     "instrument_symbol",
     "stream_state",
     "should_refresh_snapshot",

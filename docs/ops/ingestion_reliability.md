@@ -55,6 +55,12 @@ Response conventions:
 - `409 Conflict`: same idempotency key reused with a different payload hash.
 - `422 Unprocessable Entity`: schema validation failure.
 
+Compatibility note:
+
+- `GET /health/ingestion` and `GET /health/data-quality` currently serialize legacy inner `schema_version: "1.0.0"` payloads.
+- `GET /api/v1/workbench/review/health-status` wraps those payloads in the canonical top-level envelope `replay_workbench_health_status_envelope_v1`.
+- Until a dedicated health-contract migration lands, treat the inner health/data-quality payloads as compatibility-stable legacy contracts.
+
 ## Dead Letter Handling
 
 Dead letters are stored in the `ingestion_dead_letters` table with:
@@ -282,11 +288,12 @@ Important:
 Relevant test coverage:
 
 - `tests/test_ingestion_reliability.py`
-- selected replay-builder regression coverage in `tests/test_app.py`
+- `tests/test_app_ingestion_routes.py`
+- `tests/test_app_workbench_backfill_routes.py`
 
 Recommended commands:
 
 ```powershell
 pytest tests\test_ingestion_reliability.py -q
-pytest tests\test_app.py -q -k "market_structure_ingestion_returns_derived_analysis or event_snapshot_ingestion_supports_execution_reversal_route or depth_snapshot_updates_significant_liquidity_memory or adapter_continuous_state_ingestion_is_stored or adapter_trigger_burst_ingestion_is_stored or adapter_history_bars_ingestion_and_replay_builder_prefers_atas_history"
+pytest tests\test_app_ingestion_routes.py tests\test_app_workbench_backfill_routes.py -q
 ```
