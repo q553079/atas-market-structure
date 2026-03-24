@@ -39,6 +39,7 @@ from atas_market_structure.models import (
     AdapterContinuousStatePayload,
     AdapterBackfillDispatchResponse,
     AdapterHistoryBarsPayload,
+    AdapterHistoryInventoryPayload,
     AdapterHistoryFootprintPayload,
     AdapterTriggerBurstPayload,
     AnalysisEnvelope,
@@ -74,6 +75,7 @@ from atas_market_structure.models import (
     ReplayWorkbenchAcceptedResponse,
     ReplayWorkbenchAtasBackfillAcceptedResponse,
     ReplayWorkbenchAtasBackfillRequest,
+    ReplayWorkbenchBackfillProgressResponse,
     ReplayProjectionQuery,
     ReplayWorkbenchBuildRequest,
     ReplayWorkbenchBuildResponse,
@@ -110,6 +112,13 @@ from atas_market_structure.workbench_services import (
 
 LOGGER = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def _parse_utc(value: str) -> datetime:
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 @dataclass(frozen=True)
@@ -347,6 +356,30 @@ class MarketStructureApplication:
                     timeframe,
                     sorted(raw_payload.keys()),
                 )
+                try:
+                    payload = AdapterHistoryInventoryPayload.model_validate(raw_payload)
+                except ValidationError as exc:
+                    LOGGER.warning(
+                        "ingest_history_inventory: captured unparsed payload ingestion_id=%s chart_instance_id=%s validation_error_count=%s",
+                        ingestion_id,
+                        chart_instance_id,
+                        len(exc.errors()),
+                    )
+                    return self._json_response(
+                        202,
+                        {
+                            "accepted": True,
+                            "status": "captured_unparsed",
+                            "endpoint": route_path,
+                            "ingestion_id": ingestion_id,
+                            "source_snapshot_id": source_snapshot_id,
+                            "instrument_symbol": instrument_symbol,
+                            "chart_instance_id": chart_instance_id,
+                            "validation_error_count": len(exc.errors()),
+                        },
+                    )
+
+                auto_backfill = self._replay_workbench_service.ingest_history_inventory(payload)
                 return self._json_response(
                     202,
                     {
@@ -357,6 +390,7 @@ class MarketStructureApplication:
                         "source_snapshot_id": source_snapshot_id,
                         "instrument_symbol": instrument_symbol,
                         "chart_instance_id": chart_instance_id,
+                        "auto_backfill": auto_backfill,
                     },
                 )
 
@@ -419,6 +453,52 @@ class MarketStructureApplication:
                 payload = ReplayWorkbenchAtasBackfillRequest.model_validate_json(body or b"{}")
                 response = self._replay_workbench_service.request_atas_backfill(payload)
                 return self._json_model_response(201, response)
+
+            if method == "GET" and route_path == "/api/v1/workbench/backfill-progress":
+                instrument_symbol = query.get("instrument_symbol", [None])[0]
+                display_timeframe_raw = query.get("display_timeframe", [None])[0]
+                if instrument_symbol is None or display_timeframe_raw is None:
+                    return self._json_response(
+                        400,
+                        {
+                            "error": "missing_query_parameter",
+                            "detail": "instrument_symbol and display_timeframe are required.",
+                        },
+                    )
+                try:
+                    display_timeframe = Timeframe(display_timeframe_raw)
+                except ValueError:
+                    return self._json_response(
+                        400,
+                        {"error": "invalid_query_parameter", "detail": "display_timeframe is invalid."},
+                    )
+
+                cache_key = query.get("cache_key", [None])[0]
+                chart_instance_id = query.get("chart_instance_id", [None])[0]
+                contract_symbol = query.get("contract_symbol", [None])[0]
+                root_symbol = query.get("root_symbol", [None])[0]
+                window_start_raw = query.get("window_start", [None])[0]
+                window_end_raw = query.get("window_end", [None])[0]
+                try:
+                    window_start = _parse_utc(window_start_raw) if window_start_raw else None
+                    window_end = _parse_utc(window_end_raw) if window_end_raw else None
+                except ValueError:
+                    return self._json_response(
+                        400,
+                        {"error": "invalid_query_parameter", "detail": "window_start/window_end must be ISO UTC timestamps."},
+                    )
+
+                response = self._replay_workbench_service.get_atas_backfill_progress(
+                    instrument_symbol=instrument_symbol,
+                    display_timeframe=display_timeframe,
+                    cache_key=cache_key,
+                    chart_instance_id=chart_instance_id,
+                    contract_symbol=contract_symbol,
+                    root_symbol=root_symbol,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+                return self._json_model_response(200, response)
 
             if method == "GET" and route_path == "/api/v1/workbench/live-status":
                 instrument_symbol = query.get("instrument_symbol", [None])[0]
@@ -811,6 +891,7 @@ class MarketStructureApplication:
 
             return self._json_response(404, {"error": "not_found", "detail": f"No route for {method} {route_path}"})
         except ValidationError as exc:
+            detail = json.loads(exc.json())
             body_preview = ""
             if body:
                 try:
@@ -818,13 +899,13 @@ class MarketStructureApplication:
                 except Exception:  # pragma: no cover
                     body_preview = "<unable_to_decode_body>"
             self._logger.warning(
-                "Validation error for %s %s: %s | body=%s",
+                "Validation error on %s %s: detail=%s body_preview=%s",
                 method,
                 route_path,
-                exc.json(),
+                detail,
                 body_preview,
             )
-            return self._json_response(422, {"error": "validation_error", "detail": json.loads(exc.json())})
+            return self._json_response(422, {"error": "validation_error", "detail": detail})
         except (NotFoundError, ReplayWorkbenchNotFoundError, ReplayAiReviewNotFoundError) as exc:
             return self._json_response(404, {"error": "not_found", "detail": str(exc)})
         except ReplayWorkbenchChatUnavailableError as exc:
@@ -844,7 +925,7 @@ class MarketStructureApplication:
     @staticmethod
     def _json_model_response(
         status_code: int,
-        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | BeliefLatestEnvelope | EpisodeEvaluationEnvelope | EpisodeListEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope | ContinuousBarsEnvelope | MirrorBarsEnvelope | ReliableIngestionResponse | IngestionErrorResponse | IngestionHealthResponse | DataQualityResponse,
+        model: BaseModel | IngestionAcceptedResponse | AnalysisEnvelope | BeliefLatestEnvelope | EpisodeEvaluationEnvelope | EpisodeListEnvelope | IngestionEnvelope | DepthSnapshotAcceptedResponse | LiquidityMemoryEnvelope | LiquidityMemoryRecord | AdapterAcceptedResponse | AdapterBackfillDispatchResponse | AdapterBackfillAcknowledgeResponse | ReplayWorkbenchAcceptedResponse | ReplayWorkbenchAtasBackfillAcceptedResponse | ReplayWorkbenchBackfillProgressResponse | ReplayWorkbenchCacheEnvelope | ReplayWorkbenchInvalidationResponse | ReplayWorkbenchBuildResponse | ReplayAiReviewResponse | ReplayAiChatResponse | ReplayOperatorEntryAcceptedResponse | ReplayOperatorEntryEnvelope | ReplayManualRegionAnnotationAcceptedResponse | ReplayManualRegionAnnotationEnvelope | ReplayFootprintBarDetail | ReplayWorkbenchLiveTailResponse | ReplayWorkbenchRebuildLatestResponse | ChartCandleEnvelope | ContinuousBarsEnvelope | MirrorBarsEnvelope | ReliableIngestionResponse | IngestionErrorResponse | IngestionHealthResponse | DataQualityResponse,
     ) -> HttpResponse:
         payload = model.model_dump(mode="json")
         return MarketStructureApplication._json_response(status_code, payload)

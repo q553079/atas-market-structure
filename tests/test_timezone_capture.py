@@ -229,6 +229,89 @@ def test_history_bars_repairs_truncated_root_symbol() -> None:
         assert raw_rows[0].root_symbol == "NQ"
 
 
+def test_history_bars_forced_utc_guardrail_repairs_local_fallback_shift() -> None:
+    """Low-confidence local-time fallback payloads are corrected back to UTC using original_bar_time_text."""
+    with _temp_repo() as repo:
+        service = AdapterIngestionService(repository=repo)
+
+        correct_start = datetime(2026, 3, 24, 11, 45, tzinfo=UTC)
+        wrong_start = correct_start - timedelta(hours=8)
+        bars = [
+            {
+                "started_at": (wrong_start + timedelta(minutes=i)).isoformat(),
+                "ended_at": (wrong_start + timedelta(minutes=i + 1) - timedelta(seconds=1)).isoformat(),
+                "open": 21000.0 + i,
+                "high": 21001.0 + i,
+                "low": 20999.0 + i,
+                "close": 21000.5 + i,
+                "volume": 100,
+                "delta": 12,
+                "bid_volume": 45,
+                "ask_volume": 55,
+                "bar_timestamp_utc": (wrong_start + timedelta(minutes=i)).isoformat(),
+                "original_bar_time_text": (correct_start + timedelta(minutes=i)).strftime("%Y-%m-%dT%H:%M:%S.0000000"),
+            }
+            for i in range(3)
+        ]
+        payload_dict = _build_minimal_history_payload(
+            symbol="NQM6",
+            root_symbol="NQ",
+            contract_symbol="NQM6",
+            timeframe="1m",
+            bars=bars,
+            chart_instance_id="chart-nq-utc",
+            chart_display_timezone_name="China Standard Time",
+            chart_display_utc_offset_minutes=480,
+            time_context={
+                "instrument_timezone_value": None,
+                "instrument_timezone_source": "unavailable",
+                "chart_display_timezone_mode": "local",
+                "chart_display_timezone_source": "collector_local_fallback",
+                "chart_display_timezone_name": "China Standard Time",
+                "chart_display_utc_offset_minutes": 480,
+                "timezone_capture_confidence": "low",
+                "collector_local_timezone_name": "China Standard Time",
+                "collector_local_utc_offset_minutes": 480,
+                "timestamp_basis": "collector_local_timezone_fallback",
+                "started_at_output_timezone": "UTC",
+                "started_at_time_source": "collector_local_timezone_fallback",
+            },
+        )
+        payload_dict["emitted_at"] = datetime(2026, 3, 24, 11, 50, tzinfo=UTC).isoformat()
+        payload_dict["source"].update(
+            {
+                "chart_display_timezone_mode": "local",
+                "chart_display_timezone_name": "China Standard Time",
+                "chart_display_utc_offset_minutes": 480,
+                "collector_local_timezone_name": "China Standard Time",
+                "collector_local_utc_offset_minutes": 480,
+                "timestamp_basis": "collector_local_timezone_fallback",
+                "timezone_capture_confidence": "low",
+            }
+        )
+
+        payload = AdapterHistoryBarsPayload.model_validate(payload_dict)
+        result = service.ingest_history_bars(payload)
+
+        stored = repo.get_ingestion(result.ingestion_id)
+        assert stored is not None
+        assert stored.observed_payload["source"]["chart_display_timezone_mode"] == "utc"
+        assert stored.observed_payload["source"]["chart_display_timezone_name"] == "UTC"
+        assert stored.observed_payload["source"]["timestamp_basis"] == "python_guardrail_forced_utc_from_original_bar_time_text"
+        assert stored.observed_payload["time_context"]["chart_display_timezone_source"] == "python_guardrail"
+
+        raw_rows = repo.list_atas_chart_bars_raw(
+            chart_instance_id="chart-nq-utc",
+            contract_symbol="NQM6",
+            timeframe="1m",
+        )
+        assert len(raw_rows) == 3
+        assert raw_rows[0].started_at_utc == correct_start
+        assert raw_rows[1].started_at_utc == correct_start + timedelta(minutes=1)
+        assert raw_rows[0].timestamp_basis == "python_guardrail_forced_utc_from_original_bar_time_text"
+        assert raw_rows[0].chart_display_timezone_name == "UTC"
+
+
 # ---------------------------------------------------------------------------
 # Test 2: Payload missing chart_display_timezone_name falls back gracefully
 # ---------------------------------------------------------------------------

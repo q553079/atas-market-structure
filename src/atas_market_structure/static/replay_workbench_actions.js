@@ -76,9 +76,9 @@ export function createWorkbenchActions({
     }
     try {
       state.buildInFlight = true;
-      setBuildProgress(true, 8, "准备窗口与参数");
+      setBuildProgress(true, 6, "准备图表窗口");
       const payload = buildRequestPayload();
-      setBuildProgress(true, 28, "请求后端构建历史回放");
+      setBuildProgress(true, 18, "请求后端构建回放");
       const buildStartedAt = performance.now();
       state.perf.loadStartedAt = buildStartedAt;
       state.perf.lastReason = "build";
@@ -89,6 +89,7 @@ export function createWorkbenchActions({
       });
       state.lastBuildResponseMs = Math.round(performance.now() - buildStartedAt);
       state.perf.buildResponseMs = state.lastBuildResponseMs;
+      setBuildProgress(true, 42, "后端已返回首屏数据");
       state.buildResponse = result;
       state.integrity = result.integrity || null;
       state.pendingBackfill = result.atas_backfill_request || null;
@@ -103,34 +104,35 @@ export function createWorkbenchActions({
       state.currentReplayIngestionId = result.ingestion_id || null;
       renderStatusStrip(buildStatusChips(result));
       if (result.core_snapshot && result.ingestion_id) {
-        setBuildProgress(true, 72, "渲染首图");
+        setBuildProgress(true, 68, "正在渲染首屏K线");
         applySnapshotToState(result.ingestion_id, result.core_snapshot, {
           preserveChartView: true,
           preserveSelection: true,
           reason: "build-inline-core",
         });
         renderCoreSnapshot();
-        void loadSidebarDataInBackground(result.ingestion_id);
+        const sidebarPromise = loadSidebarDataInBackground(result.ingestion_id);
         if (typeof loadHistoryDepthInBackground === "function") {
           void loadHistoryDepthInBackground(result.ingestion_id);
         }
         loadDeferredEnhancements();
-        setBuildProgress(true, 94, "后台补齐侧栏与增强信息");
+        setBuildProgress(true, 82, "首屏K线已就绪");
+        await Promise.allSettled([sidebarPromise]);
+        setBuildProgress(true, 94, "侧栏与上下文已同步");
       } else if (result.ingestion_id) {
-        setBuildProgress(true, 72, "载入回放快照");
+        setBuildProgress(true, 58, "正在载入回放快照");
         await loadSnapshotByIngestionId(result.ingestion_id, {
           preserveChartView: true,
           preserveSelection: true,
           reason: "build-fetch-core",
         });
-        setBuildProgress(true, 94, "后台补齐侧栏与增强信息");
+        setBuildProgress(true, 90, "图表与侧栏已就绪");
       } else {
         renderCoreSnapshot();
       }
-      setBuildProgress(true, 100, "加载完成");
-      window.setTimeout(() => setBuildProgress(false, 0, "正在加载历史数据"), 420);
+      setBuildProgress(false, 100, "图表已就绪");
     } catch (error) {
-      setBuildProgress(false, 0, "正在加载历史数据");
+      setBuildProgress(false, 0, "界面加载已中断");
       renderError(error);
     } finally {
       state.buildInFlight = false;

@@ -27,6 +27,7 @@ from atas_market_structure.models import (
     AdapterBackfillAcknowledgeResponse,
     AdapterBackfillCommand,
     AdapterBackfillDispatchResponse,
+    AdapterHistoryInventoryPayload,
     AdapterHistoryBarsPayload,
     AdapterHistoryFootprintBar,
     AdapterHistoryFootprintPayload,
@@ -81,6 +82,8 @@ from atas_market_structure.models import (
     ReplayWorkbenchAckRebuildResult,
     ReplayWorkbenchAckVerification,
     ReplayWorkbenchAtasBackfillAcceptedResponse,
+    ReplayWorkbenchBackfillProgressRange,
+    ReplayWorkbenchBackfillProgressResponse,
     ReplayWorkbenchAtasBackfillRecord,
     ReplayWorkbenchAtasBackfillRequest,
     ReplayWorkbenchAtasBackfillStatus,
@@ -1775,6 +1778,7 @@ class ReplayWorkbenchService:
     _SNAPSHOT_SCHEMA_VERSION = "replay_workbench_snapshot_v1"
     _LIVE_STATUS_SCHEMA_VERSION = "replay_workbench_live_status_v1"
     _LIVE_TAIL_SCHEMA_VERSION = "replay_workbench_live_tail_v1"
+    _BACKFILL_PROGRESS_SCHEMA_VERSION = "replay_workbench_backfill_progress_v1"
     _FALLBACK_PROFILE_VERSION = "profile_unassigned"
     _FALLBACK_ENGINE_VERSION = "engine_unassigned"
     """Stores replay-workbench packets and builds replay snapshots from local adapter history."""
@@ -1838,6 +1842,198 @@ class ReplayWorkbenchService:
             stored_at=stored_at,
             summary=self._build_summary(payload),
         )
+
+    def ingest_history_inventory(self, payload: AdapterHistoryInventoryPayload) -> dict[str, Any]:
+        timeframe = payload.bar_timeframe
+        timeframe_minutes = self._TIMEFRAME_MINUTES.get(timeframe)
+        instrument_symbol = self._normalize_symbol_for_storage(payload.instrument.symbol) or "UNKNOWN"
+        contract_symbol = self._normalize_symbol_for_storage(
+            payload.instrument.contract_symbol or payload.instrument.symbol
+        )
+        root_symbol = self._normalize_symbol_for_storage(
+            payload.instrument.root_symbol or payload.instrument.symbol
+        )
+        chart_instance_id = str(payload.source.chart_instance_id or "").strip() or None
+
+        visible_start = payload.first_loaded_bar_started_at_utc or payload.observed_window_start
+        visible_end = (
+            payload.latest_loaded_bar_started_at_utc
+            or payload.latest_completed_bar_started_at_utc
+            or payload.observed_window_end
+        )
+        if visible_start is None or visible_end is None:
+            LOGGER.info(
+                "ingest_history_inventory: no visible coverage instrument_symbol=%s chart_instance_id=%s timeframe=%s",
+                instrument_symbol,
+                chart_instance_id,
+                timeframe.value,
+            )
+            return {
+                "queued": False,
+                "status": "ignored",
+                "reason": "missing_visible_window",
+                "instrument_symbol": instrument_symbol,
+                "chart_instance_id": chart_instance_id,
+                "timeframe": timeframe.value,
+            }
+
+        visible_start = self._ensure_utc(visible_start)
+        visible_end = self._ensure_utc(visible_end)
+        if visible_end < visible_start:
+            visible_start, visible_end = visible_end, visible_start
+
+        loaded_bar_count = max(
+            int(payload.loaded_bar_count or 0),
+            int(payload.latest_loaded_bar_index or -1) + 1,
+        )
+        if loaded_bar_count <= 0:
+            LOGGER.info(
+                "ingest_history_inventory: loaded_bar_count=0 instrument_symbol=%s chart_instance_id=%s timeframe=%s",
+                instrument_symbol,
+                chart_instance_id,
+                timeframe.value,
+            )
+            return {
+                "queued": False,
+                "status": "ignored",
+                "reason": "empty_visible_window",
+                "instrument_symbol": instrument_symbol,
+                "chart_instance_id": chart_instance_id,
+                "timeframe": timeframe.value,
+            }
+
+        stored_first, stored_last, stored_count = self._repository.get_atas_chart_bars_raw_coverage(
+            chart_instance_id=chart_instance_id,
+            contract_symbol=contract_symbol,
+            root_symbol=root_symbol,
+            timeframe=timeframe.value,
+            window_start=visible_start,
+            window_end=visible_end,
+        )
+        LOGGER.info(
+            "ingest_history_inventory: visible_window instrument_symbol=%s chart_instance_id=%s contract_symbol=%s root_symbol=%s timeframe=%s loaded_bar_count=%s visible_start=%s visible_end=%s stored_count=%s stored_first=%s stored_last=%s",
+            instrument_symbol,
+            chart_instance_id,
+            contract_symbol,
+            root_symbol,
+            timeframe.value,
+            loaded_bar_count,
+            visible_start.isoformat(),
+            visible_end.isoformat(),
+            stored_count,
+            stored_first.isoformat() if stored_first is not None else None,
+            stored_last.isoformat() if stored_last is not None else None,
+        )
+
+        requested_ranges: list[ReplayWorkbenchBackfillRange] = []
+        reason = "history_inventory_visible_window_changed"
+        if stored_count <= 0 or stored_first is None or stored_last is None:
+            requested_ranges.append(
+                ReplayWorkbenchBackfillRange(range_start=visible_start, range_end=visible_end)
+            )
+            reason = "history_inventory_window_unstored"
+        else:
+            left_gap_end = stored_first - timedelta(seconds=1)
+            if visible_start <= left_gap_end:
+                requested_ranges.append(
+                    ReplayWorkbenchBackfillRange(
+                        range_start=visible_start,
+                        range_end=min(visible_end, left_gap_end),
+                    )
+                )
+
+            right_gap_start = stored_last + timedelta(seconds=1)
+            if right_gap_start <= visible_end:
+                requested_ranges.append(
+                    ReplayWorkbenchBackfillRange(
+                        range_start=max(visible_start, right_gap_start),
+                        range_end=visible_end,
+                    )
+                )
+
+            if not requested_ranges and stored_count + 1 < loaded_bar_count:
+                requested_ranges.append(
+                    ReplayWorkbenchBackfillRange(range_start=visible_start, range_end=visible_end)
+                )
+                reason = "history_inventory_sparse_window_repair"
+
+        if not requested_ranges:
+            return {
+                "queued": False,
+                "status": "up_to_date",
+                "reason": "stored_window_covers_visible_window",
+                "instrument_symbol": instrument_symbol,
+                "chart_instance_id": chart_instance_id,
+                "contract_symbol": contract_symbol,
+                "root_symbol": root_symbol,
+                "timeframe": timeframe.value,
+                "visible_window_start": visible_start,
+                "visible_window_end": visible_end,
+                "stored_count": stored_count,
+                "loaded_bar_count": loaded_bar_count,
+            }
+
+        cache_key = self._build_history_inventory_cache_key(
+            instrument_symbol=instrument_symbol,
+            chart_instance_id=chart_instance_id,
+            contract_symbol=contract_symbol,
+            timeframe=timeframe,
+            window_start=visible_start,
+            window_end=visible_end,
+        )
+        accepted = self.request_atas_backfill(
+            ReplayWorkbenchAtasBackfillRequest(
+                cache_key=cache_key,
+                instrument_symbol=instrument_symbol,
+                contract_symbol=contract_symbol,
+                root_symbol=root_symbol,
+                target_contract_symbol=contract_symbol,
+                target_root_symbol=root_symbol,
+                display_timeframe=timeframe,
+                window_start=visible_start,
+                window_end=visible_end,
+                chart_instance_id=chart_instance_id,
+                reason=reason,
+                request_history_bars=True,
+                request_history_footprint=False,
+                replace_existing_history=False,
+                requested_ranges=requested_ranges,
+            )
+        )
+        LOGGER.info(
+            "ingest_history_inventory: queued_backfill request_id=%s reused=%s instrument_symbol=%s chart_instance_id=%s timeframe=%s range_count=%s reason=%s",
+            accepted.request.request_id,
+            accepted.reused_existing_request,
+            instrument_symbol,
+            chart_instance_id,
+            timeframe.value,
+            len(accepted.request.requested_ranges),
+            reason,
+        )
+        return {
+            "queued": True,
+            "status": "queued",
+            "reason": reason,
+            "request_id": accepted.request.request_id,
+            "reused_existing_request": accepted.reused_existing_request,
+            "instrument_symbol": instrument_symbol,
+            "chart_instance_id": chart_instance_id,
+            "contract_symbol": contract_symbol,
+            "root_symbol": root_symbol,
+            "timeframe": timeframe.value,
+            "visible_window_start": visible_start,
+            "visible_window_end": visible_end,
+            "stored_count": stored_count,
+            "loaded_bar_count": loaded_bar_count,
+            "requested_ranges": [
+                {
+                    "range_start": item.range_start,
+                    "range_end": item.range_end,
+                }
+                for item in accepted.request.requested_ranges
+            ],
+            "timeframe_minutes": timeframe_minutes,
+        }
 
     def _build_integrity(
         self,
@@ -2082,6 +2278,75 @@ class ReplayWorkbenchService:
                 if exact:
                     return exact[0]
                 return None
+            return candidates[0]
+
+    def _find_matching_backfill_progress_request(
+        self,
+        *,
+        cache_key: str | None,
+        instrument_symbol: str,
+        display_timeframe: Timeframe,
+        chart_instance_id: str | None,
+        contract_symbol: str | None,
+        root_symbol: str | None,
+        window_start: datetime | None,
+        window_end: datetime | None,
+    ) -> ReplayWorkbenchAtasBackfillRecord | None:
+        exact = self._find_latest_backfill_request(
+            cache_key=cache_key,
+            instrument_symbol=instrument_symbol,
+            display_timeframe=display_timeframe,
+        )
+        if exact is not None:
+            return exact
+
+        with self._backfill_lock:
+            now = datetime.now(tz=UTC)
+            self._expire_backfill_requests_locked(now)
+            candidates = [
+                record
+                for record in self._backfill_requests.values()
+                if record.instrument_symbol == instrument_symbol
+                and record.display_timeframe == display_timeframe
+            ]
+            if chart_instance_id:
+                candidates = [
+                    record
+                    for record in candidates
+                    if record.chart_instance_id is None
+                    or self._backfill_chart_instance_matches(
+                        chart_instance_id,
+                        record.chart_instance_id,
+                        instrument_symbol=record.instrument_symbol,
+                        contract_symbol=record.contract_symbol or record.target_contract_symbol,
+                        display_timeframe=record.display_timeframe,
+                    )
+                ]
+            if contract_symbol:
+                candidates = [
+                    record
+                    for record in candidates
+                    if record.contract_symbol is None
+                    or record.contract_symbol == contract_symbol
+                    or record.target_contract_symbol == contract_symbol
+                ]
+            if root_symbol:
+                candidates = [
+                    record
+                    for record in candidates
+                    if record.root_symbol is None
+                    or record.root_symbol == root_symbol
+                    or record.target_root_symbol == root_symbol
+                ]
+            if window_start is not None and window_end is not None:
+                candidates = [
+                    record
+                    for record in candidates
+                    if not (record.window_end < window_start or record.window_start > window_end)
+                ]
+            if not candidates:
+                return None
+            candidates.sort(key=lambda item: (item.requested_at, item.request_id), reverse=True)
             return candidates[0]
 
     def _find_relevant_live_tail_backfill_request(
@@ -2996,6 +3261,207 @@ class ReplayWorkbenchService:
             request=updated,
             verification=verification,
             rebuild_result=rebuild_result,
+        )
+
+    def get_atas_backfill_progress(
+        self,
+        *,
+        instrument_symbol: str,
+        display_timeframe: Timeframe,
+        cache_key: str | None = None,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ) -> ReplayWorkbenchBackfillProgressResponse:
+        normalized_instrument_symbol = (
+            self._normalize_symbol_for_storage(instrument_symbol)
+            or instrument_symbol.strip().upper()
+            or "UNKNOWN"
+        )
+        normalized_chart_instance_id = str(chart_instance_id or "").strip() or None
+        normalized_contract_symbol = self._normalize_symbol_for_storage(contract_symbol)
+        normalized_root_symbol = self._normalize_symbol_for_storage(root_symbol)
+        normalized_window_start = self._ensure_utc(window_start) if window_start is not None else None
+        normalized_window_end = self._ensure_utc(window_end) if window_end is not None else None
+
+        request = self._find_matching_backfill_progress_request(
+            cache_key=cache_key,
+            instrument_symbol=normalized_instrument_symbol,
+            display_timeframe=display_timeframe,
+            chart_instance_id=normalized_chart_instance_id,
+            contract_symbol=normalized_contract_symbol,
+            root_symbol=normalized_root_symbol,
+            window_start=normalized_window_start,
+            window_end=normalized_window_end,
+        )
+        if request is None:
+            return ReplayWorkbenchBackfillProgressResponse(
+                schema_version=self._BACKFILL_PROGRESS_SCHEMA_VERSION,
+                instrument_symbol=normalized_instrument_symbol,
+                display_timeframe=display_timeframe,
+                cache_key=cache_key,
+                chart_instance_id=normalized_chart_instance_id,
+                contract_symbol=normalized_contract_symbol,
+                root_symbol=normalized_root_symbol,
+                window_start=normalized_window_start,
+                window_end=normalized_window_end,
+                active=False,
+                stage="idle",
+                status="idle",
+                progress_percent=0,
+                coverage_progress_percent=0,
+                estimated=True,
+                label="当前窗口没有 ATAS 传输任务",
+                detail="后端当前没有匹配的 history-bars/backfill 任务。",
+                expected_bar_count=0,
+                received_bar_count=0,
+                missing_bar_count=0,
+                coverage_window_start=None,
+                coverage_window_end=None,
+                footprint_requested=False,
+                footprint_acknowledged=False,
+                verification=None,
+                request=None,
+                requested_ranges=[],
+            )
+
+        coverage_chart_instance_id = str(request.chart_instance_id or normalized_chart_instance_id or "").strip() or None
+        coverage_contract_symbol = self._normalize_symbol_for_storage(
+            request.target_contract_symbol or request.contract_symbol or normalized_contract_symbol
+        )
+        coverage_root_symbol = None
+        if coverage_contract_symbol is None:
+            coverage_root_symbol = self._normalize_symbol_for_storage(
+                request.target_root_symbol or request.root_symbol or normalized_root_symbol or request.instrument_symbol
+            )
+
+        progress_ranges: list[ReplayWorkbenchBackfillProgressRange] = []
+        total_expected_bar_count = 0
+        total_received_bar_count = 0
+        coverage_window_start_result: datetime | None = None
+        coverage_window_end_result: datetime | None = None
+        requested_ranges = request.requested_ranges or [
+            ReplayWorkbenchBackfillRange(
+                range_start=request.window_start,
+                range_end=request.window_end,
+            )
+        ]
+        for requested_range in requested_ranges:
+            expected_bar_count = (
+                self._expected_native_bar_count(
+                    display_timeframe,
+                    requested_range.range_start,
+                    requested_range.range_end,
+                )
+                if request.request_history_bars
+                else 0
+            )
+            received_bar_count = (
+                self._repository.count_atas_chart_bars_raw(
+                    chart_instance_id=coverage_chart_instance_id,
+                    contract_symbol=coverage_contract_symbol,
+                    root_symbol=coverage_root_symbol,
+                    timeframe=display_timeframe.value,
+                    window_start=requested_range.range_start,
+                    window_end=requested_range.range_end,
+                )
+                if request.request_history_bars
+                else 0
+            )
+            range_first_started_at, range_last_started_at, _ = self._repository.get_atas_chart_bars_raw_coverage(
+                chart_instance_id=coverage_chart_instance_id,
+                contract_symbol=coverage_contract_symbol,
+                root_symbol=coverage_root_symbol,
+                timeframe=display_timeframe.value,
+                window_start=requested_range.range_start,
+                window_end=requested_range.range_end,
+            )
+            if range_first_started_at is not None and (
+                coverage_window_start_result is None or range_first_started_at < coverage_window_start_result
+            ):
+                coverage_window_start_result = range_first_started_at
+            if range_last_started_at is not None and (
+                coverage_window_end_result is None or range_last_started_at > coverage_window_end_result
+            ):
+                coverage_window_end_result = range_last_started_at
+
+            total_expected_bar_count += expected_bar_count
+            total_received_bar_count += received_bar_count
+            missing_bar_count = max(expected_bar_count - received_bar_count, 0)
+            progress_percent = (
+                100
+                if expected_bar_count <= 0
+                else max(0, min(100, round((received_bar_count / max(expected_bar_count, 1)) * 100)))
+            )
+            progress_ranges.append(
+                ReplayWorkbenchBackfillProgressRange(
+                    range_start=requested_range.range_start,
+                    range_end=requested_range.range_end,
+                    expected_bar_count=expected_bar_count,
+                    received_bar_count=received_bar_count,
+                    missing_bar_count=missing_bar_count,
+                    progress_percent=progress_percent,
+                    first_received_started_at=range_first_started_at,
+                    last_received_started_at=range_last_started_at,
+                )
+            )
+
+        total_missing_bar_count = max(total_expected_bar_count - total_received_bar_count, 0)
+        coverage_progress_percent = (
+            100
+            if total_expected_bar_count <= 0
+            else max(0, min(100, round((total_received_bar_count / max(total_expected_bar_count, 1)) * 100)))
+        )
+        verification: ReplayWorkbenchAckVerification | None = None
+        if request.status == ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED:
+            verification = self._verify_acknowledged_backfill(request)
+
+        stage, active, label, detail = self._describe_backfill_progress(
+            request=request,
+            received_bar_count=total_received_bar_count,
+            expected_bar_count=total_expected_bar_count,
+            missing_bar_count=total_missing_bar_count,
+            coverage_progress_percent=coverage_progress_percent,
+            verification=verification,
+        )
+        progress_percent = coverage_progress_percent
+        if request.request_history_footprint and not request.acknowledged_history_footprint:
+            progress_percent = min(progress_percent, 95)
+        if request.status == ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED and not (verification is not None and verification.verified):
+            progress_percent = min(progress_percent, 98)
+        if verification is not None and verification.verified:
+            progress_percent = 100
+
+        return ReplayWorkbenchBackfillProgressResponse(
+            schema_version=self._BACKFILL_PROGRESS_SCHEMA_VERSION,
+            instrument_symbol=request.instrument_symbol,
+            display_timeframe=request.display_timeframe,
+            cache_key=request.cache_key,
+            chart_instance_id=coverage_chart_instance_id,
+            contract_symbol=coverage_contract_symbol,
+            root_symbol=coverage_root_symbol or self._normalize_symbol_for_storage(request.root_symbol),
+            window_start=request.window_start,
+            window_end=request.window_end,
+            active=active,
+            stage=stage,
+            status=request.status.value,
+            progress_percent=progress_percent,
+            coverage_progress_percent=coverage_progress_percent,
+            estimated=not (verification is not None and verification.verified),
+            label=label,
+            detail=detail,
+            expected_bar_count=total_expected_bar_count,
+            received_bar_count=total_received_bar_count,
+            missing_bar_count=total_missing_bar_count,
+            coverage_window_start=coverage_window_start_result,
+            coverage_window_end=coverage_window_end_result,
+            footprint_requested=request.request_history_footprint,
+            footprint_acknowledged=request.acknowledged_history_footprint,
+            verification=verification,
+            request=request,
+            requested_ranges=progress_ranges,
         )
 
     def get_mirror_bars(
@@ -5370,6 +5836,103 @@ class ReplayWorkbenchService:
             "chart_scoped" if request.chart_instance_id else "broad_symbol_window",
         )
 
+    def _expected_native_bar_count(
+        self,
+        timeframe: Timeframe,
+        range_start: datetime,
+        range_end: datetime,
+    ) -> int:
+        start = self._ensure_utc(range_start)
+        end = self._ensure_utc(range_end)
+        if end < start:
+            return 0
+        interval_minutes = max(1, self._TIMEFRAME_MINUTES.get(timeframe, 1))
+        interval_seconds = interval_minutes * 60
+        return int(((end - start).total_seconds()) // interval_seconds) + 1
+
+    def _describe_backfill_progress(
+        self,
+        *,
+        request: ReplayWorkbenchAtasBackfillRecord,
+        received_bar_count: int,
+        expected_bar_count: int,
+        missing_bar_count: int,
+        coverage_progress_percent: int,
+        verification: ReplayWorkbenchAckVerification | None,
+    ) -> tuple[str, bool, str, str]:
+        bars_summary = f"{received_bar_count}/{expected_bar_count} 根K线" if expected_bar_count > 0 else "本次任务不要求K线回补"
+        footprint_summary = (
+            " · footprint已确认"
+            if request.request_history_footprint and request.acknowledged_history_footprint
+            else (" · footprint待确认" if request.request_history_footprint else "")
+        )
+        chart_summary = (
+            f"chart_instance_id={request.chart_instance_id}"
+            if request.chart_instance_id
+            else "未绑定特定图表实例"
+        )
+        if verification is not None and verification.verified:
+            return (
+                "complete",
+                False,
+                "ATAS 历史回传完成",
+                f"{bars_summary} 已落库并通过核对{footprint_summary} · {chart_summary}",
+            )
+        if request.status == ReplayWorkbenchAtasBackfillStatus.EXPIRED:
+            return (
+                "expired",
+                False,
+                "ATAS 回补任务已过期",
+                f"{bars_summary} · 仍缺 {missing_bar_count} 根K线{footprint_summary} · {chart_summary}",
+            )
+        if request.status == ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED and (
+            (request.request_history_bars and not request.acknowledged_history_bars)
+            or (
+                request.request_history_footprint
+                and not request.acknowledged_history_footprint
+                and not request.acknowledged_history_bars
+            )
+        ):
+            adapter_note = request.note or "adapter acknowledged without resending requested history"
+            return (
+                "failed",
+                False,
+                "ATAS 已回执，但这次回补没有真正成功",
+                f"{bars_summary} · 仍缺 {missing_bar_count} 根K线 · {adapter_note}{footprint_summary} · {chart_summary}",
+            )
+        if request.status == ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED:
+            verification_detail = (
+                verification.note
+                if verification is not None and verification.note
+                else (f"仍缺 {missing_bar_count} 根K线" if missing_bar_count > 0 else "等待后端最终核对")
+            )
+            return (
+                "verifying",
+                True,
+                "ATAS 已回执，后端正在核对",
+                f"{bars_summary} · 覆盖 {coverage_progress_percent}% · {verification_detail}{footprint_summary} · {chart_summary}",
+            )
+        if request.status == ReplayWorkbenchAtasBackfillStatus.DISPATCHED:
+            if received_bar_count > 0:
+                return (
+                    "receiving",
+                    True,
+                    "ATAS 正在回传历史K线",
+                    f"{bars_summary} · 覆盖 {coverage_progress_percent}%{footprint_summary} · {chart_summary}",
+                )
+            return (
+                "receiving",
+                True,
+                "ATAS 已领取任务，等待首批历史K线",
+                f"{bars_summary}{footprint_summary} · {chart_summary}",
+            )
+        return (
+            "pending",
+            True,
+            "回补任务已排队，等待 ATAS 领取",
+            f"{bars_summary}{footprint_summary} · {chart_summary}",
+        )
+
     @staticmethod
     def _build_backfill_command(record: ReplayWorkbenchAtasBackfillRecord) -> AdapterBackfillCommand:
         dispatched_at = record.dispatched_at or datetime.now(tz=UTC)
@@ -5400,6 +5963,22 @@ class ReplayWorkbenchService:
     def _normalize_symbol_for_storage(value: str | None) -> str | None:
         normalized = str(value or "").strip().upper()
         return normalized or None
+
+    @staticmethod
+    def _build_history_inventory_cache_key(
+        *,
+        instrument_symbol: str,
+        chart_instance_id: str | None,
+        contract_symbol: str | None,
+        timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> str:
+        scope = chart_instance_id or contract_symbol or instrument_symbol
+        return (
+            f"auto-history-inventory:{scope}:{timeframe.value}:"
+            f"{window_start.astimezone(UTC).isoformat()}:{window_end.astimezone(UTC).isoformat()}"
+        )
 
     @staticmethod
     def _gap_segments_equal(left: list[Any], right: list[Any]) -> bool:

@@ -810,6 +810,31 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     let label = "补数：无需";
     let variant = "good";
     let title = "当前不需要额外补齐历史数据。";
+    if (state.transportProgress?.label) {
+      const progressPercent = Number(state.transportProgress.progress_percent || 0);
+      const progressStage = String(state.transportProgress.stage || "").toLowerCase();
+      if (progressStage === "complete") {
+        label = "补数：已完成";
+        variant = "good";
+      } else if (["failed", "expired"].includes(progressStage)) {
+        label = "补数：未完成";
+        variant = "warn";
+      } else if (
+        progressStage === "idle"
+        && !state.transportProgress.active
+        && !state.transportProgress.request
+      ) {
+        label = "补数：无活动任务";
+        variant = (Number(integrity?.gap_count || 0) > 0 || Number(integrity?.missing_bar_count || 0) > 0)
+          ? "warn"
+          : "good";
+      } else {
+        label = `补数：${progressPercent}%`;
+        variant = state.transportProgress.active ? "emphasis" : "warn";
+      }
+      title = [state.transportProgress.label, state.transportProgress.detail].filter(Boolean).join("\n");
+      return { label, variant, title };
+    }
     if (state.pendingBackfill?.status) {
       label = `补数：${state.pendingBackfill.status}`;
       variant = ["pending", "dispatched"].includes(String(state.pendingBackfill.status)) ? "emphasis" : "good";
@@ -972,6 +997,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       cache_policy: state.buildResponse?.cache_record?.cache_policy || null,
       integrity: state.integrity || state.snapshot?.integrity || state.buildResponse?.integrity || null,
       pending_backfill: state.pendingBackfill || null,
+      transport_progress: state.transportProgress || null,
       last_synced_at: state.topBar?.lastSyncedAt || null,
       last_chart_update_type: state.lastChartUpdateType || null,
       cache_record: state.buildResponse?.cache_record || null,
@@ -1995,32 +2021,116 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     persistSessions,
   } = threadController;
 
-  let buildProgressAnimationFrame = null;
-  let buildProgressVisualPercent = 0;
+  function createProgressController({
+    container,
+    fill,
+    percentNode,
+    labelNode,
+    detailNode = null,
+    defaultLabel = "进度",
+    defaultDetail = "",
+    completeHoldMs = 1200,
+  }) {
+    let animationFrame = null;
+    let visualPercent = 0;
+    let hideTimer = null;
 
-  function animateBuildProgress(targetPercent = 0) {
-    const target = Math.max(0, Math.min(100, Number(targetPercent) || 0));
-    if (buildProgressAnimationFrame) {
-      cancelAnimationFrame(buildProgressAnimationFrame);
-      buildProgressAnimationFrame = null;
+    function stopAnimation() {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      }
     }
-    const step = () => {
-      const delta = target - buildProgressVisualPercent;
-      if (Math.abs(delta) < 0.35) {
-        buildProgressVisualPercent = target;
-      } else {
-        buildProgressVisualPercent += delta * 0.2;
+
+    function writePercent(nextPercent) {
+      fill.style.width = `${nextPercent.toFixed(1)}%`;
+      percentNode.textContent = `${Math.round(nextPercent)}%`;
+    }
+
+    function resetVisuals() {
+      stopAnimation();
+      visualPercent = 0;
+      writePercent(0);
+      labelNode.textContent = defaultLabel;
+      if (detailNode) {
+        detailNode.textContent = defaultDetail;
       }
-      els.buildProgressFill.style.width = `${buildProgressVisualPercent.toFixed(1)}%`;
-      els.buildProgressPercent.textContent = `${Math.round(buildProgressVisualPercent)}%`;
-      if (Math.abs(target - buildProgressVisualPercent) >= 0.35) {
-        buildProgressAnimationFrame = requestAnimationFrame(step);
-      } else {
-        buildProgressAnimationFrame = null;
+      container.classList.remove("active");
+      container.classList.remove("visible");
+      container.classList.remove("build-progress-complete");
+    }
+
+    function animateTo(targetPercent = 0) {
+      const target = Math.max(0, Math.min(100, Number(targetPercent) || 0));
+      stopAnimation();
+      const step = () => {
+        const delta = target - visualPercent;
+        if (Math.abs(delta) < 0.35) {
+          visualPercent = target;
+        } else {
+          visualPercent += delta * 0.2;
+        }
+        writePercent(visualPercent);
+        if (Math.abs(target - visualPercent) >= 0.35) {
+          animationFrame = requestAnimationFrame(step);
+        } else {
+          animationFrame = null;
+        }
+      };
+      animationFrame = requestAnimationFrame(step);
+    }
+
+    function setProgress(active, percent = 0, label = "", detail = "", options = {}) {
+      const isActive = !!active;
+      const target = Math.max(0, Math.min(100, Number(percent) || 0));
+      const holdMs = Number.isFinite(Number(options?.holdMs)) ? Number(options.holdMs) : (target >= 100 ? completeHoldMs : 0);
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
       }
+      labelNode.textContent = label || defaultLabel;
+      if (detailNode) {
+        detailNode.textContent = detail || defaultDetail;
+      }
+      if (!isActive && target <= 0) {
+        resetVisuals();
+        return;
+      }
+      container.classList.add("visible");
+      container.classList.toggle("active", isActive);
+      container.classList.toggle("build-progress-complete", !isActive && target >= 100);
+      animateTo(target);
+      if (!isActive) {
+        hideTimer = window.setTimeout(() => {
+          resetVisuals();
+        }, holdMs);
+      }
+    }
+
+    return {
+      setProgress,
+      reset: resetVisuals,
     };
-    buildProgressAnimationFrame = requestAnimationFrame(step);
   }
+
+  const buildProgressController = createProgressController({
+    container: els.buildProgress,
+    fill: els.buildProgressFill,
+    percentNode: els.buildProgressPercent,
+    labelNode: els.buildProgressLabel,
+    defaultLabel: "界面加载进度",
+  });
+
+  const transferProgressController = createProgressController({
+    container: els.transferProgress,
+    fill: els.transferProgressFill,
+    percentNode: els.transferProgressPercent,
+    labelNode: els.transferProgressLabel,
+    detailNode: els.transferProgressDetail,
+    defaultLabel: "ATAS 传输进度",
+    defaultDetail: "当前没有活动中的 ATAS 传输任务。",
+    completeHoldMs: 2200,
+  });
 
   const replayLoader = createReplayLoader({
     state,
@@ -2044,21 +2154,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     renderError: (error) => renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]),
     renderAiError: (error) => renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]),
     setBuildProgress: (active, percent, label) => {
-      const isActive = !!active;
-      els.buildProgress.classList.toggle("active", isActive);
-      els.buildProgress.classList.toggle("build-progress-complete", !isActive && (Number(percent) || 0) >= 100);
-      els.buildProgressLabel.textContent = label || "正在加载历史数据";
-      if (!isActive && (!Number.isFinite(Number(percent)) || Number(percent) <= 0)) {
-        buildProgressVisualPercent = 0;
-        if (buildProgressAnimationFrame) {
-          cancelAnimationFrame(buildProgressAnimationFrame);
-          buildProgressAnimationFrame = null;
+      if (state.silentBuildProgress) {
+        if (!active) {
+          buildProgressController.reset();
         }
-        els.buildProgressFill.style.width = "0%";
-        els.buildProgressPercent.textContent = "0%";
         return;
       }
-      animateBuildProgress(percent || 0);
+      buildProgressController.setProgress(active, percent, label || "界面加载进度");
     },
     buildRequestPayload: (...args) => getBuildRequestPayload()(...args),
     buildStatusChips,
@@ -2659,6 +2761,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (isCacheViewerOpen()) {
       updateCacheViewer();
     }
+    syncBackfillProgressPolling();
     persistWorkbenchState();
   }
 
@@ -2802,6 +2905,44 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     ].join(":");
   }
 
+  function hasSameStartedAtPrefix(previousCandles = [], nextCandles = [], length = previousCandles.length) {
+    if (!Array.isArray(previousCandles) || !Array.isArray(nextCandles) || length <= 0) {
+      return false;
+    }
+    for (let index = 0; index < length; index += 1) {
+      if (previousCandles[index]?.started_at !== nextCandles[index]?.started_at) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function canUseTailUpdate(previousCandles = [], nextCandles = []) {
+    if (!previousCandles.length || !nextCandles.length || nextCandles.length < previousCandles.length) {
+      return false;
+    }
+    if (nextCandles.length - previousCandles.length > 1) {
+      return false;
+    }
+    const previousLastStartedAt = previousCandles[previousCandles.length - 1]?.started_at;
+    const nextLastStartedAt = nextCandles[nextCandles.length - 1]?.started_at;
+    if (!previousLastStartedAt || !nextLastStartedAt) {
+      return false;
+    }
+    if (nextCandles.length === previousCandles.length) {
+      return previousLastStartedAt === nextLastStartedAt;
+    }
+    return hasSameStartedAtPrefix(previousCandles.slice(0, -1), nextCandles, previousCandles.length - 1)
+      && nextCandles[nextCandles.length - 2]?.started_at === previousLastStartedAt;
+  }
+
+  function canUseAppendTail(previousCandles = [], nextCandles = []) {
+    if (!previousCandles.length || !nextCandles.length || nextCandles.length <= previousCandles.length) {
+      return false;
+    }
+    return hasSameStartedAtPrefix(previousCandles, nextCandles, previousCandles.length);
+  }
+
   function applyLiveResponseMeta(response) {
     const integrityHash = response?.integrity ? JSON.stringify(response.integrity) : null;
     const integrityChanged = integrityHash !== state.lastLiveTailIntegrityHash;
@@ -2809,6 +2950,169 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     state.pendingBackfill = response?.latest_backfill_request || state.pendingBackfill;
     state.lastLiveTailIntegrityHash = integrityHash;
     return { integrityChanged };
+  }
+
+  let backfillProgressInterval = null;
+  let backfillProgressRequestInFlight = false;
+
+  function buildBackfillProgressQuery() {
+    const pending = state.pendingBackfill || state.transportProgress?.request || state.buildResponse?.atas_backfill_request || null;
+    const instrumentSymbol = String(
+      pending?.instrument_symbol
+        || state.snapshot?.instrument_symbol
+        || state.snapshot?.instrument?.symbol
+        || state.topBar?.symbol
+        || els.instrumentSymbol?.value
+        || "",
+    ).trim().toUpperCase();
+    const displayTimeframe = String(
+      pending?.display_timeframe
+        || state.snapshot?.display_timeframe
+        || state.topBar?.timeframe
+        || els.displayTimeframe?.value
+        || "",
+    ).trim();
+    if (!instrumentSymbol || !displayTimeframe) {
+      return null;
+    }
+    const params = new URLSearchParams({
+      instrument_symbol: instrumentSymbol,
+      display_timeframe: displayTimeframe,
+    });
+    const cacheKey = String(pending?.cache_key || els.cacheKey?.value || "").trim();
+    const chartInstanceId = String(
+      pending?.chart_instance_id || els.chartInstanceId?.value || state.snapshot?.source?.chart_instance_id || "",
+    ).trim();
+    const contractSymbol = String(
+      pending?.target_contract_symbol || pending?.contract_symbol || state.snapshot?.instrument?.contract_symbol || "",
+    ).trim().toUpperCase();
+    const rootSymbol = String(
+      pending?.target_root_symbol || pending?.root_symbol || state.snapshot?.instrument?.root_symbol || "",
+    ).trim().toUpperCase();
+    const windowStart = String(
+      pending?.window_start || state.snapshot?.window_start || (els.windowStart?.value ? new Date(els.windowStart.value).toISOString() : ""),
+    ).trim();
+    const windowEnd = String(
+      pending?.window_end || state.snapshot?.window_end || (els.windowEnd?.value ? new Date(els.windowEnd.value).toISOString() : ""),
+    ).trim();
+    if (cacheKey) params.set("cache_key", cacheKey);
+    if (chartInstanceId) params.set("chart_instance_id", chartInstanceId);
+    if (contractSymbol) params.set("contract_symbol", contractSymbol);
+    if (rootSymbol) params.set("root_symbol", rootSymbol);
+    if (windowStart) params.set("window_start", windowStart);
+    if (windowEnd) params.set("window_end", windowEnd);
+    return params;
+  }
+
+  function renderTransferProgress() {
+    const progress = state.transportProgress;
+    if (!progress) {
+      const pendingStatus = String(state.pendingBackfill?.status || "").toLowerCase();
+      if (["pending", "dispatched", "acknowledged"].includes(pendingStatus)) {
+        const pendingLabelMap = {
+          pending: "回补任务已排队，等待 ATAS 领取",
+          dispatched: "ATAS 已领取任务，等待历史K线回传",
+          acknowledged: "ATAS 已回执，后端正在核对",
+        };
+        transferProgressController.setProgress(
+          true,
+          0,
+          pendingLabelMap[pendingStatus] || "ATAS 传输进度",
+          state.pendingBackfill?.request_id ? `request_id=${state.pendingBackfill.request_id}` : "正在等待首批进度数据。",
+        );
+        return;
+      }
+      transferProgressController.reset();
+      return;
+    }
+    const progressStage = String(progress.stage || "").toLowerCase();
+    if (
+      progressStage === "idle"
+      && !progress.active
+      && !progress.request
+      && Number(progress.progress_percent || 0) <= 0
+    ) {
+      transferProgressController.reset();
+      return;
+    }
+    transferProgressController.setProgress(
+      !!progress.active,
+      Number(progress.progress_percent) || 0,
+      progress.label || "ATAS 传输进度",
+      progress.detail || "等待 ATAS 历史数据。",
+      { holdMs: progress.active ? 0 : 2200 },
+    );
+  }
+
+  function shouldPollBackfillProgress() {
+    const pendingStatus = String(state.pendingBackfill?.status || state.transportProgress?.status || "").toLowerCase();
+    return ["pending", "dispatched", "acknowledged"].includes(pendingStatus);
+  }
+
+  function stopBackfillProgressPolling({ resetVisual = false } = {}) {
+    if (backfillProgressInterval) {
+      clearInterval(backfillProgressInterval);
+      backfillProgressInterval = null;
+    }
+    backfillProgressRequestInFlight = false;
+    if (resetVisual && !state.transportProgress) {
+      transferProgressController.reset();
+    }
+  }
+
+  async function pollBackfillProgress({ force = false } = {}) {
+    if (backfillProgressRequestInFlight) {
+      return;
+    }
+    const query = buildBackfillProgressQuery();
+    if (!query) {
+      if (!force) {
+        state.transportProgress = null;
+        renderTransferProgress();
+      }
+      stopBackfillProgressPolling({ resetVisual: true });
+      return;
+    }
+    if (!force && !shouldPollBackfillProgress()) {
+      renderTransferProgress();
+      stopBackfillProgressPolling();
+      return;
+    }
+    backfillProgressRequestInFlight = true;
+    try {
+      const response = await fetchJson(`/api/v1/workbench/backfill-progress?${query.toString()}`);
+      state.transportProgress = response || null;
+      if (response?.request) {
+        state.pendingBackfill = response.request;
+      } else if (!response?.active) {
+        state.pendingBackfill = null;
+      }
+      renderTransferProgress();
+      if (response?.active) {
+        return;
+      }
+      stopBackfillProgressPolling();
+    } catch (error) {
+      console.warn("轮询 backfill progress 失败:", error);
+    } finally {
+      backfillProgressRequestInFlight = false;
+    }
+  }
+
+  function syncBackfillProgressPolling({ force = false } = {}) {
+    renderTransferProgress();
+    if (force) {
+      void pollBackfillProgress({ force: true });
+    }
+    if (!shouldPollBackfillProgress()) {
+      stopBackfillProgressPolling();
+      return;
+    }
+    if (!backfillProgressInterval) {
+      backfillProgressInterval = window.setInterval(() => {
+        void pollBackfillProgress();
+      }, 1800);
+    }
   }
 
   function shouldReloadSnapshotForLiveResponse(response, merged) {
@@ -2942,10 +3246,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       window_end: response.latest_observed_at ?? state.snapshot.window_end,
     };
     const nextLastSignature = buildCandleSignature(nextCandles[nextCandles.length - 1]);
-    const updateType = (nextCandles.length === previousLength || nextCandles.length === previousLength + 1)
-      && previousLastSignature !== nextLastSignature
-      ? "tail_update"
-      : "full_reset";
+    let updateType = "full_reset";
+    if (canUseTailUpdate(previousCandles, nextCandles) && previousLastSignature !== nextLastSignature) {
+      updateType = "tail_update";
+    } else if (canUseAppendTail(previousCandles, nextCandles)) {
+      updateType = "append_tail";
+    }
     return { merged: true, requiresReload: false, updateType };
   }
 
@@ -2990,11 +3296,11 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         const needsReload = shouldReloadSnapshotForLiveResponse(response, mergeResult.merged) || mergeResult.requiresReload;
 
         if (needsReload) {
-          await handleBuildWithForceRefresh({ syncRelativeWindow: true });
+          await handleBuildWithForceRefresh({ syncRelativeWindow: true, silentProgress: true });
           return;
         }
         if (integrityChanged && !mergeResult.merged) {
-          await handleBuildWithForceRefresh({ syncRelativeWindow: true });
+          await handleBuildWithForceRefresh({ syncRelativeWindow: true, silentProgress: true });
           return;
         }
         if (mergeResult.merged) {
@@ -3059,8 +3365,14 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     renderDeferredSurfaces();
   }
 
-  async function runBuildFlow({ forceRefresh = false, syncRelativeWindow = false } = {}) {
+  async function runBuildFlow({ forceRefresh = false, syncRelativeWindow = false, silentProgress = false } = {}) {
     const previous = !!els.forceRebuild?.checked;
+    const previousSilentBuildProgress = !!state.silentBuildProgress;
+    state.silentBuildProgress = !!silentProgress;
+    if (state.silentBuildProgress) {
+      buildProgressController.reset();
+    }
+    rememberCurrentChartView(state.snapshot, { persist: false });
     if (syncRelativeWindow) {
       syncRelativeWindowToNow();
     }
@@ -3070,17 +3382,19 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     try {
       await actions.handleBuild();
       state.topBar.lastSyncedAt = new Date().toISOString();
+      syncBackfillProgressPolling({ force: true });
       persistWorkbenchState();
       renderAiSurface();
     } finally {
+      state.silentBuildProgress = previousSilentBuildProgress;
       if (els.forceRebuild) {
         els.forceRebuild.checked = previous;
       }
     }
   }
 
-  async function handleBuildWithForceRefresh({ syncRelativeWindow = true } = {}) {
-    await runBuildFlow({ forceRefresh: true, syncRelativeWindow });
+  async function handleBuildWithForceRefresh({ syncRelativeWindow = true, silentProgress = false } = {}) {
+    await runBuildFlow({ forceRefresh: true, syncRelativeWindow, silentProgress });
   }
 
   async function loadGammaAnalysis({ autoDiscoverLatest = false } = {}) {
@@ -5181,6 +5495,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         const result = await actions.handleRepairCurrentWindow();
         if (result) {
           markWorkbenchSynced();
+          syncBackfillProgressPolling({ force: true });
         }
       }, { silentError: true });
     });

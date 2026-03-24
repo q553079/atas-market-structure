@@ -107,6 +107,7 @@ from atas_market_structure.models._adapter_payloads import (
     AdapterDepthEvent,
     AdapterHistoryBar,
     AdapterHistoryBarsPayload,
+    AdapterHistoryInventoryPayload,
     AdapterHistoryFootprintBar,
     AdapterHistoryFootprintLevel,
     AdapterHistoryFootprintPayload,
@@ -193,6 +194,8 @@ from atas_market_structure.models._replay import (
     ReplayWorkbenchAckRebuildResult,
     ReplayWorkbenchAckVerification,
     ReplayWorkbenchAtasBackfillAcceptedResponse,
+    ReplayWorkbenchBackfillProgressRange,
+    ReplayWorkbenchBackfillProgressResponse,
     ReplayWorkbenchAtasBackfillRecord,
     ReplayWorkbenchAtasBackfillRequest,
     ReplayWorkbenchAtasBackfillStatus,
@@ -231,6 +234,7 @@ from atas_market_structure.models._replay import (
     TuningPositiveNegativeSummary,
     TuningRecommendation,
     TuningRecommendationItem,
+    PatchPromotionHistoryEntry,
 )
 from atas_market_structure.models._chat import (
     ChatAnnotation,

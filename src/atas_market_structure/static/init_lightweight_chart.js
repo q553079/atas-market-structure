@@ -185,6 +185,18 @@ function canApplyTailUpdate(snapshot, updateType) {
     : candles[candles.length - 2]?.started_at === previousLastStartedAt;
 }
 
+function canApplyAppendTail(snapshot, updateType) {
+  if (!lastChartDataset || updateType !== "append_tail") {
+    return false;
+  }
+  const candles = getRenderableCandles(snapshot);
+  const previousCandles = lastChartDataset.candles || [];
+  if (!candles.length || !previousCandles.length || candles.length <= previousCandles.length) {
+    return false;
+  }
+  return previousCandles.every((bar, index) => bar?.started_at === candles[index]?.started_at);
+}
+
 function canApplyPrependHistory(snapshot, updateType) {
   if (!lastChartDataset || updateType !== "prepend_history") {
     return false;
@@ -198,34 +210,56 @@ function canApplyPrependHistory(snapshot, updateType) {
   return suffix.every((bar, index) => bar?.started_at === previousCandles[index]?.started_at);
 }
 
+function buildCandlePoint(bar) {
+  const time = toChartTime(bar?.started_at);
+  if (isSyntheticGapBar(bar)) {
+    return { time };
+  }
+  return {
+    time,
+    open: Number(bar?.open) || 0,
+    high: Number(bar?.high) || 0,
+    low: Number(bar?.low) || 0,
+    close: Number(bar?.close) || 0,
+  };
+}
+
+function buildVolumePoint(bar) {
+  const time = toChartTime(bar?.started_at);
+  if (isSyntheticGapBar(bar)) {
+    return { time };
+  }
+  return {
+    time,
+    value: getBarVolume(bar),
+    color: Number(bar?.close) >= Number(bar?.open)
+      ? "rgba(34, 171, 148, 0.58)"
+      : "rgba(242, 54, 69, 0.58)",
+  };
+}
+
 function applyTailUpdate(snapshot) {
   const candles = getRenderableCandles(snapshot);
   if (!candles.length) {
     return;
   }
   const latestBar = candles[candles.length - 1];
-  const latestTime = toChartTime(latestBar.started_at);
-  if (isSyntheticGapBar(latestBar)) {
-    candleSeries.update({ time: latestTime });
-    volumeSeries.update({ time: latestTime });
+  candleSeries.update(buildCandlePoint(latestBar));
+  volumeSeries.update(buildVolumePoint(latestBar));
+}
+
+function applyAppendTail(snapshot) {
+  const candles = getRenderableCandles(snapshot);
+  const previousCandles = lastChartDataset?.candles || [];
+  if (!candles.length || !previousCandles.length || candles.length <= previousCandles.length) {
     return;
   }
-  const latestCandle = {
-    time: latestTime,
-    open: Number(latestBar.open) || 0,
-    high: Number(latestBar.high) || 0,
-    low: Number(latestBar.low) || 0,
-    close: Number(latestBar.close) || 0,
-  };
-  const latestVolume = {
-    time: latestTime,
-    value: getBarVolume(latestBar),
-    color: Number(latestBar.close) >= Number(latestBar.open)
-      ? "rgba(34, 171, 148, 0.58)"
-      : "rgba(242, 54, 69, 0.58)",
-  };
-  candleSeries.update(latestCandle);
-  volumeSeries.update(latestVolume);
+  const startIndex = Math.max(0, previousCandles.length - 1);
+  for (let index = startIndex; index < candles.length; index += 1) {
+    const bar = candles[index];
+    candleSeries.update(buildCandlePoint(bar));
+    volumeSeries.update(buildVolumePoint(bar));
+  }
 }
 
 function applyPrependHistory(snapshot) {
@@ -604,6 +638,11 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
 
   if (dataChanged && canApplyTailUpdate(snapshot, updateType)) {
     applyTailUpdate(snapshot);
+    const { emaData } = buildChartData(snapshot);
+    emaSeries.setData(emaData);
+    lastUpdateType = updateType;
+  } else if (dataChanged && canApplyAppendTail(snapshot, updateType)) {
+    applyAppendTail(snapshot);
     const { emaData } = buildChartData(snapshot);
     emaSeries.setData(emaData);
     lastUpdateType = updateType;

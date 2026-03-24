@@ -24,6 +24,7 @@ class AppConfig:
     openai_base_url: str | None = None
     ai_model: str = "gpt-5-mini"
     ai_timeout_seconds: float = 90.0
+    storage_mode: str = "sqlite"
     clickhouse_host: str = "127.0.0.1"
     clickhouse_port: int = 8123
     clickhouse_user: str = "default"
@@ -53,6 +54,7 @@ class AppConfig:
             openai_base_url=os.getenv("OPENAI_BASE_URL"),
             ai_model=os.getenv("ATAS_MS_AI_MODEL", "gpt-5-mini"),
             ai_timeout_seconds=float(os.getenv("ATAS_MS_AI_TIMEOUT_SECONDS", "90")),
+            storage_mode=os.getenv("ATAS_MS_STORAGE_MODE", "sqlite").strip().lower(),
             clickhouse_host=os.getenv("ATAS_MS_CLICKHOUSE_HOST", os.getenv("CLICKHOUSE_HOST", "127.0.0.1")),
             clickhouse_port=int(os.getenv("ATAS_MS_CLICKHOUSE_PORT", os.getenv("CLICKHOUSE_PORT", "8123"))),
             clickhouse_user=os.getenv("ATAS_MS_CLICKHOUSE_USER", os.getenv("CLICKHOUSE_USER", "default")),

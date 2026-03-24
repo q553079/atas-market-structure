@@ -17,6 +17,9 @@ from atas_market_structure.repository_clickhouse import ClickHouseChartCandleRep
 from atas_market_structure.strategy_library_services import StrategyLibraryService
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 class ApplicationRequestHandler(BaseHTTPRequestHandler):
     """HTTP bridge for the framework-free application."""
 
@@ -58,6 +61,13 @@ class ApplicationRequestHandler(BaseHTTPRequestHandler):
 
 def build_repository(config: AppConfig) -> AnalysisRepository:
     sqlite_repository = SQLiteAnalysisRepository(database_path=config.database_path)
+    storage_mode = config.storage_mode.strip().lower()
+    if storage_mode in {"sqlite", "sqlite_authoritative", "sqlite-only", "sqlite_only"}:
+        LOGGER.info(
+            "build_repository: using SQLite authoritative storage mode (db=%s).",
+            str(config.database_path.resolve()),
+        )
+        return sqlite_repository
 
     market_data_repository = ClickHouseChartCandleRepository(
         host=config.clickhouse_host,
@@ -70,6 +80,13 @@ def build_repository(config: AppConfig) -> AnalysisRepository:
         ingestions_table=config.clickhouse_ingestions_table,
         connect_retries=config.clickhouse_connect_retries,
         retry_delay_seconds=config.clickhouse_retry_delay_seconds,
+    )
+    LOGGER.info(
+        "build_repository: using hybrid storage mode (sqlite=%s clickhouse=%s:%s db=%s).",
+        str(config.database_path.resolve()),
+        config.clickhouse_host,
+        config.clickhouse_port,
+        config.clickhouse_database,
     )
     return HybridAnalysisRepository(
         metadata_repository=sqlite_repository,
@@ -117,11 +134,12 @@ def main() -> None:
     application = build_application(config)
     ApplicationRequestHandler.application = application
     server = ThreadingHTTPServer((config.host, config.port), ApplicationRequestHandler)
-    logging.getLogger(__name__).info(
-        "ATAS market structure server listening on http://%s:%s (db=%s)",
+    LOGGER.info(
+        "ATAS market structure server listening on http://%s:%s (db=%s storage_mode=%s)",
         config.host,
         config.port,
         str(config.database_path.resolve()),
+        config.storage_mode,
     )
     try:
         server.serve_forever()

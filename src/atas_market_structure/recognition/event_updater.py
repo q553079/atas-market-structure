@@ -14,6 +14,7 @@ from atas_market_structure.models import (
     TradableEventKind,
 )
 from atas_market_structure.repository import AnalysisRepository
+from atas_market_structure.recognition.phase_machine import PhaseTransitionContext, compute_phase, get_thresholds
 from atas_market_structure.recognition.types import RecognitionFeatureVector
 
 
@@ -63,10 +64,6 @@ class EventHypothesisUpdater:
         distance_to_center = metrics.get("distance_to_balance_center_ticks", 999.0)
         center_hit_ticks = float(thresholds.get("center_hit_ticks") or 10.0)
         reacceleration_threshold = float(thresholds.get("initiative_reacceleration_score") or 0.68)
-        build_threshold = float(thresholds.get("building_hypothesis_probability") or 0.36)
-        confirm_threshold = float(thresholds.get("confirming_hypothesis_probability") or 0.56)
-        resolve_threshold = float(thresholds.get("resolved_hypothesis_probability") or 0.74)
-        weakening_drop = float(thresholds.get("weakening_drop_threshold") or 0.12)
 
         raw_scores = {
             EventHypothesisKind.CONTINUATION_BASE: _prior(hypothesis_priors, "continuation_base")
@@ -107,6 +104,8 @@ class EventHypothesisUpdater:
 
         previous = self._load_previous_states(feature.instrument_symbol)
         ordered = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
+        thresholds = get_thresholds(profile_payload)
+
         states: list[EventHypothesisState] = []
         for kind, probability in ordered:
             prior_state = previous.get(kind)
@@ -122,22 +121,27 @@ class EventHypothesisUpdater:
                 anchor_support=anchor_support,
                 opposite_initiative=opposite_initiative,
             )
-            phase = _phase_for(
-                kind=kind,
-                probability=probability,
-                build_threshold=build_threshold,
-                confirm_threshold=confirm_threshold,
-                resolve_threshold=resolve_threshold,
+            ctx = PhaseTransitionContext(
+                hypothesis_kind=kind,
+                current_probability=probability,
                 prior_probability=prior_state.posterior_probability if prior_state is not None else None,
-                weakening_drop=weakening_drop,
                 initiative_strength=initiative_strength,
+                initiative_buy_score=initiative_buy,
+                initiative_sell_score=initiative_sell,
+                trend_efficiency=trend_efficiency,
                 balance_score=balance_score,
-                absorption=absorption,
-                distance_to_center=distance_to_center,
+                absorption_score=absorption,
+                distance_to_center_ticks=distance_to_center,
                 center_hit_ticks=center_hit_ticks,
                 reacceleration_threshold=reacceleration_threshold,
+                weak_trend_probability=weak_trend,
+                compression_probability=compression,
+                transition_probability=transition,
+                strong_trend_probability=strong_trend,
+                anchor_support=anchor_support,
                 opposite_initiative=opposite_initiative,
             )
+            phase_result = compute_phase(ctx, thresholds)
             mapped_event = _mapped_event(kind)
             stability = 1.0
             if prior_state is not None:
@@ -155,7 +159,7 @@ class EventHypothesisUpdater:
                     ),
                     hypothesis_kind=kind,
                     mapped_event_kind=mapped_event,
-                    phase=phase,
+                    phase=phase_result.new_phase,
                     posterior_probability=round(probability, 6),
                     supporting_evidence=support,
                     missing_confirmation=missing,
@@ -252,51 +256,6 @@ def _evidence_lists(
             "stuck_in_static_balance" if balance_score >= 0.70 and opposite_initiative < 0.25 else "",
         ),
     )
-
-
-def _phase_for(
-    *,
-    kind: EventHypothesisKind,
-    probability: float,
-    build_threshold: float,
-    confirm_threshold: float,
-    resolve_threshold: float,
-    prior_probability: float | None,
-    weakening_drop: float,
-    initiative_strength: float,
-    balance_score: float,
-    absorption: float,
-    distance_to_center: float,
-    center_hit_ticks: float,
-    reacceleration_threshold: float,
-    opposite_initiative: float,
-) -> EventPhase:
-    if kind is EventHypothesisKind.CONTINUATION_BASE:
-        if initiative_strength >= reacceleration_threshold and probability >= resolve_threshold and distance_to_center > center_hit_ticks:
-            return EventPhase.RESOLVED
-        if distance_to_center <= center_hit_ticks or (absorption >= 0.55 and opposite_initiative >= 0.30):
-            return EventPhase.INVALIDATED
-    if kind is EventHypothesisKind.DISTRIBUTION_BALANCE:
-        if distance_to_center <= center_hit_ticks and probability >= confirm_threshold:
-            return EventPhase.RESOLVED
-        if initiative_strength >= reacceleration_threshold and distance_to_center > center_hit_ticks * 2:
-            return EventPhase.INVALIDATED
-    if kind is EventHypothesisKind.ABSORPTION_ACCUMULATION:
-        if initiative_strength >= reacceleration_threshold and absorption < 0.45:
-            return EventPhase.INVALIDATED
-    if kind is EventHypothesisKind.REVERSAL_PREPARATION:
-        if probability >= resolve_threshold and absorption >= 0.55 and opposite_initiative >= 0.30:
-            return EventPhase.RESOLVED
-        if initiative_strength >= reacceleration_threshold and balance_score < 0.65:
-            return EventPhase.INVALIDATED
-
-    if prior_probability is not None and prior_probability - probability >= weakening_drop and probability >= build_threshold:
-        return EventPhase.WEAKENING
-    if probability >= confirm_threshold:
-        return EventPhase.CONFIRMING
-    if probability >= build_threshold:
-        return EventPhase.BUILDING
-    return EventPhase.EMERGING
 
 
 def _transition_watch(kind: EventHypothesisKind, ordered: list[tuple[EventHypothesisKind, float]]) -> list[str]:

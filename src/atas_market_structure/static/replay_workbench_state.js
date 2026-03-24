@@ -143,12 +143,13 @@ export function createWorkbenchState() {
     selectedFootprintBar: null,
     selectedAnnotationId: null,
     selectedChartEventClusterKey: null,
-    // chartView 保存当前视口；lastChartUpdateType 用于区分 initial / tail_update / full_reset。
+    // chartView 保存当前视口；lastChartUpdateType 用于区分 initial / tail_update / append_tail / full_reset。
     chartView: null,
     chartViewportRegistry: persistedWorkbench.chartViewportRegistry || {},
     pendingChartViewRestore: null,
     lastChartViewportKey: null,
     lastChartUpdateType: null,
+    silentBuildProgress: false,
     liveQuotePreview: null,
     chartMetrics: null,
     chartEventModel: null,
@@ -275,6 +276,7 @@ export function createWorkbenchState() {
     },
     historyBackfillLoading: false,
     fullHistoryLoaded: false,
+    transportProgress: null,
   };
 
   return state;

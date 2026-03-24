@@ -33,6 +33,9 @@ public sealed class CollectorTransportProbeIndicator : Indicator
     [Display(Name = "History Footprint Endpoint", GroupName = "1. Adapter", Order = 27)]
     public string HistoryFootprintEndpoint { get; set; } = "/api/v1/adapter/history-footprint";
 
+    [Display(Name = "History Inventory Endpoint", GroupName = "1. Adapter", Order = 28)]
+    public string HistoryInventoryEndpoint { get; set; } = "/api/v1/adapter/history-inventory";
+
     [Display(Name = "Queue Limit", GroupName = "2. Performance", Order = 10)]
     public int QueueLimit { get; set; } = 64;
 
@@ -44,6 +47,7 @@ public sealed class CollectorTransportProbeIndicator : Indicator
             ContinuousEndpoint,
             HistoryBarsEndpoint,
             HistoryFootprintEndpoint,
+            HistoryInventoryEndpoint,
             TriggerEndpoint,
             QueueLimit,
             _ => { },

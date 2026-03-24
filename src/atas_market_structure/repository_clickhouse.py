@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+import logging
 from pathlib import Path
 import threading
 from time import sleep
@@ -20,6 +21,9 @@ if TYPE_CHECKING:
     from clickhouse_connect.driver.client import Client
 else:
     Client = Any
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -894,6 +898,9 @@ class HybridAnalysisRepository:
         self._chart_candle_repository = chart_candle_repository
         self._ingestion_repository = ingestion_repository or metadata_repository
         self._database_path = getattr(metadata_repository, "_database_path", None)
+        self._chart_candle_repository_available = True
+        self._ingestion_repository_available = True
+        self._availability_log_suppressed: set[str] = set()
 
     @property
     def workspace_root(self) -> Path:
@@ -905,14 +912,72 @@ class HybridAnalysisRepository:
         for repository in (self._chart_candle_repository, self._ingestion_repository):
             if id(repository) in initialized_ids:
                 continue
-            repository.initialize()
+            try:
+                repository.initialize()
+            except Exception as exc:
+                if repository is self._chart_candle_repository:
+                    self._chart_candle_repository_available = False
+                    self._log_repository_fallback_once(
+                        "chart_initialize",
+                        f"ClickHouse chart repository initialize failed; falling back to SQLite metadata repository. error={exc}",
+                    )
+                if repository is self._ingestion_repository:
+                    self._ingestion_repository_available = False
+                    self._log_repository_fallback_once(
+                        "ingestion_initialize",
+                        f"ClickHouse ingestion repository initialize failed; falling back to SQLite metadata repository. error={exc}",
+                    )
             initialized_ids.add(id(repository))
 
+    def _log_repository_fallback_once(self, key: str, message: str) -> None:
+        if key in self._availability_log_suppressed:
+            return
+        self._availability_log_suppressed.add(key)
+        LOGGER.warning(message)
+
+    def _invoke_chart_repository(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        if self._chart_candle_repository_available:
+            try:
+                method = getattr(self._chart_candle_repository, method_name)
+                return method(*args, **kwargs)
+            except Exception as exc:
+                self._chart_candle_repository_available = False
+                self._log_repository_fallback_once(
+                    f"chart_{method_name}",
+                    f"ClickHouse chart repository method {method_name} failed; falling back to SQLite metadata repository for the rest of this process. error={exc}",
+                )
+
+        fallback = getattr(self._metadata_repository, method_name, None)
+        if fallback is None:
+            raise RuntimeError(
+                f"Chart repository method {method_name} is unavailable in both ClickHouse and SQLite repositories."
+            )
+        return fallback(*args, **kwargs)
+
+    def _invoke_ingestion_repository(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        if self._ingestion_repository_available:
+            try:
+                method = getattr(self._ingestion_repository, method_name)
+                return method(*args, **kwargs)
+            except Exception as exc:
+                self._ingestion_repository_available = False
+                self._log_repository_fallback_once(
+                    f"ingestion_{method_name}",
+                    f"ClickHouse ingestion repository method {method_name} failed; falling back to SQLite metadata repository for the rest of this process. error={exc}",
+                )
+
+        fallback = getattr(self._metadata_repository, method_name, None)
+        if fallback is None:
+            raise RuntimeError(
+                f"Ingestion repository method {method_name} is unavailable in both ClickHouse and SQLite repositories."
+            )
+        return fallback(*args, **kwargs)
+
     def upsert_chart_candle(self, candle: ChartCandle) -> ChartCandle:
-        return self._chart_candle_repository.upsert_chart_candle(candle)
+        return self._invoke_chart_repository("upsert_chart_candle", candle)
 
     def upsert_chart_candles(self, candles: list[ChartCandle]) -> int:
-        return self._chart_candle_repository.upsert_chart_candles(candles)
+        return self._invoke_chart_repository("upsert_chart_candles", candles)
 
     def list_chart_candles(
         self,
@@ -922,7 +987,8 @@ class HybridAnalysisRepository:
         window_end: datetime,
         limit: int = 20000,
     ) -> list[ChartCandle]:
-        return self._chart_candle_repository.list_chart_candles(
+        return self._invoke_chart_repository(
+            "list_chart_candles",
             symbol=symbol,
             timeframe=timeframe,
             window_start=window_start,
@@ -931,10 +997,10 @@ class HybridAnalysisRepository:
         )
 
     def count_chart_candles(self, symbol: str, timeframe: str) -> int:
-        return self._chart_candle_repository.count_chart_candles(symbol, timeframe)
+        return self._invoke_chart_repository("count_chart_candles", symbol, timeframe)
 
     def purge_chart_candles(self, *, symbol: str | None, older_than: datetime) -> int:
-        return self._chart_candle_repository.purge_chart_candles(symbol=symbol, older_than=older_than)
+        return self._invoke_chart_repository("purge_chart_candles", symbol=symbol, older_than=older_than)
 
     def save_ingestion(
         self,
@@ -946,7 +1012,8 @@ class HybridAnalysisRepository:
         observed_payload: dict[str, Any],
         stored_at: datetime,
     ) -> StoredIngestion:
-        return self._ingestion_repository.save_ingestion(
+        return self._invoke_ingestion_repository(
+            "save_ingestion",
             ingestion_id=ingestion_id,
             ingestion_kind=ingestion_kind,
             source_snapshot_id=source_snapshot_id,
@@ -956,7 +1023,7 @@ class HybridAnalysisRepository:
         )
 
     def get_ingestion(self, ingestion_id: str) -> StoredIngestion | None:
-        return self._ingestion_repository.get_ingestion(ingestion_id)
+        return self._invoke_ingestion_repository("get_ingestion", ingestion_id)
 
     def update_ingestion_observed_payload(
         self,
@@ -964,7 +1031,8 @@ class HybridAnalysisRepository:
         ingestion_id: str,
         observed_payload: dict[str, Any],
     ) -> StoredIngestion | None:
-        return self._ingestion_repository.update_ingestion_observed_payload(
+        return self._invoke_ingestion_repository(
+            "update_ingestion_observed_payload",
             ingestion_id=ingestion_id,
             observed_payload=observed_payload,
         )
@@ -979,7 +1047,8 @@ class HybridAnalysisRepository:
         stored_at_after: datetime | None = None,
         stored_at_before: datetime | None = None,
     ) -> list[StoredIngestion]:
-        return self._ingestion_repository.list_ingestions(
+        return self._invoke_ingestion_repository(
+            "list_ingestions",
             ingestion_kind=ingestion_kind,
             instrument_symbol=instrument_symbol,
             source_snapshot_id=source_snapshot_id,
@@ -998,17 +1067,26 @@ class HybridAnalysisRepository:
         stored_at_after: datetime | None = None,
         stored_at_before: datetime | None = None,
     ):
-        repo = self._ingestion_repository
+        repo = self._ingestion_repository if self._ingestion_repository_available else self._metadata_repository
         if hasattr(repo, "iter_ingestions_paginated"):
-            yield from repo.iter_ingestions_paginated(
-                ingestion_kind=ingestion_kind,
-                instrument_symbol=instrument_symbol,
-                source_snapshot_id=source_snapshot_id,
-                page_size=page_size,
-                stored_at_after=stored_at_after,
-                stored_at_before=stored_at_before,
-            )
-            return
+            try:
+                yield from repo.iter_ingestions_paginated(
+                    ingestion_kind=ingestion_kind,
+                    instrument_symbol=instrument_symbol,
+                    source_snapshot_id=source_snapshot_id,
+                    page_size=page_size,
+                    stored_at_after=stored_at_after,
+                    stored_at_before=stored_at_before,
+                )
+                return
+            except Exception as exc:
+                self._ingestion_repository_available = False
+                self._log_repository_fallback_once(
+                    "ingestion_iter_ingestions_paginated",
+                    f"ClickHouse ingestion repository pagination failed; falling back to SQLite metadata repository for the rest of this process. error={exc}",
+                )
+                repo = self._metadata_repository
+
         for item in repo.list_ingestions(
             ingestion_kind=ingestion_kind,
             instrument_symbol=instrument_symbol,
@@ -1026,7 +1104,8 @@ class HybridAnalysisRepository:
         instrument_symbol: str | None,
         cutoff: datetime,
     ) -> int:
-        return self._ingestion_repository.purge_ingestions(
+        return self._invoke_ingestion_repository(
+            "purge_ingestions",
             ingestion_kinds=ingestion_kinds,
             instrument_symbol=instrument_symbol,
             cutoff=cutoff,
@@ -1048,14 +1127,21 @@ class HybridAnalysisRepository:
         """
         repo = self._chart_candle_repository
         if hasattr(repo, "list_continuous_state_bars"):
-            return repo.list_continuous_state_bars(
-                symbol=symbol,
-                timeframe=timeframe,
-                window_start=window_start,
-                window_end=window_end,
-                trade_active_only=trade_active_only,
-                limit=limit,
-            )
+            try:
+                return repo.list_continuous_state_bars(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    window_start=window_start,
+                    window_end=window_end,
+                    trade_active_only=trade_active_only,
+                    limit=limit,
+                )
+            except Exception as exc:
+                self._chart_candle_repository_available = False
+                self._log_repository_fallback_once(
+                    "chart_list_continuous_state_bars",
+                    f"ClickHouse continuous-state candle query failed; disabling ClickHouse chart queries for this process. error={exc}",
+                )
         return []
 
     def list_continuous_state_events(
@@ -1069,12 +1155,19 @@ class HybridAnalysisRepository:
         """Query pre-aggregated continuous-state events from ClickHouse materialized view."""
         repo = self._chart_candle_repository
         if hasattr(repo, "list_continuous_state_events"):
-            return repo.list_continuous_state_events(
-                symbol=symbol,
-                window_start=window_start,
-                window_end=window_end,
-                limit=limit,
-            )
+            try:
+                return repo.list_continuous_state_events(
+                    symbol=symbol,
+                    window_start=window_start,
+                    window_end=window_end,
+                    limit=limit,
+                )
+            except Exception as exc:
+                self._chart_candle_repository_available = False
+                self._log_repository_fallback_once(
+                    "chart_list_continuous_state_events",
+                    f"ClickHouse continuous-state event query failed; disabling ClickHouse chart queries for this process. error={exc}",
+                )
         return []
 
     def get_latest_tick_quote(
@@ -1087,11 +1180,18 @@ class HybridAnalysisRepository:
         """Query latest tick-derived quote from the secondary market-data repository."""
         repo = self._chart_candle_repository
         if hasattr(repo, "get_latest_tick_quote"):
-            return repo.get_latest_tick_quote(
-                symbol=symbol,
-                lookback_seconds=lookback_seconds,
-                limit=limit,
-            )
+            try:
+                return repo.get_latest_tick_quote(
+                    symbol=symbol,
+                    lookback_seconds=lookback_seconds,
+                    limit=limit,
+                )
+            except Exception as exc:
+                self._chart_candle_repository_available = False
+                self._log_repository_fallback_once(
+                    "chart_get_latest_tick_quote",
+                    f"ClickHouse tick quote query failed; disabling ClickHouse chart queries for this process. error={exc}",
+                )
         return None
 
     def __getattr__(self, name: str) -> Any:

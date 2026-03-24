@@ -28,6 +28,7 @@ REQUIRED_BLUEPRINT_TABLES = {
     "episode_evaluation",
     "tuning_recommendation",
     "profile_patch_candidate",
+    "patch_promotion_history",
     "patch_validation_result",
     "instrument_profile",
     "recognizer_build",
@@ -44,8 +45,8 @@ def test_storage_migrations_initialize_fresh_database(tmp_path: Path) -> None:
     applied = repository.initialize()
     applied_versions = [item.version for item in repository.list_applied_migrations()]
 
-    assert [item.version for item in applied] == ["0001", "0002", "0003"]
-    assert applied_versions == ["0001", "0002", "0003"]
+    assert [item.version for item in applied] == ["0001", "0002", "0003", "0004"]
+    assert applied_versions == ["0001", "0002", "0003", "0004"]
 
     with sqlite3.connect(database_path) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
@@ -73,9 +74,9 @@ def test_storage_migrations_can_upgrade_from_partial_state(tmp_path: Path) -> No
     third_batch = repository.initialize()
 
     assert [item.version for item in first_batch] == ["0001"]
-    assert [item.version for item in second_batch] == ["0002", "0003"]
+    assert [item.version for item in second_batch] == ["0002", "0003", "0004"]
     assert third_batch == []
-    assert [item.version for item in repository.list_applied_migrations()] == ["0001", "0002", "0003"]
+    assert [item.version for item in repository.list_applied_migrations()] == ["0001", "0002", "0003", "0004"]
 
     registry_entries = repository.list_schema_registry_entries()
     assert any(item.object_name == "dead_letter_payload" for item in registry_entries)

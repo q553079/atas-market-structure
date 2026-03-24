@@ -1211,14 +1211,15 @@ label {
 }
 
 .build-progress {
-  margin-bottom: 12px;
   display: none;
   flex-direction: column;
   gap: 8px;
   flex-shrink: 0;
+  margin: 0;
 }
 
-.build-progress.active {
+.build-progress.active,
+.build-progress.visible {
   display: flex;
 }
 
@@ -1259,6 +1260,28 @@ label {
   animation: none;
 }
 
+.build-progress-detail {
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.transport-progress {
+  padding: 10px 12px;
+  border: 1px solid rgba(20, 184, 166, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(13, 24, 28, 0.9), rgba(10, 18, 24, 0.82));
+  box-shadow: 0 14px 28px rgba(3, 7, 18, 0.24);
+}
+
+.transport-progress .build-progress-track {
+  background: rgba(20, 184, 166, 0.12);
+}
+
+.transport-progress .build-progress-fill {
+  background: linear-gradient(90deg, #0f766e, #14b8a6, #34d399);
+}
+
 @keyframes build-progress-shimmer {
   from {
     transform: translateX(-100%);
@@ -1279,6 +1302,37 @@ label {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.chart-progress-stack {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 11;
+  width: min(360px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.chart-progress-stack .build-progress {
+  padding: 10px 12px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(16, 24, 39, 0.92), rgba(12, 19, 31, 0.84));
+  backdrop-filter: blur(10px);
+}
+
+.chart-progress-stack .build-progress.active,
+.chart-progress-stack .build-progress.visible {
+  display: flex;
+}
+
+.chart-progress-stack .build-progress-head,
+.chart-progress-stack .build-progress-detail {
+  text-shadow: 0 1px 0 rgba(3, 7, 18, 0.35);
 }
 
 .chart-event-tooltip {
@@ -1347,6 +1401,15 @@ label {
   font-weight: 600;
   z-index: 10;
   pointer-events: none;
+}
+
+@media (max-width: 960px) {
+  .chart-progress-stack {
+    top: auto;
+    right: 10px;
+    bottom: 10px;
+    width: min(320px, calc(100% - 20px));
+  }
 }
 
 .chart-info-symbol {

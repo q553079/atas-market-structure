@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from atas_market_structure.tick_size_defaults import default_tick_size_for_symbol
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class InstrumentRef(BaseModel):
@@ -19,6 +25,35 @@ class InstrumentRef(BaseModel):
         examples=[0.25],
     )
     currency: str = Field(..., description="PnL currency.", examples=["USD"])
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_tick_size_fallback(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        raw_tick_size = value.get("tick_size")
+        try:
+            numeric_tick_size = float(raw_tick_size)
+        except (TypeError, ValueError):
+            numeric_tick_size = None
+        if numeric_tick_size is not None and numeric_tick_size > 0:
+            return value
+        fallback_symbol = (
+            value.get("root_symbol")
+            or value.get("contract_symbol")
+            or value.get("symbol")
+            or ""
+        )
+        fallback_tick_size = default_tick_size_for_symbol(str(fallback_symbol))
+        LOGGER.warning(
+            "InstrumentRef tick_size fallback applied: symbol=%s raw_tick_size=%s fallback_tick_size=%s",
+            fallback_symbol,
+            raw_tick_size,
+            fallback_tick_size,
+        )
+        normalized = dict(value)
+        normalized["tick_size"] = fallback_tick_size
+        return normalized
 
 
 class SourceRef(BaseModel):

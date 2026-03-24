@@ -25,6 +25,7 @@ from atas_market_structure.storage_models import (
     StoredMemoryAnchorVersion,
     StoredObservationRecord,
     StoredPatchValidationResult,
+    StoredPatchPromotionHistory,
     StoredProfilePatchCandidate,
     StoredProjectionSnapshot,
     StoredRebuildRunLog,
@@ -1318,6 +1319,110 @@ class SQLiteStorageBlueprintRepository:
             ).fetchall()
         return [self._row_to_patch_validation_result(row) for row in rows]
 
+    def save_patch_promotion_history(self, record: StoredPatchPromotionHistory) -> StoredPatchPromotionHistory:
+        """Insert one append-only patch_promotion_history row.
+
+        Append-only: promotion_id is the primary key, so duplicate inserts
+        raise sqlite3.IntegrityError instead of silently overwriting.
+        """
+
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO patch_promotion_history (
+                    promotion_id,
+                    candidate_id,
+                    instrument,
+                    promoted_profile_version,
+                    previous_profile_version,
+                    promoted_at,
+                    promoted_by,
+                    promotion_notes,
+                    detail_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.promotion_id,
+                    record.candidate_id,
+                    record.instrument_symbol,
+                    record.promoted_profile_version,
+                    record.previous_profile_version,
+                    _to_iso(record.promoted_at),
+                    record.promoted_by,
+                    record.promotion_notes,
+                    _dump_json(record.detail),
+                ),
+            )
+        return record
+
+    def get_patch_promotion(self, promotion_id: str) -> StoredPatchPromotionHistory | None:
+        """Retrieve one patch promotion by its promotion_id."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    promotion_id,
+                    candidate_id,
+                    instrument,
+                    promoted_profile_version,
+                    previous_profile_version,
+                    promoted_at,
+                    promoted_by,
+                    promotion_notes,
+                    detail_json
+                FROM patch_promotion_history
+                WHERE promotion_id = ?
+                """,
+                (promotion_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_patch_promotion_history(row)
+
+    def list_patch_promotions(
+        self,
+        *,
+        candidate_id: str | None = None,
+        instrument_symbol: str | None = None,
+        limit: int = 200,
+    ) -> list[StoredPatchPromotionHistory]:
+        """List patch promotion history rows, optionally filtered."""
+
+        conditions: list[str] = []
+        params: list[Any] = []
+        if candidate_id is not None:
+            conditions.append("candidate_id = ?")
+            params.append(candidate_id)
+        if instrument_symbol is not None:
+            conditions.append("instrument = ?")
+            params.append(instrument_symbol)
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        params.append(limit)
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    promotion_id,
+                    candidate_id,
+                    instrument,
+                    promoted_profile_version,
+                    previous_profile_version,
+                    promoted_at,
+                    promoted_by,
+                    promotion_notes,
+                    detail_json
+                FROM patch_promotion_history
+                WHERE {where_clause}
+                ORDER BY promoted_at DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [self._row_to_patch_promotion_history(row) for row in rows]
+
     def save_instrument_profile_version(self, record: StoredInstrumentProfileVersion) -> StoredInstrumentProfileVersion:
         """Upsert a versioned instrument_profile row."""
 
@@ -2321,6 +2426,19 @@ class SQLiteStorageBlueprintRepository:
             candidate_id=row["candidate_id"],
             validation_status=row["validation_status"],
             validation_payload=_load_json(row["payload_json"]),
+        )
+
+    def _row_to_patch_promotion_history(self, row: sqlite3.Row) -> StoredPatchPromotionHistory:
+        return StoredPatchPromotionHistory(
+            promotion_id=row["promotion_id"],
+            candidate_id=row["candidate_id"],
+            instrument_symbol=row["instrument"],
+            promoted_profile_version=row["promoted_profile_version"],
+            previous_profile_version=row["previous_profile_version"],
+            promoted_at=_parse_datetime(row["promoted_at"]),
+            promoted_by=row["promoted_by"],
+            promotion_notes=row["promotion_notes"],
+            detail=_load_json(row["detail_json"]),
         )
 
     @staticmethod

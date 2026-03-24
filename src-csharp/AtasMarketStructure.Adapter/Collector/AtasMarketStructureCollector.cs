@@ -69,6 +69,9 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
     private DateTime _lastHistoryBarsMutationObservedUtc = DateTime.MinValue;
     private DateTime _lastHistoryBarsFullSnapshotExportedAtUtc = DateTime.MinValue;
     private bool _historyBarsInitialSnapshotPending = true;
+    private DateTime _lastHistoryInventoryPublishedAtUtc = DateTime.MinValue;
+    private string _lastHistoryInventorySignature = string.Empty;
+    private int _historyInventorySendInFlight;
 
     protected AtasMarketStructureCollectorFull()
         : base(true)
@@ -109,6 +112,9 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
     [Display(Name = "Backfill Poll Interval Seconds", GroupName = "3. Performance", Order = 26)]
     [Range(1, 30)]
     public int BackfillPollIntervalSeconds { get; set; } = 5;
+
+    [Display(Name = "Force UTC Timestamps", GroupName = "3. Performance", Order = 27)]
+    public bool ForceUtcTimestamps { get; set; } = true;
 
     [Display(Name = "Burst Lookback Seconds", GroupName = "4. Trigger Burst", Order = 10)]
     public int BurstLookbackSeconds { get; set; } = 45;
@@ -180,6 +186,7 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
                 ContinuousEndpoint,
                 "/api/v1/adapter/history-bars",
                 "/api/v1/adapter/history-footprint",
+                "/api/v1/adapter/history-inventory",
                 TriggerEndpoint,
                 QueueLimit,
                 LogInfoLocal,
@@ -207,12 +214,18 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
             _lastHistoryBarsMutationObservedUtc = DateTime.MinValue;
             _lastHistoryBarsFullSnapshotExportedAtUtc = DateTime.MinValue;
             _historyBarsInitialSnapshotPending = true;
+            _lastHistoryInventoryPublishedAtUtc = DateTime.MinValue;
+            _lastHistoryInventorySignature = string.Empty;
+            _historyInventorySendInFlight = 0;
         }
 
         SubscribeToTimer(TimeSpan.FromMilliseconds(Math.Max(250, ContinuousCadenceMilliseconds)), OnTimerTick);
         if (EnableMarketByOrders)
         {
-            _ = SubscribeMarketByOrderData();
+            ObserveBackgroundTask(
+                SubscribeMarketByOrderData(),
+                "SubscribeMarketByOrderData",
+                onFault: () => EnableMarketByOrders = false);
         }
 
         if (EnableBackfillPoller)
@@ -345,6 +358,7 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
             FinalizeCurrentSecond(nowUtc);
             MaybeEmitContinuousState(nowUtc);
             MaybeExportLoadedHistoryBars(nowUtc);
+            MaybePublishHistoryInventory(nowUtc);
         }
     }
 
@@ -767,6 +781,62 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         }
     }
 
+    private void MaybePublishHistoryInventory(DateTime nowUtc)
+    {
+        if (_transport is null || _latestObservedBarIndex < 0)
+        {
+            return;
+        }
+
+        if (!TryGetLoadedHistoryWindow(
+                nowUtc,
+                out var loadedLatestBarIndex,
+                out var loadedBarCount,
+                out var loadedFirstStartedAtUtc,
+                out var loadedLatestStartedAtUtc))
+        {
+            return;
+        }
+
+        var currentBarCount = Math.Max(loadedBarCount, Math.Max(_latestObservedBarCount, CurrentBar));
+        var signature = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{loadedBarCount}:{currentBarCount}:{loadedLatestBarIndex}:{loadedFirstStartedAtUtc:O}:{loadedLatestStartedAtUtc:O}");
+        var heartbeatDue = _lastHistoryInventoryPublishedAtUtc == DateTime.MinValue
+            || nowUtc - _lastHistoryInventoryPublishedAtUtc >= TimeSpan.FromSeconds(15);
+        if (!heartbeatDue && string.Equals(signature, _lastHistoryInventorySignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _historyInventorySendInFlight, 1, 0) != 0)
+        {
+            return;
+        }
+
+        var chartIdentity = ResolveChartIdentity();
+        var timeContext = ResolveTimeContext();
+        LogResolvedContext(chartIdentity, timeContext);
+
+        var payload = BuildHistoryInventoryPayload(
+            emittedAtUtc: nowUtc,
+            chartIdentity: chartIdentity,
+            timeContext: timeContext,
+            loadedBarCount: loadedBarCount,
+            currentBarCount: currentBarCount,
+            latestLoadedBarIndex: loadedLatestBarIndex,
+            firstLoadedBarStartedAtUtc: loadedFirstStartedAtUtc,
+            latestLoadedBarStartedAtUtc: loadedLatestStartedAtUtc);
+
+        _lastHistoryInventorySignature = signature;
+        _lastHistoryInventoryPublishedAtUtc = nowUtc;
+        LogInfoLocal(
+            $"MaybePublishHistoryInventory: scheduling inventory publish message_id={payload.MessageId} loaded_bar_count={loadedBarCount} current_bar_count={currentBarCount} first_started_at_utc={loadedFirstStartedAtUtc:O} latest_started_at_utc={loadedLatestStartedAtUtc:O} heartbeat_due={heartbeatDue}.");
+        ObserveBackgroundTask(
+            PublishHistoryInventoryAsync(payload),
+            $"PublishHistoryInventoryAsync:{payload.MessageId}");
+    }
+
     private void SyncLoadedHistoryIndex(DateTime nowUtc)
     {
         var currentBarCount = Math.Max(0, CurrentBar);
@@ -977,6 +1047,44 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         };
     }
 
+    private HistoryInventoryPayload BuildHistoryInventoryPayload(
+        DateTime emittedAtUtc,
+        ChartIdentity chartIdentity,
+        ResolvedTimeContext timeContext,
+        int loadedBarCount,
+        int currentBarCount,
+        int latestLoadedBarIndex,
+        DateTime firstLoadedBarStartedAtUtc,
+        DateTime latestLoadedBarStartedAtUtc)
+    {
+        var barSpan = EstimateLoadedBarSpan();
+        var barTimeframe = ResolveNativeBarTimeframe(
+            chartIdentity,
+            new List<DateTime> { firstLoadedBarStartedAtUtc, latestLoadedBarStartedAtUtc });
+        return new HistoryInventoryPayload
+        {
+            MessageId = CollectorMetadataResolver.BuildMessageId(
+                "history_inventory",
+                chartIdentity,
+                latestLoadedBarStartedAtUtc,
+                Math.Max(0, loadedBarCount)),
+            EmittedAt = emittedAtUtc,
+            ObservedWindowStart = firstLoadedBarStartedAtUtc,
+            ObservedWindowEnd = latestLoadedBarStartedAtUtc + barSpan - TimeSpan.FromSeconds(1),
+            Source = BuildSourceEnvelope(chartIdentity, timeContext),
+            Instrument = BuildInstrumentEnvelope(chartIdentity),
+            DisplayTimeframe = chartIdentity.DisplayTimeframe,
+            TimeContext = timeContext.ToPayload(),
+            BarTimeframe = barTimeframe,
+            LoadedBarCount = Math.Max(0, loadedBarCount),
+            CurrentBarCount = Math.Max(0, currentBarCount),
+            LatestLoadedBarIndex = latestLoadedBarIndex >= 0 ? latestLoadedBarIndex : null,
+            FirstLoadedBarStartedAtUtc = firstLoadedBarStartedAtUtc,
+            LatestLoadedBarStartedAtUtc = latestLoadedBarStartedAtUtc,
+            LatestCompletedBarStartedAtUtc = latestLoadedBarStartedAtUtc,
+        };
+    }
+
     private bool TrySendHistoryBarsChunks(
         IReadOnlyList<HistoryBarPayload> bars,
         DateTime emittedAtUtc,
@@ -1011,6 +1119,47 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
         }
 
         return enqueuedAny;
+    }
+
+    private async Task PublishHistoryInventoryAsync(HistoryInventoryPayload payload)
+    {
+        try
+        {
+            var transport = _transport;
+            if (transport is null)
+            {
+                return;
+            }
+
+            var sent = await transport.SendHistoryInventoryAsync(payload, CancellationToken.None).ConfigureAwait(false);
+            if (sent)
+            {
+                LogInfoLocal(
+                    $"PublishHistoryInventoryAsync: published inventory message_id={payload.MessageId} loaded_bar_count={payload.LoadedBarCount}.");
+            }
+            else
+            {
+                lock (_sync)
+                {
+                    _lastHistoryInventoryPublishedAtUtc = DateTime.MinValue;
+                }
+                LogWarnLocal($"PublishHistoryInventoryAsync: failed to publish inventory message_id={payload.MessageId}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (_sync)
+            {
+                _lastHistoryInventoryPublishedAtUtc = DateTime.MinValue;
+                _lastHistoryInventorySignature = string.Empty;
+            }
+            LogWarnLocal(
+                $"PublishHistoryInventoryAsync unexpected error message_id={payload.MessageId}: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _historyInventorySendInFlight, 0);
+        }
     }
 
     private List<HistoryFootprintBarPayload> ExportLoadedHistoryFootprintSnapshot(int startIndex = 0, int? endIndexInclusive = null)
@@ -1461,7 +1610,7 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
             return _timeContextCache;
         }
 
-        _timeContextCache = CollectorMetadataResolver.ResolveTimeContext(this, nowUtc);
+        _timeContextCache = CollectorMetadataResolver.ResolveTimeContext(this, nowUtc, ForceUtcTimestamps);
         _timeContextResolvedAtUtc = nowUtc;
         return _timeContextCache;
     }
@@ -1903,11 +2052,45 @@ public abstract class AtasMarketStructureCollectorFull : Indicator
 
     private static void LogWarnLocal(string message) => Debug.WriteLine($"[ATAS-Collector][WARN] {message}");
 
+    private static void ObserveBackgroundTask(Task? task, string operationName, Action? onFault = null)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        task.ContinueWith(
+            continuation =>
+            {
+                try
+                {
+                    onFault?.Invoke();
+                }
+                catch (Exception callbackEx)
+                {
+                    LogWarnLocal($"{operationName} fault callback failed: {callbackEx.Message}");
+                }
+
+                var exception = continuation.Exception?.GetBaseException();
+                if (exception is null)
+                {
+                    LogWarnLocal($"{operationName} faulted without an exception payload.");
+                    return;
+                }
+
+                LogWarnLocal($"{operationName} faulted: {exception.GetType().Name}: {exception.Message}");
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
     private void StartBackfillPoller()
     {
         StopBackfillPoller();
         _backfillCts = new CancellationTokenSource();
         _backfillPollerTask = Task.Run(() => BackfillPollerLoopAsync(_backfillCts.Token));
+        ObserveBackgroundTask(_backfillPollerTask, "BackfillPollerLoopAsync");
         LogInfoLocal("Backfill poller started.");
     }
 

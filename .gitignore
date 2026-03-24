@@ -15,3 +15,10 @@ tmp_*.cs
 .env.local.ps1
 /bin/
 /obj/
+node_modules/
+check_*.py
+runtime/
+test-results/
+tmp/
+tmp_*.py
+tmp_*.log

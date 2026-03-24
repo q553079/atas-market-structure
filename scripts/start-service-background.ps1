@@ -57,6 +57,7 @@ if (Test-Path -LiteralPath $localEnvFile) {
 $serverHost = if ($env:ATAS_MS_HOST) { $env:ATAS_MS_HOST } else { "127.0.0.1" }
 $serverPort = if ($env:ATAS_MS_PORT) { [int]$env:ATAS_MS_PORT } else { 8080 }
 $probeHost = if ($serverHost -in @("0.0.0.0", "::", "[::]")) { "127.0.0.1" } else { $serverHost }
+$storageMode = if ($env:ATAS_MS_STORAGE_MODE) { $env:ATAS_MS_STORAGE_MODE } else { "sqlite" }
 
 if (-not $env:OPENAI_API_KEY) {
     Write-Warning "OPENAI_API_KEY is not set. AI endpoints may be unavailable."
@@ -65,6 +66,7 @@ else {
     Write-Host "AI provider: $($env:ATAS_MS_AI_PROVIDER) / model: $($env:ATAS_MS_AI_MODEL)"
 }
 Write-Host "Server bind: $serverHost`:$serverPort"
+Write-Host "Storage mode: $storageMode"
 
 if (-not $SkipCollectorDeploy) {
     $deployScript = Join-Path $PSScriptRoot "deploy-collector.ps1"

@@ -5,6 +5,7 @@ import math
 from typing import Any
 from uuid import uuid4
 
+from atas_market_structure.tick_size_defaults import default_tick_size_for_symbol
 from atas_market_structure.models import (
     InstrumentProfile,
     InstrumentProfileParameterMetadata,
@@ -24,13 +25,6 @@ from atas_market_structure.repository import AnalysisRepository
 PROFILE_SCHEMA_VERSION = "instrument_profile_v1"
 PROFILE_PATCH_CANDIDATE_SCHEMA_VERSION = "profile_patch_candidate_v1"
 PATCH_VALIDATION_RESULT_SCHEMA_VERSION = "patch_validation_result_v1"
-
-_DEFAULT_TICK_SIZES = {
-    "ES": 0.25,
-    "NQ": 0.25,
-    "GC": 0.1,
-    "CL": 0.01,
-}
 
 _GENERAL_EVENTS = [
     TradableEventKind.MOMENTUM_CONTINUATION,
@@ -182,14 +176,6 @@ _INSTRUMENT_OVERRIDES: dict[str, dict[str, Any]] = {
         "decay": {"initiative_origin_half_life_bars": 72},
     },
 }
-
-
-def default_tick_size_for_symbol(instrument_symbol: str) -> float:
-    """Return the fallback tick size used for instrument profile bootstrap."""
-
-    return _DEFAULT_TICK_SIZES.get(instrument_symbol.strip().upper(), 0.25)
-
-
 def build_instrument_profile_v1(
     instrument_symbol: str,
     *,
@@ -491,6 +477,41 @@ class InstrumentProfileService:
             raise ValueError(detail)
         return validation.preview
 
+    def compare_profile_versions(
+        self,
+        instrument_symbol: str,
+        base_version: str,
+        proposed_version: str,
+    ) -> ProfilePatchPreview:
+        """Compare two stored profile versions and return a diff preview.
+
+        Loads both versions from the repository, applies proposed as a patch
+        against base, then returns the structured diff via `compare_profiles`.
+
+        Raises ValueError if either version cannot be found or the proposed
+        version is not a valid patch against base.
+        """
+        if self._repository is None:
+            raise ValueError("repository not available for version comparison")
+
+        base_record = self._repository.get_instrument_profile_version(instrument_symbol, base_version)
+        if base_record is None:
+            raise ValueError(f"base profile version not found: {base_version}")
+
+        proposed_record = self._repository.get_instrument_profile_version(instrument_symbol, proposed_version)
+        if proposed_record is None:
+            raise ValueError(f"proposed profile version not found: {proposed_version}")
+
+        base_profile = InstrumentProfile.model_validate(base_record.profile_payload)
+
+        # Patch = fields that differ between proposed and base
+        delta = _compute_profile_delta(base_record.profile_payload, proposed_record.profile_payload)
+        return self.compare_profiles(
+            base_profile=base_profile,
+            patch=delta,
+            proposed_profile_version=proposed_version,
+        )
+
     def _persist_candidate(self, candidate: ProfilePatchCandidate) -> None:
         if self._repository is None:
             return
@@ -595,6 +616,24 @@ def _flatten_dict(payload: dict[str, Any], *, prefix: str = "") -> dict[str, Any
         else:
             flat[path] = value
     return flat
+
+
+def _compute_profile_delta(base: dict[str, Any], proposed: dict[str, Any]) -> dict[str, Any]:
+    """Return only the mutable fields that differ between base and proposed profiles.
+
+    Immutable/fixed fields are excluded so that the resulting delta
+    can safely be passed to `compare_profiles`.
+    """
+    flat_base = _flatten_dict(base)
+    flat_proposed = _flatten_dict(proposed)
+    delta: dict[str, Any] = {}
+    for path, proposed_value in flat_proposed.items():
+        if path in _IMMUTABLE_PATCH_PATHS:
+            continue
+        base_value = flat_base.get(path)
+        if base_value != proposed_value:
+            delta[path] = proposed_value
+    return delta
 
 
 def _get_path(payload: dict[str, Any], path: str) -> Any:

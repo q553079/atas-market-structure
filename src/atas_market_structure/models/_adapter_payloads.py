@@ -242,6 +242,53 @@ class AdapterHistoryBarsPayload(AdapterEnvelopeBase):
         return self
 
 
+class AdapterHistoryInventoryPayload(AdapterEnvelopeBase):
+    """Compact summary of what the active ATAS chart currently has loaded."""
+
+    message_type: Literal["history_inventory"] = Field(
+        ...,
+        description="Adapter message family for loaded-history inventory snapshots.",
+    )
+    bar_timeframe: Timeframe = Field(..., description="Native timeframe of the loaded chart bars.")
+    loaded_bar_count: int = Field(
+        default=0,
+        ge=0,
+        description="How many completed bars are currently loaded and exportable in the chart window.",
+    )
+    current_bar_count: int = Field(
+        default=0,
+        ge=0,
+        description="Current ATAS bar count observed by the collector, including any still-forming bar when applicable.",
+    )
+    latest_loaded_bar_index: int | None = Field(
+        None,
+        ge=0,
+        description="Latest completed loaded bar index when known.",
+    )
+    first_loaded_bar_started_at_utc: datetime | None = Field(
+        None,
+        description="UTC start timestamp of the earliest currently loaded completed bar.",
+    )
+    latest_loaded_bar_started_at_utc: datetime | None = Field(
+        None,
+        description="UTC start timestamp of the latest currently loaded completed bar.",
+    )
+    latest_completed_bar_started_at_utc: datetime | None = Field(
+        None,
+        description="UTC start timestamp of the latest completed bar known to the collector.",
+    )
+
+    @model_validator(mode="after")
+    def validate_inventory_window(self) -> "AdapterHistoryInventoryPayload":
+        if (
+            self.first_loaded_bar_started_at_utc is not None
+            and self.latest_loaded_bar_started_at_utc is not None
+            and self.latest_loaded_bar_started_at_utc < self.first_loaded_bar_started_at_utc
+        ):
+            raise ValueError("latest_loaded_bar_started_at_utc must be greater than or equal to first_loaded_bar_started_at_utc")
+        return self
+
+
 class AdapterHistoryFootprintLevel(BaseModel):
     """One historical footprint price level exported from an ATAS candle."""
 

@@ -911,6 +911,72 @@ class ReplayWorkbenchAtasBackfillRecord(BaseModel):
     note: str | None = Field(None, description="Optional adapter or server note attached to the request.")
 
 
+class ReplayWorkbenchBackfillProgressRange(BaseModel):
+    """Per-range raw mirror coverage summary for one ATAS backfill request."""
+
+    range_start: datetime = Field(..., description="Inclusive requested range start in UTC.")
+    range_end: datetime = Field(..., description="Inclusive requested range end in UTC.")
+    expected_bar_count: int = Field(..., ge=0, description="Expected native bars inside this requested range.")
+    received_bar_count: int = Field(..., ge=0, description="Persisted raw-mirror bars currently present in this range.")
+    missing_bar_count: int = Field(..., ge=0, description="Expected minus received bars for this range.")
+    progress_percent: int = Field(..., ge=0, le=100, description="Range coverage progress derived from native-bar counts.")
+    first_received_started_at: datetime | None = Field(
+        None,
+        description="Earliest persisted raw-mirror bar start currently present inside this range.",
+    )
+    last_received_started_at: datetime | None = Field(
+        None,
+        description="Latest persisted raw-mirror bar start currently present inside this range.",
+    )
+
+
+class ReplayWorkbenchBackfillProgressResponse(BaseModel):
+    """Progress view used by the UI to track ATAS history resend progress."""
+
+    schema_version: str = Field(..., description="Response schema version for backfill progress.")
+    instrument_symbol: str = Field(..., description="Instrument symbol being tracked.")
+    display_timeframe: Timeframe = Field(..., description="Native timeframe being tracked for progress.")
+    cache_key: str | None = Field(None, description="Replay cache key when progress is tied to one cache entry.")
+    chart_instance_id: str | None = Field(None, description="Preferred or matched ATAS chart instance when available.")
+    contract_symbol: str | None = Field(None, description="Specific contract symbol being mirrored when available.")
+    root_symbol: str | None = Field(None, description="Root symbol associated with the request when available.")
+    window_start: datetime | None = Field(None, description="Inclusive request window start in UTC.")
+    window_end: datetime | None = Field(None, description="Inclusive request window end in UTC.")
+    active: bool = Field(..., description="Whether the UI should keep polling this progress record.")
+    stage: str = Field(..., description="High-level stage such as idle, pending, receiving, verifying, complete, or expired.")
+    status: str = Field(..., description="Backfill lifecycle status echoed for UI display.")
+    progress_percent: int = Field(..., ge=0, le=100, description="Operator-facing overall progress percentage.")
+    coverage_progress_percent: int = Field(..., ge=0, le=100, description="Raw native-bar coverage percentage across requested ranges.")
+    estimated: bool = Field(..., description="Whether progress is still estimated from coverage instead of fully verified.")
+    label: str = Field(..., description="Short operator-facing status label.")
+    detail: str | None = Field(None, description="Longer operator-facing detail string.")
+    expected_bar_count: int = Field(..., ge=0, description="Expected native-bar count across all requested ranges.")
+    received_bar_count: int = Field(..., ge=0, description="Persisted raw native-bar count across all requested ranges.")
+    missing_bar_count: int = Field(..., ge=0, description="Expected minus received bars across all requested ranges.")
+    coverage_window_start: datetime | None = Field(
+        None,
+        description="Earliest persisted raw bar found within the requested ranges.",
+    )
+    coverage_window_end: datetime | None = Field(
+        None,
+        description="Latest persisted raw bar found within the requested ranges.",
+    )
+    footprint_requested: bool = Field(..., description="Whether the original request also asked for footprint resend.")
+    footprint_acknowledged: bool = Field(..., description="Whether the adapter acknowledged footprint resend.")
+    verification: ReplayWorkbenchAckVerification | None = Field(
+        None,
+        description="Post-ack verification summary when available.",
+    )
+    request: ReplayWorkbenchAtasBackfillRecord | None = Field(
+        None,
+        description="Matched durable backfill request record when one exists.",
+    )
+    requested_ranges: list[ReplayWorkbenchBackfillProgressRange] = Field(
+        default_factory=list,
+        description="Per-range raw mirror coverage details.",
+    )
+
+
 
 class ReplayWorkbenchAtasBackfillRequest(BaseModel):
     """UI or service-side request asking the ATAS collector to resend loaded history coverage."""
@@ -2004,6 +2070,29 @@ class TuningPatchHistoryEntry(BaseModel):
         None,
         description="Latest validation result found for the candidate patch.",
     )
+    latest_promotion: PatchPromotionHistoryEntry | None = Field(
+        None,
+        description="Latest promotion record found for the candidate patch.",
+    )
+
+
+class PatchPromotionHistoryEntry(BaseModel):
+    """Promotion audit trail entry for one patch candidate.
+
+    Stored as part of the tuning bundle to show the promotion lineage
+    of each candidate patch seen in the tuning window.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    promotion_id: str = Field(..., description="Unique promotion event identifier.")
+    candidate_id: str = Field(..., description="Candidate patch that was promoted.")
+    instrument_symbol: str = Field(..., alias="instrument", description="Instrument symbol targeted by the promotion.")
+    promoted_profile_version: str = Field(..., description="Profile version that became active after promotion.")
+    previous_profile_version: str = Field(..., description="Profile version that was active before promotion.")
+    promoted_at: datetime = Field(..., description="When the promotion was recorded.")
+    promoted_by: str = Field(..., description="Operator or system that performed the promotion.")
+    promotion_notes: str = Field(default="", description="Optional notes recorded at promotion time.")
 
 
 class TuningInputBundle(BaseModel):

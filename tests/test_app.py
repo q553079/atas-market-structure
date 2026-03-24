@@ -2090,6 +2090,164 @@ def test_workbench_atas_backfill_request_poll_and_acknowledge_flow() -> None:
     assert json.loads(final_poll.body)["request"] is None
 
 
+def test_workbench_backfill_progress_reports_partial_raw_mirror_coverage() -> None:
+    application = build_application()
+    request_payload = {
+        "cache_key": "NQ|1m|2026-03-16T14:40:00Z|2026-03-16T14:42:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:40:00Z",
+        "window_end": "2026-03-16T14:42:59Z",
+        "chart_instance_id": "NQ-chart-main",
+        "request_history_bars": True,
+        "request_history_footprint": False,
+        "requested_ranges": [
+            {
+                "range_start": "2026-03-16T14:40:00Z",
+                "range_end": "2026-03-16T14:42:59Z",
+            }
+        ],
+    }
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+    request_id = json.loads(create_response.body)["request"]["request_id"]
+
+    poll_response = application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-chart-main",
+    )
+    assert poll_response.status_code == 200
+    assert json.loads(poll_response.body)["request"]["request_id"] == request_id
+
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    history_payload["instrument"]["symbol"] = "NQ"
+    history_payload["instrument"]["contract_symbol"] = "NQH6"
+    history_payload["instrument"]["root_symbol"] = "NQ"
+    history_payload["source"]["chart_instance_id"] = "NQ-chart-main"
+    history_payload["bar_timeframe"] = "1m"
+    history_payload["bars"] = history_payload["bars"][:2]
+    history_payload["observed_window_start"] = "2026-03-16T14:40:00Z"
+    history_payload["observed_window_end"] = "2026-03-16T14:42:59Z"
+    for index, bar in enumerate(history_payload["bars"]):
+        minute = 40 + index
+        bar["started_at"] = f"2026-03-16T14:{minute:02d}:00Z"
+        bar["ended_at"] = f"2026-03-16T14:{minute:02d}:59Z"
+        bar["bar_timestamp_utc"] = bar["started_at"]
+    history_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(history_payload).encode("utf-8"),
+    )
+    assert history_response.status_code == 201
+
+    progress_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/backfill-progress"
+        "?instrument_symbol=NQ"
+        "&display_timeframe=1m"
+        "&cache_key=NQ%7C1m%7C2026-03-16T14%3A40%3A00Z%7C2026-03-16T14%3A42%3A59Z"
+        "&chart_instance_id=NQ-chart-main",
+    )
+    assert progress_response.status_code == 200
+    progress_body = json.loads(progress_response.body)
+    assert progress_body["request"]["request_id"] == request_id
+    assert progress_body["stage"] == "receiving"
+    assert progress_body["expected_bar_count"] == 3
+    assert progress_body["received_bar_count"] == 2
+    assert progress_body["missing_bar_count"] == 1
+    assert progress_body["coverage_progress_percent"] == 67
+    assert progress_body["requested_ranges"][0]["progress_percent"] == 67
+
+
+def test_workbench_backfill_progress_reports_complete_after_verified_ack() -> None:
+    application = build_application()
+    request_payload = {
+        "cache_key": "NQ|1m|2026-03-16T14:40:00Z|2026-03-16T14:41:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T14:40:00Z",
+        "window_end": "2026-03-16T14:41:59Z",
+        "chart_instance_id": "NQ-chart-main",
+        "request_history_bars": True,
+        "request_history_footprint": False,
+        "requested_ranges": [
+            {
+                "range_start": "2026-03-16T14:40:00Z",
+                "range_end": "2026-03-16T14:41:59Z",
+            }
+        ],
+    }
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/atas-backfill-requests",
+        json.dumps(request_payload).encode("utf-8"),
+    )
+    request_id = json.loads(create_response.body)["request"]["request_id"]
+
+    application.dispatch(
+        "GET",
+        "/api/v1/adapter/backfill-command?instrument_symbol=NQ&chart_instance_id=NQ-chart-main",
+    )
+
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    history_payload["instrument"]["symbol"] = "NQ"
+    history_payload["instrument"]["contract_symbol"] = "NQH6"
+    history_payload["instrument"]["root_symbol"] = "NQ"
+    history_payload["source"]["chart_instance_id"] = "NQ-chart-main"
+    history_payload["bar_timeframe"] = "1m"
+    history_payload["bars"] = history_payload["bars"][:2]
+    history_payload["observed_window_start"] = "2026-03-16T14:40:00Z"
+    history_payload["observed_window_end"] = "2026-03-16T14:41:59Z"
+    for index, bar in enumerate(history_payload["bars"]):
+        minute = 40 + index
+        bar["started_at"] = f"2026-03-16T14:{minute:02d}:00Z"
+        bar["ended_at"] = f"2026-03-16T14:{minute:02d}:59Z"
+        bar["bar_timestamp_utc"] = bar["started_at"]
+    history_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(history_payload).encode("utf-8"),
+    )
+    assert history_response.status_code == 201
+
+    ack_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/backfill-ack",
+        json.dumps(
+            {
+                "request_id": request_id,
+                "instrument_symbol": "NQ",
+                "chart_instance_id": "NQ-chart-main",
+                "acknowledged_at": "2026-03-16T14:42:10Z",
+                "acknowledged_history_bars": True,
+                "acknowledged_history_footprint": False,
+                "latest_loaded_bar_started_at": "2026-03-16T14:41:00Z",
+            }
+        ).encode("utf-8"),
+    )
+    assert ack_response.status_code == 200
+
+    progress_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/backfill-progress"
+        "?instrument_symbol=NQ"
+        "&display_timeframe=1m"
+        "&cache_key=NQ%7C1m%7C2026-03-16T14%3A40%3A00Z%7C2026-03-16T14%3A41%3A59Z"
+        "&chart_instance_id=NQ-chart-main",
+    )
+    assert progress_response.status_code == 200
+    progress_body = json.loads(progress_response.body)
+    assert progress_body["request"]["request_id"] == request_id
+    assert progress_body["stage"] == "complete"
+    assert progress_body["active"] is False
+    assert progress_body["progress_percent"] == 100
+    assert progress_body["coverage_progress_percent"] == 100
+    assert progress_body["verification"]["verified"] is True
+
+
 def test_replay_builder_auto_creates_backfill_request_and_integrity_when_local_history_is_insufficient() -> None:
     application = build_application()
     build_request = {

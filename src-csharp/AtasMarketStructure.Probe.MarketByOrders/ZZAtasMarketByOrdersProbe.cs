@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using ATAS.DataFeedsCore;
 using ATAS.Indicators;
 
@@ -26,7 +27,7 @@ public sealed class ZZAtasMarketByOrdersProbe : Indicator
 
     protected override void OnInitialize()
     {
-        _ = SubscribeMarketByOrderData();
+        ObserveBackgroundTask(SubscribeMarketByOrderData(), "ZZAtasMarketByOrdersProbe.SubscribeMarketByOrderData");
     }
 
     protected override void OnMarketByOrdersChanged(IEnumerable<MarketByOrder> marketByOrders)
@@ -36,5 +37,26 @@ public sealed class ZZAtasMarketByOrdersProbe : Indicator
             _ = marketByOrder;
             break;
         }
+    }
+
+    private static void ObserveBackgroundTask(Task? task, string operationName)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        task.ContinueWith(
+            continuation =>
+            {
+                var exception = continuation.Exception?.GetBaseException();
+                Debug.WriteLine(
+                    exception is null
+                        ? $"[ATAS-MBO-Probe][WARN] {operationName} faulted without an exception payload."
+                        : $"[ATAS-MBO-Probe][WARN] {operationName} faulted: {exception.GetType().Name}: {exception.Message}");
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 }

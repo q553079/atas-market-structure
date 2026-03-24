@@ -363,7 +363,7 @@ internal static class CollectorMetadataResolver
         };
     }
 
-    public static ResolvedTimeContext ResolveTimeContext(Indicator indicator, DateTime observedAtUtc)
+    public static ResolvedTimeContext ResolveTimeContext(Indicator indicator, DateTime observedAtUtc, bool forceUtcTimestamps = false)
     {
         var localZone = TimeZoneInfo.Local;
         var localOffsetMinutes = (int)Math.Round(localZone.GetUtcOffset(observedAtUtc).TotalMinutes, MidpointRounding.AwayFromZero);
@@ -373,6 +373,27 @@ internal static class CollectorMetadataResolver
         var instrumentTimezoneSource = instrumentTimezoneRaw is null ? "unavailable" : "metadata";
         var instrumentTimeZone = TryResolveTimeZoneInfo(instrumentTimezoneRaw, out var instrumentUtcOffsetMinutes)
             ?? TryResolveTimeZoneInfo(instrumentTimezoneValue, out instrumentUtcOffsetMinutes);
+
+        if (forceUtcTimestamps)
+        {
+            return new ResolvedTimeContext
+            {
+                InstrumentTimezoneValue = instrumentTimezoneValue,
+                InstrumentTimezoneSource = instrumentTimezoneSource,
+                InstrumentTimeZone = instrumentTimeZone,
+                InstrumentUtcOffsetMinutes = instrumentUtcOffsetMinutes,
+                ChartDisplayTimezoneMode = "utc",
+                ChartDisplayTimezoneSource = "collector_forced_utc",
+                ChartDisplayTimezoneName = "UTC",
+                ChartDisplayTimeZone = TimeZoneInfo.Utc,
+                ChartDisplayUtcOffsetMinutes = 0,
+                CollectorLocalTimezoneName = localZone.Id,
+                CollectorLocalUtcOffsetMinutes = localOffsetMinutes,
+                TimestampBasis = "forced_utc_override",
+                StartedAtTimeSource = "forced_utc_override",
+                TimezoneCaptureConfidence = "forced",
+            };
+        }
 
         var rawChartMode = ResolveFirstObject(indicator, ChartDisplayTimezoneModeCandidatePaths);
         var chartMode = NormalizeTimeZoneMode(rawChartMode);

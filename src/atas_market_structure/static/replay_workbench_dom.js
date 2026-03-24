@@ -59,6 +59,11 @@ export function createWorkbenchElements(doc = document) {
     buildProgressFill: doc.getElementById("buildProgressFill"),
     buildProgressLabel: doc.getElementById("buildProgressLabel"),
     buildProgressPercent: doc.getElementById("buildProgressPercent"),
+    transferProgress: doc.getElementById("transferProgress"),
+    transferProgressFill: doc.getElementById("transferProgressFill"),
+    transferProgressLabel: doc.getElementById("transferProgressLabel"),
+    transferProgressPercent: doc.getElementById("transferProgressPercent"),
+    transferProgressDetail: doc.getElementById("transferProgressDetail"),
 
     chartWorkspace: doc.getElementById("chartWorkspace"),
     chartFrame: doc.getElementById("chartFrame"),

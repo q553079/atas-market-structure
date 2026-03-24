@@ -307,6 +307,26 @@ class StoredPatchValidationResult:
 
 
 @dataclass(frozen=True)
+class StoredPatchPromotionHistory:
+    """Append-only patch promotion history record.
+
+    Tracks each promotion event: a candidate patch becoming the active profile.
+    One candidate_id can appear multiple times (e.g., re-promoted after rollback),
+    but each promotion_id is unique and immutable.
+    """
+
+    promotion_id: str
+    candidate_id: str
+    instrument_symbol: str
+    promoted_profile_version: str
+    previous_profile_version: str
+    promoted_at: datetime
+    promoted_by: str
+    promotion_notes: str
+    detail: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class StoredInstrumentProfileVersion:
     """Versioned instrument-profile row."""
 
@@ -431,6 +451,7 @@ BLUEPRINT_TABLE_LIFECYCLES: tuple[StorageTableLifecycle, ...] = (
     StorageTableLifecycle("tuning_recommendation", "evaluation", StorageLifecyclePolicy.APPEND_ONLY, "Append-only tuning recommendations."),
     StorageTableLifecycle("profile_patch_candidate", "evaluation", StorageLifecyclePolicy.APPEND_ONLY, "Candidate profile patches awaiting validation."),
     StorageTableLifecycle("patch_validation_result", "evaluation", StorageLifecyclePolicy.APPEND_ONLY, "Offline validation rows for patch candidates."),
+    StorageTableLifecycle("patch_promotion_history", "evaluation", StorageLifecyclePolicy.APPEND_ONLY, "Append-only promotion audit trail for patch candidates."),
     StorageTableLifecycle("instrument_profile", "versioned_state", StorageLifecyclePolicy.VERSIONED, "Versioned instrument profile registry."),
     StorageTableLifecycle("recognizer_build", "versioned_state", StorageLifecyclePolicy.VERSIONED, "Versioned recognizer build registry."),
     StorageTableLifecycle("ingestion_run_log", "ops", StorageLifecyclePolicy.APPEND_ONLY, "Operational ingestion run log mirrored from HTTP ingest plane."),

@@ -1,6 +1,53 @@
 import { buildChartViewportKey } from "./replay_workbench_chart_utils.js";
 import { normalizeReplaySnapshot, sanitizeReplayCandles } from "./replay_workbench_ui_utils.js";
 
+function buildRelaxedChartScopeKey(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return "";
+  }
+  const instrument = snapshot.instrument && typeof snapshot.instrument === "object" ? snapshot.instrument : {};
+  const contractSymbol = String(instrument.contract_symbol || snapshot.contract_symbol || "").trim().toUpperCase();
+  const instrumentSymbol = String(snapshot.instrument_symbol || instrument.symbol || "").trim().toUpperCase();
+  const timeframe = String(snapshot.display_timeframe || snapshot.timeframe || "").trim().toLowerCase();
+  return [
+    contractSymbol || "no-contract",
+    instrumentSymbol || "no-symbol",
+    timeframe || "no-timeframe",
+  ].join("|");
+}
+
+function buildRelaxedChartScopeKeyFromViewportKey(viewportKey) {
+  const parts = String(viewportKey || "").split("|");
+  if (parts.length < 4) {
+    return "";
+  }
+  return [
+    parts[1] || "no-contract",
+    parts[2] || "no-symbol",
+    String(parts[3] || "").toLowerCase() || "no-timeframe",
+  ].join("|");
+}
+
+function findSavedChartView(registry, nextChartKey, relaxedScopeKey) {
+  if (!registry || typeof registry !== "object") {
+    return null;
+  }
+  if (nextChartKey && registry[nextChartKey]) {
+    return registry[nextChartKey];
+  }
+  if (!relaxedScopeKey) {
+    return null;
+  }
+  const entries = Object.entries(registry);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const [viewportKey, savedView] = entries[index];
+    if (buildRelaxedChartScopeKeyFromViewportKey(viewportKey) === relaxedScopeKey && savedView) {
+      return savedView;
+    }
+  }
+  return null;
+}
+
 export function createReplayLoader({
   state,
   els,
@@ -94,16 +141,23 @@ export function createReplayLoader({
     const previousSelectedFootprintBar = state.selectedFootprintBar;
     const nextSymbol = normalizedSnapshot?.instrument_symbol || normalizedSnapshot?.instrument?.symbol || "";
     const nextTimeframe = normalizedSnapshot?.display_timeframe || "";
+    const nextContractSymbol = String(normalizedSnapshot?.instrument?.contract_symbol || normalizedSnapshot?.contract_symbol || "").trim().toUpperCase();
     const previousSymbol = previousSnapshot?.instrument_symbol || previousSnapshot?.instrument?.symbol || "";
     const previousTimeframe = previousSnapshot?.display_timeframe || "";
+    const previousContractSymbol = String(previousSnapshot?.instrument?.contract_symbol || previousSnapshot?.contract_symbol || "").trim().toUpperCase();
     const previousChartKey = buildChartViewportKey(previousSnapshot);
     const nextChartKey = buildChartViewportKey(normalizedSnapshot);
+    const previousChartScopeKey = buildRelaxedChartScopeKey(previousSnapshot);
+    const nextChartScopeKey = buildRelaxedChartScopeKey(normalizedSnapshot);
     const sameSymbol = previousSymbol === nextSymbol;
     const sameTimeframe = previousTimeframe === nextTimeframe;
+    const sameContract = !!nextContractSymbol && nextContractSymbol === previousContractSymbol;
     const sameChartIdentity = !!nextChartKey && nextChartKey === previousChartKey;
-    const shouldPreserveChartView = !!preserveChartView && sameChartIdentity;
-    const shouldPreserveSelection = !!preserveSelection && (sameChartIdentity || (sameSymbol && sameTimeframe));
-    const savedChartView = nextChartKey ? state.chartViewportRegistry?.[nextChartKey] || null : null;
+    const sameChartScope = !!nextChartScopeKey && nextChartScopeKey === previousChartScopeKey;
+    const sameScopeFallback = sameSymbol && sameTimeframe && (!nextContractSymbol || sameContract);
+    const shouldPreserveChartView = !!preserveChartView && (sameChartIdentity || sameChartScope || sameScopeFallback);
+    const shouldPreserveSelection = !!preserveSelection && (sameChartIdentity || sameChartScope || sameScopeFallback);
+    const savedChartView = findSavedChartView(state.chartViewportRegistry, nextChartKey, nextChartScopeKey);
 
     state.currentReplayIngestionId = ingestionId;
     state.snapshot = normalizedSnapshot;

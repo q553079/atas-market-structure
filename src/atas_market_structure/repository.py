@@ -157,6 +157,21 @@ class StoredPatchValidationResultRecord:
 
 
 @dataclass(frozen=True)
+class StoredPatchPromotionHistoryRecord:
+    """Business-layer view of a patch promotion history row."""
+
+    promotion_id: str
+    candidate_id: str
+    instrument_symbol: str
+    promoted_profile_version: str
+    previous_profile_version: str
+    promoted_at: datetime
+    promoted_by: str
+    promotion_notes: str
+    detail: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class StoredIngestionDeadLetter:
     dead_letter_id: str
     endpoint: str
@@ -409,7 +424,21 @@ class ChartCandleRepository(Protocol):
         contract_symbol: str | None = None,
         root_symbol: str | None = None,
         timeframe: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
     ) -> int:
+        ...
+
+    def get_atas_chart_bars_raw_coverage(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ) -> tuple[datetime | None, datetime | None, int]:
         ...
 
     def purge_atas_chart_bars_raw(
@@ -695,6 +724,47 @@ class AnalysisRepository(ChartCandleRepository, IngestionRepository, Protocol):
         candidate_id: str,
         limit: int = 100,
     ) -> list[StoredPatchValidationResultRecord]:
+        ...
+
+    def save_patch_promotion_history(
+        self,
+        *,
+        promotion_id: str,
+        candidate_id: str,
+        instrument_symbol: str,
+        promoted_profile_version: str,
+        previous_profile_version: str,
+        promoted_at: datetime,
+        promoted_by: str,
+        promotion_notes: str,
+        detail: dict[str, Any],
+    ) -> StoredPatchPromotionHistoryRecord:
+        ...
+
+    def get_patch_promotion(self, promotion_id: str) -> StoredPatchPromotionHistoryRecord | None:
+        ...
+
+    def list_patch_promotions(
+        self,
+        *,
+        candidate_id: str | None = None,
+        instrument_symbol: str | None = None,
+        limit: int = 200,
+    ) -> list[StoredPatchPromotionHistoryRecord]:
+        ...
+
+    def get_instrument_profile_version(
+        self,
+        instrument_symbol: str,
+        profile_version: str,
+    ) -> StoredInstrumentProfile | None:
+        ...
+
+    def list_instrument_profile_versions(
+        self,
+        instrument_symbol: str,
+        limit: int = 100,
+    ) -> list[StoredInstrumentProfile]:
         ...
 
     def save_dead_letter(
@@ -1462,6 +1532,7 @@ class SQLiteAnalysisRepository:
             connection.execute("CREATE INDEX IF NOT EXISTS idx_run_logs_outcome_time ON ingestion_run_logs (outcome, completed_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_run_logs_symbol_time ON ingestion_run_logs (instrument_symbol, completed_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_ingestions_symbol_time ON ingestions (instrument_symbol, stored_at)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_ingestions_kind_snapshot ON ingestions (ingestion_kind, source_snapshot_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_analyses_ingestion ON analyses (ingestion_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_liquidity_memories_symbol_expiry ON liquidity_memories (instrument_symbol, expires_at, updated_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_workspace_symbol ON chat_sessions (workspace_id, symbol, updated_at)")
@@ -2466,6 +2537,133 @@ class SQLiteAnalysisRepository:
                 candidate_id=row.candidate_id,
                 validation_status=row.validation_status,
                 validation_payload=row.validation_payload,
+            )
+            for row in rows
+        ]
+
+    def save_patch_promotion_history(
+        self,
+        *,
+        promotion_id: str,
+        candidate_id: str,
+        instrument_symbol: str,
+        promoted_profile_version: str,
+        previous_profile_version: str,
+        promoted_at: datetime,
+        promoted_by: str,
+        promotion_notes: str,
+        detail: dict[str, Any],
+    ) -> StoredPatchPromotionHistoryRecord:
+        from atas_market_structure.storage_models import StoredPatchPromotionHistory
+
+        record = self._storage_blueprint_repository.save_patch_promotion_history(
+            StoredPatchPromotionHistory(
+                promotion_id=promotion_id,
+                candidate_id=candidate_id,
+                instrument_symbol=instrument_symbol,
+                promoted_profile_version=promoted_profile_version,
+                previous_profile_version=previous_profile_version,
+                promoted_at=promoted_at,
+                promoted_by=promoted_by,
+                promotion_notes=promotion_notes,
+                detail=detail,
+            ),
+        )
+        return StoredPatchPromotionHistoryRecord(
+            promotion_id=record.promotion_id,
+            candidate_id=record.candidate_id,
+            instrument_symbol=record.instrument_symbol,
+            promoted_profile_version=record.promoted_profile_version,
+            previous_profile_version=record.previous_profile_version,
+            promoted_at=record.promoted_at,
+            promoted_by=record.promoted_by,
+            promotion_notes=record.promotion_notes,
+            detail=record.detail,
+        )
+
+    def get_patch_promotion(self, promotion_id: str) -> StoredPatchPromotionHistoryRecord | None:
+        row = self._storage_blueprint_repository.get_patch_promotion(promotion_id)
+        if row is None:
+            return None
+        return StoredPatchPromotionHistoryRecord(
+            promotion_id=row.promotion_id,
+            candidate_id=row.candidate_id,
+            instrument_symbol=row.instrument_symbol,
+            promoted_profile_version=row.promoted_profile_version,
+            previous_profile_version=row.previous_profile_version,
+            promoted_at=row.promoted_at,
+            promoted_by=row.promoted_by,
+            promotion_notes=row.promotion_notes,
+            detail=row.detail,
+        )
+
+    def list_patch_promotions(
+        self,
+        *,
+        candidate_id: str | None = None,
+        instrument_symbol: str | None = None,
+        limit: int = 200,
+    ) -> list[StoredPatchPromotionHistoryRecord]:
+        rows = self._storage_blueprint_repository.list_patch_promotions(
+            candidate_id=candidate_id,
+            instrument_symbol=instrument_symbol,
+            limit=limit,
+        )
+        return [
+            StoredPatchPromotionHistoryRecord(
+                promotion_id=row.promotion_id,
+                candidate_id=row.candidate_id,
+                instrument_symbol=row.instrument_symbol,
+                promoted_profile_version=row.promoted_profile_version,
+                previous_profile_version=row.previous_profile_version,
+                promoted_at=row.promoted_at,
+                promoted_by=row.promoted_by,
+                promotion_notes=row.promotion_notes,
+                detail=row.detail,
+            )
+            for row in rows
+        ]
+
+    def get_instrument_profile_version(
+        self,
+        instrument_symbol: str,
+        profile_version: str,
+    ) -> StoredInstrumentProfile | None:
+        rows = self._storage_blueprint_repository.list_instrument_profile_versions(
+            instrument_symbol=instrument_symbol,
+            limit=100,
+        )
+        for row in rows:
+            if row.profile_version == profile_version:
+                return StoredInstrumentProfile(
+                    instrument_symbol=row.instrument_symbol,
+                    profile_version=row.profile_version,
+                    schema_version=row.schema_version,
+                    ontology_version=row.ontology_version,
+                    is_active=row.is_active,
+                    profile_payload=row.profile_payload,
+                    created_at=row.created_at,
+                )
+        return None
+
+    def list_instrument_profile_versions(
+        self,
+        instrument_symbol: str,
+        limit: int = 100,
+    ) -> list[StoredInstrumentProfile]:
+        rows = self._storage_blueprint_repository.list_instrument_profile_versions(
+            instrument_symbol=instrument_symbol,
+            limit=limit,
+        )
+        return [
+            StoredInstrumentProfile(
+                instrument_symbol=row.instrument_symbol,
+                profile_version=row.profile_version,
+                schema_version=row.schema_version,
+                ontology_version=row.ontology_version,
+                is_active=row.is_active,
+                profile_payload=row.profile_payload,
+                created_at=row.created_at,
             )
             for row in rows
         ]
@@ -3905,6 +4103,8 @@ class SQLiteAnalysisRepository:
         contract_symbol: str | None = None,
         root_symbol: str | None = None,
         timeframe: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
     ) -> int:
         from atas_market_structure.models._enums import Timeframe
 
@@ -3922,12 +4122,75 @@ class SQLiteAnalysisRepository:
         if timeframe is not None:
             where_parts.append("timeframe = ?")
             params.append(Timeframe(timeframe).value)
+        if window_start is not None:
+            where_parts.append("started_at_utc >= ?")
+            params.append(self._serialize_datetime(window_start))
+        if window_end is not None:
+            where_parts.append("started_at_utc <= ?")
+            params.append(self._serialize_datetime(window_end))
 
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         query = f"SELECT COUNT(*) AS cnt FROM atas_chart_bars_raw {where_clause}"
         with self._connect() as conn:
             row = conn.execute(query, tuple(params)).fetchone()
         return row["cnt"] if row else 0
+
+    def get_atas_chart_bars_raw_coverage(
+        self,
+        *,
+        chart_instance_id: str | None = None,
+        contract_symbol: str | None = None,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ) -> tuple[datetime | None, datetime | None, int]:
+        from atas_market_structure.models._enums import Timeframe
+
+        where_parts: list[str] = []
+        params: list[Any] = []
+        if chart_instance_id is not None:
+            where_parts.append("chart_instance_id = ?")
+            params.append(chart_instance_id)
+        if contract_symbol is not None:
+            where_parts.append("contract_symbol = ?")
+            params.append(contract_symbol)
+        if root_symbol is not None:
+            where_parts.append("root_symbol = ?")
+            params.append(root_symbol)
+        if timeframe is not None:
+            where_parts.append("timeframe = ?")
+            params.append(Timeframe(timeframe).value)
+        if window_start is not None:
+            where_parts.append("started_at_utc >= ?")
+            params.append(self._serialize_datetime(window_start))
+        if window_end is not None:
+            where_parts.append("started_at_utc <= ?")
+            params.append(self._serialize_datetime(window_end))
+
+        where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        query = (
+            "SELECT "
+            "MIN(started_at_utc) AS first_started_at_utc, "
+            "MAX(started_at_utc) AS last_started_at_utc, "
+            "COUNT(*) AS cnt "
+            f"FROM atas_chart_bars_raw {where_clause}"
+        )
+        with self._connect() as conn:
+            row = conn.execute(query, tuple(params)).fetchone()
+        if row is None:
+            return None, None, 0
+        first_started_at = (
+            self._parse_datetime(row["first_started_at_utc"])
+            if row["first_started_at_utc"] is not None
+            else None
+        )
+        last_started_at = (
+            self._parse_datetime(row["last_started_at_utc"])
+            if row["last_started_at_utc"] is not None
+            else None
+        )
+        return first_started_at, last_started_at, int(row["cnt"] or 0)
 
     def purge_atas_chart_bars_raw(
         self,

@@ -821,6 +821,64 @@ internal sealed class HistoryBarsPayload
     public List<HistoryBarPayload> Bars { get; init; } = new();
 }
 
+internal sealed class HistoryInventoryPayload
+{
+    [JsonPropertyName("schema_version")]
+    public string SchemaVersion { get; init; } = "1.0.0";
+
+    [JsonPropertyName("message_id")]
+    public string MessageId { get; init; } = string.Empty;
+
+    [JsonPropertyName("message_type")]
+    public string MessageType { get; init; } = "history_inventory";
+
+    [JsonPropertyName("emitted_at")]
+    public DateTime EmittedAt { get; init; }
+
+    [JsonPropertyName("observed_window_start")]
+    public DateTime ObservedWindowStart { get; init; }
+
+    [JsonPropertyName("observed_window_end")]
+    public DateTime ObservedWindowEnd { get; init; }
+
+    [JsonPropertyName("source")]
+    public SourceEnvelope Source { get; init; } = new();
+
+    [JsonPropertyName("instrument")]
+    public InstrumentEnvelope Instrument { get; init; } = new();
+
+    [JsonPropertyName("display_timeframe")]
+    public string DisplayTimeframe { get; init; } = string.Empty;
+
+    [JsonPropertyName("time_context")]
+    public TimeContextPayload TimeContext { get; init; } = new();
+
+    [JsonPropertyName("bar_timeframe")]
+    public string BarTimeframe { get; init; } = string.Empty;
+
+    [JsonPropertyName("loaded_bar_count")]
+    public int LoadedBarCount { get; init; }
+
+    [JsonPropertyName("current_bar_count")]
+    public int CurrentBarCount { get; init; }
+
+    [JsonPropertyName("latest_loaded_bar_index")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? LatestLoadedBarIndex { get; init; }
+
+    [JsonPropertyName("first_loaded_bar_started_at_utc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? FirstLoadedBarStartedAtUtc { get; init; }
+
+    [JsonPropertyName("latest_loaded_bar_started_at_utc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? LatestLoadedBarStartedAtUtc { get; init; }
+
+    [JsonPropertyName("latest_completed_bar_started_at_utc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? LatestCompletedBarStartedAtUtc { get; init; }
+}
+
 internal sealed class HistoryFootprintPayload
 {
     [JsonPropertyName("schema_version")]

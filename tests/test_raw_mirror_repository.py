@@ -16,6 +16,7 @@ from uuid import uuid4
 from atas_market_structure.adapter_services import AdapterIngestionService
 from atas_market_structure.models import (
     AdapterHistoryBarsPayload,
+    AdapterHistoryInventoryPayload,
     RollMode,
     Timeframe,
 )
@@ -106,6 +107,72 @@ def _build_history_payload_dict(
             "chart_display_timezone_mode": "exchange",
             "chart_display_timezone_source": "atlas_payload",
             "chart_display_timezone_name": chart_display_timezone_name,
+            "chart_display_utc_offset_minutes": -300,
+            "timezone_capture_confidence": "high",
+            "collector_local_timezone_name": "America/Chicago",
+            "collector_local_utc_offset_minutes": -300,
+            "timestamp_basis": "chart_display_timezone",
+            "started_at_output_timezone": "UTC",
+            "started_at_time_source": "chart_display_timezone",
+        },
+    }
+
+
+def _build_history_inventory_payload_dict(
+    *,
+    symbol: str = "NQH6",
+    timeframe: str | Timeframe = "1m",
+    chart_instance_id: str | None = "chart-abc",
+    first_loaded_bar_started_at_utc: datetime | None = None,
+    latest_loaded_bar_started_at_utc: datetime | None = None,
+    loaded_bar_count: int = 5,
+    current_bar_count: int | None = None,
+    message_id: str | None = None,
+) -> dict:
+    if first_loaded_bar_started_at_utc is None:
+        first_loaded_bar_started_at_utc = datetime(2026, 3, 22, 9, 30, tzinfo=UTC)
+    if latest_loaded_bar_started_at_utc is None:
+        latest_loaded_bar_started_at_utc = first_loaded_bar_started_at_utc + timedelta(minutes=max(loaded_bar_count - 1, 0))
+    current_bar_count = current_bar_count if current_bar_count is not None else loaded_bar_count
+    tf_value = str(timeframe) if isinstance(timeframe, Timeframe) else timeframe
+    return {
+        "schema_version": "1.0.0",
+        "message_id": message_id or f"inventory-{uuid4().hex[:8]}",
+        "emitted_at": datetime.now(tz=UTC).isoformat(),
+        "observed_window_start": first_loaded_bar_started_at_utc.isoformat(),
+        "observed_window_end": (latest_loaded_bar_started_at_utc + timedelta(seconds=59)).isoformat(),
+        "source": {
+            "system": "ATAS",
+            "instance_id": "DESKTOP-TEST",
+            "chart_instance_id": chart_instance_id,
+            "adapter_version": "0.1.0",
+            "chart_display_timezone_mode": "exchange",
+            "chart_display_timezone_name": "America/New_York",
+            "chart_display_utc_offset_minutes": -300,
+        },
+        "instrument": {
+            "symbol": symbol,
+            "root_symbol": symbol[:2] if len(symbol) >= 2 else symbol,
+            "contract_symbol": symbol,
+            "venue": "CME",
+            "tick_size": 0.25,
+            "currency": "USD",
+        },
+        "display_timeframe": tf_value,
+        "message_type": "history_inventory",
+        "bar_timeframe": tf_value,
+        "loaded_bar_count": loaded_bar_count,
+        "current_bar_count": current_bar_count,
+        "latest_loaded_bar_index": max(loaded_bar_count - 1, 0),
+        "first_loaded_bar_started_at_utc": first_loaded_bar_started_at_utc.isoformat(),
+        "latest_loaded_bar_started_at_utc": latest_loaded_bar_started_at_utc.isoformat(),
+        "latest_completed_bar_started_at_utc": latest_loaded_bar_started_at_utc.isoformat(),
+        "time_context": {
+            "instrument_timezone_value": "36",
+            "instrument_timezone_source": "exchange_metadata",
+            "chart_display_timezone_mode": "exchange",
+            "chart_display_timezone_source": "atlas_payload",
+            "chart_display_timezone_name": "America/New_York",
             "chart_display_utc_offset_minutes": -300,
             "timezone_capture_confidence": "high",
             "collector_local_timezone_name": "America/Chicago",
@@ -765,6 +832,85 @@ def test_mirror_and_continuous_queries_return_different_semantics() -> None:
         assert mirror[0].bar_timestamp_utc == t0
         assert [bar.open for bar in continuous] == [200.0, 210.0]
         assert [bar.bar_timestamp_utc for bar in continuous] == [t0, t0 + timedelta(minutes=1)]
+
+
+def test_history_inventory_queues_backfill_for_unstored_visible_window() -> None:
+    with _temp_repo() as repo:
+        workbench = ReplayWorkbenchService(repository=repo)
+        t0 = datetime(2026, 3, 23, 9, 30, tzinfo=UTC)
+        payload = AdapterHistoryInventoryPayload.model_validate(
+            _build_history_inventory_payload_dict(
+                symbol="NQH6",
+                timeframe="1m",
+                chart_instance_id="chart-auto-nqh6-1m",
+                first_loaded_bar_started_at_utc=t0,
+                latest_loaded_bar_started_at_utc=t0 + timedelta(minutes=4),
+                loaded_bar_count=5,
+            )
+        )
+
+        result = workbench.ingest_history_inventory(payload)
+
+        assert result["queued"] is True
+        assert result["reason"] == "history_inventory_window_unstored"
+        dispatch = workbench.poll_atas_backfill(
+            instrument_symbol="NQH6",
+            chart_instance_id="chart-auto-nqh6-1m",
+            contract_symbol="NQH6",
+            root_symbol="NQ",
+        )
+        assert dispatch.request is not None
+        assert dispatch.request.request_id == result["request_id"]
+
+
+def test_history_inventory_skips_backfill_when_visible_window_is_already_stored() -> None:
+    with _temp_repo() as repo:
+        service = AdapterIngestionService(repository=repo)
+        workbench = ReplayWorkbenchService(repository=repo)
+        t0 = datetime(2026, 3, 23, 9, 30, tzinfo=UTC)
+        bars = [
+            {
+                "started_at": (t0 + timedelta(minutes=i)).isoformat(),
+                "ended_at": (t0 + timedelta(minutes=i + 1) - timedelta(seconds=1)).isoformat(),
+                "open": 100.0 + i,
+                "high": 101.0 + i,
+                "low": 99.0 + i,
+                "close": 100.5 + i,
+                "volume": 25,
+                "delta": 5,
+                "bid_volume": 10,
+                "ask_volume": 15,
+                "bar_timestamp_utc": (t0 + timedelta(minutes=i)).isoformat(),
+                "original_bar_time_text": f"{(t0 + timedelta(minutes=i)).strftime('%Y-%m-%d %H:%M:%S')} ET",
+            }
+            for i in range(5)
+        ]
+        service.ingest_history_bars(
+            AdapterHistoryBarsPayload.model_validate(
+                _build_history_payload_dict(
+                    symbol="NQH6",
+                    timeframe="1m",
+                    bars=bars,
+                    chart_instance_id="chart-auto-nqh6-1m",
+                )
+            )
+        )
+        payload = AdapterHistoryInventoryPayload.model_validate(
+            _build_history_inventory_payload_dict(
+                symbol="NQH6",
+                timeframe="1m",
+                chart_instance_id="chart-auto-nqh6-1m",
+                first_loaded_bar_started_at_utc=t0,
+                latest_loaded_bar_started_at_utc=t0 + timedelta(minutes=4),
+                loaded_bar_count=5,
+            )
+        )
+
+        result = workbench.ingest_history_inventory(payload)
+
+        assert result["queued"] is False
+        assert result["status"] == "up_to_date"
+        assert result["reason"] == "stored_window_covers_visible_window"
 
 
 def test_raw_mirror_repository_root_symbol_filter_returns_multiple_contracts() -> None:

@@ -349,6 +349,7 @@ def test_build_repository_defaults_to_clickhouse_for_market_data(tmp_path: Path)
     repository = build_repository(
         AppConfig(
             database_path=tmp_path / "data" / "market_structure.db",
+            storage_mode="clickhouse",
             clickhouse_host="127.0.0.1",
             clickhouse_port=8123,
             clickhouse_user="default",
@@ -369,6 +370,7 @@ def test_build_repository_forwards_clickhouse_retry_settings(tmp_path: Path) -> 
     repository = build_repository(
         AppConfig(
             database_path=tmp_path / "data" / "market_structure.db",
+            storage_mode="clickhouse",
             clickhouse_host="127.0.0.1",
             clickhouse_port=8123,
             clickhouse_user="default",

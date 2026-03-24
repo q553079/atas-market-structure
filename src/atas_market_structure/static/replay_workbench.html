@@ -155,15 +155,6 @@
         </div>
 
         <div class="status-strip" id="statusStrip"></div>
-        <div class="build-progress" id="buildProgress">
-          <div class="build-progress-head">
-            <span id="buildProgressLabel">正在加载历史数据</span>
-            <span id="buildProgressPercent">0%</span>
-          </div>
-          <div class="build-progress-track">
-            <div class="build-progress-fill" id="buildProgressFill"></div>
-          </div>
-        </div>
 
         <div class="chart-frame" id="chartFrame">
           <div class="chart-info-badge" id="chartInfoBadge">
@@ -171,6 +162,27 @@
             <span class="chart-info-timeframe" id="chartInfoTimeframe">-</span>
             <span class="chart-info-time" id="chartInfoTime">UTC</span>
             <span class="chart-info-quote" id="chartInfoQuote">L -- · Bid -- · Ask --</span>
+          </div>
+          <div class="chart-progress-stack" aria-live="polite" aria-atomic="true">
+            <div class="build-progress" id="buildProgress">
+              <div class="build-progress-head">
+                <span id="buildProgressLabel">界面加载进度</span>
+                <span id="buildProgressPercent">0%</span>
+              </div>
+              <div class="build-progress-track">
+                <div class="build-progress-fill" id="buildProgressFill"></div>
+              </div>
+            </div>
+            <div class="build-progress transport-progress" id="transferProgress">
+              <div class="build-progress-head">
+                <span id="transferProgressLabel">ATAS 传输进度</span>
+                <span id="transferProgressPercent">0%</span>
+              </div>
+              <div class="build-progress-track">
+                <div class="build-progress-fill" id="transferProgressFill"></div>
+              </div>
+              <div class="build-progress-detail" id="transferProgressDetail">当前没有活动中的 ATAS 传输任务。</div>
+            </div>
           </div>
           <div class="chart-event-tooltip card-surface" id="chartEventTooltip" hidden>
             <div class="chart-event-tooltip-kicker">图上事件</div>

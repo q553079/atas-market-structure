@@ -30,6 +30,8 @@ internal interface IAdapterTransport : IDisposable
 
     bool TryEnqueueTriggerBurst(TriggerBurstPayload payload);
 
+    Task<bool> SendHistoryInventoryAsync(HistoryInventoryPayload payload, CancellationToken ct);
+
     Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
         string instrumentSymbol,
         string? chartInstanceId,
@@ -84,6 +86,8 @@ internal interface IHistoryTransport : IDisposable
     bool TryEnqueueHistoryBars(HistoryBarsPayload payload);
 
     bool TryEnqueueHistoryFootprint(HistoryFootprintPayload payload);
+
+    Task<bool> SendHistoryInventoryAsync(HistoryInventoryPayload payload, CancellationToken ct);
 
     Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
         string instrumentSymbol,
@@ -382,10 +386,12 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
 {
     private readonly HttpClient _barsClient;
     private readonly HttpClient _footprintClient;
+    private readonly HttpClient _historyInventoryClient;
     private readonly HttpClient _backfillCommandClient;
     private readonly HttpClient _backfillAckClient;
     private readonly string _historyBarsEndpoint;
     private readonly string _historyFootprintEndpoint;
+    private readonly string _historyInventoryEndpoint;
     private readonly Action<string> _infoLogger;
     private readonly Action<string> _warnLogger;
 
@@ -425,6 +431,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
         Uri baseUri,
         string historyBarsEndpoint,
         string historyFootprintEndpoint,
+        string historyInventoryEndpoint,
         int maxBarsQueueLength,
         int maxFootprintQueueLength,
         int rateLimitBarsPerSecond,
@@ -434,6 +441,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
     {
         _historyBarsEndpoint = historyBarsEndpoint;
         _historyFootprintEndpoint = historyFootprintEndpoint;
+        _historyInventoryEndpoint = historyInventoryEndpoint;
         _maxBarsQueueLength = Math.Max(16, maxBarsQueueLength);
         _maxFootprintQueueLength = Math.Max(16, maxFootprintQueueLength);
         _rateLimitBarsPerSecond = rateLimitBarsPerSecond > 0 ? rateLimitBarsPerSecond : 100;
@@ -457,6 +465,14 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
         _footprintClient.DefaultRequestHeaders.Accept.Clear();
         _footprintClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+        _historyInventoryClient = new HttpClient
+        {
+            BaseAddress = baseUri,
+            Timeout = TimeSpan.FromSeconds(5),
+        };
+        _historyInventoryClient.DefaultRequestHeaders.Accept.Clear();
+        _historyInventoryClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
         _backfillCommandClient = new HttpClient
         {
             BaseAddress = baseUri,
@@ -475,7 +491,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
 
         _barsPumpTask = Task.Run(BarsPumpAsync);
         _footprintPumpTask = Task.Run(FootprintPumpAsync);
-        _infoLogger("BufferedHistoryTransport initialized: bars=20s, footprint=45s, backfill-GET=3s, backfill-POST=10s.");
+        _infoLogger("BufferedHistoryTransport initialized: bars=20s, footprint=45s, inventory=5s, backfill-GET=3s, backfill-POST=10s.");
     }
 
     public bool TryEnqueueHistoryBars(HistoryBarsPayload payload)
@@ -512,6 +528,43 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
         Interlocked.Increment(ref _footprintQueueLength);
         _footprintSignal.Release();
         return true;
+    }
+
+    public async Task<bool> SendHistoryInventoryAsync(HistoryInventoryPayload payload, CancellationToken ct)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(payload, PayloadJson.Options);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            _lastAttemptUtc = DateTime.UtcNow;
+
+            using var response = await _historyInventoryClient.PostAsync(_historyInventoryEndpoint, content, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                _warnLogger($"SendHistoryInventoryAsync: HTTP {(int)response.StatusCode} - {body}");
+                _lastFailureUtc = DateTime.UtcNow;
+                _lastTransportError = body;
+                return false;
+            }
+
+            _lastSuccessfulPostUtc = DateTime.UtcNow;
+            _lastTransportError = string.Empty;
+            _infoLogger(
+                $"SendHistoryInventoryAsync: posted inventory {payload.MessageId} loaded_bar_count={payload.LoadedBarCount} observed_window_start_utc={payload.ObservedWindowStart:O} observed_window_end_utc={payload.ObservedWindowEnd:O}.");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _warnLogger($"SendHistoryInventoryAsync failed: {ex.Message}");
+            _lastFailureUtc = DateTime.UtcNow;
+            _lastTransportError = ex.Message;
+            return false;
+        }
     }
 
     public async Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
@@ -695,6 +748,7 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
             _cts.Dispose();
             _barsClient.Dispose();
             _footprintClient.Dispose();
+            _historyInventoryClient.Dispose();
             _backfillCommandClient.Dispose();
             _backfillAckClient.Dispose();
         }
@@ -901,6 +955,7 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
         string continuousEndpoint,
         string historyBarsEndpoint,
         string historyFootprintEndpoint,
+        string historyInventoryEndpoint,
         string triggerEndpoint,
         int maxQueueLength,
         Action<string> infoLogger,
@@ -913,7 +968,7 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
             baseUri, continuousEndpoint, triggerEndpoint, maxQueueLength, infoLogger, warnLogger);
 
         _historyTransport = new BufferedHistoryTransport(
-            baseUri, historyBarsEndpoint, historyFootprintEndpoint,
+            baseUri, historyBarsEndpoint, historyFootprintEndpoint, historyInventoryEndpoint,
             maxQueueLength, maxQueueLength, 100, 50,
             infoLogger, warnLogger);
 
@@ -931,6 +986,11 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
 
     public bool TryEnqueueTriggerBurst(TriggerBurstPayload payload)
         => _realtimeTransport.TryEnqueueTriggerBurst(payload);
+
+    public async Task<bool> SendHistoryInventoryAsync(
+        HistoryInventoryPayload payload,
+        CancellationToken ct)
+        => await _historyTransport.SendHistoryInventoryAsync(payload, ct).ConfigureAwait(false);
 
     public async Task<AdapterBackfillDispatchResponsePayload?> PollBackfillCommandAsync(
         string instrumentSymbol,

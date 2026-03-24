@@ -15,6 +15,7 @@ from atas_market_structure.models import (
     InstrumentProfileParameterMetadata,
     OfflineReplayValidationSummary,
     PatchHumanApproval,
+    PatchPromotionHistoryEntry,
     PatchValidationStatus,
     ProfilePatchCandidate,
     ProfilePatchValidationResult,
@@ -239,10 +240,27 @@ class TuningBundleBuilder:
                 latest_validation = ProfilePatchValidationResult.model_validate(
                     validation_rows[0].validation_payload,
                 )
+            latest_promotion = None
+            promotion_rows = self._repository.list_patch_promotions(
+                candidate_id=row.candidate_id,
+                limit=1,
+            )
+            if promotion_rows:
+                latest_promotion = PatchPromotionHistoryEntry(
+                    promotion_id=promotion_rows[0].promotion_id,
+                    candidate_id=promotion_rows[0].candidate_id,
+                    instrument_symbol=promotion_rows[0].instrument_symbol,
+                    promoted_profile_version=promotion_rows[0].promoted_profile_version,
+                    previous_profile_version=promotion_rows[0].previous_profile_version,
+                    promoted_at=promotion_rows[0].promoted_at,
+                    promoted_by=promotion_rows[0].promoted_by,
+                    promotion_notes=promotion_rows[0].promotion_notes,
+                )
             history.append(
                 TuningPatchHistoryEntry(
                     candidate=candidate,
                     latest_validation_result=latest_validation,
+                    latest_promotion=latest_promotion,
                 ),
             )
         history.sort(key=lambda item: item.candidate.created_at, reverse=True)
