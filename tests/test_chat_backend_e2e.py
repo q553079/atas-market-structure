@@ -97,9 +97,12 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert reply_payload["user_message"]["attachments"] == [screenshot_attachment]
     assert reply_payload["assistant_message"]["role"] == "assistant"
     assert reply_payload["assistant_message"]["status"] == "completed"
+    assert reply_payload["assistant_message"]["prompt_trace_id"]
     assert "做多" in reply_payload["reply_text"]
     assert len(reply_payload["plan_cards"]) >= 1
     assert len(reply_payload["annotations"]) >= 1
+    assert len(reply_payload["assistant_message"]["annotations"]) >= 1
+    assert len(reply_payload["assistant_message"]["plan_cards"]) >= 1
     assert reply_payload["memory"]["session_id"] == session_id
     assert reply_payload["memory"]["latest_question"] == "如果这里回踩，还能不能继续做多？"
 
@@ -140,6 +143,18 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert len(stored_annotations) >= 1
     stored_plans = repository.list_chat_plan_cards(session_id=session_id)
     assert len(stored_plans) >= 1
+    stored_event_candidates = repository.list_event_candidates_by_session(session_id=session_id)
+    stored_event_stream = repository.list_event_stream_entries(session_id=session_id)
+    stored_event_memory = repository.list_event_memory_entries(session_id=session_id)
+    stored_prompt_trace = repository.get_prompt_trace(reply_payload["assistant_message"]["prompt_trace_id"])
+    assert len(stored_event_candidates) >= 2
+    assert len(stored_event_stream) >= len(stored_event_candidates)
+    assert len(stored_event_memory) >= len(stored_event_candidates)
+    assert len(stored_messages[-1].response_payload.get("event_candidate_ids", [])) >= 2
+    assert stored_prompt_trace is not None
+    assert stored_prompt_trace.message_id == assistant_message_id
+    assert stored_prompt_trace.attached_event_ids
+    assert all(item.source_prompt_trace_id == stored_prompt_trace.prompt_trace_id for item in stored_event_candidates)
 
 def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
     application, repository = build_application()
@@ -202,9 +217,13 @@ def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
     assert reply_payload["plan_cards"] == []
     assert reply_payload["annotations"] == []
     assert reply_payload["assistant_message"]["status"] == "completed"
+    assert reply_payload["assistant_message"]["prompt_trace_id"]
     assert reply_payload["memory"]["latest_question"] == "还没加载图表，先帮我整理一下当前思路。"
 
     stored_messages = repository.list_chat_messages(session_id=session_id)
     assert len(stored_messages) == 2
     stored_memory = repository.get_session_memory(session_id)
     assert stored_memory is not None
+    stored_trace = repository.get_prompt_trace(reply_payload["assistant_message"]["prompt_trace_id"])
+    assert stored_trace is not None
+    assert stored_trace.message_id == reply_payload["assistant_message"]["message_id"]

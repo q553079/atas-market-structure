@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from atas_market_structure.adapter_services import AdapterIngestionService
 from atas_market_structure.models import (
+    AdapterBackfillAcknowledgeRequest,
     AdapterHistoryBarsPayload,
     AdapterHistoryInventoryPayload,
     RollMode,
@@ -911,6 +912,105 @@ def test_history_inventory_skips_backfill_when_visible_window_is_already_stored(
         assert result["queued"] is False
         assert result["status"] == "up_to_date"
         assert result["reason"] == "stored_window_covers_visible_window"
+
+
+def test_history_inventory_defers_duplicate_backfill_while_request_is_active() -> None:
+    with _temp_repo() as repo:
+        workbench = ReplayWorkbenchService(repository=repo)
+        t0 = datetime(2026, 3, 23, 9, 30, tzinfo=UTC)
+
+        first_payload = AdapterHistoryInventoryPayload.model_validate(
+            _build_history_inventory_payload_dict(
+                symbol="NQH6",
+                timeframe="1m",
+                chart_instance_id="chart-auto-nqh6-1m",
+                first_loaded_bar_started_at_utc=t0,
+                latest_loaded_bar_started_at_utc=t0 + timedelta(minutes=4),
+                loaded_bar_count=5,
+            )
+        )
+        first = workbench.ingest_history_inventory(first_payload)
+        assert first["queued"] is True
+
+        second_payload = AdapterHistoryInventoryPayload.model_validate(
+            _build_history_inventory_payload_dict(
+                symbol="NQH6",
+                timeframe="1m",
+                chart_instance_id="chart-auto-nqh6-1m",
+                first_loaded_bar_started_at_utc=t0,
+                latest_loaded_bar_started_at_utc=t0 + timedelta(minutes=5),
+                loaded_bar_count=6,
+            )
+        )
+        second = workbench.ingest_history_inventory(second_payload)
+
+        assert second["queued"] is False
+        assert second["status"] == "deferred"
+        assert second["reason"] == "history_inventory_backfill_in_flight"
+        assert second["request_id"] == first["request_id"]
+        dispatch = workbench.poll_atas_backfill(
+            instrument_symbol="NQH6",
+            chart_instance_id="chart-auto-nqh6-1m",
+            contract_symbol="NQH6",
+            root_symbol="NQ",
+        )
+        assert dispatch.request is not None
+        assert dispatch.request.request_id == first["request_id"]
+
+
+def test_history_inventory_applies_cooldown_after_ack_without_coverage_progress() -> None:
+    with _temp_repo() as repo:
+        workbench = ReplayWorkbenchService(repository=repo)
+        t0 = datetime(2026, 3, 23, 9, 30, tzinfo=UTC)
+
+        first_payload = AdapterHistoryInventoryPayload.model_validate(
+            _build_history_inventory_payload_dict(
+                symbol="NQH6",
+                timeframe="1m",
+                chart_instance_id="chart-auto-nqh6-1m",
+                first_loaded_bar_started_at_utc=t0,
+                latest_loaded_bar_started_at_utc=t0 + timedelta(minutes=4),
+                loaded_bar_count=5,
+            )
+        )
+        first = workbench.ingest_history_inventory(first_payload)
+        dispatch = workbench.poll_atas_backfill(
+            instrument_symbol="NQH6",
+            chart_instance_id="chart-auto-nqh6-1m",
+            contract_symbol="NQH6",
+            root_symbol="NQ",
+        )
+        assert dispatch.request is not None
+        workbench.acknowledge_atas_backfill(
+            AdapterBackfillAcknowledgeRequest(
+                request_id=dispatch.request.request_id,
+                cache_key=dispatch.request.cache_key,
+                instrument_symbol="NQH6",
+                chart_instance_id="chart-auto-nqh6-1m",
+                acknowledged_at=datetime.now(tz=UTC),
+                acknowledged_history_bars=True,
+                acknowledged_history_footprint=False,
+                latest_loaded_bar_started_at=t0 + timedelta(minutes=4),
+            )
+        )
+
+        second_payload = AdapterHistoryInventoryPayload.model_validate(
+            _build_history_inventory_payload_dict(
+                symbol="NQH6",
+                timeframe="1m",
+                chart_instance_id="chart-auto-nqh6-1m",
+                first_loaded_bar_started_at_utc=t0,
+                latest_loaded_bar_started_at_utc=t0 + timedelta(minutes=5),
+                loaded_bar_count=6,
+            )
+        )
+        second = workbench.ingest_history_inventory(second_payload)
+
+        assert first["queued"] is True
+        assert second["queued"] is False
+        assert second["status"] == "deferred"
+        assert second["reason"] == "history_inventory_backfill_cooldown"
+        assert second["request_id"] == first["request_id"]
 
 
 def test_raw_mirror_repository_root_symbol_filter_returns_multiple_contracts() -> None:

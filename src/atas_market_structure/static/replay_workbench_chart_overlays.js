@@ -4,6 +4,9 @@ function shouldRenderAnnotation(item, state) {
   if (!item || item.visible === false || isAnnotationDeleted(item)) {
     return false;
   }
+  if (item.source_kind === "event_candidate_projection" && state?.eventWorkbench?.loaded !== false) {
+    return false;
+  }
   const filters = state.annotationFilters || {};
   if (Array.isArray(filters.annotationIds) && filters.annotationIds.includes("__none__")) {
     return false;

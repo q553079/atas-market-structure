@@ -7,6 +7,9 @@ from atas_market_structure.app_routes._ingestion_routes import handle_ingestion_
 from atas_market_structure.app_routes._options_routes import handle_options_routes
 from atas_market_structure.app_routes._review_routes import handle_review_routes
 from atas_market_structure.app_routes._tuning_routes import handle_tuning_routes
+from atas_market_structure.app_routes._workbench_event_outcome_routes import handle_workbench_event_outcome_routes
+from atas_market_structure.app_routes._workbench_event_routes import handle_workbench_event_routes
+from atas_market_structure.app_routes._workbench_prompt_trace_routes import handle_workbench_prompt_trace_routes
 from atas_market_structure.app_routes._workbench_routes import handle_workbench_routes
 
 __all__ = [
@@ -17,5 +20,8 @@ __all__ = [
     "handle_options_routes",
     "handle_review_routes",
     "handle_tuning_routes",
+    "handle_workbench_event_outcome_routes",
+    "handle_workbench_event_routes",
+    "handle_workbench_prompt_trace_routes",
     "handle_workbench_routes",
 ]

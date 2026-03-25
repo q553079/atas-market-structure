@@ -97,3 +97,5 @@ volumes:
     driver: local
   clickhouse_logs:
     driver: local
+  sqlite_data:
+    driver: local

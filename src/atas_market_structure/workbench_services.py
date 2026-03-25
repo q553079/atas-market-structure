@@ -8,12 +8,14 @@ from atas_market_structure.workbench_chat_service import (
     ReplayWorkbenchChatUnavailableError,
     ReplayWorkbenchNotFoundError,
 )
+from atas_market_structure.workbench_event_service import ReplayWorkbenchEventService
 from atas_market_structure.workbench_replay_service import ReplayWorkbenchService
 
 __all__ = [
     "ReplayWorkbenchChatError",
     "ReplayWorkbenchChatService",
     "ReplayWorkbenchChatUnavailableError",
+    "ReplayWorkbenchEventService",
     "ReplayWorkbenchNotFoundError",
     "ReplayWorkbenchService",
 ]

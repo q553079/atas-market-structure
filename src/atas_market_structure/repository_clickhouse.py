@@ -1234,5 +1234,35 @@ class HybridAnalysisRepository:
                 )
         return None
 
+    def save_atas_backfill_request(
+        self,
+        record: "ReplayWorkbenchAtasBackfillRecord",
+    ) -> "ReplayWorkbenchAtasBackfillRecord":
+        return self._metadata_repository.save_atas_backfill_request(record)
+
+    def list_recent_atas_backfill_requests(
+        self,
+        *,
+        requested_since: datetime,
+        statuses: list[str] | None = None,
+        limit: int = 500,
+    ) -> list["ReplayWorkbenchAtasBackfillRecord"]:
+        return self._metadata_repository.list_recent_atas_backfill_requests(
+            requested_since=requested_since,
+            statuses=statuses,
+            limit=limit,
+        )
+
+    def purge_atas_backfill_requests(
+        self,
+        *,
+        requested_before: datetime,
+        statuses: list[str] | None = None,
+    ) -> int:
+        return self._metadata_repository.purge_atas_backfill_requests(
+            requested_before=requested_before,
+            statuses=statuses,
+        )
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._metadata_repository, name)

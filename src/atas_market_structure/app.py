@@ -29,6 +29,9 @@ from atas_market_structure.app_routes import (
     handle_options_routes,
     handle_review_routes,
     handle_tuning_routes,
+    handle_workbench_event_outcome_routes,
+    handle_workbench_event_routes,
+    handle_workbench_prompt_trace_routes,
     handle_workbench_routes,
 )
 from atas_market_structure.chart_candle_service import ChartCandleService
@@ -110,6 +113,9 @@ from atas_market_structure.repository import AnalysisRepository
 from atas_market_structure.recognition import DeterministicRecognitionService
 from atas_market_structure.services import IngestionOrchestrator
 from atas_market_structure.workbench_projection_services import ReplayWorkbenchProjectionService
+from atas_market_structure.workbench_event_service import ReplayWorkbenchEventService
+from atas_market_structure.workbench_event_outcome_service import ReplayWorkbenchEventOutcomeService
+from atas_market_structure.workbench_prompt_trace_service import ReplayWorkbenchPromptTraceService
 from atas_market_structure.workbench_services import (
     ReplayWorkbenchChatError,
     ReplayWorkbenchChatUnavailableError,
@@ -189,9 +195,17 @@ class MarketStructureApplication:
         )
         self._replay_ai_review_service = replay_ai_review_service
         self._replay_ai_chat_service = replay_ai_chat_service
+        self._replay_workbench_event_service = ReplayWorkbenchEventService(repository=repository)
+        self._replay_workbench_event_outcome_service = ReplayWorkbenchEventOutcomeService(repository=repository)
+        self._replay_workbench_prompt_trace_service = ReplayWorkbenchPromptTraceService(
+            repository=repository,
+            replay_ai_chat_service=self._replay_ai_chat_service,
+        )
         self._replay_workbench_chat_service = ReplayWorkbenchChatService(
             repository=repository,
             replay_ai_chat_service=self._replay_ai_chat_service,
+            event_service=self._replay_workbench_event_service,
+            prompt_trace_service=self._replay_workbench_prompt_trace_service,
         )
         self._episode_evaluation_service = EpisodeEvaluationService(repository=repository)
         self._chart_candle_service = ChartCandleService(repository=repository)
@@ -218,6 +232,9 @@ class MarketStructureApplication:
                 lambda: handle_ingestion_routes(self, method, route_path, query, body),
                 lambda: handle_review_routes(self, method, route_path, query, body),
                 lambda: handle_workbench_routes(self, method, route_path, query, body),
+                lambda: handle_workbench_event_routes(self, method, route_path, query, body),
+                lambda: handle_workbench_event_outcome_routes(self, method, route_path, query),
+                lambda: handle_workbench_prompt_trace_routes(self, method, route_path, query),
                 lambda: handle_chat_routes(self, method, route_path, query, body),
                 lambda: handle_options_routes(self, method, route_path, query, body),
                 lambda: handle_analysis_routes(self, method, route_path, query, body),

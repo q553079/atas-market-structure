@@ -233,6 +233,7 @@ class StoredChatMessage:
     message_id: str
     session_id: str
     parent_message_id: str | None
+    prompt_trace_id: str | None
     role: str
     content: str
     status: str
@@ -246,6 +247,33 @@ class StoredChatMessage:
     is_key_conclusion: bool
     request_payload: dict[str, Any]
     response_payload: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredPromptTrace:
+    prompt_trace_id: str
+    session_id: str
+    message_id: str
+    symbol: str
+    timeframe: str
+    analysis_type: str | None
+    analysis_range: str | None
+    analysis_style: str | None
+    selected_block_ids: list[str]
+    pinned_block_ids: list[str]
+    attached_event_ids: list[str]
+    prompt_block_summaries: list[dict[str, Any]]
+    bar_window_summary: dict[str, Any]
+    manual_selection_summary: dict[str, Any]
+    memory_summary: dict[str, Any]
+    final_system_prompt: str
+    final_user_prompt: str
+    model_name: str | None
+    model_input_hash: str
+    snapshot: dict[str, Any]
+    metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
 
@@ -340,5 +368,129 @@ class StoredChatPlanCard:
     source_kind: str
     notes: str
     payload: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredEventCandidate:
+    event_id: str
+    session_id: str
+    candidate_kind: str
+    title: str
+    summary: str
+    symbol: str
+    timeframe: str
+    anchor_start_ts: datetime | None
+    anchor_end_ts: datetime | None
+    price_lower: float | None
+    price_upper: float | None
+    price_ref: float | None
+    side_hint: str | None
+    confidence: float | None
+    evidence_refs: list[dict[str, Any]]
+    source_type: str
+    source_message_id: str | None
+    source_prompt_trace_id: str | None
+    lifecycle_state: str
+    invalidation_rule: dict[str, Any]
+    evaluation_window: dict[str, Any]
+    metadata: dict[str, Any]
+    dedup_key: str | None
+    promoted_projection_type: str | None
+    promoted_projection_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredEventStreamEntry:
+    stream_entry_id: str
+    event_id: str
+    session_id: str
+    candidate_kind: str
+    title: str
+    summary: str
+    symbol: str
+    timeframe: str
+    anchor_start_ts: datetime | None
+    anchor_end_ts: datetime | None
+    price_lower: float | None
+    price_upper: float | None
+    price_ref: float | None
+    side_hint: str | None
+    confidence: float | None
+    evidence_refs: list[dict[str, Any]]
+    source_type: str
+    source_message_id: str | None
+    source_prompt_trace_id: str | None
+    lifecycle_state: str
+    invalidation_rule: dict[str, Any]
+    evaluation_window: dict[str, Any]
+    metadata: dict[str, Any]
+    stream_action: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredEventMemoryEntry:
+    memory_entry_id: str
+    event_id: str
+    session_id: str
+    candidate_kind: str
+    title: str
+    summary: str
+    symbol: str
+    timeframe: str
+    anchor_start_ts: datetime | None
+    anchor_end_ts: datetime | None
+    price_lower: float | None
+    price_upper: float | None
+    price_ref: float | None
+    side_hint: str | None
+    confidence: float | None
+    evidence_refs: list[dict[str, Any]]
+    source_type: str
+    source_message_id: str | None
+    source_prompt_trace_id: str | None
+    lifecycle_state: str
+    invalidation_rule: dict[str, Any]
+    evaluation_window: dict[str, Any]
+    metadata: dict[str, Any]
+    memory_bucket: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredEventOutcomeLedger:
+    outcome_id: str
+    event_id: str
+    session_id: str
+    source_message_id: str | None
+    source_prompt_trace_id: str | None
+    analysis_preset: str | None
+    model_name: str | None
+    symbol: str
+    timeframe: str
+    event_kind: str
+    born_at: datetime
+    observed_price: float | None
+    target_rule: dict[str, Any]
+    invalidation_rule: dict[str, Any]
+    evaluation_window_start: datetime
+    evaluation_window_end: datetime
+    expiry_policy: dict[str, Any]
+    realized_outcome: str | None
+    outcome_label: str
+    mfe: float | None
+    mae: float | None
+    hit_target: bool
+    hit_stop: bool
+    timed_out: bool
+    inconclusive: bool
+    evaluated_at: datetime
+    metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime

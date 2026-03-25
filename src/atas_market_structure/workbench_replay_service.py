@@ -163,6 +163,7 @@ class ReplayWorkbenchService:
     _BACKFILL_REQUEST_TTL = timedelta(minutes=5)
     _BACKFILL_DISPATCH_LEASE = timedelta(seconds=12)
     _BACKFILL_RECORD_RETENTION = timedelta(hours=2)
+    _AUTO_BACKFILL_ACK_COOLDOWN_FLOOR = timedelta(seconds=45)
 
     def __init__(self, repository: AnalysisRepository) -> None:
         self._repository = repository
@@ -170,6 +171,41 @@ class ReplayWorkbenchService:
         self._continuous_contract_service = ContinuousContractService(repository=repository)
         self._backfill_lock = Lock()
         self._backfill_requests: dict[str, ReplayWorkbenchAtasBackfillRecord] = {}
+        self._restore_persisted_backfill_requests()
+
+    def _restore_persisted_backfill_requests(self) -> None:
+        now = datetime.now(tz=UTC)
+        cutoff = now - self._backfill_record_retention()
+        self._repository.purge_atas_backfill_requests(requested_before=cutoff)
+        restored = self._repository.list_recent_atas_backfill_requests(
+            requested_since=cutoff,
+            limit=1000,
+        )
+        if not restored:
+            return
+        with self._backfill_lock:
+            for record in sorted(restored, key=lambda item: item.requested_at):
+                self._backfill_requests[record.request_id] = record
+            self._expire_backfill_requests_locked(now)
+            self._prune_backfill_requests_locked(now)
+        LOGGER.info(
+            "ReplayWorkbenchService: restored %s persisted ATAS backfill requests.",
+            len(self._backfill_requests),
+        )
+
+    def _store_backfill_request_locked(
+        self,
+        record: ReplayWorkbenchAtasBackfillRecord,
+    ) -> None:
+        self._backfill_requests[record.request_id] = record
+        self._repository.save_atas_backfill_request(record)
+
+    def _backfill_record_retention(self) -> timedelta:
+        max_cooldown = max(
+            self._history_inventory_backfill_cooldown(timeframe)
+            for timeframe in self._TIMEFRAME_MINUTES
+        )
+        return max(self._BACKFILL_RECORD_RETENTION, max_cooldown + self._BACKFILL_REQUEST_TTL)
 
     def _resolve_active_versions(self, instrument_symbol: str | None) -> tuple[str, str]:
         profile_version = self._FALLBACK_PROFILE_VERSION
@@ -327,6 +363,54 @@ class ReplayWorkbenchService:
                 "visible_window_end": visible_end,
                 "stored_count": stored_count,
                 "loaded_bar_count": loaded_bar_count,
+            }
+
+        now = datetime.now(tz=UTC)
+        with self._backfill_lock:
+            self._expire_backfill_requests_locked(now)
+            guarded_request, guard_reason = self._find_history_inventory_backfill_guard_locked(
+                instrument_symbol=instrument_symbol,
+                chart_instance_id=chart_instance_id,
+                contract_symbol=contract_symbol,
+                root_symbol=root_symbol,
+                display_timeframe=timeframe,
+                window_start=visible_start,
+                window_end=visible_end,
+                now=now,
+            )
+        if guarded_request is not None:
+            LOGGER.info(
+                "ingest_history_inventory: deferred_backfill request_id=%s status=%s instrument_symbol=%s chart_instance_id=%s timeframe=%s reason=%s",
+                guarded_request.request_id,
+                guarded_request.status.value,
+                instrument_symbol,
+                chart_instance_id,
+                timeframe.value,
+                guard_reason,
+            )
+            return {
+                "queued": False,
+                "status": "deferred",
+                "reason": guard_reason,
+                "request_id": guarded_request.request_id,
+                "reused_existing_request": True,
+                "existing_request_status": guarded_request.status.value,
+                "instrument_symbol": instrument_symbol,
+                "chart_instance_id": chart_instance_id,
+                "contract_symbol": contract_symbol,
+                "root_symbol": root_symbol,
+                "timeframe": timeframe.value,
+                "visible_window_start": visible_start,
+                "visible_window_end": visible_end,
+                "stored_count": stored_count,
+                "loaded_bar_count": loaded_bar_count,
+                "requested_ranges": [
+                    {
+                        "range_start": item.range_start,
+                        "range_end": item.range_end,
+                    }
+                    for item in requested_ranges
+                ],
             }
 
         cache_key = self._build_history_inventory_cache_key(
@@ -1489,7 +1573,7 @@ class ReplayWorkbenchService:
                 expires_at=now + self._BACKFILL_REQUEST_TTL,
                 dispatch_count=0,
             )
-            self._backfill_requests[record.request_id] = record
+            self._store_backfill_request_locked(record)
             self._prune_backfill_requests_locked(now)
             LOGGER.info(
                 "request_atas_backfill: created request_id=%s instrument_symbol=%s contract_symbol=%s root_symbol=%s chart_instance_id=%s ranges=%s replace_existing_history=%s",
@@ -1533,7 +1617,7 @@ class ReplayWorkbenchService:
                         "dispatched_chart_instance_id": chart_instance_id,
                     }
                 )
-                self._backfill_requests[record.request_id] = updated
+                self._store_backfill_request_locked(updated)
                 LOGGER.info(
                     "poll_atas_backfill: dispatched request_id=%s instrument_symbol=%s chart_instance_id=%s contract_symbol=%s root_symbol=%s",
                     updated.request_id,
@@ -1583,7 +1667,7 @@ class ReplayWorkbenchService:
                     "note": request.note,
                 }
             )
-            self._backfill_requests[request.request_id] = updated
+            self._store_backfill_request_locked(updated)
             self._prune_backfill_requests_locked(now)
         LOGGER.info(
             "acknowledge_atas_backfill: request_id=%s cache_key=%s history_bars=%s history_footprint=%s latest_loaded_bar_started_at=%s",
@@ -4123,22 +4207,33 @@ class ReplayWorkbenchService:
                 }
                 and record.expires_at <= now
             ):
-                self._backfill_requests[request_id] = record.model_copy(
+                updated = record.model_copy(
                     update={
                         "status": ReplayWorkbenchAtasBackfillStatus.EXPIRED,
                         "note": record.note or "expired before adapter acknowledgement",
                     }
                 )
+                self._store_backfill_request_locked(updated)
         self._prune_backfill_requests_locked(now)
 
     def _prune_backfill_requests_locked(self, now: datetime) -> None:
-        cutoff = now - self._BACKFILL_RECORD_RETENTION
+        cutoff = now - self._backfill_record_retention()
+        pruned_terminal_records = False
         for request_id, record in list(self._backfill_requests.items()):
             if record.requested_at < cutoff and record.status in {
                 ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED,
                 ReplayWorkbenchAtasBackfillStatus.EXPIRED,
             }:
                 self._backfill_requests.pop(request_id, None)
+                pruned_terminal_records = True
+        if pruned_terminal_records:
+            self._repository.purge_atas_backfill_requests(
+                requested_before=cutoff,
+                statuses=[
+                    ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED,
+                    ReplayWorkbenchAtasBackfillStatus.EXPIRED,
+                ],
+            )
 
     def _is_backfill_dispatchable(
         self,
@@ -4152,6 +4247,74 @@ class ReplayWorkbenchService:
         if record.dispatched_at is None:
             return True
         return now - record.dispatched_at >= self._BACKFILL_DISPATCH_LEASE
+
+    def _find_history_inventory_backfill_guard_locked(
+        self,
+        *,
+        instrument_symbol: str,
+        chart_instance_id: str | None,
+        contract_symbol: str | None,
+        root_symbol: str | None,
+        display_timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        now: datetime,
+    ) -> tuple[ReplayWorkbenchAtasBackfillRecord | None, str | None]:
+        cooldown = self._history_inventory_backfill_cooldown(display_timeframe)
+        for record in self._iter_matching_backfill_requests_locked(
+            instrument_symbol=instrument_symbol,
+            chart_instance_id=chart_instance_id,
+            contract_symbol=contract_symbol,
+            root_symbol=root_symbol,
+        ):
+            if record.display_timeframe != display_timeframe:
+                continue
+            if not record.request_history_bars or record.replace_existing_history:
+                continue
+            if not self._backfill_windows_overlap_or_touch(
+                left_start=window_start,
+                left_end=window_end,
+                right_start=record.window_start,
+                right_end=record.window_end,
+                display_timeframe=display_timeframe,
+            ):
+                continue
+            if record.status in {
+                ReplayWorkbenchAtasBackfillStatus.PENDING,
+                ReplayWorkbenchAtasBackfillStatus.DISPATCHED,
+            } and record.expires_at > now:
+                return record, "history_inventory_backfill_in_flight"
+            if record.status == ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED:
+                barrier_at = record.acknowledged_at or record.requested_at
+                if barrier_at + cooldown > now:
+                    return record, "history_inventory_backfill_cooldown"
+        return None, None
+
+    def _history_inventory_backfill_cooldown(self, display_timeframe: Timeframe) -> timedelta:
+        timeframe_minutes = max(self._TIMEFRAME_MINUTES.get(display_timeframe, 1), 1)
+        return max(self._AUTO_BACKFILL_ACK_COOLDOWN_FLOOR, timedelta(minutes=timeframe_minutes))
+
+    def _backfill_windows_overlap_or_touch(
+        self,
+        *,
+        left_start: datetime,
+        left_end: datetime,
+        right_start: datetime,
+        right_end: datetime,
+        display_timeframe: Timeframe,
+    ) -> bool:
+        tolerance = max(
+            self._AUTO_BACKFILL_ACK_COOLDOWN_FLOOR,
+            timedelta(minutes=max(self._TIMEFRAME_MINUTES.get(display_timeframe, 1), 1)),
+        )
+        left_start_utc = self._ensure_utc(left_start)
+        left_end_utc = self._ensure_utc(left_end)
+        right_start_utc = self._ensure_utc(right_start)
+        right_end_utc = self._ensure_utc(right_end)
+        return (
+            left_start_utc <= right_end_utc + tolerance
+            and right_start_utc <= left_end_utc + tolerance
+        )
 
     def _replace_existing_history_window(
         self,

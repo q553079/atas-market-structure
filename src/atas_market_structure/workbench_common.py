@@ -66,6 +66,7 @@ class PreparedReplyTurn:
         assistant_pending: StoredChatMessage,
         history,
         request: ChatReplyRequest,
+        prompt_trace_id: str | None = None,
         parent_message_id: str | None = None,
     ) -> None:
         self.session = session
@@ -74,6 +75,7 @@ class PreparedReplyTurn:
         self.assistant_pending = assistant_pending
         self.history = history
         self.request = request
+        self.prompt_trace_id = prompt_trace_id
         self.parent_message_id = parent_message_id
 
     @property
@@ -92,6 +94,7 @@ class FinalizedReplyTurn:
         annotations: list[StoredChatAnnotation],
         memory: SessionMemory | None,
         replay_response,
+        prompt_trace_id: str | None = None,
     ) -> None:
         self.session_id = session_id
         self.user_record = user_record
@@ -100,3 +103,4 @@ class FinalizedReplyTurn:
         self.annotations = annotations
         self.memory = memory
         self.replay_response = replay_response
+        self.prompt_trace_id = prompt_trace_id

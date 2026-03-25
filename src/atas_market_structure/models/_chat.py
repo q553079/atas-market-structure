@@ -44,6 +44,7 @@ class ChatMessage(BaseModel):
     message_id: str = Field(..., description="Message identifier.")
     session_id: str = Field(..., description="Owning session identifier.")
     parent_message_id: str | None = Field(None, description="Optional parent assistant message id for regenerate lineage.")
+    prompt_trace_id: str | None = Field(None, description="Linked prompt trace identifier for assistant messages.")
     role: Literal["user", "assistant", "system"] = Field(..., description="Message role.")
     content: str = Field(..., description="Message content.")
     status: str = Field(..., description="Message status.")

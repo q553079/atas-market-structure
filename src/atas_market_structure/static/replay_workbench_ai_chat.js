@@ -48,6 +48,23 @@ function parsePlanCardsFromReply(replyText) {
   }];
 }
 
+function isLegacyPlanCardFallbackEnabled() {
+  try {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    const search = String(window.location?.search || "");
+    const params = new URLSearchParams(search);
+    if (params.get("legacy_plan_card_fallback") === "1") {
+      return true;
+    }
+    return window.__REPLAY_WORKBENCH_DEBUG__ === true
+      || window.__REPLAY_WORKBENCH_ENABLE_LEGACY_PLAN_CARD_FALLBACK__ === true;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function mergeByStableId(currentItems = [], nextItems = [], idSelector) {
   const map = new Map();
   [...currentItems, ...nextItems].forEach((item, index) => {
@@ -196,6 +213,7 @@ function replacePendingAssistantMessage(session, pendingMessageId, content, meta
     return {
       ...message,
       message_id: meta.message_id || meta.messageId || message.message_id,
+      promptTraceId: meta.promptTraceId || meta.prompt_trace_id || message.promptTraceId || message.meta?.promptTraceId || null,
       content,
       status: meta.status || message.status || "completed",
       replyTitle: meta.replyTitle || meta.reply_title || message.replyTitle || null,
@@ -208,6 +226,7 @@ function replacePendingAssistantMessage(session, pendingMessageId, content, meta
         ...(message.meta || {}),
         localPendingMessageId: message.meta?.localPendingMessageId || pendingMessageId,
         ...meta,
+        promptTraceId: meta.promptTraceId || meta.prompt_trace_id || message.promptTraceId || message.meta?.promptTraceId || null,
       },
       updated_at: new Date().toISOString(),
     };
@@ -357,6 +376,7 @@ export function createAiChatController({
   createNewAnalystSession = null,
   renderAiChat = null,
   scheduleDraftStateSync = null,
+  onReplyCommitted = null,
 }) {
   let activeStreamController = null;
   let activeStreamMeta = null;
@@ -593,11 +613,13 @@ export function createAiChatController({
       if (messageId) {
         runtime.serverMessageId = messageId;
       }
+      runtime.promptTraceId = firstDefined(payload.prompt_trace_id, payload.promptTraceId, runtime.promptTraceId, null);
       syncStreamingMessage(session, pendingMessageId, {
         message_id: runtime.serverMessageId || pendingMessageId,
         replyTitle: firstDefined(payload.reply_title, payload.replyTitle, payload.title, "AI 回复生成中"),
         model: firstDefined(payload.model, payload.model_name, runtime.model, null),
         provider: firstDefined(payload.provider, payload.vendor, runtime.provider, "stream"),
+        promptTraceId: firstDefined(payload.prompt_trace_id, payload.promptTraceId, runtime.promptTraceId, null),
         session_only: firstDefined(payload.session_only, payload.sessionOnly, false),
         status: pickStreamStatus(payload, "pending"),
       }, runtime, payload);
@@ -640,6 +662,7 @@ export function createAiChatController({
         annotations: pickStreamAnnotations(payload),
         provider: firstDefined(payload.provider, payload.vendor, runtime.provider),
         model: firstDefined(payload.model, payload.model_name, runtime.model),
+        promptTraceId: firstDefined(payload.prompt_trace_id, payload.promptTraceId, runtime.promptTraceId, null),
         sessionOnly: firstDefined(payload.session_only, payload.sessionOnly, false),
         liveContextSummary: firstDefined(payload.live_context_summary, payload.liveContextSummary),
         followUpSuggestions: firstDefined(payload.follow_up_suggestions, payload.followUpSuggestions, payload.suggestions),
@@ -679,7 +702,7 @@ export function createAiChatController({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      const runtime = { model: payload.model || null, provider: "stream" };
+      const runtime = { model: payload.model || null, provider: "stream", promptTraceId: null };
       activeStreamMeta = { sessionId: session.id, pendingMessageId, serverMessageId: null };
 
       const consumeChunk = (rawChunk) => {
@@ -819,6 +842,7 @@ export function createAiChatController({
       replyTitle: "AI 回复生成中",
       planCards: [],
       annotations: [],
+      promptTraceId: null,
       localPendingMessageId: null,
     }, session.id, session.title);
     if (pendingAssistant?.message_id) {
@@ -919,6 +943,11 @@ export function createAiChatController({
         persistSessions();
         refreshChatUi();
         writeStorage("annotationFilters", state.annotationFilters);
+        onReplyCommitted?.({
+          session,
+          messageId: streamedMessage?.message_id || pendingAssistant?.message_id || null,
+          streamed: true,
+        });
         return {
           streamed: true,
           reply_text: streamedContent,
@@ -931,19 +960,24 @@ export function createAiChatController({
         ? (result.plan_cards || result.planCards).map((plan) => normalizePlanCard(plan))
         : [];
       const assistantContent = result.reply_text || result.assistant_message?.content || "";
-      const fallbackPlanCards = structuredPlanCards.length ? structuredPlanCards : parsePlanCardsFromReply(assistantContent).map((plan) => normalizePlanCard(plan));
-      const planCards = fallbackPlanCards.map((plan) => upsertPlanCardToSession(plan, session.id));
+      const resolvedPlanCards = structuredPlanCards.length
+        ? structuredPlanCards
+        : (isLegacyPlanCardFallbackEnabled()
+          ? parsePlanCardsFromReply(assistantContent).map((plan) => normalizePlanCard(plan))
+          : []);
+      const planCards = resolvedPlanCards.map((plan) => upsertPlanCardToSession(plan, session.id));
       const structuredAnnotations = Array.isArray(result.annotations) ? result.annotations : [];
       const assistantMessage = replacePendingAssistantMessage(session, pendingAssistant?.message_id, assistantContent, {
         preset: result.preset,
         provider: result.provider,
         model: result.model,
+        promptTraceId: result.assistant_message?.prompt_trace_id || result.assistant_message?.promptTraceId || null,
         referenced_strategy_ids: result.referenced_strategy_ids || [],
         live_context_summary: result.live_context_summary || [],
         follow_up_suggestions: result.follow_up_suggestions || [],
         planCards,
         annotations: structuredAnnotations,
-        replyTitle: result.assistant_message?.reply_title || fallbackPlanCards[0]?.title || null,
+        replyTitle: result.assistant_message?.reply_title || resolvedPlanCards[0]?.title || null,
         mountedToChart: false,
         session_only: !!result.session_only,
         status: "completed",
@@ -951,12 +985,13 @@ export function createAiChatController({
         preset: result.preset,
         provider: result.provider,
         model: result.model,
+        promptTraceId: result.assistant_message?.prompt_trace_id || result.assistant_message?.promptTraceId || null,
         referenced_strategy_ids: result.referenced_strategy_ids || [],
         live_context_summary: result.live_context_summary || [],
         follow_up_suggestions: result.follow_up_suggestions || [],
         planCards,
         annotations: structuredAnnotations,
-        replyTitle: result.assistant_message?.reply_title || fallbackPlanCards[0]?.title || null,
+        replyTitle: result.assistant_message?.reply_title || resolvedPlanCards[0]?.title || null,
         mountedToChart: false,
         session_only: !!result.session_only,
       }, session.id, session.title);
@@ -1010,12 +1045,18 @@ export function createAiChatController({
       persistSessions();
       refreshChatUi();
       writeStorage("annotationFilters", state.annotationFilters);
+      onReplyCommitted?.({
+        session,
+        messageId: assistantMessage.message_id,
+        streamed: false,
+      });
       return result;
     } catch (error) {
       replacePendingAssistantMessage(session, pendingAssistant?.message_id, error.message || String(error), {
         preset,
         provider: "local-error",
         model: "-",
+        promptTraceId: null,
         status: "failed",
         replyTitle: "AI 对话失败",
       });

@@ -19,12 +19,18 @@ import { createAiThreadController } from "./replay_workbench_ai_threads.js";
 import { createAiChatController } from "./replay_workbench_ai_chat.js";
 import { createReplayLoader } from "./replay_workbench_replay_loader.js";
 import { createWorkbenchActions } from "./replay_workbench_actions.js";
+import { createWorkbenchEventApi } from "./replay_workbench_event_api.js";
+import { createWorkbenchEventPanelController } from "./replay_workbench_event_panel.js";
+import { createWorkbenchEventManualTools } from "./replay_workbench_event_manual_tools.js";
+import { createWorkbenchEventOutcomePanelController } from "./replay_workbench_event_outcome_panel.js";
+import { createWorkbenchPromptTracePanelController } from "./replay_workbench_prompt_trace_panel.js";
 import {
   createChartViewHelpers,
   clampChartView,
   buildChartViewportKey,
   snapshotChartViewForRegistry,
 } from "./replay_workbench_chart_utils.js";
+import { focusChartViewOnEventCandidate } from "./replay_workbench_event_overlay.js";
 import { createPlanLifecycleEngine } from "./replay_workbench_plan_lifecycle.js";
 import { createSessionMemoryEngine } from "./replay_workbench_session_memory.js";
 import { createAnnotationPanelController } from "./replay_workbench_annotation_panel.js";
@@ -586,6 +592,20 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       layerState: state.layerState || collectLayerStateFromInputs(),
       symbolWorkspaceState: state.symbolWorkspaceState || {},
       eventStreamFilter: state.eventStreamFilter || "all",
+      eventWorkbench: {
+        schemaVersion: state.eventWorkbench?.schemaVersion || null,
+        sessionId: state.eventWorkbench?.sessionId || null,
+        symbol: state.eventWorkbench?.symbol || null,
+        timeframe: state.eventWorkbench?.timeframe || null,
+        sessionKey: state.eventWorkbench?.sessionKey || null,
+        selectedEventId: state.eventWorkbench?.selectedEventId || null,
+        pinnedEventIds: Array.isArray(state.eventWorkbench?.pinnedEventIds) ? state.eventWorkbench.pinnedEventIds : [],
+      },
+      eventOutcomeWorkbench: {
+        sessionKey: state.eventOutcomeWorkbench?.sessionKey || null,
+        focusedEventId: state.eventOutcomeWorkbench?.focusedEventId || null,
+        lastLoadedAt: state.eventOutcomeWorkbench?.lastLoadedAt || null,
+      },
       replyExtractionState: state.replyExtractionState || {
         filter: "all",
         showIgnored: false,
@@ -1946,6 +1966,16 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     return { analystSession, scribeSession };
   }
 
+  let eventPanelController = null;
+  let eventOutcomeController = null;
+  const promptTracePanelController = createWorkbenchPromptTracePanelController({
+    state,
+    els,
+    fetchJson,
+    renderStatusStrip,
+    jumpToMessage: (messageId) => jumpToMessageWhenReady(messageId),
+    onEventSelected: (eventId) => eventPanelController?.selectEvent(eventId, { centerChart: true, scrollCard: true }),
+  });
   const threadController = createAiThreadController({
     state,
     els,
@@ -1989,6 +2019,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       if (getWorkspaceRole(session) === "analyst") {
         rememberSymbolWorkspaceSession(session);
       }
+      eventPanelController?.markDirty();
+      void eventPanelController?.syncActiveSessionEventStream({ force: true, reason: "session-activated" });
+      eventOutcomeController?.markDirty();
+      void eventOutcomeController?.syncActiveSessionOutcomes({ force: true });
       renderSnapshot();
     },
   });
@@ -2020,6 +2054,66 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     scheduleDraftStateSync,
     persistSessions,
   } = threadController;
+
+  const eventApi = createWorkbenchEventApi({ fetchJson });
+
+  async function ensureActiveSessionPersisted() {
+    let session = typeof getActiveThread === "function" ? getActiveThread() : null;
+    if (session && !/^session-\d+$/i.test(String(session.id || ""))) {
+      return session;
+    }
+    const symbol = session?.symbol || state.topBar?.symbol || "NQ";
+    const contractId = session?.contractId || symbol;
+    if (typeof getOrCreateBlankSessionForSymbol === "function") {
+      session = await getOrCreateBlankSessionForSymbol(symbol, contractId, {
+        workspaceRole: session?.workspaceRole || "analyst",
+        activate: true,
+      });
+    }
+    return session;
+  }
+
+  function jumpToEventSource(candidate) {
+    if (!candidate?.source_message_id) {
+      return false;
+    }
+    const targetSession = state.aiThreads.find((item) => item.id === candidate.session_id) || getActiveThread();
+    if (targetSession) {
+      setActiveThread(targetSession.id, targetSession.title, targetSession);
+      renderAiSurface();
+    }
+    jumpToMessageWhenReady(candidate.source_message_id);
+    return true;
+  }
+
+  function focusEventCandidateOnChart(candidate, { centerChart = true, announce = false } = {}) {
+    if (!centerChart || !candidate) {
+      window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
+      return false;
+    }
+    const candles = state.snapshot?.candles || [];
+    if (!candles.length) {
+      return false;
+    }
+    const nextView = focusChartViewOnEventCandidate({
+      candidate,
+      candles,
+      currentView: state.chartView,
+      clampChartView,
+    });
+    if (!nextView) {
+      window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
+      return false;
+    }
+    state.chartView = nextView;
+    syncLiveChartLogicalRange(nextView, "聚焦事件候选时同步图表视窗");
+    renderCoreSnapshot();
+    renderViewportDerivedSurfaces();
+    if (announce) {
+      renderStatusStrip([{ label: `已定位到事件：${candidate.title || "事件"}`, variant: "emphasis" }]);
+    }
+    return true;
+  }
 
   function createProgressController({
     container,
@@ -2191,8 +2285,69 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     renderAiChat,
     scheduleDraftStateSync,
     setMountedReplyIds,
+    onReplyCommitted: ({ session, messageId }) => {
+      eventPanelController?.markDirty({ sourceMessageId: messageId });
+      void eventPanelController?.syncActiveSessionEventStream({
+        force: true,
+        reason: "reply-committed",
+        sourceMessageId: messageId,
+      });
+      eventOutcomeController?.markDirty();
+      void eventOutcomeController?.syncActiveSessionOutcomes({ force: true });
+      if (session?.id) {
+        queueSessionMemoryRefresh([session.id], { forceServer: true, delay: 120 });
+      }
+    },
   });
   aiChat.bindStreamingControls?.();
+
+  eventPanelController = createWorkbenchEventPanelController({
+    state,
+    els,
+    eventApi,
+    renderStatusStrip,
+    persistWorkbenchState,
+    getActiveThread,
+    ensureActiveSessionPersisted,
+    focusEventCandidateOnChart,
+    jumpToEventSource,
+    onPromptTraceRequested: (candidate) => {
+      void promptTracePanelController.openPromptTraceForCandidate(candidate);
+      return true;
+    },
+    onOutcomeRequested: (candidate) => eventOutcomeController?.focusOutcomeForCandidate(candidate) || false,
+    afterMutation: async (mutation) => {
+      if (mutation?.candidate?.session_id) {
+        await hydrateSessionFromServer(mutation.candidate.session_id, {
+          activate: mutation.candidate.session_id === state.activeAiThreadId,
+        });
+      }
+      eventOutcomeController?.markDirty();
+      await eventOutcomeController?.syncActiveSessionOutcomes({ force: true });
+      renderSnapshot();
+    },
+  });
+
+  eventOutcomeController = createWorkbenchEventOutcomePanelController({
+    state,
+    els,
+    eventApi,
+    renderStatusStrip,
+    persistWorkbenchState,
+    getActiveThread,
+    jumpToMessage: (messageId) => jumpToMessageWhenReady(messageId),
+    onPromptTraceRequested: (candidate) => promptTracePanelController.openPromptTraceForCandidate(candidate),
+    onEventSelected: (eventId) => eventPanelController?.selectEvent(eventId, { centerChart: true, scrollCard: true }),
+  });
+
+  const manualEventTools = createWorkbenchEventManualTools({
+    state,
+    els,
+    renderStatusStrip,
+    ensureActiveSessionPersisted,
+    createManualEventCandidate: (payload) => eventPanelController?.createManualEventCandidate(payload),
+    renderSnapshot: () => renderSnapshot(),
+  });
   const annotationPanelController = createAnnotationPanelController({
     state,
     els,
@@ -3341,6 +3496,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   function renderAiSurface() {
     renderAiThreadTabs();
     renderAiChat();
+    eventPanelController?.decorateChatMessages();
+    eventPanelController?.renderEventPanel();
+    eventOutcomeController?.renderOutcomeSurfaces();
     renderEventScribePanel();
     renderReplyExtractionPanel();
     renderContractNav();
@@ -3363,6 +3521,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     renderCoreSnapshot();
     renderSidebarSnapshot();
     renderDeferredSurfaces();
+    manualEventTools?.updateToolbarUi?.();
   }
 
   async function runBuildFlow({ forceRefresh = false, syncRelativeWindow = false, silentProgress = false } = {}) {
@@ -5599,13 +5758,15 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       await createFreshScribeSession(state.topBar?.symbol);
       renderSnapshot();
     });
-    els.eventStreamFilterBar?.querySelectorAll("[data-event-stream-filter]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.eventStreamFilter = button.dataset.eventStreamFilter || "all";
-        persistWorkbenchState();
-        renderChart();
+    if (!eventPanelController) {
+      els.eventStreamFilterBar?.querySelectorAll("[data-event-stream-filter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.eventStreamFilter = button.dataset.eventStreamFilter || "all";
+          persistWorkbenchState();
+          renderChart();
+        });
       });
-    });
+    }
     els.replyExtractionFilterBar?.querySelectorAll("[data-reply-extraction-filter]").forEach((button) => {
       button.addEventListener("click", () => {
         getReplyExtractionState().filter = button.dataset.replyExtractionFilter || "all";
@@ -5712,6 +5873,15 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       if (action === "regenerate") {
         await aiChat.regenerateMessage(messageId);
         renderSnapshot();
+        return;
+      }
+      if (action === "prompt-trace") {
+        const session = getActiveThread();
+        const message = (session?.messages || []).find((item) => item.message_id === messageId) || null;
+        void promptTracePanelController.openPromptTraceForMessage({
+          promptTraceId: message?.promptTraceId || message?.meta?.promptTraceId || button.dataset.promptTraceId || null,
+          messageId,
+        });
         return;
       }
       if (["show", "focus", "jump", "unmount"].includes(action)) {
@@ -6082,6 +6252,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         setActiveThread(fallbackSession.id, fallbackSession.title, fallbackSession);
       }
     }
+    await eventPanelController?.syncActiveSessionEventStream({ force: true, reason: "bootstrap" });
+    await eventOutcomeController?.syncActiveSessionOutcomes({ force: true });
     renderSnapshot();
   }
 
@@ -6097,6 +6269,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     renderViewportDerivedSurfaces,
     getReplyExtractionClusterSummaryMap,
     selectChartEventCluster,
+    renderEventPanel: () => eventPanelController?.renderEventPanel(),
+    syncActiveSessionEventStream: (options = {}) => eventPanelController?.syncActiveSessionEventStream(options),
+    handleEventOverlayClick: (eventId) => eventPanelController?.handleOverlayEventClick(eventId),
+    handleEventOverlayEnter: (eventId) => eventPanelController?.handleOverlayEventEnter(eventId),
+    handleEventOverlayLeave: () => eventPanelController?.handleOverlayEventLeave(),
+    handleManualToolPointer: (pointer) => manualEventTools?.setLastPointer(pointer),
     attachBindings,
     bootstrap,
     handleBuild: actions.handleBuild,

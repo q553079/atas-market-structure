@@ -139,3 +139,25 @@ class AnalysisRepository(
     def initialize(self) -> None:
         ...
 
+    def save_atas_backfill_request(
+        self,
+        record: "ReplayWorkbenchAtasBackfillRecord",
+    ) -> "ReplayWorkbenchAtasBackfillRecord":
+        ...
+
+    def list_recent_atas_backfill_requests(
+        self,
+        *,
+        requested_since: datetime,
+        statuses: list[str] | None = None,
+        limit: int = 500,
+    ) -> list["ReplayWorkbenchAtasBackfillRecord"]:
+        ...
+
+    def purge_atas_backfill_requests(
+        self,
+        *,
+        requested_before: datetime,
+        statuses: list[str] | None = None,
+    ) -> int:
+        ...

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+import logging
 from pathlib import Path
 import sqlite3
 from typing import Any
 
 from atas_market_structure.repository_records import *
+from atas_market_structure.repository_workbench_events_sqlite import SQLiteWorkbenchEventRepository
+from atas_market_structure.repository_workbench_event_outcomes_sqlite import SQLiteWorkbenchEventOutcomeRepository
+from atas_market_structure.repository_workbench_prompt_traces_sqlite import SQLiteWorkbenchPromptTraceRepository
 from atas_market_structure.storage_models import (
     StoredBeliefStateSnapshot,
     StoredDeadLetterPayload,
@@ -23,15 +27,31 @@ from atas_market_structure.storage_models import (
 )
 from atas_market_structure.storage_repository import SQLiteStorageBlueprintRepository
 
+logger = logging.getLogger(__name__)
+
 class SQLiteAnalysisRepository:
     """SQLite persistence for observed facts, derived analysis, liquidity memory, and replay workbench chat state."""
 
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
         self._storage_blueprint_repository = SQLiteStorageBlueprintRepository(database_path=database_path)
+        self._workbench_event_repository = SQLiteWorkbenchEventRepository(owner=self)
+        self._workbench_event_outcome_repository = SQLiteWorkbenchEventOutcomeRepository(owner=self)
+        self._workbench_prompt_trace_repository = SQLiteWorkbenchPromptTraceRepository(owner=self)
+        self._sqlite_pragma_fallbacks_logged: set[str] = set()
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._storage_blueprint_repository, name)
+        for target in (
+            self._storage_blueprint_repository,
+            self._workbench_event_repository,
+            self._workbench_event_outcome_repository,
+            self._workbench_prompt_trace_repository,
+        ):
+            try:
+                return getattr(target, name)
+            except AttributeError:
+                continue
+        raise AttributeError(name)
 
     @property
     def workspace_root(self) -> Path:
@@ -41,6 +61,9 @@ class SQLiteAnalysisRepository:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         self._storage_blueprint_repository.initialize()
         with self._connect() as connection:
+            self._workbench_event_repository.initialize(connection)
+            self._workbench_event_outcome_repository.initialize(connection)
+            self._workbench_prompt_trace_repository.initialize(connection)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS ingestions (
@@ -242,6 +265,7 @@ class SQLiteAnalysisRepository:
                     message_id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
                     parent_message_id TEXT,
+                    prompt_trace_id TEXT,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -257,7 +281,8 @@ class SQLiteAnalysisRepository:
                     response_payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+                    FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id),
+                    FOREIGN KEY (prompt_trace_id) REFERENCES chat_prompt_traces(prompt_trace_id)
                 )
                 """,
             )
@@ -438,6 +463,35 @@ class SQLiteAnalysisRepository:
                 "CREATE INDEX IF NOT EXISTS idx_atas_chart_bars_raw_root_tf_started "
                 "ON atas_chart_bars_raw (root_symbol, timeframe, started_at_utc DESC)"
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS atas_backfill_requests (
+                    request_id TEXT PRIMARY KEY,
+                    cache_key TEXT NOT NULL,
+                    instrument_symbol TEXT NOT NULL,
+                    contract_symbol TEXT,
+                    root_symbol TEXT,
+                    target_contract_symbol TEXT,
+                    target_root_symbol TEXT,
+                    display_timeframe TEXT NOT NULL,
+                    chart_instance_id TEXT,
+                    status TEXT NOT NULL,
+                    requested_at TEXT NOT NULL,
+                    acknowledged_at TEXT,
+                    expires_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """,
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_atas_backfill_requests_status_requested "
+                "ON atas_backfill_requests (status, requested_at DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_atas_backfill_requests_symbol_tf_requested "
+                "ON atas_backfill_requests (instrument_symbol, display_timeframe, requested_at DESC)"
+            )
             connection.execute("CREATE INDEX IF NOT EXISTS idx_belief_state_symbol_time ON belief_state_snapshots (instrument_symbol, observed_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_event_episodes_symbol_end ON event_episodes (instrument_symbol, ended_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_episode_evaluations_symbol_time ON episode_evaluations (instrument_symbol, evaluated_at DESC)")
@@ -465,6 +519,10 @@ class SQLiteAnalysisRepository:
             except sqlite3.OperationalError:
                 pass
             try:
+                connection.execute("ALTER TABLE chat_messages ADD COLUMN prompt_trace_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
                 connection.execute("ALTER TABLE chart_candles ADD COLUMN source_started_at TEXT NOT NULL DEFAULT ''")
                 connection.execute("UPDATE chart_candles SET source_started_at = started_at WHERE source_started_at = ''")
             except sqlite3.OperationalError:
@@ -482,6 +540,7 @@ class SQLiteAnalysisRepository:
             except sqlite3.OperationalError:
                 pass
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_time ON chat_messages (session_id, created_at)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_prompt_trace ON chat_messages (prompt_trace_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_prompt_blocks_session_kind ON chat_prompt_blocks (session_id, kind, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_annotations_session_message ON chat_annotations (session_id, message_id, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chat_plan_cards_session_message ON chat_plan_cards (session_id, message_id, created_at)")
@@ -2150,18 +2209,18 @@ class SQLiteAnalysisRepository:
             connection.commit()
         return self.get_chat_session(session_id)
 
-    def save_chat_message(self, *, message_id: str, session_id: str, parent_message_id: str | None, role: str, content: str, status: str, reply_title: str | None, stream_buffer: str, model: str | None, annotations: list[str], plan_cards: list[str], mounted_to_chart: bool, mounted_object_ids: list[str], is_key_conclusion: bool, request_payload: dict[str, Any], response_payload: dict[str, Any], created_at: datetime, updated_at: datetime) -> StoredChatMessage:
+    def save_chat_message(self, *, message_id: str, session_id: str, parent_message_id: str | None, role: str, content: str, status: str, reply_title: str | None, stream_buffer: str, model: str | None, annotations: list[str], plan_cards: list[str], mounted_to_chart: bool, mounted_object_ids: list[str], is_key_conclusion: bool, request_payload: dict[str, Any], response_payload: dict[str, Any], created_at: datetime, updated_at: datetime, prompt_trace_id: str | None = None) -> StoredChatMessage:
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO chat_messages (
-                    message_id, session_id, parent_message_id, role, content, status, reply_title, stream_buffer, model,
+                    message_id, session_id, parent_message_id, prompt_trace_id, role, content, status, reply_title, stream_buffer, model,
                     annotations_json, plan_cards_json, mounted_to_chart, mounted_object_ids_json, is_key_conclusion,
                     request_payload_json, response_payload_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    message_id, session_id, parent_message_id, role, content, status, reply_title, stream_buffer, model,
+                    message_id, session_id, parent_message_id, prompt_trace_id, role, content, status, reply_title, stream_buffer, model,
                     self._serialize_any_json(annotations), self._serialize_any_json(plan_cards), int(mounted_to_chart), self._serialize_any_json(mounted_object_ids), int(is_key_conclusion),
                     self._serialize_json(request_payload), self._serialize_json(response_payload), self._serialize_datetime(created_at), self._serialize_datetime(updated_at),
                 ),
@@ -2195,6 +2254,7 @@ class SQLiteAnalysisRepository:
             "reply_title": "reply_title",
             "stream_buffer": "stream_buffer",
             "model": "model",
+            "prompt_trace_id": "prompt_trace_id",
             "annotations": ("annotations_json", self._serialize_any_json),
             "plan_cards": ("plan_cards_json", self._serialize_any_json),
             "mounted_to_chart": ("mounted_to_chart", lambda value: int(bool(value))),
@@ -2376,13 +2436,121 @@ class SQLiteAnalysisRepository:
             rows = connection.execute(f"SELECT * FROM chat_plan_cards WHERE {' AND '.join(clauses)} ORDER BY created_at ASC LIMIT ?", tuple(parameters)).fetchall()
         return [self._row_to_chat_plan_card(row) for row in rows]
 
+    def save_atas_backfill_request(
+        self,
+        record: "ReplayWorkbenchAtasBackfillRecord",
+    ) -> "ReplayWorkbenchAtasBackfillRecord":
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO atas_backfill_requests (
+                    request_id, cache_key, instrument_symbol, contract_symbol, root_symbol,
+                    target_contract_symbol, target_root_symbol, display_timeframe, chart_instance_id,
+                    status, requested_at, acknowledged_at, expires_at, payload_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(request_id) DO UPDATE SET
+                    cache_key = excluded.cache_key,
+                    instrument_symbol = excluded.instrument_symbol,
+                    contract_symbol = excluded.contract_symbol,
+                    root_symbol = excluded.root_symbol,
+                    target_contract_symbol = excluded.target_contract_symbol,
+                    target_root_symbol = excluded.target_root_symbol,
+                    display_timeframe = excluded.display_timeframe,
+                    chart_instance_id = excluded.chart_instance_id,
+                    status = excluded.status,
+                    requested_at = excluded.requested_at,
+                    acknowledged_at = excluded.acknowledged_at,
+                    expires_at = excluded.expires_at,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    record.request_id,
+                    record.cache_key,
+                    record.instrument_symbol,
+                    record.contract_symbol,
+                    record.root_symbol,
+                    record.target_contract_symbol,
+                    record.target_root_symbol,
+                    record.display_timeframe.value,
+                    record.chart_instance_id,
+                    record.status.value,
+                    self._serialize_datetime(record.requested_at),
+                    self._serialize_datetime_optional(record.acknowledged_at),
+                    self._serialize_datetime(record.expires_at),
+                    self._serialize_any_json(record.model_dump(mode="json")),
+                    self._serialize_datetime(datetime.now(tz=UTC)),
+                ),
+            )
+            connection.commit()
+        return record
+
+    def list_recent_atas_backfill_requests(
+        self,
+        *,
+        requested_since: datetime,
+        statuses: list[str] | None = None,
+        limit: int = 500,
+    ) -> list["ReplayWorkbenchAtasBackfillRecord"]:
+        clauses = ["requested_at >= ?"]
+        parameters: list[Any] = [self._serialize_datetime(requested_since)]
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            parameters.extend(status.value if hasattr(status, "value") else str(status) for status in statuses)
+        parameters.append(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT payload_json FROM atas_backfill_requests WHERE {' AND '.join(clauses)} ORDER BY requested_at DESC LIMIT ?",
+                tuple(parameters),
+            ).fetchall()
+        return [self._row_to_atas_backfill_request(row) for row in rows]
+
+    def purge_atas_backfill_requests(
+        self,
+        *,
+        requested_before: datetime,
+        statuses: list[str] | None = None,
+    ) -> int:
+        clauses = ["requested_at < ?"]
+        parameters: list[Any] = [self._serialize_datetime(requested_before)]
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            parameters.extend(status.value if hasattr(status, "value") else str(status) for status in statuses)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"DELETE FROM atas_backfill_requests WHERE {' AND '.join(clauses)}",
+                tuple(parameters),
+            )
+            connection.commit()
+        return cursor.rowcount
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path, timeout=30.0)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA busy_timeout=30000")
-        connection.execute("PRAGMA synchronous=NORMAL")
+        self._apply_pragma_with_fallback(connection, "journal_mode=WAL")
+        self._apply_pragma_with_fallback(connection, "synchronous=NORMAL")
         return connection
+
+    def _apply_pragma_with_fallback(self, connection: sqlite3.Connection, pragma: str) -> None:
+        try:
+            connection.execute(f"PRAGMA {pragma}")
+        except sqlite3.OperationalError as exc:
+            if pragma not in self._sqlite_pragma_fallbacks_logged:
+                logger.warning(
+                    "SQLite pragma disabled for this runtime: db=%s pragma=%s detail=%s",
+                    self._database_path,
+                    pragma,
+                    exc,
+                )
+                self._sqlite_pragma_fallbacks_logged.add(pragma)
+
+    def _row_to_atas_backfill_request(self, row: sqlite3.Row) -> "ReplayWorkbenchAtasBackfillRecord":
+        from atas_market_structure.models._replay import ReplayWorkbenchAtasBackfillRecord
+
+        return ReplayWorkbenchAtasBackfillRecord.model_validate(self._parse_json(row["payload_json"]))
 
     def _row_to_liquidity_memory(self, row: sqlite3.Row) -> StoredLiquidityMemory:
         return StoredLiquidityMemory(
@@ -2476,6 +2644,7 @@ class SQLiteAnalysisRepository:
             message_id=row["message_id"],
             session_id=row["session_id"],
             parent_message_id=row["parent_message_id"],
+            prompt_trace_id=row["prompt_trace_id"] if "prompt_trace_id" in row.keys() else None,
             role=row["role"],
             content=row["content"],
             status=row["status"],

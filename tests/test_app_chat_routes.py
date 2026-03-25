@@ -208,3 +208,104 @@ def test_http_bridge_supports_patch_requests_for_chat_sessions() -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_prompt_trace_routes_expose_trace_by_message_trace_id_and_session() -> None:
+    repository = SQLiteAnalysisRepository(database_path=TEST_DB_DIR / f"{uuid4().hex}.db")
+    repository.initialize()
+    application = MarketStructureApplication(
+        repository=repository,
+        replay_ai_chat_service=ReplayAiChatService(repository=repository, assistant=FakeReplayChatAssistant()),
+    )
+
+    create_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "Prompt Trace 路由",
+                "symbol": "NQ",
+                "contract_id": "NQ",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    assert create_response.status_code == 201
+    session_id = json.loads(create_response.body)["session"]["session_id"]
+
+    snapshot_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-snapshots",
+        load_fixture("replay_workbench.snapshot.sample.json"),
+    )
+    assert snapshot_response.status_code == 201
+    replay_ingestion_id = json.loads(snapshot_response.body)["ingestion_id"]
+
+    reply_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/reply",
+        json.dumps(
+            {
+                "replay_ingestion_id": replay_ingestion_id,
+                "preset": ReplayAiChatPreset.GENERAL.value,
+                "user_input": "请解释一下这轮分析到底看了什么。",
+                "selected_block_ids": [],
+                "pinned_block_ids": [],
+                "include_memory_summary": True,
+                "include_recent_messages": True,
+                "attachments": [],
+            }
+        ).encode("utf-8"),
+    )
+    assert reply_response.status_code == 200
+    reply_payload = json.loads(reply_response.body)
+    prompt_trace_id = reply_payload["assistant_message"]["prompt_trace_id"]
+    message_id = reply_payload["assistant_message"]["message_id"]
+
+    by_message_response = application.dispatch(
+        "GET",
+        f"/api/v1/workbench/messages/{message_id}/prompt-trace",
+    )
+    assert by_message_response.status_code == 200
+    by_message_payload = json.loads(by_message_response.body)
+    assert by_message_payload["trace"]["prompt_trace_id"] == prompt_trace_id
+    assert by_message_payload["trace"]["message_id"] == message_id
+
+    by_id_response = application.dispatch(
+        "GET",
+        f"/api/v1/workbench/prompt-traces/{prompt_trace_id}",
+    )
+    assert by_id_response.status_code == 200
+    by_id_payload = json.loads(by_id_response.body)
+    assert by_id_payload["trace"]["prompt_trace_id"] == prompt_trace_id
+    assert by_id_payload["trace"]["session_id"] == session_id
+
+    by_session_response = application.dispatch(
+        "GET",
+        f"/api/v1/workbench/prompt-traces?session_id={session_id}",
+    )
+    assert by_session_response.status_code == 200
+    by_session_payload = json.loads(by_session_response.body)
+    assert by_session_payload["schema_version"] == "workbench_prompt_trace_list_envelope_v1"
+    assert len(by_session_payload["traces"]) == 1
+    assert by_session_payload["traces"][0]["prompt_trace_id"] == prompt_trace_id
+
+
+def test_prompt_trace_list_route_requires_session_id_query_parameter() -> None:
+    application = build_application()
+
+    response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/prompt-traces",
+    )
+
+    assert response.status_code == 400
+    payload = json.loads(response.body)
+    assert payload["error"] == "missing_query_parameter"
+    assert payload["detail"] == "session_id is required."

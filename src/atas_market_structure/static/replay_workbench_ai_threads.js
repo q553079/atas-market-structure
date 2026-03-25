@@ -191,6 +191,8 @@ function mapServerMessage(message, planCardsByMessage = new Map()) {
   return {
     message_id: messageId,
     sessionId: message.session_id || message.sessionId || null,
+    parent_message_id: message.parent_message_id || message.parentMessageId || null,
+    promptTraceId: message.prompt_trace_id || message.promptTraceId || null,
     role: message.role,
     content: message.content || "",
     status: message.status || (message.role === "assistant" ? "completed" : "sent"),
@@ -203,6 +205,8 @@ function mapServerMessage(message, planCardsByMessage = new Map()) {
     meta: {
       model: message.model || null,
       replyTitle: message.reply_title || message.replyTitle || null,
+      promptTraceId: message.prompt_trace_id || message.promptTraceId || null,
+      parent_message_id: message.parent_message_id || message.parentMessageId || null,
       attachments,
       planCards: planCardsByMessage.get(messageId) || [],
     },
@@ -267,8 +271,12 @@ function normalizeMessageShape(message) {
   const meta = message.meta && typeof message.meta === "object" ? message.meta : {};
   return {
     ...message,
+    parent_message_id: message.parent_message_id || message.parentMessageId || meta.parent_message_id || null,
+    promptTraceId: message.promptTraceId || message.prompt_trace_id || meta.promptTraceId || meta.prompt_trace_id || null,
     meta: {
       ...meta,
+      promptTraceId: message.promptTraceId || message.prompt_trace_id || meta.promptTraceId || meta.prompt_trace_id || null,
+      parent_message_id: message.parent_message_id || message.parentMessageId || meta.parent_message_id || null,
       attachments: normalizeAttachmentList(
         Array.isArray(meta.attachments) ? meta.attachments : (Array.isArray(message.attachments) ? message.attachments : [])
       ),
@@ -772,6 +780,13 @@ function renderMessage(message, { expandedLongText = false } = {}) {
           data-message-id="${escapeHtml(message.message_id || "")}"
           ${canProjectReply ? "" : "disabled"}
         >查看图表</button>
+        <button
+          type="button"
+          class="secondary tiny"
+          data-message-action="prompt-trace"
+          data-message-id="${escapeHtml(message.message_id || "")}"
+          data-prompt-trace-id="${escapeHtml(message.promptTraceId || message.meta?.promptTraceId || "")}"
+        >查看 Prompt Trace</button>
         <button type="button" class="secondary tiny" data-message-action="regenerate" data-message-id="${escapeHtml(message.message_id || "")}">重新生成</button>
       </div>
     `
@@ -2340,6 +2355,8 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     const message = {
       message_id: createMessageId(),
       sessionId: session.id,
+      parent_message_id: mergedMeta.parent_message_id || mergedMeta.parentMessageId || null,
+      promptTraceId: mergedMeta.promptTraceId || mergedMeta.prompt_trace_id || null,
       role,
       content,
       status: mergedMeta.status || (role === "assistant" ? "completed" : "sent"),

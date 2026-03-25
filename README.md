@@ -240,6 +240,68 @@ Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/review/episode-
 Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/v1/workbench/review/projection?instrument_symbol=NQ&window_start=2026-03-23T09:29:00Z&window_end=2026-03-23T10:05:00Z"
 ```
 
+### SPX 期权归档与自动分析
+
+把下载目录里最新的 `quotedata` CSV 归档到项目 `data/`：
+
+```powershell
+python .\scripts\archive_downloaded_options_csv.py --copy --date 2026-03-25
+```
+
+归档后直接生成 gamma 分析产物：
+
+```powershell
+python .\scripts\archive_downloaded_options_csv.py `
+  --copy `
+ --date 2026-03-25 `
+  --analyze `
+  --es-price 5042
+```
+
+如果再加 `--ai-analysis`，系统会使用研究型 Markdown prompt 生成更完整的期权结构报告，而不是旧的 6 行口播风格：
+
+```powershell
+python .\scripts\archive_downloaded_options_csv.py `
+  --copy `
+  --date 2026-03-25 `
+  --analyze `
+  --ai-analysis
+```
+
+分析产物默认会一起输出到目标 artifact 目录，包括：
+
+- `*_gamma_map.svg`
+- `*_gamma_map.json`
+- `*_gamma_map.txt`
+- `*_strategy_context.json`
+- `*_strategy_context.txt`
+- `*_options_report.md`
+- `*_options_report_prompt.txt`（仅当启用 AI 报告时生成）
+
+其中 `*_options_report.md` 会嵌入前面生成的图；启用 AI 报告时，文件主体会变成 richer prompt 生成的完整研究报告，并保留结构化附件路径。
+
+默认归档目录结构：
+
+```text
+data/s&p500_options/YYYY/YYYY-MM-DD/^spx_quotedata_YYYYMMDD_HH00Z.csv
+```
+
+默认分析产物目录：
+
+```text
+data/s&p500_options/YYYY/YYYY-MM-DD/gamma_artifacts/
+```
+
+也可以通过 HTTP 直接触发一体化归档与分析：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8080/api/v1/options/archive-and-analyze `
+  -ContentType "application/json" `
+  -Body '{"source_dir":"C:\\Users\\666\\Downloads","data_root":"D:\\docker\\atas-market-structure\\data","date":"2026-03-25","symbol":"spx","copy":true,"es_price":5042}'
+```
+
 ## 开发顺序
 
 推荐的本地开发顺序：

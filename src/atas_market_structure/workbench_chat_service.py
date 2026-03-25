@@ -131,16 +131,25 @@ from atas_market_structure.workbench_common import (
     chunk_stream_text,
     slugify_chat_title,
 )
+from atas_market_structure.workbench_event_service import ReplayWorkbenchEventService
+from atas_market_structure.workbench_prompt_trace_service import ReplayWorkbenchPromptTraceService
 
 LOGGER = logging.getLogger(__name__)
-
 
 class ReplayWorkbenchChatService:
     """Session-aware replay workbench chat orchestration built on top of the existing repository and AI chat service."""
 
-    def __init__(self, repository: AnalysisRepository, replay_ai_chat_service) -> None:
+    def __init__(
+        self,
+        repository: AnalysisRepository,
+        replay_ai_chat_service,
+        event_service: ReplayWorkbenchEventService | None = None,
+        prompt_trace_service: ReplayWorkbenchPromptTraceService | None = None,
+    ) -> None:
         self._repository = repository
         self._replay_ai_chat_service = replay_ai_chat_service
+        self._event_service = event_service
+        self._prompt_trace_service = prompt_trace_service
         self._stream_registry_lock = Lock()
         self._stream_registry: dict[str, dict[str, Any]] = {}
 
@@ -454,15 +463,35 @@ class ReplayWorkbenchChatService:
             updated_at=now,
         )
         history = self._build_history_for_reply(session_id, request.include_recent_messages, request.include_memory_summary)
-        return PreparedReplyTurn(
+        prepared = PreparedReplyTurn(
             session=session,
             replay_ingestion_id=replay_ingestion_id,
             user_record=user_record,
             assistant_pending=assistant_pending,
             history=history,
             request=request,
+            prompt_trace_id=None,
             parent_message_id=parent_message_id,
         )
+        if self._prompt_trace_service is not None:
+            model_user_input = self._build_model_user_input(prepared)
+            prompt_trace = self._prompt_trace_service.create_prompt_trace(
+                session=session,
+                message_id=assistant_pending.message_id,
+                replay_ingestion_id=replay_ingestion_id,
+                request=request,
+                history=history,
+                model_user_input=model_user_input,
+            )
+            updated_pending = self._repository.update_chat_message(
+                assistant_pending.message_id,
+                prompt_trace_id=prompt_trace.prompt_trace_id,
+                updated_at=now,
+            )
+            if updated_pending is not None:
+                prepared.assistant_pending = updated_pending
+            prepared.prompt_trace_id = prompt_trace.prompt_trace_id
+        return prepared
 
     def _run_reply_model(self, prepared: PreparedReplyTurn):
         if self._replay_ai_chat_service is None:
@@ -524,40 +553,43 @@ class ReplayWorkbenchChatService:
             )
 
     def _finalize_reply_turn(self, prepared: PreparedReplyTurn, replay_response) -> FinalizedReplyTurn:
-        plan_cards = self._extract_plan_cards(prepared.session, prepared.assistant_pending.message_id, replay_response)
-        annotations = self._build_annotations(
-            prepared.session,
-            prepared.assistant_pending.message_id,
-            replay_response,
-            plan_cards,
-            prepared.request,
-        )
+        if self._event_service is not None:
+            backbone = self._event_service.process_reply_event_backbone(
+                session=prepared.session,
+                source_message_id=prepared.assistant_pending.message_id,
+                source_prompt_trace_id=prepared.prompt_trace_id,
+                replay_response=replay_response,
+            )
+            plan_cards, annotations = backbone.plan_cards, backbone.annotations
+            response_payload = {
+                **replay_response.model_dump(mode="json"),
+                "event_candidate_ids": [item.event_id for item in backbone.candidates],
+                "prompt_trace_id": prepared.prompt_trace_id,
+            }
+        else:
+            plan_cards = self._extract_plan_cards(prepared.session, prepared.assistant_pending.message_id, replay_response)
+            annotations = self._build_annotations(prepared.session, prepared.assistant_pending.message_id, replay_response, plan_cards, prepared.request)
+            response_payload = {**replay_response.model_dump(mode="json"), "prompt_trace_id": prepared.prompt_trace_id}
         assistant_record = self._repository.update_chat_message(
             prepared.assistant_pending.message_id,
             content=replay_response.reply_text,
             status="completed",
             model=replay_response.model,
+            prompt_trace_id=prepared.prompt_trace_id,
             plan_cards=[item.plan_id for item in plan_cards],
             annotations=[item.annotation_id for item in annotations],
-            response_payload=replay_response.model_dump(mode="json"),
+            response_payload=response_payload,
             updated_at=datetime.now(tz=UTC),
         )
-        if assistant_record is None:
-            raise ReplayWorkbenchChatError(f"Assistant message '{prepared.assistant_pending.message_id}' disappeared during update.")
-        memory = self._refresh_session_memory(
-            prepared.session.session_id,
-            replay_response.model,
-            prepared.request.user_input,
-            replay_response.reply_text,
-            annotations,
-            plan_cards,
-        )
-        self._repository.update_chat_session(
-            prepared.session.session_id,
-            active_model=replay_response.model,
-            memory_summary_id=memory.memory_summary_id if memory else None,
-            updated_at=datetime.now(tz=UTC),
-        )
+        if assistant_record is None: raise ReplayWorkbenchChatError(f"Assistant message '{prepared.assistant_pending.message_id}' disappeared during update.")
+        if self._prompt_trace_service is not None and prepared.prompt_trace_id:
+            self._prompt_trace_service.finalize_prompt_trace(
+                prepared.prompt_trace_id,
+                model_name=replay_response.model,
+                attached_event_ids=response_payload.get("event_candidate_ids") if isinstance(response_payload, dict) else None,
+            )
+        memory = self._refresh_session_memory(prepared.session.session_id, replay_response.model, prepared.request.user_input, replay_response.reply_text, annotations, plan_cards)
+        self._repository.update_chat_session(prepared.session.session_id, active_model=replay_response.model, memory_summary_id=memory.memory_summary_id if memory else None, updated_at=datetime.now(tz=UTC))
         return FinalizedReplyTurn(
             session_id=prepared.session.session_id,
             user_record=prepared.user_record,
@@ -566,6 +598,7 @@ class ReplayWorkbenchChatService:
             annotations=annotations,
             memory=memory,
             replay_response=replay_response,
+            prompt_trace_id=prepared.prompt_trace_id,
         )
 
     def _build_reply_response(self, finalized: FinalizedReplyTurn) -> ChatReplyResponse:
@@ -596,6 +629,7 @@ class ReplayWorkbenchChatService:
                 "data": {
                     "session_id": finalized.session_id,
                     "message_id": finalized.assistant_record.message_id,
+                    "prompt_trace_id": finalized.prompt_trace_id,
                     "model": replay_response.model,
                     "provider": replay_response.provider,
                     "session_only": bool(getattr(replay_response, "session_only", False)),
@@ -652,6 +686,7 @@ class ReplayWorkbenchChatService:
                 "data": {
                     "message_id": finalized.assistant_record.message_id,
                     "status": finalized.assistant_record.status,
+                    "prompt_trace_id": finalized.prompt_trace_id,
                     "content": replay_response.reply_text,
                     "reply_title": finalized.assistant_record.reply_title,
                     "provider": replay_response.provider,
@@ -683,6 +718,7 @@ class ReplayWorkbenchChatService:
                 "data": {
                     "session_id": interrupted.session_id,
                     "message_id": interrupted.message_id,
+                    "prompt_trace_id": interrupted.prompt_trace_id,
                     "model": interrupted.model,
                     "provider": "interrupted",
                 },
@@ -1580,6 +1616,7 @@ class ReplayWorkbenchChatService:
             message_id=stored.message_id,
             session_id=stored.session_id,
             parent_message_id=stored.parent_message_id,
+            prompt_trace_id=stored.prompt_trace_id,
             role=stored.role,
             content=stored.content,
             status=stored.status,

@@ -276,6 +276,42 @@ from atas_market_structure.models._chat import (
     UpdateChatSessionRequest,
     UpdateMountedMessageRequest,
 )
+from atas_market_structure.models._workbench_events import (
+    CreateEventCandidateRequest,
+    EventCandidate,
+    EventCandidateKind,
+    EventCandidateLifecycleState,
+    EventCandidatePatchRequest,
+    EventCandidateSourceType,
+    EventLifecycleAction,
+    EventMemoryBucket,
+    EventMemoryEntry,
+    EventMutationEnvelope,
+    EventPromotionTarget,
+    EventStreamAction,
+    EventStreamEntry,
+    EventStreamEnvelope,
+    EventStreamExtractRequest,
+    EventStreamQuery,
+    PromoteEventCandidateRequest,
+)
+from atas_market_structure.models._workbench_prompt_traces import (
+    PromptTrace,
+    PromptTraceBlockSummary,
+    PromptTraceEnvelope,
+    PromptTraceListEnvelope,
+)
+from atas_market_structure.models._workbench_event_outcomes import (
+    EventOutcomeLedger,
+    EventOutcomeListEnvelope,
+    EventOutcomeQuery,
+    EventOutcomeResult,
+    EventStatsBreakdownBucket,
+    EventStatsBreakdownEnvelope,
+    EventStatsQuery,
+    EventStatsSummary,
+    EventStatsSummaryEnvelope,
+)
 from atas_market_structure.models._responses import (
     AdapterAcceptedSummary,
     AdapterAcceptedResponse,

@@ -17,6 +17,11 @@ EPISODE_EVALUATION_SCHEMA_VERSION = "episode_evaluation_v1"
 TUNING_INPUT_BUNDLE_SCHEMA_VERSION = "tuning_input_bundle_v1"
 TUNING_RECOMMENDATION_SCHEMA_VERSION = "tuning_recommendation_v1"
 PROFILE_PATCH_CANDIDATE_SCHEMA_VERSION = "profile_patch_candidate_v1"
+EVENT_CANDIDATE_SCHEMA_VERSION = "event_candidate_v1"
+EVENT_STREAM_ENTRY_SCHEMA_VERSION = "event_stream_entry_v1"
+EVENT_MEMORY_ENTRY_SCHEMA_VERSION = "event_memory_entry_v1"
+PROMPT_TRACE_SCHEMA_VERSION = "prompt_trace_v1"
+EVENT_OUTCOME_LEDGER_SCHEMA_VERSION = "event_outcome_ledger_v1"
 
 ANALYSIS_ENVELOPE_SCHEMA_VERSION = "analysis_envelope_v1"
 INGESTION_ENVELOPE_SCHEMA_VERSION = "ingestion_envelope_v1"
@@ -30,6 +35,13 @@ REPLAY_WORKBENCH_TUNING_REVIEW_ENVELOPE_SCHEMA_VERSION = "replay_workbench_tunin
 REPLAY_WORKBENCH_PROFILE_ENGINE_ENVELOPE_SCHEMA_VERSION = "replay_workbench_profile_engine_envelope_v1"
 REPLAY_WORKBENCH_HEALTH_STATUS_ENVELOPE_SCHEMA_VERSION = "replay_workbench_health_status_envelope_v1"
 REPLAY_WORKBENCH_PROJECTION_ENVELOPE_SCHEMA_VERSION = "replay_workbench_projection_envelope_v1"
+WORKBENCH_EVENT_STREAM_ENVELOPE_SCHEMA_VERSION = "workbench_event_stream_envelope_v1"
+WORKBENCH_EVENT_MUTATION_ENVELOPE_SCHEMA_VERSION = "workbench_event_mutation_envelope_v1"
+WORKBENCH_PROMPT_TRACE_ENVELOPE_SCHEMA_VERSION = "workbench_prompt_trace_envelope_v1"
+WORKBENCH_PROMPT_TRACE_LIST_ENVELOPE_SCHEMA_VERSION = "workbench_prompt_trace_list_envelope_v1"
+WORKBENCH_EVENT_OUTCOME_LIST_ENVELOPE_SCHEMA_VERSION = "workbench_event_outcome_list_envelope_v1"
+WORKBENCH_EVENT_STATS_SUMMARY_ENVELOPE_SCHEMA_VERSION = "workbench_event_stats_summary_envelope_v1"
+WORKBENCH_EVENT_STATS_BREAKDOWN_ENVELOPE_SCHEMA_VERSION = "workbench_event_stats_breakdown_envelope_v1"
 
 DEFAULT_LEGACY_SCHEMA_VERSIONS: tuple[str, ...] = ("1.0.0",)
 

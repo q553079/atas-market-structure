@@ -7,13 +7,14 @@ services:
     environment:
       ATAS_MS_HOST: 0.0.0.0
       ATAS_MS_PORT: 8080
-      ATAS_MS_DB_PATH: /app/data/market_structure.db
+      ATAS_MS_DB_PATH: /app/sqlite/market_structure.db
     env_file:
       - .env
     ports:
       - "8080:8080"
     volumes:
       - ./data:/app/data
+      - sqlite_data:/app/sqlite
     restart: unless-stopped
   strategy-library-ocr:
     profiles:
