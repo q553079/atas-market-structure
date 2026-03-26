@@ -43,6 +43,18 @@ def handle_workbench_routes(
             },
         )
 
+    if method == "GET" and route_path in {"/workbench/pipeline-monitor", "/static/pipeline_monitor.html"}:
+        html = (app._static_dir / "pipeline_monitor.html").read_text(encoding="utf-8")
+        return app._text_response(
+            200,
+            html,
+            "text/html; charset=utf-8",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+            },
+        )
+
     if method == "GET" and route_path.startswith("/static/"):
         rel = route_path.removeprefix("/static/")
         candidate = (app._static_dir / rel).resolve()
@@ -202,6 +214,25 @@ def handle_workbench_routes(
         ingestions = app._repository.list_ingestions(limit=1000)
         symbols = sorted(set(item.instrument_symbol for item in ingestions))
         return app._json_response(200, {"instruments": symbols})
+
+    if method == "GET" and route_path == "/api/v1/workbench/pipeline-monitor":
+        contract_symbol = query.get("contract_symbol", [None])[0]
+        root_symbol = query.get("root_symbol", [None])[0]
+        try:
+            days = int(query.get("days", ["10"])[0])
+            flow_window_minutes = int(query.get("flow_window_minutes", ["15"])[0])
+        except ValueError:
+            return app._json_response(
+                400,
+                {"error": "invalid_query_parameter", "detail": "days and flow_window_minutes must be integers."},
+            )
+        payload = app._workbench_pipeline_monitor_service.get_monitor_snapshot(
+            contract_symbol=contract_symbol,
+            root_symbol=root_symbol,
+            days=days,
+            flow_window_minutes=flow_window_minutes,
+        )
+        return app._json_response(200, payload)
 
     if method == "GET" and route_path == "/api/v1/workbench/chart-candles":
         symbol = query.get("symbol", [None])[0]

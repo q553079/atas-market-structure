@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import json
 import logging
+import math
 from threading import Lock
 from typing import Any, Sequence
 from uuid import uuid4
@@ -126,6 +127,7 @@ from atas_market_structure.workbench_common import (
     parse_utc,
     payload_to_model,
 )
+from atas_market_structure.workbench_replay_backfill_ranges import chunk_backfill_ranges
 
 LOGGER = logging.getLogger(__name__)
 
@@ -164,6 +166,7 @@ class ReplayWorkbenchService:
     _BACKFILL_DISPATCH_LEASE = timedelta(seconds=12)
     _BACKFILL_RECORD_RETENTION = timedelta(hours=2)
     _AUTO_BACKFILL_ACK_COOLDOWN_FLOOR = timedelta(seconds=45)
+    _LIVE_TAIL_PRICE_EPSILON = 1e-6
 
     def __init__(self, repository: AnalysisRepository) -> None:
         self._repository = repository
@@ -683,16 +686,26 @@ class ReplayWorkbenchService:
             window_end=window_end,
         )
         if normalized:
-            return normalized
+            chunked = chunk_backfill_ranges(
+                display_timeframe=display_timeframe,
+                requested_ranges=normalized,
+                max_bars_per_range=self._INITIAL_WINDOW_BARS.get(display_timeframe, 180),
+            )
+            return chunked[:1]
         fallback = ReplayWorkbenchBackfillRange(
             range_start=self._ensure_utc(window_start),
             range_end=self._ensure_utc(window_end),
         )
-        return self._normalize_backfill_ranges(
-            requested_ranges=[fallback],
-            window_start=window_start,
-            window_end=window_end,
+        chunked_fallback = chunk_backfill_ranges(
+            display_timeframe=display_timeframe,
+            requested_ranges=self._normalize_backfill_ranges(
+                requested_ranges=[fallback],
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            max_bars_per_range=self._INITIAL_WINDOW_BARS.get(display_timeframe, 180),
         )
+        return chunked_fallback[:1]
 
     def _find_latest_backfill_request(
         self,
@@ -1079,54 +1092,27 @@ class ReplayWorkbenchService:
         preaggregated_window_minutes = max(required_minutes * 8, timeframe_minutes * 64, 180)
         preaggregated_window_start = now_utc - timedelta(minutes=preaggregated_window_minutes)
         preaggregated_limit = max(500, lookback_bars * 20)
-        preaggregated_candles = self._load_live_tail_raw_mirror_candles(
+
+        preaggregated_candles = self._load_live_tail_chart_candles(
             instrument_symbol=symbol,
             display_timeframe=display_timeframe,
-            chart_instance_id=chart_instance_id,
             window_start=preaggregated_window_start,
             window_end=now_utc,
             limit=preaggregated_limit,
         )
         if preaggregated_candles:
-            history_source_kind = "atas_chart_bars_raw"
-
-        try:
-            if not preaggregated_candles:
-                chart_rows = self._repository.list_chart_candles(
-                    symbol=symbol,
-                    timeframe=display_timeframe.value,
-                    window_start=preaggregated_window_start,
-                    window_end=now_utc,
-                    limit=preaggregated_limit,
-                )
-                preaggregated_candles = [
-                    ReplayChartBar(
-                        started_at=row.started_at,
-                        ended_at=row.ended_at,
-                        open=row.open,
-                        high=row.high,
-                        low=row.low,
-                        close=row.close,
-                        volume=row.volume,
-                        delta=row.delta,
-                        bid_volume=None,
-                        ask_volume=None,
-                        source_kind="chart_candles",
-                        is_synthetic=False,
-                    )
-                    for row in chart_rows
-                    # Keep the legacy behavior: pure zero-activity heartbeat bars should
-                    # not be surfaced as live candles.
-                    if (
-                        (row.volume or 0) > 0
-                        or abs(float(row.close) - float(row.open)) > 1e-9
-                    )
-                ]
-                if preaggregated_candles:
-                    history_source_kind = "chart_candles"
-        except Exception:
-            if history_source_kind == "none":
-                preaggregated_candles = []
+            history_source_kind = "chart_candles"
+        elif chart_instance_id:
+            preaggregated_candles = self._load_live_tail_raw_mirror_candles(
+                instrument_symbol=symbol,
+                display_timeframe=display_timeframe,
+                chart_instance_id=chart_instance_id,
+                window_start=preaggregated_window_start,
+                window_end=now_utc,
+                limit=preaggregated_limit,
+            )
+            if preaggregated_candles:
+                history_source_kind = "atas_chart_bars_raw"
 
         tick_quote = self._try_get_latest_tick_quote(symbol)
         tick_observed_at = tick_quote.get("observed_at") if tick_quote is not None else None
@@ -1148,28 +1134,29 @@ class ReplayWorkbenchService:
             tick_quote.get("best_ask") if tick_quote is not None else None
         )
 
-        # Pull enough recent continuous-state messages for overlays and rich state.
+        # Live polling should stay on a short recent window. Full replay rebuilds
+        # belong to the snapshot builder, not to the 5s tail refresh.
         estimated_messages_per_minute = 6  # ~10s cadence (tune if adapter cadence changes)
-        candidates_limit = int(required_minutes * estimated_messages_per_minute * 3)
-        candidates_limit = max(5000, min(50000, candidates_limit))
-
-        candidates = self._repository.list_ingestions(
-            ingestion_kind="adapter_continuous_state",
+        continuous_scan_window_minutes = min(max(timeframe_minutes * 2, 15), 180)
+        candidates_limit = max(
+            64,
+            min(1200, continuous_scan_window_minutes * estimated_messages_per_minute * 2),
+        )
+        matched = self._load_live_tail_continuous_state_messages(
             instrument_symbol=symbol,
+            chart_instance_id=chart_instance_id,
+            stored_at_after=now_utc - timedelta(minutes=continuous_scan_window_minutes),
             limit=candidates_limit,
         )
-        matched: list[tuple[datetime, StoredIngestion]] = []
-        latest_payload: dict[str, Any] | None = None
-        latest_observed_at: datetime | None = None
-        for stored in candidates:
-            payload = stored.observed_payload
-            if not self._chart_instance_filter_matches_dict_payload(chart_instance_id, payload):
-                continue
-            observed_at = self._payload_observed_at(payload)
-            matched.append((observed_at, stored))
-            if latest_observed_at is None or observed_at > latest_observed_at:
-                latest_observed_at = observed_at
-                latest_payload = payload
+        if not matched:
+            matched = self._load_live_tail_continuous_state_messages(
+                instrument_symbol=symbol,
+                chart_instance_id=chart_instance_id,
+                stored_at_after=None,
+                limit=max(candidates_limit, 512),
+            )
+        latest_payload: dict[str, Any] | None = matched[-1][1].observed_payload if matched else None
+        latest_observed_at: datetime | None = matched[-1][0] if matched else None
 
         if tick_observed_at is not None and (latest_observed_at is None or tick_observed_at > latest_observed_at):
             latest_observed_at = tick_observed_at
@@ -1230,16 +1217,16 @@ class ReplayWorkbenchService:
             )
 
         recent_messages: list[StoredIngestion] = []
-        if latest_observed_at is not None:
-            recent_cutoff = latest_observed_at - timedelta(
-                minutes=(self._TIMEFRAME_MINUTES.get(display_timeframe, 1) * max(lookback_bars, 2)) + 1
-            )
+        if matched:
+            if preaggregated_candles and latest_observed_at is not None:
+                recent_cutoff = latest_observed_at - timedelta(minutes=timeframe_minutes + 1)
+            else:
+                recent_cutoff = matched[0][0]
             if preaggregated_candles:
                 chart_tail_cutoff = preaggregated_candles[-1].ended_at - timedelta(minutes=timeframe_minutes)
                 if chart_tail_cutoff < recent_cutoff:
                     recent_cutoff = chart_tail_cutoff
             recent_messages = [stored for observed_at, stored in matched if observed_at >= recent_cutoff]
-            recent_messages.sort(key=lambda item: self._payload_observed_at(item.observed_payload))
 
         continuous_overlay_count = 0
         if preaggregated_candles:
@@ -1306,6 +1293,7 @@ class ReplayWorkbenchService:
             latest_backfill_request is not None
             and latest_backfill_request.status == ReplayWorkbenchAtasBackfillStatus.ACKNOWLEDGED
             and integrity.status == "complete"
+            and history_source_kind != "chart_candles"
         )
 
         if latest_payload is not None:
@@ -1392,7 +1380,7 @@ class ReplayWorkbenchService:
             latest_price_source=latest_price_source,
             best_bid_source=best_bid_source,
             best_ask_source=best_ask_source,
-            source_message_count=len(recent_messages),
+            source_message_count=len(recent_messages) if recent_messages else (1 if latest_payload is not None else 0),
             candles=live_candles,
             event_annotations=event_annotations,
             focus_regions=focus_regions,
@@ -1405,6 +1393,87 @@ class ReplayWorkbenchService:
             snapshot_refresh_required=snapshot_refresh_required,
             latest_backfill_request=latest_backfill_request,
         )
+
+    def _load_live_tail_chart_candles(
+        self,
+        *,
+        instrument_symbol: str,
+        display_timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int,
+    ) -> list[ReplayChartBar]:
+        try:
+            chart_rows = self._repository.list_chart_candles(
+                symbol=instrument_symbol,
+                timeframe=display_timeframe.value,
+                window_start=window_start,
+                window_end=window_end,
+                limit=limit,
+            )
+        except Exception:
+            LOGGER.exception(
+                "get_live_tail: chart_candles query failed symbol=%s timeframe=%s",
+                instrument_symbol,
+                display_timeframe.value,
+            )
+            return []
+
+        candles = [
+            ReplayChartBar(
+                started_at=row.started_at,
+                ended_at=row.ended_at,
+                open=row.open,
+                high=row.high,
+                low=row.low,
+                close=row.close,
+                volume=row.volume,
+                delta=row.delta,
+                bid_volume=None,
+                ask_volume=None,
+                source_kind="chart_candles",
+                is_synthetic=False,
+            )
+            for row in chart_rows
+        ]
+        return self._sanitize_live_tail_history_candles(
+            candles=candles,
+            instrument_symbol=instrument_symbol,
+            display_timeframe=display_timeframe,
+            source_kind="chart_candles",
+        )
+
+    def _load_live_tail_continuous_state_messages(
+        self,
+        *,
+        instrument_symbol: str,
+        chart_instance_id: str | None,
+        stored_at_after: datetime | None,
+        limit: int,
+    ) -> list[tuple[datetime, StoredIngestion]]:
+        try:
+            candidates = self._repository.list_ingestions(
+                ingestion_kind="adapter_continuous_state",
+                instrument_symbol=instrument_symbol,
+                limit=limit,
+                stored_at_after=stored_at_after,
+            )
+        except Exception:
+            LOGGER.exception(
+                "get_live_tail: continuous_state query failed symbol=%s chart_instance_id=%s",
+                instrument_symbol,
+                chart_instance_id,
+            )
+            return []
+
+        matched: list[tuple[datetime, StoredIngestion]] = []
+        for stored in candidates:
+            payload = stored.observed_payload
+            if not self._chart_instance_filter_matches_dict_payload(chart_instance_id, payload):
+                continue
+            matched.append((self._payload_observed_at(payload), stored))
+        matched.sort(key=lambda item: item[0])
+        return matched
 
     def _load_live_tail_raw_mirror_candles(
         self,
@@ -1465,7 +1534,12 @@ class ReplayWorkbenchService:
                 )
             )
 
-        candles.sort(key=lambda item: item.started_at)
+        candles = self._sanitize_live_tail_history_candles(
+            candles=candles,
+            instrument_symbol=instrument_symbol,
+            display_timeframe=display_timeframe,
+            source_kind="atas_chart_bars_raw",
+        )
         if candles:
             LOGGER.info(
                 "get_live_tail: using raw mirror history symbol=%s chart_instance_id=%s timeframe=%s candles=%s",
@@ -3306,8 +3380,8 @@ class ReplayWorkbenchService:
         try:
             quote = repository.get_latest_tick_quote(
                 symbol=symbol,
-                lookback_seconds=300,
-                limit=3000,
+                lookback_seconds=90,
+                limit=512,
             )
         except Exception:
             return None
@@ -3321,6 +3395,70 @@ class ReplayWorkbenchService:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @classmethod
+    def _is_structurally_valid_history_candle(cls, candle: ReplayChartBar) -> bool:
+        try:
+            open_price = float(candle.open)
+            high_price = float(candle.high)
+            low_price = float(candle.low)
+            close_price = float(candle.close)
+        except (TypeError, ValueError):
+            return False
+
+        if any(not math.isfinite(value) for value in (open_price, high_price, low_price, close_price)):
+            return False
+
+        epsilon = cls._LIVE_TAIL_PRICE_EPSILON
+        if high_price + epsilon < low_price:
+            return False
+        if high_price + epsilon < max(open_price, close_price):
+            return False
+        if low_price - epsilon > min(open_price, close_price):
+            return False
+        return True
+
+    @classmethod
+    def _is_displayable_live_tail_history_candle(cls, candle: ReplayChartBar) -> bool:
+        if not cls._is_structurally_valid_history_candle(candle):
+            return False
+
+        volume = int(candle.volume or 0)
+        if volume > 0:
+            return True
+
+        # Preserve legacy behavior for flat heartbeat bars and suppress moving
+        # zero-volume history rows, which are transient/bad candle versions.
+        return False
+
+    def _sanitize_live_tail_history_candles(
+        self,
+        *,
+        candles: list[ReplayChartBar],
+        instrument_symbol: str,
+        display_timeframe: Timeframe,
+        source_kind: str,
+    ) -> list[ReplayChartBar]:
+        if not candles:
+            return []
+
+        sanitized: list[ReplayChartBar] = []
+        dropped = 0
+        for candle in sorted(candles, key=lambda item: item.started_at):
+            if not self._is_displayable_live_tail_history_candle(candle):
+                dropped += 1
+                continue
+            sanitized.append(candle)
+
+        if dropped > 0:
+            LOGGER.warning(
+                "get_live_tail: dropped %s suspect %s candles symbol=%s timeframe=%s",
+                dropped,
+                source_kind,
+                instrument_symbol,
+                display_timeframe.value,
+            )
+        return sanitized
 
     @staticmethod
     def _chart_instance_filter_matches_dict_payload(

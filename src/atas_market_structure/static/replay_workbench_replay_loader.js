@@ -1,4 +1,4 @@
-import { buildChartViewportKey } from "./replay_workbench_chart_utils.js";
+import { buildChartViewportKey, clampChartView } from "./replay_workbench_chart_utils.js";
 import { normalizeReplaySnapshot, sanitizeReplayCandles } from "./replay_workbench_ui_utils.js";
 
 function buildRelaxedChartScopeKey(snapshot) {
@@ -46,6 +46,54 @@ function findSavedChartView(registry, nextChartKey, relaxedScopeKey) {
     }
   }
   return null;
+}
+
+function remapCandleIndex(previousCandles, nextCandles, previousIndex) {
+  if (!Array.isArray(previousCandles) || !Array.isArray(nextCandles) || previousIndex == null) {
+    return null;
+  }
+  const safePreviousIndex = Math.max(0, Math.min(previousCandles.length - 1, Number(previousIndex) || 0));
+  const previousBar = previousCandles[safePreviousIndex];
+  if (!previousBar?.started_at) {
+    return null;
+  }
+  const nextIndex = nextCandles.findIndex((bar) => bar?.started_at === previousBar.started_at);
+  if (nextIndex >= 0) {
+    return nextIndex;
+  }
+  const growth = nextCandles.length - previousCandles.length;
+  return Math.max(0, Math.min(nextCandles.length - 1, safePreviousIndex + Math.max(0, growth)));
+}
+
+function remapChartView(previousSnapshot, nextSnapshot, previousChartView) {
+  if (!previousChartView) {
+    return null;
+  }
+  const previousCandles = Array.isArray(previousSnapshot?.candles) ? previousSnapshot.candles : [];
+  const nextCandles = Array.isArray(nextSnapshot?.candles) ? nextSnapshot.candles : [];
+  if (!previousCandles.length || !nextCandles.length) {
+    return null;
+  }
+  const previousSpan = Math.max(1, Number(previousChartView.endIndex ?? 0) - Number(previousChartView.startIndex ?? 0) + 1);
+  let nextStart = remapCandleIndex(previousCandles, nextCandles, previousChartView.startIndex);
+  let nextEnd = remapCandleIndex(previousCandles, nextCandles, previousChartView.endIndex);
+
+  if (nextStart == null && nextEnd == null) {
+    const growth = nextCandles.length - previousCandles.length;
+    nextStart = Number(previousChartView.startIndex ?? 0) + Math.max(0, growth);
+    nextEnd = Number(previousChartView.endIndex ?? (previousSpan - 1)) + Math.max(0, growth);
+  } else if (nextStart == null && nextEnd != null) {
+    nextStart = nextEnd - previousSpan + 1;
+  } else if (nextEnd == null && nextStart != null) {
+    nextEnd = nextStart + previousSpan - 1;
+  }
+
+  return clampChartView(
+    nextCandles.length,
+    Number(nextStart ?? 0),
+    Number(nextEnd ?? (previousSpan - 1)),
+    previousChartView,
+  );
 }
 
 export function createReplayLoader({
@@ -158,6 +206,20 @@ export function createReplayLoader({
     const shouldPreserveChartView = !!preserveChartView && (sameChartIdentity || sameChartScope || sameScopeFallback);
     const shouldPreserveSelection = !!preserveSelection && (sameChartIdentity || sameChartScope || sameScopeFallback);
     const savedChartView = findSavedChartView(state.chartViewportRegistry, nextChartKey, nextChartScopeKey);
+    const remappedChartView = shouldPreserveChartView
+      ? remapChartView(previousSnapshot, normalizedSnapshot, previousChartView)
+      : null;
+    const remappedSelectedCandleIndex = shouldPreserveSelection
+      ? remapCandleIndex(previousSnapshot?.candles || [], normalizedSnapshot?.candles || [], previousSelectedCandleIndex)
+      : null;
+    const shouldForceViewportSync = !!(
+      remappedChartView
+      && previousChartView
+      && (
+        remappedChartView.startIndex !== previousChartView.startIndex
+        || remappedChartView.endIndex !== previousChartView.endIndex
+      )
+    );
 
     state.currentReplayIngestionId = ingestionId;
     state.snapshot = normalizedSnapshot;
@@ -175,12 +237,12 @@ export function createReplayLoader({
     state.aiReview = null;
     state.chartEventModel = null;
     state.selectedChartEventClusterKey = null;
-    state.selectedCandleIndex = shouldPreserveSelection ? previousSelectedCandleIndex : null;
+    state.selectedCandleIndex = shouldPreserveSelection ? remappedSelectedCandleIndex : null;
     state.selectedFootprintBar = shouldPreserveSelection ? previousSelectedFootprintBar : null;
-    state.chartView = shouldPreserveChartView ? previousChartView : null;
+    state.chartView = shouldPreserveChartView ? remappedChartView : null;
     state.pendingChartViewRestore = shouldPreserveChartView ? null : (savedChartView ? { ...savedChartView } : null);
     state.lastChartViewportKey = nextChartKey || null;
-    state.chartViewportResetPending = !shouldPreserveChartView;
+    state.chartViewportResetPending = !shouldPreserveChartView || shouldForceViewportSync;
     state.chartAutoScalePending = !(shouldPreserveChartView || savedChartView);
     state.lastSnapshotLoadReason = reason;
     state.fullHistoryLoaded = !normalizedSnapshot?.raw_features?.deferred_history_available;
@@ -210,6 +272,7 @@ export function createReplayLoader({
     if (!mergedEarlierCandles.length && nextTotal <= currentTotal) {
       return false;
     }
+    const prependCount = mergedEarlierCandles.length;
     state.snapshot = normalizeReplaySnapshot({
       ...state.snapshot,
       candles: [...mergedEarlierCandles, ...currentCandles],
@@ -223,6 +286,21 @@ export function createReplayLoader({
     }, {
       context: "full-history-merged",
     });
+    if (prependCount > 0 && state.chartView) {
+      state.chartView = clampChartView(
+        state.snapshot.candles.length,
+        state.chartView.startIndex + prependCount,
+        state.chartView.endIndex + prependCount,
+        state.chartView,
+      );
+      state.chartViewportResetPending = true;
+    }
+    if (prependCount > 0 && state.selectedCandleIndex != null) {
+      state.selectedCandleIndex = Math.max(
+        0,
+        Math.min(state.snapshot.candles.length - 1, Number(state.selectedCandleIndex) + prependCount),
+      );
+    }
     state.fullHistoryLoaded = true;
     return mergedEarlierCandles.length > 0;
   }

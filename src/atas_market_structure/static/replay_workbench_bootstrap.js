@@ -660,6 +660,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (!nextRecord) {
       return null;
     }
+    state.followLatest = !!nextRecord.followLatest;
     const previousRecord = state.chartViewportRegistry?.[chartViewportKey] || null;
     if (!sameChartViewportRecord(previousRecord, nextRecord)) {
       state.chartViewportRegistry = {
@@ -748,7 +749,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   function getDataStatusState() {
-    if (state.snapshotLoading || state.buildInFlight) {
+    if (state.snapshotLoading || state.buildInFlight || state.enrichmentInFlight) {
       return {
         label: "数据状态：加载中",
         variant: "emphasis",
@@ -878,7 +879,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   function updateHeaderMoreMenuState() {
     const isOpen = !!els.headerMoreMenu && !els.headerMoreMenu.hidden;
     const hasCacheKey = !!String(els.cacheKey?.value || "").trim();
-    const cacheActionBusy = state.buildInFlight || state.snapshotLoading;
+    const cacheActionBusy = state.buildInFlight || state.snapshotLoading || state.enrichmentInFlight;
     const hasRepairWindow = !!String(els.windowStart?.value || "").trim() && !!String(els.windowEnd?.value || "").trim();
     const repairChartInstanceId = String(
       els.chartInstanceId?.value || state.snapshot?.source?.chart_instance_id || state.pendingBackfill?.chart_instance_id || "",
@@ -982,7 +983,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     applyHeaderChipState(els.cacheViewerSyncChip, syncState);
     els.cacheViewerKey.textContent = els.cacheKey?.value || "-";
     els.cacheViewerIngestionId.textContent = state.currentReplayIngestionId || "-";
-    if (state.snapshotLoading || state.buildInFlight) {
+    if (state.snapshotLoading || state.buildInFlight || state.enrichmentInFlight) {
       els.cacheViewerSnapshotStatus.textContent = "加载中";
       els.cacheViewerSnapshotStatus.style.color = "var(--blue)";
     } else if (state.snapshot) {
@@ -2124,7 +2125,14 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     defaultLabel = "进度",
     defaultDetail = "",
     completeHoldMs = 1200,
+    fillDimension = "width",
   }) {
+    if (!container || !fill || !percentNode || !labelNode) {
+      return {
+        setProgress() {},
+        reset() {},
+      };
+    }
     let animationFrame = null;
     let visualPercent = 0;
     let hideTimer = null;
@@ -2137,8 +2145,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     }
 
     function writePercent(nextPercent) {
-      fill.style.width = `${nextPercent.toFixed(1)}%`;
+      fill.style[fillDimension] = `${nextPercent.toFixed(1)}%`;
       percentNode.textContent = `${Math.round(nextPercent)}%`;
+      container.style.setProperty("--progress-percent", nextPercent.toFixed(1));
     }
 
     function resetVisuals() {
@@ -2213,6 +2222,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     percentNode: els.buildProgressPercent,
     labelNode: els.buildProgressLabel,
     defaultLabel: "界面加载进度",
+    fillDimension: "height",
   });
 
   const transferProgressController = createProgressController({
@@ -2522,12 +2532,23 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     window.requestAnimationFrame(() => updateChatFollowState({ persist: false }));
   }
 
+  const uiActionLocks = new Set();
+
   function setButtonBusy(button, busy) {
     if (!button) {
       return;
     }
     button.dataset.busy = busy ? "true" : "false";
     button.setAttribute("aria-busy", busy ? "true" : "false");
+    if ("disabled" in button) {
+      if (busy) {
+        button.dataset.wasDisabled = button.disabled ? "true" : "false";
+        button.disabled = true;
+      } else {
+        button.disabled = button.dataset.wasDisabled === "true";
+        delete button.dataset.wasDisabled;
+      }
+    }
   }
 
   function pulseButton(button) {
@@ -2860,11 +2881,30 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     }
   }
 
-  async function runButtonAction(button, action, { silentError = false } = {}) {
-    if (button?.dataset.busy === "true") {
+  async function runButtonAction(button, action, {
+    silentError = false,
+    lockKey = "",
+    extraBusyTargets = [],
+    blockedLabel = "",
+  } = {}) {
+    const busyTargets = Array.from(new Set([button, ...extraBusyTargets].filter(Boolean)));
+    if (busyTargets.some((target) => target?.dataset.busy === "true")) {
+      if (blockedLabel) {
+        renderStatusStrip([{ label: blockedLabel, variant: "warn" }]);
+      }
       return null;
     }
-    setButtonBusy(button, true);
+    const normalizedLockKey = String(lockKey || "").trim();
+    if (normalizedLockKey && uiActionLocks.has(normalizedLockKey)) {
+      if (blockedLabel) {
+        renderStatusStrip([{ label: blockedLabel, variant: "warn" }]);
+      }
+      return null;
+    }
+    if (normalizedLockKey) {
+      uiActionLocks.add(normalizedLockKey);
+    }
+    busyTargets.forEach((target) => setButtonBusy(target, true));
     try {
       return await action();
     } catch (error) {
@@ -2874,8 +2914,29 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }
       return null;
     } finally {
-      setButtonBusy(button, false);
+      busyTargets.forEach((target) => setButtonBusy(target, false));
+      if (normalizedLockKey) {
+        uiActionLocks.delete(normalizedLockKey);
+      }
     }
+  }
+
+  async function dispatchAiComposerSend({ button = els.aiChatSendButton, extraBusyTargets = [], beforeSend = null } = {}) {
+    return runButtonAction(button, async () => {
+      if (typeof beforeSend === "function") {
+        const proceed = await beforeSend();
+        if (proceed === false) {
+          return null;
+        }
+      }
+      await aiChat.handleAiChatSend();
+      renderSnapshot();
+      return true;
+    }, {
+      lockKey: "ai-composer-send",
+      extraBusyTargets,
+      blockedLabel: "AI 正在处理上一条请求，请等待完成或先停止生成。",
+    });
   }
 
   function updateHeaderStatus() {
@@ -3033,6 +3094,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   let liveRefreshInterval = null;
+  let liveRefreshRequestInFlight = false;
 
   function getTimeframeMinutes(timeframe) {
     const minutesByTimeframe = {
@@ -3283,6 +3345,29 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     return false;
   }
 
+  function shouldApplyLiveTailToSnapshot(response, timeframe) {
+    if (state.followLatest) {
+      return true;
+    }
+    const snapshotCandles = Array.isArray(state.snapshot?.candles) ? state.snapshot.candles : [];
+    if (!snapshotCandles.length) {
+      return true;
+    }
+    const latestObservedAtMs = Date.parse(response?.latest_observed_at || "");
+    const snapshotLast = snapshotCandles[snapshotCandles.length - 1];
+    const snapshotEdgeMs = Date.parse(
+      snapshotLast?.ended_at
+        || snapshotLast?.started_at
+        || state.snapshot?.window_end
+        || "",
+    );
+    if (!Number.isFinite(latestObservedAtMs) || !Number.isFinite(snapshotEdgeMs)) {
+      return true;
+    }
+    const maxAllowedDriftMs = getTimeframeMinutes(timeframe) * 3 * 60 * 1000;
+    return latestObservedAtMs - snapshotEdgeMs <= maxAllowedDriftMs;
+  }
+
   function mergeLiveTailIntoSnapshot(response, timeframe) {
     if (!state.snapshot?.candles?.length || !response?.candles?.length) {
       return { merged: false, requiresReload: false, updateType: "full_reset" };
@@ -3407,6 +3492,18 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     } else if (canUseAppendTail(previousCandles, nextCandles)) {
       updateType = "append_tail";
     }
+    if (updateType === "append_tail" && state.chartView && state.followLatest) {
+      const growth = Math.max(0, nextCandles.length - previousLength);
+      if (growth > 0) {
+        state.chartView = clampChartView(
+          nextCandles.length,
+          state.chartView.startIndex + growth,
+          state.chartView.endIndex + growth,
+          state.chartView,
+        );
+        state.chartViewportResetPending = true;
+      }
+    }
     return { merged: true, requiresReload: false, updateType };
   }
 
@@ -3424,10 +3521,17 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     if (liveRefreshInterval) {
       clearInterval(liveRefreshInterval);
     }
+    liveRefreshRequestInFlight = false;
     liveRefreshInterval = setInterval(async () => {
-      if (!state.followLatest || !state.snapshot?.candles?.length || state.buildInFlight) {
+      if (
+        !state.snapshot?.candles?.length
+        || state.snapshotLoading
+        || state.buildInFlight
+        || liveRefreshRequestInFlight
+      ) {
         return;
       }
+      liveRefreshRequestInFlight = true;
       try {
         const symbol = els.instrumentSymbol?.value?.trim();
         const timeframe = els.displayTimeframe?.value;
@@ -3447,15 +3551,22 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
         const response = await fetchJson(`/api/v1/workbench/live-tail?${liveTailQuery.toString()}`);
         const { integrityChanged } = applyLiveResponseMeta(response);
+        if (!shouldApplyLiveTailToSnapshot(response, timeframe)) {
+          state.topBar.lastSyncedAt = response.latest_observed_at || state.topBar.lastSyncedAt;
+          updateHeaderStatus();
+          return;
+        }
         const mergeResult = mergeLiveTailIntoSnapshot(response, timeframe);
         const needsReload = shouldReloadSnapshotForLiveResponse(response, mergeResult.merged) || mergeResult.requiresReload;
 
-        if (needsReload) {
-          await handleBuildWithForceRefresh({ syncRelativeWindow: true, silentProgress: true });
-          return;
-        }
-        if (integrityChanged && !mergeResult.merged) {
-          await handleBuildWithForceRefresh({ syncRelativeWindow: true, silentProgress: true });
+        if (needsReload || (integrityChanged && !mergeResult.merged)) {
+          const refreshed = await actions.handleFastChartRefresh({
+            latestObservedAt: response.latest_observed_at || null,
+            silent: true,
+          });
+          if (!refreshed) {
+            await handleBuildWithForceRefresh({ syncRelativeWindow: !!state.followLatest, silentProgress: true });
+          }
           return;
         }
         if (mergeResult.merged) {
@@ -3466,6 +3577,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         }
       } catch (error) {
         console.warn("实时刷新失败:", error);
+      } finally {
+        liveRefreshRequestInFlight = false;
       }
     }, 5000);
   }
@@ -4697,57 +4810,64 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     return session;
   }
 
-  async function sendEventScribeMessage() {
-    const message = String(els.eventScribeInput?.value || "").trim();
-    if (!message) {
-      renderStatusStrip([{ label: "请先输入事件整理问题。", variant: "warn" }]);
-      els.eventScribeInput?.focus();
-      return;
-    }
-    const session = await ensureScribeSessionForSymbol(state.topBar?.symbol);
-    session.draftText = "";
-    session.draft = "";
-    session.loadingFromServer = true;
-    renderEventScribePanel();
-    try {
-      const analystSession = getSessionByRole(state.topBar?.symbol, "analyst");
-      const latestAnalystReply = getLatestAssistantMessage(analystSession);
-      const latestAnalystQuestion = getLatestUserMessage(analystSession);
-      await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(session.id)}/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          replay_ingestion_id: state.currentReplayIngestionId || null,
-          preset: "general",
-          user_input: message,
-          selected_block_ids: [],
-          pinned_block_ids: [],
-          include_memory_summary: true,
-          include_recent_messages: true,
-          analysis_type: "event_timeline",
-          analysis_range: "current_window",
-          analysis_style: "standard",
-          model: session.activeModel || null,
-          attachments: [],
-          extra_context: {
-            analyst_latest_question: latestAnalystQuestion?.content || "",
-            analyst_latest_reply: latestAnalystReply?.content || "",
-          },
-        }),
-      });
-      const hydrated = await hydrateSessionFromServer(session.id, { activate: false });
-      if (hydrated) {
-        hydrated.loadingFromServer = false;
-        rememberSymbolWorkspaceSession(hydrated);
+  async function sendEventScribeMessage({ button = els.eventScribeSendButton } = {}) {
+    return runButtonAction(button, async () => {
+      const message = String(els.eventScribeInput?.value || "").trim();
+      if (!message) {
+        renderStatusStrip([{ label: "请先输入事件整理问题。", variant: "warn" }]);
+        els.eventScribeInput?.focus();
+        return null;
       }
-      renderStatusStrip([{ label: "事件整理 AI 已更新。", variant: "good" }]);
-    } catch (error) {
-      session.loadingFromServer = false;
-      session.draftText = message;
-      session.draft = message;
-      renderStatusStrip([{ label: error.message || "事件整理 AI 发送失败。", variant: "warn" }]);
-    }
-    renderSnapshot();
+      const session = await ensureScribeSessionForSymbol(state.topBar?.symbol);
+      session.draftText = "";
+      session.draft = "";
+      session.loadingFromServer = true;
+      renderEventScribePanel();
+      try {
+        const analystSession = getSessionByRole(state.topBar?.symbol, "analyst");
+        const latestAnalystReply = getLatestAssistantMessage(analystSession);
+        const latestAnalystQuestion = getLatestUserMessage(analystSession);
+        await fetchJson(`/api/v1/workbench/chat/sessions/${encodeURIComponent(session.id)}/reply`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            replay_ingestion_id: state.currentReplayIngestionId || null,
+            preset: "general",
+            user_input: message,
+            selected_block_ids: [],
+            pinned_block_ids: [],
+            include_memory_summary: true,
+            include_recent_messages: true,
+            analysis_type: "event_timeline",
+            analysis_range: "current_window",
+            analysis_style: "standard",
+            model: session.activeModel || null,
+            attachments: [],
+            extra_context: {
+              analyst_latest_question: latestAnalystQuestion?.content || "",
+              analyst_latest_reply: latestAnalystReply?.content || "",
+            },
+          }),
+        });
+        const hydrated = await hydrateSessionFromServer(session.id, { activate: false });
+        if (hydrated) {
+          hydrated.loadingFromServer = false;
+          rememberSymbolWorkspaceSession(hydrated);
+        }
+        renderStatusStrip([{ label: "事件整理 AI 已更新。", variant: "good" }]);
+      } catch (error) {
+        session.loadingFromServer = false;
+        session.draftText = message;
+        session.draft = message;
+        renderStatusStrip([{ label: error.message || "事件整理 AI 发送失败。", variant: "warn" }]);
+      }
+      renderSnapshot();
+      return true;
+    }, {
+      lockKey: "event-scribe-send",
+      blockedLabel: "事件整理正在处理中，请等待当前请求完成。",
+      silentError: true,
+    });
   }
 
   function renderEventScribePanel() {
@@ -5376,15 +5496,21 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         <div class="ai-skill-name">${skill.name}</div>
       </div>
     `).join("");
-    els.aiSkillGrid.querySelectorAll(".ai-skill-card").forEach((card) => {
+    const skillCards = Array.from(els.aiSkillGrid.querySelectorAll(".ai-skill-card"));
+    skillCards.forEach((card) => {
       card.addEventListener("click", async () => {
         const skillId = card.dataset.skillId;
         const skill = skills.find((s) => s.id === skillId);
         if (skill) {
-          updateComposerDraft(skill.prompt);
-          setSkillPanelVisible(false);
-          await aiChat.handleAiChatSend();
-          renderSnapshot();
+          await dispatchAiComposerSend({
+            button: card,
+            extraBusyTargets: skillCards,
+            beforeSend: () => {
+              updateComposerDraft(skill.prompt);
+              setSkillPanelVisible(false);
+              return true;
+            },
+          });
         }
       });
     });
@@ -5404,6 +5530,11 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     bindChatScrollBehavior();
     installButtonFeedback();
     syncQuickActionButtonState();
+    const screenshotAttachmentButtons = [
+      els.aiScreenshotButton,
+      els.chartScreenshotButton,
+      els.chartToolbarScreenshotButton,
+    ].filter(Boolean);
 
     // AI 侧边栏控制
     els.aiSidebarTrigger?.addEventListener("click", toggleAiSidebar);
@@ -5427,15 +5558,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
     // 快速操作按钮
     els.aiKlineAnalysisButton?.addEventListener("click", async () => {
-      setButtonBusy(els.aiKlineAnalysisButton, true);
-      try {
+      await runAiPresetButtonAction(els.aiKlineAnalysisButton, async () => {
         await aiChat.handlePresetAnalysis("recent_20_bars", "请分析当前K线图表并给出交易建议。", false);
         renderSnapshot();
-      } catch (error) {
-        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
-      } finally {
-        setButtonBusy(els.aiKlineAnalysisButton, false);
-      }
+      });
     });
     els.aiMoreButton?.addEventListener("click", () => {
       setSkillPanelVisible(els.aiSkillPanel?.hidden ?? true, { announce: true });
@@ -5444,11 +5570,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       openAttachmentPicker({ statusLabel: "选择文件后会附加到当前会话。", accept: defaultAttachmentAccept });
     });
     els.aiScreenshotButton?.addEventListener("click", async () => {
-      try {
+      await runButtonAction(els.aiScreenshotButton, async () => {
         await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
-      } catch (error) {
-        renderStatusStrip([{ label: error.message || "图表截图失败。", variant: "warn" }]);
-      }
+      }, {
+        lockKey: "chart-screenshot-attachment",
+        extraBusyTargets: screenshotAttachmentButtons,
+      });
     });
     els.aiVoiceButton?.addEventListener("click", startVoiceCapture);
     els.aiVoiceInputButton?.addEventListener("click", startVoiceCapture);
@@ -5705,23 +5832,26 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     });
 
     els.aiNewThreadButton.addEventListener("click", async () => {
-      await aiChat.createNewThread();
-      renderSnapshot();
+      await runButtonAction(els.aiNewThreadButton, async () => {
+        await aiChat.createNewThread();
+        renderSnapshot();
+      }, {
+        lockKey: "ai-new-thread",
+        blockedLabel: "正在创建新会话，请稍候。",
+      });
     });
     els.aiChatSendButton.addEventListener("click", async () => {
-      await aiChat.handleAiChatSend();
-      renderSnapshot();
+      await dispatchAiComposerSend();
     });
     els.aiChatInput.addEventListener("input", (event) => aiChat.handleComposerInput(event.target.value));
     els.aiChatInput.addEventListener("keydown", async (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        await aiChat.handleAiChatSend();
-        renderSnapshot();
+        await dispatchAiComposerSend();
       }
     });
     els.eventScribeSendButton?.addEventListener("click", async () => {
-      await sendEventScribeMessage();
+      await sendEventScribeMessage({ button: els.eventScribeSendButton });
     });
     els.eventScribeInput?.addEventListener("input", async (event) => {
       const session = await ensureScribeSessionForSymbol(state.topBar?.symbol);
@@ -5733,30 +5863,41 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     els.eventScribeInput?.addEventListener("keydown", async (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        await sendEventScribeMessage();
+        await sendEventScribeMessage({ button: els.eventScribeSendButton });
       }
     });
     els.eventScribeMirrorButton?.addEventListener("click", async () => {
-      const analystSession = getSessionByRole(state.topBar?.symbol, "analyst");
-      const latestAssistantReply = getLatestAssistantMessage(analystSession);
-      const session = await ensureScribeSessionForSymbol(state.topBar?.symbol);
-      if (!latestAssistantReply) {
-        renderStatusStrip([{ label: "当前还没有可整理的行情分析回复。", variant: "warn" }]);
-        return;
-      }
-      const nextDraft = `请提取下面这条回复中的关键价位、区域、风险、事件顺序，并整理成可审阅候选项：\n\n${latestAssistantReply.content}`;
-      session.draftText = nextDraft;
-      session.draft = nextDraft;
-      rememberSymbolWorkspaceSession(session);
-      if (els.eventScribeInput) {
-        els.eventScribeInput.value = nextDraft;
-        els.eventScribeInput.focus();
-      }
-      renderEventScribePanel();
+      await runButtonAction(els.eventScribeMirrorButton, async () => {
+        const analystSession = getSessionByRole(state.topBar?.symbol, "analyst");
+        const latestAssistantReply = getLatestAssistantMessage(analystSession);
+        const session = await ensureScribeSessionForSymbol(state.topBar?.symbol);
+        if (!latestAssistantReply) {
+          renderStatusStrip([{ label: "当前还没有可整理的行情分析回复。", variant: "warn" }]);
+          return null;
+        }
+        const nextDraft = `请提取下面这条回复中的关键价位、区域、风险、事件顺序，并整理成可审阅候选项：\n\n${latestAssistantReply.content}`;
+        session.draftText = nextDraft;
+        session.draft = nextDraft;
+        rememberSymbolWorkspaceSession(session);
+        if (els.eventScribeInput) {
+          els.eventScribeInput.value = nextDraft;
+          els.eventScribeInput.focus();
+        }
+        renderEventScribePanel();
+        return true;
+      }, {
+        lockKey: "event-scribe-mirror",
+        blockedLabel: "正在准备事件整理草稿，请稍候。",
+      });
     });
     els.eventScribeNewSessionButton?.addEventListener("click", async () => {
-      await createFreshScribeSession(state.topBar?.symbol);
-      renderSnapshot();
+      await runButtonAction(els.eventScribeNewSessionButton, async () => {
+        await createFreshScribeSession(state.topBar?.symbol);
+        renderSnapshot();
+      }, {
+        lockKey: "event-scribe-new-session",
+        blockedLabel: "正在创建事件整理会话，请稍候。",
+      });
     });
     if (!eventPanelController) {
       els.eventStreamFilterBar?.querySelectorAll("[data-event-stream-filter]").forEach((button) => {
@@ -5939,30 +6080,76 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       });
     });
 
+    const aiPresetButtons = [
+      els.aiKlineAnalysisButton,
+      els.recent20BarsButton,
+      els.recent20MinutesButton,
+      els.focusRegionsButton,
+      els.liveDepthButton,
+      els.manualRegionButton,
+      els.selectedBarButton,
+    ].filter(Boolean);
+
+    function setAiPresetButtonsBusy(activeButton, busy) {
+      aiPresetButtons.forEach((button) => {
+        if (!button) {
+          return;
+        }
+        const isTarget = button === activeButton;
+        button.disabled = !!busy;
+        button.dataset.busy = busy && isTarget ? "true" : "false";
+        button.classList.toggle("is-active", !!busy && isTarget);
+      });
+    }
+
+    async function runAiPresetButtonAction(button, action) {
+      if (button?.dataset.busy === "true") {
+        return null;
+      }
+      setAiPresetButtonsBusy(button, true);
+      try {
+        return await action();
+      } catch (error) {
+        console.error("AI 快捷动作失败:", error);
+        renderStatusStrip([{ label: error?.message || String(error), variant: "warn" }]);
+        return null;
+      } finally {
+        setAiPresetButtonsBusy(button, false);
+      }
+    }
+
     els.recent20BarsButton.addEventListener("click", async () => {
-      await aiChat.handlePresetAnalysis("recent_20_bars", "请分析最近20根K线并给出交易计划。", false);
-      renderSnapshot();
+      await runAiPresetButtonAction(els.recent20BarsButton, async () => {
+        await aiChat.handlePresetAnalysis("recent_20_bars", "请分析最近20根K线并给出交易计划。", false);
+        renderSnapshot();
+      });
     });
     els.recent20MinutesButton.addEventListener("click", async () => {
-      await aiChat.handlePresetAnalysis("recent_20_minutes", "请分析最近20分钟并给出交易计划。", false);
-      renderSnapshot();
+      await runAiPresetButtonAction(els.recent20MinutesButton, async () => {
+        await aiChat.handlePresetAnalysis("recent_20_minutes", "请分析最近20分钟并给出交易计划。", false);
+        renderSnapshot();
+      });
     });
     els.focusRegionsButton.addEventListener("click", async () => {
-      await aiChat.handlePresetAnalysis("focus_regions", "请围绕当前重点区域给出计划。", false);
-      renderSnapshot();
+      await runAiPresetButtonAction(els.focusRegionsButton, async () => {
+        await aiChat.handlePresetAnalysis("focus_regions", "请围绕当前重点区域给出计划。", false);
+        renderSnapshot();
+      });
     });
     els.liveDepthButton.addEventListener("click", async () => {
-      await aiChat.handlePresetAnalysis("live_depth", "请结合当前盘口结构给出建议。", false);
-      renderSnapshot();
+      await runAiPresetButtonAction(els.liveDepthButton, async () => {
+        await aiChat.handlePresetAnalysis("live_depth", "请结合当前盘口结构给出建议。", false);
+        renderSnapshot();
+      });
     });
     els.manualRegionButton.addEventListener("click", async () => {
-      await runButtonAction(els.manualRegionButton, async () => {
+      await runAiPresetButtonAction(els.manualRegionButton, async () => {
         await aiChat.handlePresetAnalysis("manual_region", aiChat.buildManualRegionAnalysisPrompt(), false);
         renderSnapshot();
       });
     });
     els.selectedBarButton.addEventListener("click", async () => {
-      await runButtonAction(els.selectedBarButton, async () => {
+      await runAiPresetButtonAction(els.selectedBarButton, async () => {
         await aiChat.handlePresetAnalysis("selected_bar", aiChat.buildSelectedBarAnalysisPrompt(), false);
         renderSnapshot();
       });
@@ -6045,26 +6232,32 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }
     });
     els.sessionMoreButton?.addEventListener("click", async () => {
-      if (!els.sessionMoreMenu) {
-        return;
-      }
-      const willOpen = els.sessionMoreMenu.hidden;
-      if (!willOpen) {
-        els.sessionMoreMenu.hidden = true;
-        return;
-      }
-      els.sessionMoreMenu.hidden = false;
-      renderSnapshot();
-      if (syncSessionsFromServer) {
-        try {
-          await syncSessionsFromServer({ activateFirst: false });
-          renderSnapshot();
-          els.sessionMoreMenu.hidden = false;
-        } catch (error) {
-          console.warn("刷新会话工作区失败:", error);
+      await runButtonAction(els.sessionMoreButton, async () => {
+        if (!els.sessionMoreMenu) {
+          return null;
         }
-      }
-      els.sessionMoreMenu.querySelector("[data-session-search-input]")?.focus();
+        const willOpen = els.sessionMoreMenu.hidden;
+        if (!willOpen) {
+          els.sessionMoreMenu.hidden = true;
+          return true;
+        }
+        els.sessionMoreMenu.hidden = false;
+        renderSnapshot();
+        if (syncSessionsFromServer) {
+          try {
+            await syncSessionsFromServer({ activateFirst: false });
+            renderSnapshot();
+            els.sessionMoreMenu.hidden = false;
+          } catch (error) {
+            console.warn("刷新会话工作区失败:", error);
+          }
+        }
+        els.sessionMoreMenu.querySelector("[data-session-search-input]")?.focus();
+        return true;
+      }, {
+        lockKey: "session-more-menu",
+        blockedLabel: "会话列表正在刷新，请稍候。",
+      });
     });
     els.clearPinnedPlanButton?.addEventListener("click", () => {
       state.pinnedPlanId = null;
@@ -6093,18 +6286,20 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }
     });
     els.chartScreenshotButton?.addEventListener("click", async () => {
-      try {
+      await runButtonAction(els.chartScreenshotButton, async () => {
         await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
-      } catch (error) {
-        renderStatusStrip([{ label: error.message || "图表截图失败。", variant: "warn" }]);
-      }
+      }, {
+        lockKey: "chart-screenshot-attachment",
+        extraBusyTargets: screenshotAttachmentButtons,
+      });
     });
     els.chartToolbarScreenshotButton?.addEventListener("click", async () => {
-      try {
+      await runButtonAction(els.chartToolbarScreenshotButton, async () => {
         await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
-      } catch (error) {
-        renderStatusStrip([{ label: error.message || "图表截图失败。", variant: "warn" }]);
-      }
+      }, {
+        lockKey: "chart-screenshot-attachment",
+        extraBusyTargets: screenshotAttachmentButtons,
+      });
     });
     els.externalScreenshotButton?.addEventListener("click", () => {
       openAttachmentPicker({ statusLabel: "选择一张外部截图图片。", accept: "image/*" });

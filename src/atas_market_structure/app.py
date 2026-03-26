@@ -115,6 +115,7 @@ from atas_market_structure.services import IngestionOrchestrator
 from atas_market_structure.workbench_projection_services import ReplayWorkbenchProjectionService
 from atas_market_structure.workbench_event_service import ReplayWorkbenchEventService
 from atas_market_structure.workbench_event_outcome_service import ReplayWorkbenchEventOutcomeService
+from atas_market_structure.workbench_pipeline_monitor_service import WorkbenchPipelineMonitorService
 from atas_market_structure.workbench_prompt_trace_service import ReplayWorkbenchPromptTraceService
 from atas_market_structure.workbench_services import (
     ReplayWorkbenchChatError,
@@ -209,6 +210,7 @@ class MarketStructureApplication:
         )
         self._episode_evaluation_service = EpisodeEvaluationService(repository=repository)
         self._chart_candle_service = ChartCandleService(repository=repository)
+        self._workbench_pipeline_monitor_service = WorkbenchPipelineMonitorService(repository=repository)
         self._analysis_pattern = re.compile(r"^/api/v1/analyses/(?P<analysis_id>[^/]+)$")
         self._ingestion_pattern = re.compile(r"^/api/v1/ingestions/(?P<ingestion_id>[^/]+)$")
         self._episode_evaluation_pattern = re.compile(r"^/api/v1/review/episode-evaluation/(?P<episode_id>[^/]+)$")

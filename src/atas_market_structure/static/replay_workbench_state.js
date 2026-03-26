@@ -154,6 +154,7 @@ export function createWorkbenchState() {
     chartMetrics: null,
     chartEventModel: null,
     buildInFlight: false,
+    enrichmentInFlight: false,
     snapshotLoading: false,
     sidebarLoading: false,
     deferredRefreshScheduled: false,

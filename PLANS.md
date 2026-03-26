@@ -81,6 +81,39 @@ Implementation should follow the approved plan instead of improvising broad rewr
 - Rollback notes
   Remove the additive table usage and restore the prior memory-only backfill registry. Existing SQLite data can remain unused.
 
+## 2026-03-26 ATAS Pipeline Monitor
+- Goal
+  Add a monitoring UI that shows which ATAS bar data has landed, where it is stored, how much of it has been aggregated, and whether recent write activity is becoming too dense.
+- Scope
+  Add additive repository queries for raw/aggregated candle counts, a focused monitor service plus HTTP endpoints, and a standalone visual monitor page with contract switching and animated storage-pool flow.
+- Files expected to change
+  `PLANS.md`
+  `src/atas_market_structure/repository_protocols.py`
+  `src/atas_market_structure/repository_records.py`
+  `src/atas_market_structure/repository_sqlite.py`
+  `src/atas_market_structure/repository_clickhouse.py`
+  `src/atas_market_structure/workbench_pipeline_monitor_service.py`
+  `src/atas_market_structure/app.py`
+  `src/atas_market_structure/app_routes/_workbench_routes.py`
+  `src/atas_market_structure/static/pipeline_monitor.html`
+  `src/atas_market_structure/static/pipeline_monitor.css`
+  `src/atas_market_structure/static/pipeline_monitor.js`
+  `tests/test_app_workbench_pipeline_monitor_routes.py`
+  `tests/test_repository_hybrid.py`
+- Invariants to preserve
+  ClickHouse remains the primary K-line read store.
+  SQLite remains the metadata/raw mirror store.
+  Existing replay workbench routes, data contracts, and main chart UX stay intact.
+  No new production dependency is added for animation or physics.
+- Migration / compatibility strategy
+  Keep the monitor fully additive behind new routes and static assets.
+  Use repository queries instead of scanning large payloads in memory.
+  Label CK pools as root-symbol shared pools when contract-level raw bars flow into root-level chart aggregates.
+- Tests to run
+  `python -m pytest tests\\test_app_workbench_pipeline_monitor_routes.py tests\\test_repository_hybrid.py tests\\test_replay_backfill_persistence.py tests\\test_raw_mirror_repository.py tests\\test_repository_sqlite_pragmas.py tests\\test_app_workbench_backfill_routes.py tests\\test_init_clickhouse.py -q`
+- Rollback notes
+  Remove the new monitor routes and static page and leave the additive repository queries unused.
+
 ## 2026-03-25 Replay Workbench Event Backbone
 - Goal
   Promote replay-workbench events into first-class persisted objects by adding EventCandidate, EventStream, and EventMemory as the source of truth behind chat-derived annotations and plan cards.
@@ -311,3 +344,25 @@ Implementation should follow the approved plan instead of improvising broad rewr
   Stop wiring the outcome service and routes from the application shell.
   Leave stored outcome rows unused and remove the frontend outcome controller from bootstrap.
   Existing event-stream, plan-card, Prompt Trace, and annotation flows continue without outcome badges or stats.
+
+## 2026-03-27 ATAS Backfill Range Chunking
+- Goal
+  Prevent large single-range ATAS history-bar backfill requests from acknowledging without resending bars, especially for long `1m` catch-up windows after restarts.
+- Scope
+  Move ATAS backfill range chunking into a focused helper module and wire the replay workbench service to emit smaller `requested_ranges` while preserving the existing request contract.
+- Files expected to change
+  `PLANS.md`
+  `src/atas_market_structure/workbench_replay_backfill_ranges.py`
+  `src/atas_market_structure/workbench_replay_service.py`
+  `tests/test_workbench_replay_backfill_ranges.py`
+- Invariants to preserve
+  The replay/backfill HTTP contracts remain unchanged and still expose additive `requested_ranges`.
+  Deterministic recognition and evaluation flows remain untouched.
+  Existing small-window backfill requests should remain effectively unchanged.
+- Migration / compatibility strategy
+  Keep request persistence unchanged and chunk only the normalized `requested_ranges` path before requests are stored and dispatched.
+  Reuse the existing timeframe bar budgets as per-request chunk limits so behavior stays aligned with current replay loading assumptions.
+- Tests to run
+  `python -m pytest tests\\test_workbench_replay_backfill_ranges.py -q`
+- Rollback notes
+  Remove the helper import and revert `requested_ranges` normalization to the previous unchunked behavior.

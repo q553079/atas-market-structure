@@ -47,20 +47,28 @@ export function snapshotChartViewForRegistry(totalCount, chartView, options = {}
     return null;
   }
   const clampedView = clampChartView(totalCount, chartView.startIndex, chartView.endIndex, chartView);
-  const spanBars = Math.max(1, clampedView.endIndex - clampedView.startIndex + 1);
-  const rightPadding = Math.max(0, Math.max(0, totalCount - 1) - clampedView.endIndex);
   return {
     startIndex: clampedView.startIndex,
     endIndex: clampedView.endIndex,
     yMin: clampedView.yMin ?? null,
     yMax: clampedView.yMax ?? null,
     totalCount,
-    spanBars,
-    rightPadding,
-    followLatest: rightPadding <= Math.max(6, Math.ceil(spanBars * 0.12)),
+    spanBars: Math.max(1, clampedView.endIndex - clampedView.startIndex + 1),
+    rightPadding: Math.max(0, Math.max(0, totalCount - 1) - clampedView.endIndex),
+    followLatest: isChartViewFollowingLatest(totalCount, clampedView),
     lastVisibleEndedAt: options.lastVisibleEndedAt || null,
     savedAt: new Date().toISOString(),
   };
+}
+
+export function isChartViewFollowingLatest(totalCount, chartView) {
+  if (!totalCount || !chartView) {
+    return false;
+  }
+  const clampedView = clampChartView(totalCount, chartView.startIndex, chartView.endIndex, chartView);
+  const spanBars = Math.max(1, clampedView.endIndex - clampedView.startIndex + 1);
+  const rightPadding = Math.max(0, Math.max(0, totalCount - 1) - clampedView.endIndex);
+  return rightPadding <= Math.max(6, Math.ceil(spanBars * 0.12));
 }
 
 export function restoreChartViewFromRegistry(totalCount, savedView, options = {}) {

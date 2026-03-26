@@ -57,7 +57,7 @@ if (Test-Path -LiteralPath $localEnvFile) {
 $serverHost = if ($env:ATAS_MS_HOST) { $env:ATAS_MS_HOST } else { "127.0.0.1" }
 $serverPort = if ($env:ATAS_MS_PORT) { [int]$env:ATAS_MS_PORT } else { 8080 }
 $probeHost = if ($serverHost -in @("0.0.0.0", "::", "[::]")) { "127.0.0.1" } else { $serverHost }
-$storageMode = if ($env:ATAS_MS_STORAGE_MODE) { $env:ATAS_MS_STORAGE_MODE } else { "sqlite" }
+$storageMode = if ($env:ATAS_MS_STORAGE_MODE) { $env:ATAS_MS_STORAGE_MODE } else { "clickhouse" }
 
 if (-not $env:OPENAI_API_KEY) {
     Write-Warning "OPENAI_API_KEY is not set. AI endpoints may be unavailable."
@@ -92,17 +92,40 @@ function Test-WorkbenchRoute {
     }
 }
 
-function Get-ServicePortOwningPid {
+function Get-ServiceListener {
     try {
-        $listener = Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction Stop | Select-Object -First 1
-        if (-not $listener) {
+        $listeners = Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction Stop
+        if (-not $listeners) {
             return $null
         }
-        return $listener.OwningProcess
+
+        $scopedListener = $listeners |
+            Where-Object { $_.LocalAddress -eq $probeHost } |
+            Select-Object -First 1
+        if ($scopedListener) {
+            return $scopedListener
+        }
+
+        if ($serverHost -in @("0.0.0.0", "::", "[::]")) {
+            return $listeners |
+                Where-Object { $_.LocalAddress -in @("0.0.0.0", "::", "[::]") } |
+                Select-Object -First 1
+        }
+
+        return $null
     }
     catch {
         return $null
     }
+}
+
+function Get-ServicePortOwningPid {
+    $listener = Get-ServiceListener
+    if (-not $listener) {
+        return $null
+    }
+
+    return $listener.OwningProcess
 }
 
 function Get-ServerProcess {
@@ -140,17 +163,13 @@ if (Test-Path -LiteralPath $pidFile) {
 }
 
 if (-not $ForceRestart) {
-    try {
-        $listener = Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction Stop | Select-Object -First 1
-        if ($listener) {
-            if (Test-WorkbenchRoute) {
-                Write-Host "Port $serverPort is already serving the current replay workbench. Reusing the existing server."
-                exit 0
-            }
-            Write-Host "Port $serverPort is occupied by a stale or incompatible service. Restarting it."
+    $listener = Get-ServiceListener
+    if ($listener) {
+        if (Test-WorkbenchRoute) {
+            Write-Host "Port $serverPort is already serving the current replay workbench. Reusing the existing server."
+            exit 0
         }
-    }
-    catch {
+        Write-Host "Port $serverPort is occupied by a stale or incompatible service. Restarting it."
     }
 }
 

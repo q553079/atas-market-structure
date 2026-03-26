@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Sequence
 
 from atas_market_structure.repository_chat import ChatRepository
 from atas_market_structure.repository_evaluation_tuning import EvaluationTuningRepository
@@ -113,6 +113,45 @@ class ChartCandleRepository(Protocol):
         timeframe: str | None = None,
         window_start: datetime,
         window_end: datetime,
+    ) -> int:
+        ...
+
+    def list_atas_pipeline_contracts(self, limit: int = 100) -> list["StoredPipelineContractOverview"]:
+        ...
+
+    def list_atas_raw_bar_daily_counts(
+        self,
+        *,
+        contract_symbol: str,
+        timeframe: str,
+        limit: int = 30,
+    ) -> list["StoredPipelineDailyCount"]:
+        ...
+
+    def count_atas_chart_bars_raw_updated_since(
+        self,
+        *,
+        contract_symbol: str,
+        timeframe: str,
+        updated_since: datetime,
+    ) -> int:
+        ...
+
+    def list_chart_candle_daily_counts(
+        self,
+        *,
+        symbol: str,
+        timeframes: Sequence[str],
+        limit: int = 90,
+    ) -> list["StoredPipelineDailyCount"]:
+        ...
+
+    def count_chart_candles_updated_since(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        updated_since: datetime,
     ) -> int:
         ...
 

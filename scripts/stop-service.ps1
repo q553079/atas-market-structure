@@ -39,19 +39,44 @@ if (Test-Path -LiteralPath $localEnvFile) {
     . $localEnvFile
 }
 
+$serverHost = if ($env:ATAS_MS_HOST) { $env:ATAS_MS_HOST } else { "127.0.0.1" }
 $serverPort = if ($env:ATAS_MS_PORT) { [int]$env:ATAS_MS_PORT } else { 8080 }
+$probeHost = if ($serverHost -in @("0.0.0.0", "::", "[::]")) { "127.0.0.1" } else { $serverHost }
 
-function Get-ServicePortOwningPid {
+function Get-ServiceListener {
     try {
-        $listener = Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction Stop | Select-Object -First 1
-        if (-not $listener) {
+        $listeners = Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction Stop
+        if (-not $listeners) {
             return $null
         }
-        return $listener.OwningProcess
+
+        $scopedListener = $listeners |
+            Where-Object { $_.LocalAddress -eq $probeHost } |
+            Select-Object -First 1
+        if ($scopedListener) {
+            return $scopedListener
+        }
+
+        if ($serverHost -in @("0.0.0.0", "::", "[::]")) {
+            return $listeners |
+                Where-Object { $_.LocalAddress -in @("0.0.0.0", "::", "[::]") } |
+                Select-Object -First 1
+        }
+
+        return $null
     }
     catch {
         return $null
     }
+}
+
+function Get-ServicePortOwningPid {
+    $listener = Get-ServiceListener
+    if (-not $listener) {
+        return $null
+    }
+
+    return $listener.OwningProcess
 }
 
 function Get-ServerProcessPid {

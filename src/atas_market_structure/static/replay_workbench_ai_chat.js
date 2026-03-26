@@ -380,6 +380,7 @@ export function createAiChatController({
 }) {
   let activeStreamController = null;
   let activeStreamMeta = null;
+  let outgoingRequestInFlight = false;
 
   function setStreamingUiState(streaming) {
     const nextStreaming = !!streaming;
@@ -801,58 +802,65 @@ export function createAiChatController({
       refreshChatUi();
       return { blocked: true };
     }
-    const descriptor = threadMeta || getPresetThreadMeta(preset);
-    const session = setActiveThread(descriptor.id, descriptor.title, {
-      symbol: descriptor.symbol || threadMeta?.symbol || state.topBar?.symbol,
-      contractId: descriptor.contractId || threadMeta?.contractId || descriptor.symbol || threadMeta?.symbol || state.topBar?.symbol,
-      timeframe: descriptor.timeframe || threadMeta?.timeframe || state.topBar?.timeframe,
-      windowRange: descriptor.windowRange || threadMeta?.windowRange || state.topBar?.quickRange,
-    });
-    const includeMemorySummary = !!session.includeMemorySummary;
-    const includeRecentMessages = !!session.includeRecentMessages;
-    const builtBlocks = await buildPromptBlocks(session, {
-      preset,
-      userInput: trimmedMessage,
-      analysisType: session.analysisTemplate?.type,
-      analysisRange: session.analysisTemplate?.range,
-      analysisStyle: session.analysisTemplate?.style,
-      includeMemorySummary,
-      includeRecentMessages,
-      attachments: buildOutgoingAttachments(session),
-      hasReplayContext: !!state.currentReplayIngestionId,
-    });
-    resetPromptBlockSelection(session);
-    builtBlocks.forEach((block) => {
-      addPromptBlock?.(block, { selected: true, pinned: !!block.pinned });
-    });
-    const effectiveSelectedBlockIds = getServerBackedPromptBlockIds(session, session.selectedPromptBlockIds);
-    const effectivePinnedBlockIds = getServerBackedPromptBlockIds(session, session.pinnedContextBlockIds);
-    const outgoingAttachments = buildOutgoingAttachments(session);
-    appendAiChatMessage("user", trimmedMessage, {
-      preset,
-      selected_block_ids: effectiveSelectedBlockIds,
-      pinned_block_ids: effectivePinnedBlockIds,
-      attachments: outgoingAttachments,
-    }, session.id, session.title);
-    const pendingAssistant = appendAiChatMessage("assistant", "正在思考中…", {
-      preset,
-      provider: "pending",
-      model: session.activeModel || els.aiModelOverride.value.trim() || null,
-      status: "pending",
-      replyTitle: "AI 回复生成中",
-      planCards: [],
-      annotations: [],
-      promptTraceId: null,
-      localPendingMessageId: null,
-    }, session.id, session.title);
-    if (pendingAssistant?.message_id) {
-      pendingAssistant.meta = {
-        ...(pendingAssistant.meta || {}),
-        localPendingMessageId: pendingAssistant.message_id,
-      };
+    if (outgoingRequestInFlight || activeStreamMeta) {
+      renderStatusStrip?.([{ label: "AI 正在处理上一条请求，请等待完成或先停止生成。", variant: "warn" }]);
+      refreshChatUi();
+      return { blocked: true, reason: "busy" };
     }
-    renderStatusStrip([{ label: "AI 对话生成中", variant: "emphasis" }]);
+    outgoingRequestInFlight = true;
     try {
+      const descriptor = threadMeta || getPresetThreadMeta(preset);
+      const session = setActiveThread(descriptor.id, descriptor.title, {
+        symbol: descriptor.symbol || threadMeta?.symbol || state.topBar?.symbol,
+        contractId: descriptor.contractId || threadMeta?.contractId || descriptor.symbol || threadMeta?.symbol || state.topBar?.symbol,
+        timeframe: descriptor.timeframe || threadMeta?.timeframe || state.topBar?.timeframe,
+        windowRange: descriptor.windowRange || threadMeta?.windowRange || state.topBar?.quickRange,
+      });
+      const includeMemorySummary = !!session.includeMemorySummary;
+      const includeRecentMessages = !!session.includeRecentMessages;
+      const builtBlocks = await buildPromptBlocks(session, {
+        preset,
+        userInput: trimmedMessage,
+        analysisType: session.analysisTemplate?.type,
+        analysisRange: session.analysisTemplate?.range,
+        analysisStyle: session.analysisTemplate?.style,
+        includeMemorySummary,
+        includeRecentMessages,
+        attachments: buildOutgoingAttachments(session),
+        hasReplayContext: !!state.currentReplayIngestionId,
+      });
+      resetPromptBlockSelection(session);
+      builtBlocks.forEach((block) => {
+        addPromptBlock?.(block, { selected: true, pinned: !!block.pinned });
+      });
+      const effectiveSelectedBlockIds = getServerBackedPromptBlockIds(session, session.selectedPromptBlockIds);
+      const effectivePinnedBlockIds = getServerBackedPromptBlockIds(session, session.pinnedContextBlockIds);
+      const outgoingAttachments = buildOutgoingAttachments(session);
+      appendAiChatMessage("user", trimmedMessage, {
+        preset,
+        selected_block_ids: effectiveSelectedBlockIds,
+        pinned_block_ids: effectivePinnedBlockIds,
+        attachments: outgoingAttachments,
+      }, session.id, session.title);
+      const pendingAssistant = appendAiChatMessage("assistant", "正在思考中…", {
+        preset,
+        provider: "pending",
+        model: session.activeModel || els.aiModelOverride.value.trim() || null,
+        status: "pending",
+        replyTitle: "AI 回复生成中",
+        planCards: [],
+        annotations: [],
+        promptTraceId: null,
+        localPendingMessageId: null,
+      }, session.id, session.title);
+      if (pendingAssistant?.message_id) {
+        pendingAssistant.meta = {
+          ...(pendingAssistant.meta || {}),
+          localPendingMessageId: pendingAssistant.message_id,
+        };
+      }
+      renderStatusStrip([{ label: "AI 对话生成中", variant: "emphasis" }]);
+      try {
       const selectedBlockIds = getServerBackedPromptBlockIds(session, session.selectedPromptBlockIds);
       const pinnedBlockIds = getServerBackedPromptBlockIds(session, session.pinnedContextBlockIds);
       const includeMemorySummary = !!session.includeMemorySummary;
@@ -1064,6 +1072,9 @@ export function createAiChatController({
       persistSessions();
       refreshChatUi();
       throw error;
+      }
+    } finally {
+      outgoingRequestInFlight = false;
     }
   }
 

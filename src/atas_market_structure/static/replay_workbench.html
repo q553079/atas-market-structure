@@ -97,11 +97,124 @@
               <div class="status-chip emphasis" id="statusDataChip">数据状态：历史</div>
               <div class="status-chip" id="statusIntegrityChip">完整性：待评估</div>
               <div class="status-chip" id="statusCacheChip">缓存：待构建</div>
-              <div class="status-chip" id="statusBackfillChip">补数：无需</div>
               <div class="status-chip" id="statusViewportChip">视图：未初始化</div>
               <div class="status-chip" id="statusSyncChip">最近同步：--</div>
             </div>
           </div>
+          <section class="header-pipeline-dock" id="headerPipelineDock" data-state="idle" data-pressure="quiet" data-collapsed="false">
+            <div class="header-pipeline-topline">
+              <div class="header-pipeline-brand">
+                <div class="header-pipeline-kicker">Flow Dock</div>
+                <div class="header-pipeline-title-row">
+                  <h2 class="header-pipeline-title">ATAS -> SQLite -> ClickHouse</h2>
+                  <p class="header-pipeline-note" id="headerPipelineNote">等待当前品种的入库快照。</p>
+                </div>
+              </div>
+              <div class="header-pipeline-meta">
+                <div class="header-pipeline-pill" id="headerPipelineContract">合约 --</div>
+                <div class="header-pipeline-pill" id="headerPipelineRoot">Root --</div>
+                <div class="header-pipeline-pill" id="headerPipelineGeneratedAt">快照 --</div>
+                <button id="headerPipelineToggle" type="button" class="header-pipeline-toggle" aria-expanded="true" aria-controls="headerPipelineBody">收起</button>
+              </div>
+            </div>
+            <div class="header-pipeline-body" id="headerPipelineBody">
+              <article class="header-pipeline-ingress-card header-pipeline-compact-card">
+                <div class="header-pipeline-card-top">
+                  <span class="header-pipeline-card-kicker">入口瞬时</span>
+                  <span class="header-pipeline-card-flag">ATAS</span>
+                </div>
+                <strong class="header-pipeline-rate-value" id="headerPipelinePressure">ATAS -- raw/s</strong>
+                <div class="header-pipeline-rate-caption">ATAS -> SQLite 暂存</div>
+                <div class="header-pipeline-rate-lane" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </article>
+              <div class="header-pipeline-stage">
+                <div class="header-pipeline-canvas-shell">
+                  <canvas id="headerPipelineCanvas"></canvas>
+                </div>
+                <div class="header-pipeline-pool-readout" id="headerPipelinePools"></div>
+              </div>
+              <aside class="header-pipeline-side">
+                <div class="header-pipeline-summary-grid">
+                  <article class="header-pipeline-stat">
+                    <span>今日 1m</span>
+                    <strong id="headerPipelineTodayValue">--</strong>
+                    <small id="headerPipelineTodayMeta">SQLite -- · CK 差值 --</small>
+                  </article>
+                  <article class="header-pipeline-stat">
+                    <span>累计 CK</span>
+                    <strong id="headerPipelineTotalValue">--</strong>
+                    <small id="headerPipelineTotalMeta">1m -- · 5m -- · 15m --</small>
+                  </article>
+                </div>
+                <div class="header-pipeline-progress header-pipeline-compact-card">
+                  <div class="build-progress build-progress-pool" id="buildProgress">
+                    <div class="build-progress-head">
+                      <span id="buildProgressLabel">界面加载池</span>
+                      <span id="buildProgressPercent">0%</span>
+                    </div>
+                    <div class="build-progress-pool-body">
+                      <div class="build-progress-pool-shell">
+                        <div class="build-progress-fill" id="buildProgressFill">
+                          <span class="build-progress-wave"></span>
+                          <span class="build-progress-wave build-progress-wave-back"></span>
+                        </div>
+                        <div class="build-progress-pool-glass"></div>
+                      </div>
+                      <div class="build-progress-pool-copy">首屏构建 / 主图微刷新</div>
+                    </div>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </section>
+          <div class="header-deck-tabs-row">
+            <div class="drawer-tabs-top header-drawer-tabs-top">
+              <button id="drawerContextButton" class="drawer-tab" type="button">上下文</button>
+              <button id="drawerManualButton" class="drawer-tab" type="button">手工区域</button>
+              <button id="drawerFocusButton" class="drawer-tab" type="button">焦点区域</button>
+              <button id="drawerStrategyButton" class="drawer-tab" type="button">策略匹配</button>
+              <button id="drawerEntriesButton" class="drawer-tab" type="button">开仓记录</button>
+              <button id="drawerRecapButton" class="drawer-tab" type="button">复盘简报</button>
+              <button id="drawerGammaButton" class="drawer-tab" type="button">Gamma</button>
+            </div>
+            <div class="panel-actions header-deck-actions">
+              <button id="annotationManagerButton" class="secondary" type="button">标记管理</button>
+            </div>
+          </div>
+          <div class="chart-toolbar primary-toolbar header-chart-toolbar">
+            <button id="zoomInButton" class="secondary" type="button">放大</button>
+            <button id="zoomOutButton" class="secondary" type="button">缩小</button>
+            <button id="zoomPriceInButton" class="secondary" type="button">价格放大</button>
+            <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
+            <button id="resetViewButton" class="secondary" type="button">重置视图</button>
+            <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
+            <button id="saveRegionQuickButton" class="secondary" type="button">保存区域</button>
+            <button id="manualKeyLevelButton" class="secondary" type="button">关键位 L</button>
+            <button id="manualEventZoneButton" class="secondary" type="button">区域 Z</button>
+            <button id="manualRiskNoteButton" class="secondary" type="button">风险 R</button>
+            <button id="saveEventCandidateButton" class="secondary" type="button" hidden>保存事件</button>
+            <button id="cancelEventCandidateToolButton" class="secondary" type="button" hidden>取消事件工具</button>
+            <button id="chartToolbarScreenshotButton" class="secondary" type="button">图表截图</button>
+            <button id="sendViewportButton" class="secondary" type="button">发送视区</button>
+            <span class="meta" id="chartViewportMeta">视图未初始化</span>
+            <span class="meta" id="eventToolMeta">L 建关键位，Z 建区域，R 建风险。</span>
+          </div>
+          <div class="layer-strip header-layer-strip" id="chartLayerStrip">
+            <label><input id="layerLargeOrders" type="checkbox">大单</label>
+            <label><input id="layerAbsorption" type="checkbox">吸收</label>
+            <label><input id="layerIceberg" type="checkbox">冰山</label>
+            <label><input id="layerReplenishment" type="checkbox">补单</label>
+            <label><input id="layerEvents" type="checkbox" checked>事件</label>
+            <label><input id="layerFocusRegions" type="checkbox" checked>重点区域</label>
+            <label><input id="layerManualRegions" type="checkbox" checked>手工区域</label>
+            <label><input id="layerOperatorEntries" type="checkbox" checked>开仓记录</label>
+            <label><input id="layerAiAnnotations" type="checkbox" checked>AI标记</label>
+          </div>
+          <div class="status-strip header-status-strip" id="statusStrip"></div>
           <input id="cacheKey" type="hidden" value="">
           <input id="chartInstanceId" type="hidden" value="">
           <input id="minContinuousMessages" type="hidden" value="10">
@@ -110,57 +223,6 @@
           <input id="aiModelOverride" type="hidden" value="">
           <textarea id="invalidateReason" hidden>操作员要求重新刷新回放</textarea>
         </header>
-        <div class="workspace-section-header">
-          <div>
-            <h2>图表</h2>
-          </div>
-          <div class="panel-actions">
-            <button id="annotationManagerButton" class="secondary" type="button">标记管理</button>
-          </div>
-        </div>
-
-        <div class="drawer-tabs-top">
-          <button id="drawerContextButton" class="drawer-tab" type="button">上下文</button>
-          <button id="drawerManualButton" class="drawer-tab" type="button">手工区域</button>
-          <button id="drawerFocusButton" class="drawer-tab" type="button">焦点区域</button>
-          <button id="drawerStrategyButton" class="drawer-tab" type="button">策略匹配</button>
-          <button id="drawerEntriesButton" class="drawer-tab" type="button">开仓记录</button>
-          <button id="drawerRecapButton" class="drawer-tab" type="button">复盘简报</button>
-          <button id="drawerGammaButton" class="drawer-tab" type="button">Gamma</button>
-        </div>
-
-        <div class="chart-toolbar primary-toolbar">
-          <button id="zoomInButton" class="secondary" type="button">放大</button>
-          <button id="zoomOutButton" class="secondary" type="button">缩小</button>
-          <button id="zoomPriceInButton" class="secondary" type="button">价格放大</button>
-          <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
-          <button id="resetViewButton" class="secondary" type="button">重置视图</button>
-          <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
-          <button id="saveRegionQuickButton" class="secondary" type="button">保存区域</button>
-          <button id="manualKeyLevelButton" class="secondary" type="button">关键位 L</button>
-          <button id="manualEventZoneButton" class="secondary" type="button">区域 Z</button>
-          <button id="manualRiskNoteButton" class="secondary" type="button">风险 R</button>
-          <button id="saveEventCandidateButton" class="secondary" type="button" hidden>保存事件</button>
-          <button id="cancelEventCandidateToolButton" class="secondary" type="button" hidden>取消事件工具</button>
-          <button id="chartToolbarScreenshotButton" class="secondary" type="button">图表截图</button>
-          <button id="sendViewportButton" class="secondary" type="button">发送当前可视区域到聊天</button>
-          <span class="meta" id="chartViewportMeta">视图未初始化</span>
-          <span class="meta" id="eventToolMeta">L 建关键位，Z 建区域，R 建风险。</span>
-        </div>
-
-        <div class="layer-strip" id="chartLayerStrip">
-          <label><input id="layerLargeOrders" type="checkbox">大单</label>
-          <label><input id="layerAbsorption" type="checkbox">吸收</label>
-          <label><input id="layerIceberg" type="checkbox">冰山</label>
-          <label><input id="layerReplenishment" type="checkbox">补单</label>
-          <label><input id="layerEvents" type="checkbox" checked>事件</label>
-          <label><input id="layerFocusRegions" type="checkbox" checked>重点区域</label>
-          <label><input id="layerManualRegions" type="checkbox" checked>手工区域</label>
-          <label><input id="layerOperatorEntries" type="checkbox" checked>开仓记录</label>
-          <label><input id="layerAiAnnotations" type="checkbox" checked>AI标记</label>
-        </div>
-
-        <div class="status-strip" id="statusStrip"></div>
 
         <div class="chart-frame" id="chartFrame">
           <div class="chart-info-badge" id="chartInfoBadge">
@@ -168,27 +230,6 @@
             <span class="chart-info-timeframe" id="chartInfoTimeframe">-</span>
             <span class="chart-info-time" id="chartInfoTime">UTC</span>
             <span class="chart-info-quote" id="chartInfoQuote">L -- · Bid -- · Ask --</span>
-          </div>
-          <div class="chart-progress-stack" aria-live="polite" aria-atomic="true">
-            <div class="build-progress" id="buildProgress">
-              <div class="build-progress-head">
-                <span id="buildProgressLabel">界面加载进度</span>
-                <span id="buildProgressPercent">0%</span>
-              </div>
-              <div class="build-progress-track">
-                <div class="build-progress-fill" id="buildProgressFill"></div>
-              </div>
-            </div>
-            <div class="build-progress transport-progress" id="transferProgress">
-              <div class="build-progress-head">
-                <span id="transferProgressLabel">ATAS 传输进度</span>
-                <span id="transferProgressPercent">0%</span>
-              </div>
-              <div class="build-progress-track">
-                <div class="build-progress-fill" id="transferProgressFill"></div>
-              </div>
-              <div class="build-progress-detail" id="transferProgressDetail">当前没有活动中的 ATAS 传输任务。</div>
-            </div>
           </div>
           <div class="chart-event-tooltip card-surface" id="chartEventTooltip" hidden>
             <div class="chart-event-tooltip-kicker">图上事件</div>
@@ -800,6 +841,7 @@
       derivePriceEnvelope,
       computeEmaSeries,
       collectFootprintBubbles,
+      isChartViewFollowingLatest,
     } from "/static/replay_workbench_chart_utils.js";
     import { escapeHtml } from "/static/replay_workbench_ui_utils.js";
     import { appendChartOverlayMarkup } from "/static/replay_workbench_chart_overlays.js";
@@ -808,6 +850,7 @@
     import { appendChartAxesMarkup } from "/static/replay_workbench_chart_axes.js";
     import { createChartViewportContext } from "/static/replay_workbench_chart_viewport.js";
     import { bootReplayWorkbench } from "/static/replay_workbench_bootstrap.js";
+    import { mountReplayWorkbenchPipelineDock } from "/static/replay_workbench_pipeline_dock.js";
     import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/replay_workbench_event_overlay.js";
     import {
       initLightweightCharts,
@@ -1670,6 +1713,21 @@
       }
     }
 
+    function syncFollowLatestFromView(totalCount = 0) {
+      if (!app?.state?.chartView || !totalCount) {
+        return;
+      }
+      app.state.followLatest = !!isChartViewFollowingLatest(totalCount, app.state.chartView);
+    }
+
+    function updateChartViewportMeta(candles = [], visibleCandles = []) {
+      if (!app?.els?.chartViewportMeta || !Array.isArray(candles) || !visibleCandles.length) {
+        return;
+      }
+      const modeLabel = app.state?.followLatest ? "跟随最新" : "固定视口";
+      app.els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(visibleCandles[0].started_at)} -> ${formatAxisTime(visibleCandles[visibleCandles.length - 1].ended_at)} / ${modeLabel}`;
+    }
+
     function formatChartInfoPrice(value) {
       const numeric = Number(value);
       if (!Number.isFinite(numeric)) {
@@ -1841,6 +1899,7 @@
         }
       }
       const view = state.chartView;
+      syncFollowLatestFromView(candles.length);
       const initialViewRange = {
         startIndex: Number(view?.startIndex ?? 0),
         endIndex: Number(view?.endIndex ?? 0),
@@ -1981,7 +2040,7 @@
                   const firstCandle = visibleCandles.length ? visibleCandles[0] : null;
                   const lastCandle = visibleCandles.length ? visibleCandles[visibleCandles.length - 1] : null;
                   if (firstCandle && lastCandle) {
-                    els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(firstCandle.started_at)} -> ${formatAxisTime(lastCandle.ended_at)}`;
+                    updateChartViewportMeta(candles, visibleCandles);
                   }
                   updateChartInfoBadge({
                     symbol: els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-",
@@ -2045,7 +2104,7 @@
             const firstCandle = visibleCandles.length ? visibleCandles[0] : null;
             const lastCandle = visibleCandles.length ? visibleCandles[visibleCandles.length - 1] : null;
             if (firstCandle && lastCandle) {
-              els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(firstCandle.started_at)} -> ${formatAxisTime(lastCandle.ended_at)}`;
+              updateChartViewportMeta(candles, visibleCandles);
             }
             updateChartInfoBadge({
               symbol: els.instrumentSymbol?.value?.trim() || snapshot?.instrument_symbol || "-",
@@ -2129,7 +2188,8 @@
       const yMax = state.chartView?.yMax ?? envelope.max;
       const emaSeries = computeEmaSeries(candles, 20);
       const { priceToY, xToTime, clampChartX, clampChartY } = createPriceMappers({ yMin, yMax });
-      els.chartViewportMeta.textContent = `总 ${candles.length} 根 / 可见 ${visibleCandles.length} 根 / ${formatAxisTime(visibleCandles[0].started_at)} -> ${formatAxisTime(visibleCandles[visibleCandles.length - 1].ended_at)}`;
+      syncFollowLatestFromView(candles.length);
+      updateChartViewportMeta(candles, visibleCandles);
 
       const markupParts = [];
       const volumeMax = Math.max(1, ...visibleCandles.map((bar) => Number(bar.volume || 0)));
@@ -2309,8 +2369,17 @@
       renderEventHoverOverlay();
     });
 
+    const pipelineDock = mountReplayWorkbenchPipelineDock({ app });
+    app.pipelineDock = pipelineDock;
     app.attachBindings();
-    app.bootstrap();
+    pipelineDock.start();
+    Promise.resolve(app.bootstrap())
+      .then(() => {
+        pipelineDock.refresh();
+      })
+      .catch((error) => {
+        console.warn("回放页 bootstrap 后刷新管线监控失败:", error);
+      });
   </script>
 </body>
 </html>

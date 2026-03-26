@@ -494,3 +494,21 @@ class StoredEventOutcomeLedger:
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredPipelineContractOverview:
+    contract_symbol: str
+    root_symbol: str
+    latest_raw_started_at: datetime | None
+    latest_raw_updated_at: datetime | None
+    total_raw_1m_count: int
+    today_raw_1m_count: int
+
+
+@dataclass(frozen=True)
+class StoredPipelineDailyCount:
+    bar_date: str
+    timeframe: str
+    candle_count: int
+    latest_updated_at: datetime | None

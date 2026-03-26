@@ -532,10 +532,16 @@ def test_clickhouse_repository_list_chart_candles_uses_clickhouse_safe_aggregati
     assert candles[0].symbol == "GC"
     assert candles[0].source_started_at == datetime(2026, 3, 21, 15, 0, tzinfo=UTC)
     assert "FINAL" not in captured_query["sql"]
+    assert "GROUP BY symbol, timeframe, started_at, source_started_at" in captured_query["sql"]
+    assert ") AS latest_partial_versions" in captured_query["sql"]
+    assert "argMax(open, tuple(updated_at, ended_at)) AS latest_open" in captured_query["sql"]
+    assert "argMax(high, tuple(updated_at, ended_at)) AS latest_high" in captured_query["sql"]
+    assert "toInt64(argMax(volume, tuple(updated_at, ended_at))) AS latest_volume" in captured_query["sql"]
+    assert "max(latest_updated_at) AS updated_at_max" in captured_query["sql"]
+    assert "max(updated_at) AS latest_updated_at" in captured_query["sql"]
     assert "min(source_started_at) AS source_started_at_min" in captured_query["sql"]
-    assert "max(updated_at) AS updated_at_max" in captured_query["sql"]
-    assert "argMin(open, tuple(source_started_at, updated_at))" in captured_query["sql"]
-    assert "argMax(close, tuple(updated_at, source_started_at))" in captured_query["sql"]
+    assert "argMin(latest_open, tuple(source_started_at, latest_updated_at))" in captured_query["sql"]
+    assert "argMax(latest_close, tuple(latest_updated_at, source_started_at))" in captured_query["sql"]
 
 
 def test_clickhouse_repository_count_chart_candles_counts_distinct_buckets_without_final(

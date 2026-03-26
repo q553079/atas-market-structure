@@ -309,6 +309,91 @@ def test_replay_live_tail_overlays_recent_continuous_updates_on_chart_candle_bas
     assert payload["candles"][-1]["close"] == 26008.0
     assert payload["candles"][0]["started_at"] == (now - timedelta(minutes=4)).isoformat().replace("+00:00", "Z")
 
+def test_replay_live_tail_filters_suspect_zero_volume_chart_candle_history_rows() -> None:
+    application = build_application()
+
+    now = datetime.now(tz=UTC).replace(second=0, microsecond=0)
+    bad_started_at = now - timedelta(minutes=1)
+    chart_bars = [
+        ChartCandle(
+            symbol="GC",
+            timeframe=Timeframe.MIN_1,
+            started_at=now - timedelta(minutes=4),
+            ended_at=now - timedelta(minutes=3, seconds=1),
+            source_started_at=now - timedelta(minutes=4),
+            open=4376.4,
+            high=4378.2,
+            low=4375.8,
+            close=4377.6,
+            volume=42,
+            tick_volume=12,
+            delta=8,
+            updated_at=now - timedelta(minutes=3),
+            source_timezone="UTC",
+        ),
+        ChartCandle(
+            symbol="GC",
+            timeframe=Timeframe.MIN_1,
+            started_at=now - timedelta(minutes=3),
+            ended_at=now - timedelta(minutes=2, seconds=1),
+            source_started_at=now - timedelta(minutes=3),
+            open=4377.6,
+            high=4379.1,
+            low=4377.2,
+            close=4378.8,
+            volume=38,
+            tick_volume=10,
+            delta=5,
+            updated_at=now - timedelta(minutes=2),
+            source_timezone="UTC",
+        ),
+        ChartCandle(
+            symbol="GC",
+            timeframe=Timeframe.MIN_1,
+            started_at=now - timedelta(minutes=2),
+            ended_at=now - timedelta(minutes=1, seconds=1),
+            source_started_at=now - timedelta(minutes=2),
+            open=4378.8,
+            high=4381.4,
+            low=4378.4,
+            close=4380.6,
+            volume=51,
+            tick_volume=14,
+            delta=9,
+            updated_at=now - timedelta(minutes=1),
+            source_timezone="UTC",
+        ),
+        ChartCandle(
+            symbol="GC",
+            timeframe=Timeframe.MIN_1,
+            started_at=bad_started_at,
+            ended_at=now - timedelta(seconds=1),
+            source_started_at=bad_started_at,
+            open=5165.6,
+            high=5165.6,
+            low=4380.0,
+            close=4380.8,
+            volume=0,
+            tick_volume=0,
+            delta=0,
+            updated_at=now,
+            source_timezone="UTC",
+        ),
+    ]
+    application._repository.replace_chart_candles(chart_bars)
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=GC&display_timeframe=1m&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["instrument_symbol"] == "GC"
+    assert len(payload["candles"]) == 3
+    assert all(candle["started_at"] != bad_started_at.isoformat().replace("+00:00", "Z") for candle in payload["candles"])
+    assert payload["candles"][-1]["high"] < 4400.0
+
 def test_replay_live_tail_ignores_unrelated_backfill_ack_for_refresh_flags() -> None:
     application = build_application()
 
@@ -402,7 +487,7 @@ def test_replay_workbench_builder_returns_placeholder_snapshot_when_local_histor
     assert payload["atas_backfill_request"]["requested_ranges"] == [
         {
             "range_start": "2026-03-12T07:00:00Z",
-            "range_end": "2026-03-17T02:15:00Z",
+            "range_end": "2026-03-14T06:59:59Z",
         }
     ]
 

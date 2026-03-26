@@ -15,6 +15,8 @@ from atas_market_structure.repository import (
     ChartCandleRepository,
     IngestionRepository,
     StoredIngestion,
+    StoredPipelineContractOverview,
+    StoredPipelineDailyCount,
 )
 
 if TYPE_CHECKING:
@@ -258,6 +260,10 @@ class ClickHouseChartCandleRepository:
         )
         return len(candles)
 
+    def replace_chart_candles(self, candles: list[ChartCandle]) -> int:
+        """Compatibility alias for exact chart-candle replacement semantics."""
+        return self.upsert_chart_candles(candles)
+
     def list_chart_candles(
         self,
         symbol: str,
@@ -272,22 +278,41 @@ class ClickHouseChartCandleRepository:
             symbol,
             timeframe,
             started_at,
-            max(ended_at) AS ended_at_max,
+            max(latest_ended_at) AS ended_at_max,
             min(source_started_at) AS source_started_at_min,
-            argMin(open, tuple(source_started_at, updated_at)) AS open,
-            max(high) AS high,
-            min(low) AS low,
-            argMax(close, tuple(updated_at, source_started_at)) AS close,
-            toInt64(sum(volume)) AS volume,
-            toInt64(sum(tick_volume)) AS tick_volume,
-            toInt64(sum(delta)) AS delta,
-            max(updated_at) AS updated_at_max,
-            argMin(source_timezone, tuple(source_started_at, updated_at)) AS source_timezone
-        FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
-        WHERE symbol = {_quote_string(symbol)}
-          AND timeframe = {_quote_string(tf_value)}
-          AND started_at >= toDateTime64('{_to_ch_datetime64_literal(window_start)}', 3, 'UTC')
-          AND started_at <= toDateTime64('{_to_ch_datetime64_literal(window_end)}', 3, 'UTC')
+            argMin(latest_open, tuple(source_started_at, latest_updated_at)) AS open,
+            max(latest_high) AS high,
+            min(latest_low) AS low,
+            argMax(latest_close, tuple(latest_updated_at, source_started_at)) AS close,
+            toInt64(sum(latest_volume)) AS volume,
+            toInt64(sum(latest_tick_volume)) AS tick_volume,
+            toInt64(sum(latest_delta)) AS delta,
+            max(latest_updated_at) AS updated_at_max,
+            argMin(latest_source_timezone, tuple(source_started_at, latest_updated_at)) AS source_timezone
+        FROM
+        (
+            SELECT
+                symbol,
+                timeframe,
+                started_at,
+                argMax(ended_at, tuple(updated_at, ended_at)) AS latest_ended_at,
+                source_started_at,
+                argMax(open, tuple(updated_at, ended_at)) AS latest_open,
+                argMax(high, tuple(updated_at, ended_at)) AS latest_high,
+                argMax(low, tuple(updated_at, ended_at)) AS latest_low,
+                argMax(close, tuple(updated_at, ended_at)) AS latest_close,
+                toInt64(argMax(volume, tuple(updated_at, ended_at))) AS latest_volume,
+                toInt64(argMax(tick_volume, tuple(updated_at, ended_at))) AS latest_tick_volume,
+                toInt64(argMax(delta, tuple(updated_at, ended_at))) AS latest_delta,
+                max(updated_at) AS latest_updated_at,
+                argMax(source_timezone, tuple(updated_at, ended_at)) AS latest_source_timezone
+            FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
+            WHERE symbol = {_quote_string(symbol)}
+              AND timeframe = {_quote_string(tf_value)}
+              AND started_at >= toDateTime64('{_to_ch_datetime64_literal(window_start)}', 3, 'UTC')
+              AND started_at <= toDateTime64('{_to_ch_datetime64_literal(window_end)}', 3, 'UTC')
+            GROUP BY symbol, timeframe, started_at, source_started_at
+        ) AS latest_partial_versions
         GROUP BY symbol, timeframe, started_at
         ORDER BY started_at ASC
         LIMIT {int(limit)}
@@ -330,6 +355,73 @@ class ClickHouseChartCandleRepository:
         result = self._execute(lambda client: client.query(query))
         return int(result.result_rows[0][0]) if result.result_rows else 0
 
+    def list_chart_candle_daily_counts(
+        self,
+        *,
+        symbol: str,
+        timeframes: Sequence[str],
+        limit: int = 90,
+    ) -> list[StoredPipelineDailyCount]:
+        normalized_timeframes = [Timeframe(item).value for item in timeframes]
+        if not normalized_timeframes:
+            return []
+        timeframe_sql = ", ".join(_quote_string(item) for item in normalized_timeframes)
+        query = f"""
+        SELECT
+            toString(bar_date) AS bar_date,
+            timeframe,
+            count() AS candle_count,
+            max(latest_updated_at) AS latest_updated_at
+        FROM
+        (
+            SELECT
+                toDate(started_at) AS bar_date,
+                timeframe,
+                started_at,
+                max(updated_at) AS latest_updated_at
+            FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
+            WHERE symbol = {_quote_string(symbol)}
+              AND timeframe IN ({timeframe_sql})
+            GROUP BY bar_date, timeframe, started_at
+        )
+        GROUP BY bar_date, timeframe
+        ORDER BY bar_date DESC, timeframe ASC
+        LIMIT {int(limit)}
+        """
+        result = self._execute(lambda client: client.query(query))
+        return [
+            StoredPipelineDailyCount(
+                bar_date=str(row[0]),
+                timeframe=row[1],
+                candle_count=int(row[2]),
+                latest_updated_at=_parse_datetime(row[3]),
+            )
+            for row in result.result_rows
+        ]
+
+    def count_chart_candles_updated_since(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        updated_since: datetime,
+    ) -> int:
+        tf_value = Timeframe(timeframe).value
+        query = f"""
+        SELECT count()
+        FROM
+        (
+            SELECT started_at
+            FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
+            WHERE symbol = {_quote_string(symbol)}
+              AND timeframe = {_quote_string(tf_value)}
+              AND updated_at >= toDateTime64('{_to_ch_datetime64_literal(updated_since)}', 3, 'UTC')
+            GROUP BY started_at
+        )
+        """
+        result = self._execute(lambda client: client.query(query))
+        return int(result.result_rows[0][0]) if result.result_rows else 0
+
     def purge_chart_candles(self, *, symbol: str | None, older_than: datetime) -> int:
         clauses = [f"updated_at < toDateTime64('{_to_ch_datetime64_literal(older_than)}', 3, 'UTC')"]
         if symbol is not None:
@@ -343,6 +435,39 @@ class ClickHouseChartCandleRepository:
         """
         result = self._execute(lambda client: client.query(count_query))
         deleted = int(result.result_rows[0][0]) if result.result_rows else 0
+        self._execute(
+            lambda client: client.command(
+                f"ALTER TABLE {_quote_identifier(f'{self._database}.{self._chart_candles_table}')} DELETE WHERE {where_sql}"
+            )
+        )
+        return deleted
+
+    def delete_chart_candles_window(
+        self,
+        *,
+        symbol: str,
+        timeframe: str | None,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> int:
+        clauses = [
+            f"symbol = {_quote_string(symbol)}",
+            f"started_at <= toDateTime64('{_to_ch_datetime64_literal(window_end)}', 3, 'UTC')",
+            f"ended_at >= toDateTime64('{_to_ch_datetime64_literal(window_start)}', 3, 'UTC')",
+        ]
+        if timeframe is not None:
+            tf_value = Timeframe(timeframe).value
+            clauses.append(f"timeframe = {_quote_string(tf_value)}")
+        where_sql = " AND ".join(clauses)
+        count_query = f"""
+        SELECT count()
+        FROM {_quote_identifier(f"{self._database}.{self._chart_candles_table}")}
+        WHERE {where_sql}
+        """
+        result = self._execute(lambda client: client.query(count_query))
+        deleted = int(result.result_rows[0][0]) if result.result_rows else 0
+        if deleted <= 0:
+            return 0
         self._execute(
             lambda client: client.command(
                 f"ALTER TABLE {_quote_identifier(f'{self._database}.{self._chart_candles_table}')} DELETE WHERE {where_sql}"
@@ -1019,6 +1144,9 @@ class HybridAnalysisRepository:
     def upsert_chart_candles(self, candles: list[ChartCandle]) -> int:
         return self._invoke_chart_repository("upsert_chart_candles", candles)
 
+    def replace_chart_candles(self, candles: list[ChartCandle]) -> int:
+        return self._invoke_chart_repository("replace_chart_candles", candles)
+
     def list_chart_candles(
         self,
         symbol: str,
@@ -1039,8 +1167,81 @@ class HybridAnalysisRepository:
     def count_chart_candles(self, symbol: str, timeframe: str) -> int:
         return self._invoke_chart_repository("count_chart_candles", symbol, timeframe)
 
+    def list_chart_candle_daily_counts(
+        self,
+        *,
+        symbol: str,
+        timeframes: Sequence[str],
+        limit: int = 90,
+    ) -> list[StoredPipelineDailyCount]:
+        return self._invoke_chart_repository(
+            "list_chart_candle_daily_counts",
+            symbol=symbol,
+            timeframes=timeframes,
+            limit=limit,
+        )
+
+    def count_chart_candles_updated_since(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        updated_since: datetime,
+    ) -> int:
+        return self._invoke_chart_repository(
+            "count_chart_candles_updated_since",
+            symbol=symbol,
+            timeframe=timeframe,
+            updated_since=updated_since,
+        )
+
+    def list_atas_pipeline_contracts(self, limit: int = 100) -> list[StoredPipelineContractOverview]:
+        return self._metadata_repository.list_atas_pipeline_contracts(limit=limit)
+
+    def list_atas_raw_bar_daily_counts(
+        self,
+        *,
+        contract_symbol: str,
+        timeframe: str,
+        limit: int = 30,
+    ) -> list[StoredPipelineDailyCount]:
+        return self._metadata_repository.list_atas_raw_bar_daily_counts(
+            contract_symbol=contract_symbol,
+            timeframe=timeframe,
+            limit=limit,
+        )
+
+    def count_atas_chart_bars_raw_updated_since(
+        self,
+        *,
+        contract_symbol: str,
+        timeframe: str,
+        updated_since: datetime,
+    ) -> int:
+        return self._metadata_repository.count_atas_chart_bars_raw_updated_since(
+            contract_symbol=contract_symbol,
+            timeframe=timeframe,
+            updated_since=updated_since,
+        )
+
     def purge_chart_candles(self, *, symbol: str | None, older_than: datetime) -> int:
         return self._invoke_chart_repository("purge_chart_candles", symbol=symbol, older_than=older_than)
+
+    def delete_chart_candles_window(
+        self,
+        *,
+        symbol: str,
+        timeframe: str | None,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> int:
+        return self._invoke_chart_repository(
+            "delete_chart_candles_window",
+            symbol=symbol,
+            timeframe=timeframe,
+            window_start=window_start,
+            window_end=window_end,
+        )
 
     def save_ingestion(
         self,

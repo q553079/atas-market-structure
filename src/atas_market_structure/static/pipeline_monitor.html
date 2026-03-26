@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATAS 入库监控台</title>
+  <link rel="stylesheet" href="/static/pipeline_monitor.css">
+</head>
+<body>
+  <div class="pipeline-shell">
+    <header class="hero-panel">
+      <div>
+        <div class="eyebrow">ATAS INGESTION OBSERVATORY</div>
+        <h1>入库流量监控台</h1>
+        <p class="hero-copy">
+          追踪 SQLite 原始镜像池、ClickHouse 主图 K 线池，以及 5m / 15m 聚合池的入库速度、库存规模与写入强度。
+        </p>
+      </div>
+      <div class="hero-actions">
+        <a class="ghost-link" href="/workbench/replay">回到回放主图</a>
+        <div class="live-badge" id="liveBadge">等待数据</div>
+      </div>
+    </header>
+
+    <main class="monitor-layout">
+      <section class="control-card card">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Monitor Controls</div>
+            <h2>监控参数</h2>
+          </div>
+          <button id="refreshButton" type="button" class="primary-button">刷新快照</button>
+        </div>
+        <div class="control-grid">
+          <label class="field">
+            <span>合约</span>
+            <select id="contractSelect"></select>
+          </label>
+          <label class="field">
+            <span>统计天数</span>
+            <select id="daysSelect">
+              <option value="7">最近 7 天</option>
+              <option value="10" selected>最近 10 天</option>
+              <option value="20">最近 20 天</option>
+              <option value="30">最近 30 天</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>流量观察窗</span>
+            <select id="flowWindowSelect">
+              <option value="10">10 分钟</option>
+              <option value="15" selected>15 分钟</option>
+              <option value="30">30 分钟</option>
+              <option value="60">60 分钟</option>
+            </select>
+          </label>
+          <div class="field read-only">
+            <span>最后快照</span>
+            <strong id="generatedAt">--</strong>
+          </div>
+        </div>
+        <div class="status-ribbon">
+          <div class="status-pill" id="pressurePill">写入强度：--</div>
+          <div class="status-pill" id="contractPill">合约：--</div>
+          <div class="status-pill" id="rootPill">Root：--</div>
+        </div>
+      </section>
+
+      <section class="stage-card card">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Flow Stage</div>
+            <h2>原始镜像 → K 线聚合</h2>
+          </div>
+          <div class="section-note" id="stageNote">等待后端快照。</div>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="flowCanvas"></canvas>
+        </div>
+        <div class="pool-readout" id="poolReadout"></div>
+      </section>
+
+      <section class="summary-grid">
+        <article class="card metric-card" id="totalsCard"></article>
+        <article class="card metric-card" id="todayCard"></article>
+      </section>
+
+      <section class="storage-card card">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Storage Map</div>
+            <h2>数据当前存在哪里</h2>
+          </div>
+        </div>
+        <div class="storage-grid" id="storageGrid"></div>
+      </section>
+
+      <section class="daily-card card">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Daily Inventory</div>
+            <h2>按日期看入库数量</h2>
+          </div>
+          <div class="section-note">按 1m 一天总量 1440 根做基准。</div>
+        </div>
+        <div class="daily-list" id="dailyList"></div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/static/pipeline_monitor.js"></script>
+</body>
+</html>

@@ -2795,11 +2795,28 @@ class SQLiteAnalysisRepository:
 
     @staticmethod
     def _serialize_json(value: dict[str, Any]) -> str:
-        return json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+        return json.dumps(
+            value,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            default=SQLiteAnalysisRepository._json_default,
+        )
 
     @staticmethod
     def _serialize_any_json(value: Any) -> str:
-        return json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+        return json.dumps(
+            value,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            default=SQLiteAnalysisRepository._json_default,
+        )
+
+    @staticmethod
+    def _json_default(value: Any) -> str:
+        if isinstance(value, datetime):
+            timestamp = value.astimezone(UTC) if value.tzinfo is not None else value.replace(tzinfo=UTC)
+            return timestamp.isoformat()
+        raise TypeError(f"Object of type {type(value)!r} is not JSON serializable")
 
     @staticmethod
     def _parse_json(value: str) -> dict[str, Any]:
@@ -3346,3 +3363,159 @@ class SQLiteAnalysisRepository:
             cur = conn.execute(f"DELETE FROM atas_chart_bars_raw {where_clause}", tuple(params))
             conn.commit()
         return cur.rowcount
+
+    def list_atas_pipeline_contracts(self, limit: int = 100) -> list[StoredPipelineContractOverview]:
+        minute_1 = "1m"
+        today = datetime.now(tz=UTC).date().isoformat()
+        query = """
+            SELECT
+                contract_symbol,
+                COALESCE(NULLIF(root_symbol, ''), NULLIF(symbol, ''), contract_symbol) AS effective_root_symbol,
+                MAX(started_at_utc) AS latest_raw_started_at,
+                MAX(updated_at) AS latest_raw_updated_at,
+                SUM(CASE WHEN timeframe = ? THEN 1 ELSE 0 END) AS total_raw_1m_count,
+                SUM(CASE WHEN timeframe = ? AND substr(started_at_utc, 1, 10) = ? THEN 1 ELSE 0 END) AS today_raw_1m_count
+            FROM atas_chart_bars_raw
+            WHERE contract_symbol <> ''
+            GROUP BY contract_symbol, COALESCE(NULLIF(root_symbol, ''), NULLIF(symbol, ''), contract_symbol)
+            ORDER BY latest_raw_updated_at DESC, contract_symbol ASC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, (minute_1, minute_1, today, limit)).fetchall()
+        return [
+            StoredPipelineContractOverview(
+                contract_symbol=row["contract_symbol"],
+                root_symbol=row["effective_root_symbol"],
+                latest_raw_started_at=self._parse_datetime_optional(row["latest_raw_started_at"]),
+                latest_raw_updated_at=self._parse_datetime_optional(row["latest_raw_updated_at"]),
+                total_raw_1m_count=int(row["total_raw_1m_count"] or 0),
+                today_raw_1m_count=int(row["today_raw_1m_count"] or 0),
+            )
+            for row in rows
+        ]
+
+    def list_atas_raw_bar_daily_counts(
+        self,
+        *,
+        contract_symbol: str,
+        timeframe: str,
+        limit: int = 30,
+    ) -> list[StoredPipelineDailyCount]:
+        from atas_market_structure.models._enums import Timeframe
+
+        query = """
+            SELECT
+                substr(started_at_utc, 1, 10) AS bar_date,
+                timeframe,
+                COUNT(*) AS candle_count,
+                MAX(updated_at) AS latest_updated_at
+            FROM atas_chart_bars_raw
+            WHERE contract_symbol = ?
+              AND timeframe = ?
+            GROUP BY bar_date, timeframe
+            ORDER BY bar_date DESC
+            LIMIT ?
+        """
+        tf_value = Timeframe(timeframe).value
+        with self._connect() as conn:
+            rows = conn.execute(query, (contract_symbol, tf_value, limit)).fetchall()
+        return [
+            StoredPipelineDailyCount(
+                bar_date=row["bar_date"],
+                timeframe=row["timeframe"],
+                candle_count=int(row["candle_count"] or 0),
+                latest_updated_at=self._parse_datetime_optional(row["latest_updated_at"]),
+            )
+            for row in rows
+        ]
+
+    def count_atas_chart_bars_raw_updated_since(
+        self,
+        *,
+        contract_symbol: str,
+        timeframe: str,
+        updated_since: datetime,
+    ) -> int:
+        from atas_market_structure.models._enums import Timeframe
+
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM atas_chart_bars_raw
+                WHERE contract_symbol = ?
+                  AND timeframe = ?
+                  AND updated_at >= ?
+                """,
+                (
+                    contract_symbol,
+                    Timeframe(timeframe).value,
+                    self._serialize_datetime(updated_since),
+                ),
+            ).fetchone()
+        return int(row["cnt"] or 0) if row is not None else 0
+
+    def list_chart_candle_daily_counts(
+        self,
+        *,
+        symbol: str,
+        timeframes: list[str],
+        limit: int = 90,
+    ) -> list[StoredPipelineDailyCount]:
+        from atas_market_structure.models._enums import Timeframe
+
+        if not timeframes:
+            return []
+        normalized_timeframes = [Timeframe(item).value for item in timeframes]
+        placeholders = ", ".join("?" for _ in normalized_timeframes)
+        query = f"""
+            SELECT
+                substr(started_at, 1, 10) AS bar_date,
+                timeframe,
+                COUNT(*) AS candle_count,
+                MAX(updated_at) AS latest_updated_at
+            FROM chart_candles
+            WHERE symbol = ?
+              AND timeframe IN ({placeholders})
+            GROUP BY bar_date, timeframe
+            ORDER BY bar_date DESC, timeframe ASC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, (symbol, *normalized_timeframes, limit)).fetchall()
+        return [
+            StoredPipelineDailyCount(
+                bar_date=row["bar_date"],
+                timeframe=row["timeframe"],
+                candle_count=int(row["candle_count"] or 0),
+                latest_updated_at=self._parse_datetime_optional(row["latest_updated_at"]),
+            )
+            for row in rows
+        ]
+
+    def count_chart_candles_updated_since(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        updated_since: datetime,
+    ) -> int:
+        from atas_market_structure.models._enums import Timeframe
+
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM chart_candles
+                WHERE symbol = ?
+                  AND timeframe = ?
+                  AND updated_at >= ?
+                """,
+                (
+                    symbol,
+                    Timeframe(timeframe).value,
+                    self._serialize_datetime(updated_since),
+                ),
+            ).fetchone()
+        return int(row["cnt"] or 0) if row is not None else 0

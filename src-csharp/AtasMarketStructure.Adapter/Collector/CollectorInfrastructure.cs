@@ -26,6 +26,8 @@ internal interface IAdapterTransport : IDisposable
 
     bool TryEnqueueHistoryBars(HistoryBarsPayload payload);
 
+    Task<bool> SendHistoryBarsDirectAsync(IReadOnlyList<HistoryBarsPayload> payloads, CancellationToken ct);
+
     bool TryEnqueueHistoryFootprint(HistoryFootprintPayload payload);
 
     bool TryEnqueueTriggerBurst(TriggerBurstPayload payload);
@@ -84,6 +86,8 @@ internal interface IRealtimeTransport : IDisposable
 internal interface IHistoryTransport : IDisposable
 {
     bool TryEnqueueHistoryBars(HistoryBarsPayload payload);
+
+    Task<bool> SendHistoryBarsDirectAsync(IReadOnlyList<HistoryBarsPayload> payloads, CancellationToken ct);
 
     bool TryEnqueueHistoryFootprint(HistoryFootprintPayload payload);
 
@@ -527,6 +531,35 @@ internal sealed class BufferedHistoryTransport : IHistoryTransport
         _footprintQueue.Enqueue(message);
         Interlocked.Increment(ref _footprintQueueLength);
         _footprintSignal.Release();
+        return true;
+    }
+
+    public async Task<bool> SendHistoryBarsDirectAsync(IReadOnlyList<HistoryBarsPayload> payloads, CancellationToken ct)
+    {
+        if (payloads.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var payload in payloads)
+        {
+            ct.ThrowIfCancellationRequested();
+            _lastBarsSentTime = await ApplyRateLimitAsync(_barsRateLimit, _rateLimitBarsPerSecond, _lastBarsSentTime).ConfigureAwait(false);
+            try
+            {
+                await PostBarsAsync(new HistoryBarsMessage(payload, DateTime.UtcNow), ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _warnLogger($"SendHistoryBarsDirectAsync failed for {payload.MessageId}: {ex.Message}");
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -980,6 +1013,9 @@ internal sealed class BufferedHttpAdapterTransport : IAdapterTransport
 
     public bool TryEnqueueHistoryBars(HistoryBarsPayload payload)
         => _historyTransport.TryEnqueueHistoryBars(payload);
+
+    public async Task<bool> SendHistoryBarsDirectAsync(IReadOnlyList<HistoryBarsPayload> payloads, CancellationToken ct)
+        => await _historyTransport.SendHistoryBarsDirectAsync(payloads, ct).ConfigureAwait(false);
 
     public bool TryEnqueueHistoryFootprint(HistoryFootprintPayload payload)
         => _historyTransport.TryEnqueueHistoryFootprint(payload);

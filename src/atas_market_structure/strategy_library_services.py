@@ -77,7 +77,7 @@ class StrategyLibraryService:
         return MachineStrategyIndex.model_validate(payload)
 
     def _load_card(self, relative_path: str) -> MachineStrategyCard:
-        normalized = relative_path.replace("/", "\\")
+        normalized = Path(relative_path.replace("\\", "/"))
         path = self._root_dir / normalized
         payload = json.loads(path.read_text(encoding="utf-8"))
         return MachineStrategyCard.model_validate(payload)
