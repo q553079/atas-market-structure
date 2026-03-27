@@ -131,8 +131,57 @@ export function createWorkbenchActions({
     return candidates[0].value;
   }
 
+  function resolveSnapshotWindowBounds(snapshot, candles) {
+    const orderedCandles = Array.isArray(candles) ? candles : [];
+    const firstCandle = orderedCandles[0] || null;
+    const lastCandle = orderedCandles[orderedCandles.length - 1] || null;
+    const startCandidates = [
+      snapshot?.window_start,
+      firstCandle?.started_at || null,
+    ]
+      .map((value) => {
+        const timestamp = Date.parse(value || "");
+        return Number.isFinite(timestamp) ? timestamp : null;
+      })
+      .filter((value) => value != null);
+    const endCandidates = [
+      snapshot?.window_end,
+      lastCandle?.ended_at || lastCandle?.started_at || null,
+    ]
+      .map((value) => {
+        const timestamp = Date.parse(value || "");
+        return Number.isFinite(timestamp) ? timestamp : null;
+      })
+      .filter((value) => value != null);
+    if (!startCandidates.length || !endCandidates.length) {
+      return null;
+    }
+    return {
+      startMs: Math.min(...startCandidates),
+      endMs: Math.max(...endCandidates),
+    };
+  }
+
+  function snapshotsHaveMergeableWindows(leftSnapshot, rightSnapshot) {
+    const leftWindow = resolveSnapshotWindowBounds(
+      leftSnapshot,
+      Array.isArray(leftSnapshot?.candles) ? leftSnapshot.candles : [],
+    );
+    const rightWindow = resolveSnapshotWindowBounds(
+      rightSnapshot,
+      Array.isArray(rightSnapshot?.candles) ? rightSnapshot.candles : [],
+    );
+    if (!leftWindow || !rightWindow) {
+      return false;
+    }
+    return leftWindow.startMs <= rightWindow.endMs && rightWindow.startMs <= leftWindow.endMs;
+  }
+
   function mergeSnapshotCandles(baseSnapshot, currentSnapshot) {
     if (!baseSnapshot || !currentSnapshot || !sameSnapshotScope(baseSnapshot, currentSnapshot)) {
+      return baseSnapshot;
+    }
+    if (!snapshotsHaveMergeableWindows(baseSnapshot, currentSnapshot)) {
       return baseSnapshot;
     }
     const baseCandles = Array.isArray(baseSnapshot.candles) ? baseSnapshot.candles : [];
@@ -140,13 +189,24 @@ export function createWorkbenchActions({
     if (!baseCandles.length || !currentCandles.length) {
       return baseSnapshot;
     }
+    const authoritativeWindow = resolveSnapshotWindowBounds(baseSnapshot, baseCandles);
     const mergedByStartedAt = new Map();
-    baseCandles.forEach((bar) => {
-      if (bar?.started_at) {
-        mergedByStartedAt.set(bar.started_at, bar);
-      }
-    });
     currentCandles.forEach((bar) => {
+      if (!bar?.started_at) {
+        return;
+      }
+      const startedAtMs = Date.parse(bar.started_at);
+      if (
+        authoritativeWindow
+        && Number.isFinite(startedAtMs)
+        && startedAtMs >= authoritativeWindow.startMs
+        && startedAtMs <= authoritativeWindow.endMs
+      ) {
+        return;
+      }
+      mergedByStartedAt.set(bar.started_at, bar);
+    });
+    baseCandles.forEach((bar) => {
       if (bar?.started_at) {
         mergedByStartedAt.set(bar.started_at, bar);
       }

@@ -842,16 +842,16 @@
       computeEmaSeries,
       collectFootprintBubbles,
       isChartViewFollowingLatest,
-    } from "/static/replay_workbench_chart_utils.js";
-    import { escapeHtml } from "/static/replay_workbench_ui_utils.js";
-    import { appendChartOverlayMarkup } from "/static/replay_workbench_chart_overlays.js";
-    import { appendChartSeriesMarkup } from "/static/replay_workbench_chart_series.js";
-    import { appendChartBubbleMarkup } from "/static/replay_workbench_chart_bubbles.js";
-    import { appendChartAxesMarkup } from "/static/replay_workbench_chart_axes.js";
-    import { createChartViewportContext } from "/static/replay_workbench_chart_viewport.js";
-    import { bootReplayWorkbench } from "/static/replay_workbench_bootstrap.js";
-    import { mountReplayWorkbenchPipelineDock } from "/static/replay_workbench_pipeline_dock.js";
-    import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/replay_workbench_event_overlay.js";
+} from "/static/replay_workbench_chart_utils.js?v=20260327-window-scope-fix";
+import { escapeHtml } from "/static/replay_workbench_ui_utils.js?v=20260327-window-scope-fix";
+import { appendChartOverlayMarkup } from "/static/replay_workbench_chart_overlays.js?v=20260327-window-scope-fix";
+import { appendChartSeriesMarkup } from "/static/replay_workbench_chart_series.js?v=20260327-window-scope-fix";
+import { appendChartBubbleMarkup } from "/static/replay_workbench_chart_bubbles.js?v=20260327-window-scope-fix";
+import { appendChartAxesMarkup } from "/static/replay_workbench_chart_axes.js?v=20260327-window-scope-fix";
+import { createChartViewportContext } from "/static/replay_workbench_chart_viewport.js?v=20260327-window-scope-fix";
+import { bootReplayWorkbench } from "/static/replay_workbench_bootstrap.js?v=20260327-window-scope-fix";
+import { mountReplayWorkbenchPipelineDock } from "/static/replay_workbench_pipeline_dock.js?v=20260327-window-scope-fix";
+import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/replay_workbench_event_overlay.js?v=20260327-window-scope-fix";
     import {
       initLightweightCharts,
       updateChartData,
@@ -861,7 +861,7 @@
       subscribeCrosshairMove,
       subscribeClick,
       subscribeVisibleRangeChange,
-    } from "/static/init_lightweight_chart.js";
+} from "/static/init_lightweight_chart.js?v=20260327-window-scope-fix";
 
     const app = {};
     let chartInfoBadgeState = {

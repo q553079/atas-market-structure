@@ -79,6 +79,66 @@ function isSyntheticGapBar(bar) {
   );
 }
 
+function resolveObservedStepMs(observedCandles) {
+  let expectedStepMs = null;
+  for (let index = 1; index < observedCandles.length; index += 1) {
+    const previousStartedAtMs = Date.parse(observedCandles[index - 1]?.started_at || "");
+    const startedAtMs = Date.parse(observedCandles[index]?.started_at || "");
+    if (!Number.isFinite(previousStartedAtMs) || !Number.isFinite(startedAtMs)) {
+      continue;
+    }
+    const stepMs = startedAtMs - previousStartedAtMs;
+    if (stepMs > 0 && (expectedStepMs == null || stepMs < expectedStepMs)) {
+      expectedStepMs = stepMs;
+    }
+  }
+  return expectedStepMs;
+}
+
+function buildEmaData(candles, emaPeriod) {
+  const observedCandles = candles.filter((bar) => !isSyntheticGapBar(bar));
+  const expectedStepMs = resolveObservedStepMs(observedCandles);
+  const gapThresholdMs = expectedStepMs != null ? expectedStepMs * 1.5 : null;
+  const multiplier = 2 / (emaPeriod + 1);
+  const emaData = [];
+  let ema = null;
+  let previousStartedAtMs = null;
+
+  observedCandles.forEach((bar) => {
+    const startedAtMs = Date.parse(bar?.started_at || "");
+    const close = Number(bar?.close);
+    if (!Number.isFinite(startedAtMs) || !Number.isFinite(close)) {
+      return;
+    }
+
+    const hasGap = (
+      gapThresholdMs != null
+      && previousStartedAtMs != null
+      && (startedAtMs - previousStartedAtMs) > gapThresholdMs
+    );
+    if (hasGap) {
+      if (emaData.length) {
+        const gapBreakTime = expectedStepMs != null
+          ? (previousStartedAtMs + expectedStepMs) / 1000
+          : startedAtMs / 1000;
+        emaData.push({ time: gapBreakTime });
+      }
+    }
+
+    ema = (ema == null || hasGap)
+      ? close
+      : ((close - ema) * multiplier) + ema;
+
+    emaData.push({
+      time: startedAtMs / 1000,
+      value: ema,
+    });
+    previousStartedAtMs = startedAtMs;
+  });
+
+  return emaData;
+}
+
 function buildChartData(snapshot) {
   const candles = getRenderableCandles(snapshot);
   const candleData = candles.map((bar) => {
@@ -110,30 +170,7 @@ function buildChartData(snapshot) {
   });
 
   const emaPeriod = 20;
-  const emaData = [];
-  const multiplier = 2 / (emaPeriod + 1);
-  let ema = null;
-  const observedCandles = candles.filter((bar) => !isSyntheticGapBar(bar));
-
-  for (let i = 0; i < observedCandles.length; i++) {
-    if (i < emaPeriod - 1) {
-      continue;
-    }
-    const close = Number(observedCandles[i].close) || 0;
-    if (ema === null) {
-      let sum = 0;
-      for (let j = 0; j < emaPeriod; j++) {
-        sum += Number(observedCandles[i - emaPeriod + 1 + j].close) || 0;
-      }
-      ema = sum / emaPeriod;
-    } else {
-      ema = (close - ema) * multiplier + ema;
-    }
-    emaData.push({
-      time: toChartTime(observedCandles[i].started_at),
-      value: ema,
-    });
-  }
+  const emaData = buildEmaData(candles, emaPeriod);
 
   return { candleData, volumeData, emaData };
 }
@@ -303,6 +340,53 @@ function buildPreviewCandle(lastBar, price) {
   };
 }
 
+function isLiveTailFreshForPreview(liveTail) {
+  return String(liveTail?.data_status?.freshness || "").toLowerCase() === "fresh";
+}
+
+function resolveLivePreviewTargetPrice(lastBar, liveTail) {
+  const latestPrice = Number(liveTail?.latest_price);
+  if (!Number.isFinite(latestPrice)) {
+    return null;
+  }
+
+  const referencePrices = [
+    Number(lastBar?.open),
+    Number(lastBar?.high),
+    Number(lastBar?.low),
+    Number(lastBar?.close),
+    Number(liveTail?.best_bid),
+    Number(liveTail?.best_ask),
+  ].filter((value) => Number.isFinite(value));
+  if (!referencePrices.length) {
+    return latestPrice;
+  }
+
+  const referenceLow = Math.min(...referencePrices);
+  const referenceHigh = Math.max(...referencePrices);
+  const referenceSpan = Math.max(0, referenceHigh - referenceLow);
+  const referencePad = Math.max(1, referenceSpan * 1.5);
+  if (latestPrice >= (referenceLow - referencePad) && latestPrice <= (referenceHigh + referencePad)) {
+    return latestPrice;
+  }
+
+  const bestBid = Number(liveTail?.best_bid);
+  const bestAsk = Number(liveTail?.best_ask);
+  if (Number.isFinite(bestBid) && Number.isFinite(bestAsk) && bestAsk >= bestBid) {
+    return (bestBid + bestAsk) / 2;
+  }
+
+  const lastClose = Number(lastBar?.close);
+  if (Number.isFinite(lastClose)) {
+    return lastClose;
+  }
+  const lastOpen = Number(lastBar?.open);
+  if (Number.isFinite(lastOpen)) {
+    return lastOpen;
+  }
+  return latestPrice;
+}
+
 function interpolateQuoteValue(startValue, targetValue, progress) {
   const startNumeric = Number(startValue);
   const targetNumeric = Number(targetValue);
@@ -324,14 +408,28 @@ export function setLiveQuotePreviewListener(listener) {
 
 export function startLiveQuotePreview(snapshot, liveTail, options = {}) {
   const candles = getRenderableCandles(snapshot);
-  const latestPrice = Number(liveTail?.latest_price);
-  if (!candleSeries || !candles.length || !Number.isFinite(latestPrice)) {
+  if (!candleSeries || !candles.length) {
     cancelLivePreviewAnimation({ emitNull: true });
     livePreviewState = null;
     return false;
   }
 
   const lastBar = candles[candles.length - 1];
+  if (!isLiveTailFreshForPreview(liveTail)) {
+    cancelLivePreviewAnimation({ emitNull: true });
+    candleSeries.update(buildCandlePoint(lastBar));
+    volumeSeries.update(buildVolumePoint(lastBar));
+    livePreviewState = null;
+    return false;
+  }
+  const latestPrice = resolveLivePreviewTargetPrice(lastBar, liveTail);
+  if (!Number.isFinite(latestPrice)) {
+    cancelLivePreviewAnimation({ emitNull: true });
+    candleSeries.update(buildCandlePoint(lastBar));
+    volumeSeries.update(buildVolumePoint(lastBar));
+    livePreviewState = null;
+    return false;
+  }
   const barTime = toChartTime(lastBar?.started_at);
   const actualClose = Number(lastBar?.close) || Number(lastBar?.open) || latestPrice;
   const startPrice = livePreviewState?.barTime === barTime

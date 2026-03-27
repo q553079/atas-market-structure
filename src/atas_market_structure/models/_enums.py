@@ -21,6 +21,27 @@ class Timeframe(str, Enum):
     FOOTPRINT = "footprint"
     DOM = "dom"
 
+    @classmethod
+    def _missing_(cls, value: object) -> "Timeframe" | None:
+        if value is None:
+            return None
+        candidate = str(value).strip().lower()
+        aliases = {
+            "1": cls.MIN_1,
+            "m1": cls.MIN_1,
+            "5": cls.MIN_5,
+            "m5": cls.MIN_5,
+            "15": cls.MIN_15,
+            "m15": cls.MIN_15,
+            "30": cls.MIN_30,
+            "m30": cls.MIN_30,
+            "60": cls.HOUR_1,
+            "h1": cls.HOUR_1,
+            "240": cls.HOUR_4,
+            "h4": cls.HOUR_4,
+        }
+        return aliases.get(candidate)
+
 
 MACRO_TIMEFRAMES = {Timeframe.MONTH_1, Timeframe.WEEK_1, Timeframe.DAY_1}
 INTRADAY_TIMEFRAMES = {Timeframe.DAY_3, Timeframe.HOUR_1, Timeframe.MIN_30}

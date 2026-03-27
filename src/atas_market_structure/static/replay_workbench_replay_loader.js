@@ -96,6 +96,49 @@ function remapChartView(previousSnapshot, nextSnapshot, previousChartView) {
   );
 }
 
+function resolveSnapshotWindowBounds(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return null;
+  }
+  const candles = Array.isArray(snapshot.candles) ? snapshot.candles : [];
+  const firstCandle = candles[0] || null;
+  const lastCandle = candles[candles.length - 1] || null;
+  const startCandidates = [
+    snapshot.window_start,
+    firstCandle?.started_at || null,
+  ]
+    .map((value) => {
+      const timestamp = Date.parse(value || "");
+      return Number.isFinite(timestamp) ? timestamp : null;
+    })
+    .filter((value) => value != null);
+  const endCandidates = [
+    snapshot.window_end,
+    lastCandle?.ended_at || lastCandle?.started_at || null,
+  ]
+    .map((value) => {
+      const timestamp = Date.parse(value || "");
+      return Number.isFinite(timestamp) ? timestamp : null;
+    })
+    .filter((value) => value != null);
+  if (!startCandidates.length || !endCandidates.length) {
+    return null;
+  }
+  return {
+    startMs: Math.min(...startCandidates),
+    endMs: Math.max(...endCandidates),
+  };
+}
+
+function snapshotsHaveOverlappingWindows(leftSnapshot, rightSnapshot) {
+  const leftWindow = resolveSnapshotWindowBounds(leftSnapshot);
+  const rightWindow = resolveSnapshotWindowBounds(rightSnapshot);
+  if (!leftWindow || !rightWindow) {
+    return false;
+  }
+  return leftWindow.startMs <= rightWindow.endMs && rightWindow.startMs <= leftWindow.endMs;
+}
+
 export function createReplayLoader({
   state,
   els,
@@ -203,9 +246,14 @@ export function createReplayLoader({
     const sameChartIdentity = !!nextChartKey && nextChartKey === previousChartKey;
     const sameChartScope = !!nextChartScopeKey && nextChartScopeKey === previousChartScopeKey;
     const sameScopeFallback = sameSymbol && sameTimeframe && (!nextContractSymbol || sameContract);
-    const shouldPreserveChartView = !!preserveChartView && (sameChartIdentity || sameChartScope || sameScopeFallback);
-    const shouldPreserveSelection = !!preserveSelection && (sameChartIdentity || sameChartScope || sameScopeFallback);
-    const savedChartView = findSavedChartView(state.chartViewportRegistry, nextChartKey, nextChartScopeKey);
+    const hasWindowContinuity = !previousSnapshot || snapshotsHaveOverlappingWindows(previousSnapshot, normalizedSnapshot);
+    const canReuseViewportState = hasWindowContinuity && (sameChartIdentity || sameChartScope || sameScopeFallback);
+    const shouldPreserveChartView = !!preserveChartView && canReuseViewportState;
+    const shouldPreserveSelection = !!preserveSelection && canReuseViewportState;
+    // Different time windows must not reuse a relaxed scope viewport; that caused mixed-date charts.
+    const savedChartView = hasWindowContinuity
+      ? findSavedChartView(state.chartViewportRegistry, nextChartKey, nextChartScopeKey)
+      : null;
     const remappedChartView = shouldPreserveChartView
       ? remapChartView(previousSnapshot, normalizedSnapshot, previousChartView)
       : null;

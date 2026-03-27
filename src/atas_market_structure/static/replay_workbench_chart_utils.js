@@ -202,12 +202,38 @@ export function derivePriceEnvelope(visibleCandles, events = [], focusRegions = 
 }
 
 export function computeEmaSeries(candles, period) {
+  const timestamps = (Array.isArray(candles) ? candles : [])
+    .map((bar) => Date.parse(bar?.started_at || ""))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  let expectedStepMs = null;
+  for (let index = 1; index < timestamps.length; index += 1) {
+    const step = timestamps[index] - timestamps[index - 1];
+    if (step > 0 && (expectedStepMs == null || step < expectedStepMs)) {
+      expectedStepMs = step;
+    }
+  }
+  const gapThresholdMs = expectedStepMs != null ? expectedStepMs * 1.5 : null;
   const alpha = 2 / (period + 1);
   let ema = null;
+  let previousStartedAtMs = null;
   return candles.map((bar) => {
     const close = Number(bar.close);
-    ema = ema == null ? close : (close * alpha) + (ema * (1 - alpha));
-    return ema;
+    const startedAtMs = Date.parse(bar?.started_at || "");
+    const hasGap = (
+      gapThresholdMs != null
+      && Number.isFinite(startedAtMs)
+      && previousStartedAtMs != null
+      && (startedAtMs - previousStartedAtMs) > gapThresholdMs
+    );
+    ema = (ema == null || hasGap) ? close : (close * alpha) + (ema * (1 - alpha));
+    if (Number.isFinite(startedAtMs)) {
+      previousStartedAtMs = startedAtMs;
+    }
+    return {
+      value: ema,
+      restart: hasGap,
+    };
   });
 }
 

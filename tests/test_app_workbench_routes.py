@@ -292,6 +292,91 @@ def test_replay_builder_cache_hit_skips_history_refresh_scan() -> None:
     assert cached_payload["action"] == "cache_hit"
     assert cached_payload["ingestion_id"] == first_payload["ingestion_id"]
 
+
+def test_replay_builder_ignores_untrusted_local_fallback_history_payloads() -> None:
+    application = build_application()
+    history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+
+    trusted_payload = copy.deepcopy(history_payload)
+    trusted_payload["message_id"] = "trusted-history-01"
+    trusted_payload["source"]["chart_instance_id"] = "chart-NQH6-1m-CME-USD"
+    trusted_payload["instrument"]["symbol"] = "NQ"
+    trusted_payload["instrument"]["root_symbol"] = "NQ"
+    trusted_payload["instrument"]["contract_symbol"] = "NQH6"
+    trusted_payload["observed_window_start"] = "2026-03-17T08:55:00Z"
+    trusted_payload["observed_window_end"] = "2026-03-17T09:00:59Z"
+    trusted_payload["emitted_at"] = "2026-03-17T09:02:00Z"
+    trusted_payload["source"]["timestamp_basis"] = "forced_utc_override"
+    trusted_payload["source"]["chart_display_timezone_mode"] = "utc"
+    trusted_payload["source"]["chart_display_timezone_name"] = "UTC"
+    trusted_payload["source"]["chart_display_utc_offset_minutes"] = 0
+    trusted_payload["source"]["timezone_capture_confidence"] = "forced"
+    trusted_payload.setdefault("time_context", {})
+    trusted_payload["time_context"]["timestamp_basis"] = "forced_utc_override"
+    trusted_payload["time_context"]["chart_display_timezone_mode"] = "utc"
+    trusted_payload["time_context"]["chart_display_timezone_name"] = "UTC"
+    trusted_payload["time_context"]["chart_display_utc_offset_minutes"] = 0
+    trusted_payload["time_context"]["timezone_capture_confidence"] = "forced"
+
+    untrusted_payload = copy.deepcopy(trusted_payload)
+    untrusted_payload["message_id"] = "untrusted-history-01"
+    untrusted_payload["emitted_at"] = "2026-03-17T09:03:00Z"
+    untrusted_payload["source"]["timestamp_basis"] = "collector_local_timezone_fallback"
+    untrusted_payload["source"]["chart_display_timezone_mode"] = "local"
+    untrusted_payload["source"]["chart_display_timezone_name"] = "China Standard Time"
+    untrusted_payload["source"]["chart_display_utc_offset_minutes"] = 480
+    untrusted_payload["source"]["timezone_capture_confidence"] = "low"
+    untrusted_payload["source"]["collector_local_timezone_name"] = "China Standard Time"
+    untrusted_payload["source"]["collector_local_utc_offset_minutes"] = 480
+    untrusted_payload["time_context"]["timestamp_basis"] = "collector_local_timezone_fallback"
+    untrusted_payload["time_context"]["chart_display_timezone_mode"] = "local"
+    untrusted_payload["time_context"]["chart_display_timezone_name"] = "China Standard Time"
+    untrusted_payload["time_context"]["chart_display_utc_offset_minutes"] = 480
+    untrusted_payload["time_context"]["timezone_capture_confidence"] = "low"
+    untrusted_payload["time_context"]["collector_local_timezone_name"] = "China Standard Time"
+    untrusted_payload["time_context"]["collector_local_utc_offset_minutes"] = 480
+    for bar in untrusted_payload["bars"]:
+        bar["original_bar_time_text"] = None
+        bar["open"] += 1000.0
+        bar["high"] += 1000.0
+        bar["low"] += 1000.0
+        bar["close"] += 1000.0
+
+    trusted_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(trusted_payload).encode("utf-8"),
+    )
+    assert trusted_response.status_code == 201
+
+    untrusted_response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(untrusted_payload).encode("utf-8"),
+    )
+    assert untrusted_response.status_code == 201
+
+    build_request = {
+        "cache_key": "NQ|1m|2026-03-17T08:55:00Z|2026-03-17T09:00:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-17T08:55:00Z",
+        "window_end": "2026-03-17T09:00:59Z",
+        "chart_instance_id": "chart-NQH6-1m-CME-USD",
+        "force_rebuild": True,
+        "min_continuous_messages": 10,
+    }
+    build_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+
+    assert build_response.status_code == 200
+    build_body = json.loads(build_response.body)
+    assert build_body["action"] == "built_from_atas_history"
+    assert build_body["core_snapshot"]["candles"][0]["open"] == trusted_payload["bars"][0]["open"]
+
 def test_replay_builder_ignores_zero_activity_heartbeat_overlay() -> None:
     application = build_application()
     history_payload = load_json_fixture("atas_adapter.history_bars.sample.json")
@@ -488,6 +573,95 @@ def test_replay_workbench_snapshot_is_stored() -> None:
     assert ingestion_payload["observed_payload"]["verification_state"]["status"] == "durable"
     assert ingestion_payload["observed_payload"]["verification_state"]["verification_count"] == 3
     assert ingestion_payload["observed_payload"]["strategy_candidates"][0]["strategy_id"] == "pattern-nq-replenished-bid-launchpad"
+
+def test_workbench_chart_candles_route_filters_suspect_zero_volume_gc_rows() -> None:
+    application = build_application()
+    base_time = datetime(2026, 3, 25, 21, 54, tzinfo=UTC)
+
+    application._repository.upsert_chart_candles(
+        [
+            ChartCandle(
+                symbol="GC",
+                timeframe=Timeframe.MIN_1,
+                started_at=base_time,
+                ended_at=base_time + timedelta(minutes=1),
+                source_started_at=base_time,
+                open=5097.8,
+                high=5098.6,
+                low=5097.5,
+                close=5098.0,
+                volume=12,
+                tick_volume=4,
+                delta=3,
+                updated_at=base_time + timedelta(seconds=50),
+            ),
+            ChartCandle(
+                symbol="GC",
+                timeframe=Timeframe.MIN_1,
+                started_at=base_time + timedelta(minutes=1),
+                ended_at=base_time + timedelta(minutes=2),
+                source_started_at=base_time + timedelta(minutes=1),
+                open=5100.4,
+                high=5100.4,
+                low=5100.4,
+                close=5100.4,
+                volume=0,
+                tick_volume=0,
+                delta=0,
+                updated_at=base_time + timedelta(minutes=1, seconds=54),
+            ),
+            ChartCandle(
+                symbol="GC",
+                timeframe=Timeframe.MIN_1,
+                started_at=base_time + timedelta(minutes=2),
+                ended_at=base_time + timedelta(minutes=3),
+                source_started_at=base_time + timedelta(minutes=2),
+                open=5098.0,
+                high=5098.8,
+                low=5097.9,
+                close=5098.4,
+                volume=18,
+                tick_volume=6,
+                delta=4,
+                updated_at=base_time + timedelta(minutes=2, seconds=30),
+            ),
+            ChartCandle(
+                symbol="GC",
+                timeframe=Timeframe.MIN_1,
+                started_at=base_time + timedelta(minutes=3),
+                ended_at=base_time + timedelta(minutes=4),
+                source_started_at=base_time + timedelta(minutes=3),
+                open=5100.4,
+                high=5098.4,
+                low=4503.0,
+                close=5098.4,
+                volume=0,
+                tick_volume=0,
+                delta=0,
+                updated_at=base_time + timedelta(minutes=3, seconds=45),
+            ),
+        ]
+    )
+
+    response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/chart-candles"
+        "?symbol=GC"
+        "&timeframe=1m"
+        "&window_start=2026-03-25T21:54:00Z"
+        "&window_end=2026-03-25T21:58:59Z",
+    )
+
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+
+    assert payload["symbol"] == "GC"
+    assert payload["timeframe"] == "1m"
+    assert payload["count"] == 2
+    assert [candle["started_at"] for candle in payload["candles"]] == [
+        "2026-03-25T21:54:00Z",
+        "2026-03-25T21:56:00Z",
+    ]
 
 def test_replay_workbench_cache_lookup_and_invalidation() -> None:
     application = build_application()

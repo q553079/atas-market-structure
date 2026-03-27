@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from atas_market_structure.repository import AnalysisRepository
 
 LOGGER = logging.getLogger(__name__)
+_CONTINUOUS_STATE_PRICE_EPSILON = 1e-6
 
 # Timeframe resolution constants for UTC bucketing.
 _TF_SECONDS: dict[Timeframe, int] = {
@@ -252,6 +253,9 @@ class RegimeMonitor:
         )
 
     def ingest_continuous_state(self, payload: AdapterContinuousStatePayload) -> None:
+        if not self._should_use_continuous_state_payload(payload):
+            return
+
         symbol = (payload.instrument.root_symbol or payload.instrument.symbol).upper()
         bars = self._rolling_bars.setdefault(symbol, deque(maxlen=self._max_cached_bars))
         bucket_start = payload.observed_window_end.astimezone(UTC).replace(second=0, microsecond=0)
@@ -305,6 +309,57 @@ class RegimeMonitor:
             payload.instrument.symbol,
             payload.observed_window_end.isoformat(),
         )
+
+    @classmethod
+    def _should_use_continuous_state_payload(cls, payload: AdapterContinuousStatePayload) -> bool:
+        timeframe_value = str(payload.display_timeframe or "").strip().lower()
+        if timeframe_value and timeframe_value != Timeframe.MIN_1.value:
+            LOGGER.debug(
+                "[RegimeMonitor] skip continuous_state chart persistence chart_instance_id=%s timeframe=%s",
+                payload.source.chart_instance_id,
+                payload.display_timeframe,
+            )
+            return False
+
+        trade_summary = payload.trade_summary
+        has_trade_activity = any(
+            (
+                trade_summary.trade_count,
+                trade_summary.volume,
+                trade_summary.aggressive_buy_volume,
+                trade_summary.aggressive_sell_volume,
+                trade_summary.net_delta,
+            )
+        )
+        if has_trade_activity:
+            return True
+
+        price_state = payload.price_state
+        epsilon = _CONTINUOUS_STATE_PRICE_EPSILON
+        flat_price_state = (
+            abs(price_state.local_range_high - price_state.local_range_low) <= epsilon
+            and abs(price_state.local_range_high - price_state.last_price) <= epsilon
+            and abs(price_state.local_range_low - price_state.last_price) <= epsilon
+        )
+        if flat_price_state:
+            LOGGER.debug(
+                "[RegimeMonitor] skip zero-trade continuous_state heartbeat chart_instance_id=%s symbol=%s window_end=%s",
+                payload.source.chart_instance_id,
+                payload.instrument.symbol,
+                payload.observed_window_end.isoformat(),
+            )
+            return False
+
+        LOGGER.warning(
+            "[RegimeMonitor] drop suspect zero-trade continuous_state chart_instance_id=%s symbol=%s last_price=%s range_low=%s range_high=%s window_end=%s",
+            payload.source.chart_instance_id,
+            payload.instrument.symbol,
+            price_state.last_price,
+            price_state.local_range_low,
+            price_state.local_range_high,
+            payload.observed_window_end.isoformat(),
+        )
+        return False
 
     def get_dynamic_thresholds(
         self,

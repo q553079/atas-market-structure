@@ -41,9 +41,17 @@ export function appendChartSeriesMarkup({
   let emaPath = "";
   visibleCandles.forEach((bar, localIndex) => {
     const globalIndex = view.startIndex + localIndex;
+    const emaPoint = emaSeries[globalIndex];
+    const emaValue = typeof emaPoint === "object" && emaPoint !== null ? emaPoint.value : emaPoint;
+    const restart = !!(typeof emaPoint === "object" && emaPoint !== null && emaPoint.restart);
+    if (!Number.isFinite(emaValue)) {
+      return;
+    }
     const x = leftPad + localIndex * candleSpacing + (candleSpacing / 2);
-    const y = priceToY(emaSeries[globalIndex]);
-    emaPath += `${localIndex === 0 ? "M" : "L"} ${x} ${y} `;
+    const y = priceToY(emaValue);
+    emaPath += `${localIndex === 0 || restart ? "M" : "L"} ${x} ${y} `;
   });
-  markupParts.push(`<path d="${emaPath.trim()}" fill="none" stroke="#3b82f6" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />`);
+  if (emaPath.trim()) {
+    markupParts.push(`<path d="${emaPath.trim()}" fill="none" stroke="#3b82f6" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" />`);
+  }
 }

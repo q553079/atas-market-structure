@@ -12,6 +12,12 @@ from uuid import uuid4
 
 
 from atas_market_structure.continuous_contract_service import ContinuousContractService
+from atas_market_structure.chart_candle_service import ChartCandleService
+from atas_market_structure.history_payload_quality import (
+    history_payload_chart_path_verdict,
+    raw_history_row_chart_path_verdict,
+)
+from atas_market_structure.live_tail_quote_guardrails import sanitize_live_tail_quote
 from atas_market_structure.models import (
     AdapterBackfillAcknowledgeRequest,
     AdapterBackfillAcknowledgeResponse,
@@ -1301,9 +1307,13 @@ class ReplayWorkbenchService:
             latest_price = price_state.get("last_price")
             best_bid = price_state.get("best_bid")
             best_ask = price_state.get("best_ask")
+            local_range_low = price_state.get("local_range_low")
+            local_range_high = price_state.get("local_range_high")
             latest_price = self._to_float_or_none(latest_price)
             best_bid = self._to_float_or_none(best_bid)
             best_ask = self._to_float_or_none(best_ask)
+            local_range_low = self._to_float_or_none(local_range_low)
+            local_range_high = self._to_float_or_none(local_range_high)
             latest_price_source = "continuous_state" if latest_price is not None else None
             best_bid_source = "continuous_state" if best_bid is not None else None
             best_ask_source = "continuous_state" if best_ask is not None else None
@@ -1356,11 +1366,38 @@ class ReplayWorkbenchService:
             best_ask = tick_best_ask
             best_bid_source = "ticks_raw" if best_bid is not None else None
             best_ask_source = "ticks_raw" if best_ask is not None else None
+            local_range_low = None
+            local_range_high = None
             trade_summary = None
             significant_liquidity = []
             same_price_replenishment = []
             active_initiative_drive = None
             active_post_harvest_response = None
+
+        quote_guardrail = sanitize_live_tail_quote(
+            latest_price=latest_price,
+            latest_price_source=latest_price_source,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            tick_latest_price=tick_latest_price,
+            tick_latest_price_source="ticks_raw" if tick_latest_price is not None else None,
+            local_range_low=local_range_low,
+            local_range_high=local_range_high,
+            reference_candle=live_candles[-1] if live_candles else None,
+        )
+        latest_price = quote_guardrail.latest_price
+        latest_price_source = quote_guardrail.latest_price_source
+        best_bid = quote_guardrail.best_bid
+        best_ask = quote_guardrail.best_ask
+        best_bid_source = best_bid_source if best_bid is not None else None
+        best_ask_source = best_ask_source if best_ask is not None else None
+        if quote_guardrail.was_sanitized:
+            LOGGER.warning(
+                "get_live_tail: sanitized inconsistent latest_price symbol=%s chart_instance_id=%s reason=%s",
+                instrument_symbol,
+                chart_instance_id,
+                quote_guardrail.reason,
+            )
 
         return ReplayWorkbenchLiveTailResponse(
             schema_version=self._LIVE_TAIL_SCHEMA_VERSION,
@@ -1507,6 +1544,9 @@ class ReplayWorkbenchService:
 
         candles: list[ReplayChartBar] = []
         for row in raw_rows:
+            trusted_for_chart_path, _ = raw_history_row_chart_path_verdict(row)
+            if not trusted_for_chart_path:
+                continue
             row_symbols = {
                 self._normalize_symbol_for_storage(row.symbol),
                 self._normalize_symbol_for_storage(row.contract_symbol),
@@ -2803,6 +2843,7 @@ class ReplayWorkbenchService:
                 window_end=window_end,
                 limit=limit,
             )
+            candles = ChartCandleService.sanitize_candles_for_display(candles)
 
             if not candles:
                 return []
@@ -2982,6 +3023,9 @@ class ReplayWorkbenchService:
         for stored in candidates:
             payload = AdapterHistoryBarsPayload.model_validate(stored.observed_payload)
             if not payload.bars:
+                continue
+            trusted_for_chart_path, _ = history_payload_chart_path_verdict(payload)
+            if not trusted_for_chart_path:
                 continue
             if not self._chart_instance_filter_matches_model_payload(request.chart_instance_id, payload):
                 continue

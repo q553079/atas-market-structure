@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from atas_market_structure.app import MarketStructureApplication
+from atas_market_structure.chart_candle_service import ChartCandleService
 from atas_market_structure.models import (
     AdapterContinuousStatePayload,
     ChartCandle,
@@ -50,6 +51,21 @@ class _FakeChartCandleRepository:
     def upsert_chart_candles(self, candles: list[ChartCandle]) -> int:
         self.calls.append(list(candles))
         return len(candles)
+
+
+class _FakeStoredIngestion:
+    def __init__(self, observed_payload: dict) -> None:
+        self.observed_payload = observed_payload
+
+
+class _FakeChartBackfillRepository(_FakeChartCandleRepository):
+    def __init__(self, ingestions: list[dict]) -> None:
+        super().__init__()
+        self._ingestions = [_FakeStoredIngestion(item) for item in ingestions]
+
+    def list_ingestions(self, *, ingestion_kind: str | None = None, instrument_symbol: str | None = None, limit: int = 500):
+        del ingestion_kind, instrument_symbol
+        return self._ingestions[:limit]
 
 
 # --- StrategySelectionEngine tests ---
@@ -210,6 +226,104 @@ def test_health_evaluator_penalizes_no_trade_environment() -> None:
     assert result.health_score < 0.8
 
 
+def test_chart_candle_service_skips_coarse_to_fine_incremental_projection() -> None:
+    repository = _FakeChartCandleRepository()
+    service = ChartCandleService(repository)
+    written = service.upsert_from_raw_bars(
+        "GC",
+        [
+            {
+                "started_at": datetime(2026, 3, 20, 13, 0, tzinfo=UTC),
+                "ended_at": datetime(2026, 3, 20, 13, 30, tzinfo=UTC),
+                "open": 4679.6,
+                "high": 4680.8,
+                "low": 4654.4,
+                "close": 4661.2,
+                "volume": 4914,
+                "delta": -320,
+            },
+        ],
+        Timeframe.MIN_30,
+    )
+
+    written_timeframes = {candle.timeframe for batch in repository.calls for candle in batch}
+    assert Timeframe.MIN_1 not in written_timeframes
+    assert Timeframe.MIN_5 not in written_timeframes
+    assert Timeframe.MIN_15 not in written_timeframes
+    assert written.get(Timeframe.MIN_30) == 1
+    assert Timeframe.HOUR_1 in written_timeframes
+
+
+def test_chart_candle_service_backfill_from_ingestions_skips_coarse_to_fine_projection() -> None:
+    repository = _FakeChartBackfillRepository([
+        {
+            "message_type": "history_bars",
+            "bar_timeframe": Timeframe.MIN_30.value,
+            "bars": [
+                {
+                    "started_at": "2026-03-20T13:00:00Z",
+                    "ended_at": "2026-03-20T13:30:00Z",
+                    "open": 4679.6,
+                    "high": 4680.8,
+                    "low": 4654.4,
+                    "close": 4661.2,
+                    "volume": 4914,
+                    "delta": -320,
+                },
+            ],
+        },
+    ])
+    service = ChartCandleService(repository)
+
+    written = service.backfill_from_ingestions(
+        "GC",
+        [Timeframe.MIN_1, Timeframe.MIN_30, Timeframe.HOUR_1],
+    )
+
+    written_timeframes = {candle.timeframe for batch in repository.calls for candle in batch}
+    assert Timeframe.MIN_1 not in written_timeframes
+    assert Timeframe.MIN_30 in written_timeframes
+    assert Timeframe.HOUR_1 in written_timeframes
+    assert Timeframe.MIN_1 not in written
+
+
+def test_chart_candle_service_backfill_skips_untrusted_local_fallback_history_payloads() -> None:
+    repository = _FakeChartBackfillRepository([
+        {
+            "message_type": "history_bars",
+            "bar_timeframe": Timeframe.MIN_1.value,
+            "source": {
+                "timestamp_basis": "collector_local_timezone_fallback",
+                "chart_display_timezone_mode": "local",
+                "timezone_capture_confidence": "low",
+            },
+            "time_context": {
+                "timestamp_basis": "collector_local_timezone_fallback",
+                "chart_display_timezone_mode": "local",
+                "timezone_capture_confidence": "low",
+            },
+            "bars": [
+                {
+                    "started_at": "2026-03-20T12:55:00Z",
+                    "ended_at": "2026-03-20T12:56:00Z",
+                    "open": 4499.0,
+                    "high": 4502.0,
+                    "low": 4499.0,
+                    "close": 4500.4,
+                    "volume": 57,
+                    "delta": 5,
+                },
+            ],
+        },
+    ])
+    service = ChartCandleService(repository)
+
+    written = service.backfill_from_ingestions("GC", [Timeframe.MIN_1, Timeframe.MIN_5])
+
+    assert written == {}
+    assert repository.calls == []
+
+
 # --- RegimeMonitor tests ---
 
 def test_regime_monitor_returns_quiet_for_empty_candles() -> None:
@@ -296,6 +410,66 @@ def test_regime_monitor_persists_incremental_flow_for_same_minute_updates() -> N
     assert latest_one_minute.close == 21525.0
     assert latest_one_minute.volume == 40
     assert latest_one_minute.delta == -5
+
+
+def test_regime_monitor_ignores_zero_trade_continuous_state_for_chart_persistence() -> None:
+    repository = _FakeChartCandleRepository()
+    monitor = RegimeMonitor(repository=repository)
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    observed_at = datetime(2026, 3, 25, 21, 57, 39, tzinfo=UTC)
+
+    payload = json.loads(json.dumps(continuous_payload))
+    payload["message_id"] = "adapter-msg-zero-trade-bad"
+    payload["display_timeframe"] = "1m"
+    payload["source"]["chart_instance_id"] = "chart-GC-1m-CME-USD"
+    payload["instrument"]["symbol"] = "GC"
+    payload["instrument"]["root_symbol"] = "GC"
+    payload["instrument"]["contract_symbol"] = "GC"
+    payload["emitted_at"] = observed_at.isoformat().replace("+00:00", "Z")
+    payload["observed_window_start"] = observed_at.isoformat().replace("+00:00", "Z")
+    payload["observed_window_end"] = (observed_at + timedelta(seconds=5)).isoformat().replace("+00:00", "Z")
+    payload["price_state"]["last_price"] = 5098.4
+    payload["price_state"]["local_range_low"] = 4503.0
+    payload["price_state"]["local_range_high"] = 5098.4
+    payload["trade_summary"]["trade_count"] = 0
+    payload["trade_summary"]["volume"] = 0
+    payload["trade_summary"]["aggressive_buy_volume"] = 0
+    payload["trade_summary"]["aggressive_sell_volume"] = 0
+    payload["trade_summary"]["net_delta"] = 0
+
+    monitor.ingest_continuous_state(AdapterContinuousStatePayload.model_validate(payload))
+
+    assert repository.calls == []
+
+
+def test_regime_monitor_ignores_non_1m_continuous_state_for_chart_persistence() -> None:
+    repository = _FakeChartCandleRepository()
+    monitor = RegimeMonitor(repository=repository)
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    observed_at = datetime(2026, 3, 25, 21, 55, 54, tzinfo=UTC)
+
+    payload = json.loads(json.dumps(continuous_payload))
+    payload["message_id"] = "adapter-msg-30m"
+    payload["display_timeframe"] = "30m"
+    payload["source"]["chart_instance_id"] = "chart-GC-30m-CME-USD"
+    payload["instrument"]["symbol"] = "GC"
+    payload["instrument"]["root_symbol"] = "GC"
+    payload["instrument"]["contract_symbol"] = "GC"
+    payload["emitted_at"] = observed_at.isoformat().replace("+00:00", "Z")
+    payload["observed_window_start"] = observed_at.isoformat().replace("+00:00", "Z")
+    payload["observed_window_end"] = (observed_at + timedelta(seconds=5)).isoformat().replace("+00:00", "Z")
+    payload["price_state"]["last_price"] = 5100.4
+    payload["price_state"]["local_range_low"] = 5100.4
+    payload["price_state"]["local_range_high"] = 5100.4
+    payload["trade_summary"]["trade_count"] = 12
+    payload["trade_summary"]["volume"] = 100
+    payload["trade_summary"]["aggressive_buy_volume"] = 60
+    payload["trade_summary"]["aggressive_sell_volume"] = 40
+    payload["trade_summary"]["net_delta"] = 20
+
+    monitor.ingest_continuous_state(AdapterContinuousStatePayload.model_validate(payload))
+
+    assert repository.calls == []
 
 
 # --- Analysis Orchestration tests ---

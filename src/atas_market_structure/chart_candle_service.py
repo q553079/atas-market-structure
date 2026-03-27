@@ -4,9 +4,9 @@ ChartCandleService — pre-aggregated OHLCV store for fast chart rendering.
 Architecture
 ────────────
 Each incoming raw bar (from ATAS adapter history) is immediately aggregated
-into `chart_candles` for every registered timeframe.  The UI never aggregates
-on load; it only reads pre-computed OHLCV rows.  This makes chart loads
-sub-100 ms regardless of window size.
+into `chart_candles` for its native timeframe and any coarser timeframes.
+The UI never aggregates on load; it only reads pre-computed OHLCV rows.
+This makes chart loads sub-100 ms regardless of window size.
 
 Incremental update (on new raw bars):
     raw_bar → align to target tf bucket → upsert chart_candle
@@ -29,8 +29,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+import logging
 from typing import TYPE_CHECKING
 
+from atas_market_structure.history_payload_quality import history_payload_chart_path_verdict
 from atas_market_structure.models._enums import Timeframe
 from atas_market_structure.models._replay import ChartCandle
 
@@ -57,6 +59,8 @@ _TF_SECONDS: dict[Timeframe, int] = {
     Timeframe.HOUR_1: 3600,
     Timeframe.HOUR_4: 14400,
 }
+_DISPLAY_PRICE_EPSILON = 1e-6
+LOGGER = logging.getLogger(__name__)
 
 
 def _floor(dt: datetime, tf: Timeframe) -> datetime:
@@ -74,6 +78,11 @@ def _floor(dt: datetime, tf: Timeframe) -> datetime:
 def _bucket_end(start: datetime, tf: Timeframe) -> datetime:
     """Return the bucket end (exclusive) for a bucket start."""
     return start + timedelta(seconds=_TF_SECONDS[tf])
+
+
+def _can_aggregate_source_into_target(source_tf: Timeframe, target_tf: Timeframe) -> bool:
+    """Only allow same-timeframe or fine-to-coarse aggregation."""
+    return _TF_SECONDS[target_tf] >= _TF_SECONDS[source_tf]
 
 
 class ChartCandleService:
@@ -116,9 +125,8 @@ class ChartCandleService:
         written: dict[Timeframe, int] = defaultdict(int)
 
         for tf in ALL_TIMEFRAMES:
-            # We aggregate every target tf; ON CONFLICT handles idempotency.
-            # Downsampling (source=5m, target=1m) is allowed and will
-            # simply produce one output candle per source bar.
+            if not _can_aggregate_source_into_target(source_tf, tf):
+                continue
             candles = self._aggregate_into_tf(symbol, tf, bars)
             if candles:
                 self._repo.upsert_chart_candles(candles)
@@ -230,6 +238,9 @@ class ChartCandleService:
             # Skip payloads that are clearly not history bars
             if payload.get("message_type") != "history_bars":
                 continue
+            trusted_for_chart_path, _ = history_payload_chart_path_verdict(payload)
+            if not trusted_for_chart_path:
+                continue
             bars_raw = payload.get("bars") or []
             if not bars_raw:
                 continue
@@ -243,6 +254,8 @@ class ChartCandleService:
                 continue
 
             for tf in target_timeframes:
+                if not _can_aggregate_source_into_target(source_tf, tf):
+                    continue
                 candles = self._aggregate_into_tf(symbol, tf, bars_raw)
                 if candles:
                     self._repo.upsert_chart_candles(candles)
@@ -261,14 +274,105 @@ class ChartCandleService:
         limit: int = 20000,
     ) -> list[ChartCandle]:
         """Return pre-aggregated chart candles for the UI."""
-        return self._repo.list_chart_candles(
+        candles = self._repo.list_chart_candles(
             symbol=symbol,
             timeframe=timeframe.value,
             window_start=window_start,
             window_end=window_end,
             limit=limit,
         )
+        return self.sanitize_candles_for_display(candles)
 
     def has_candles(self, symbol: str, timeframe: Timeframe) -> bool:
         """Return True if we have any chart candles for this symbol/tf."""
         return self._repo.count_chart_candles(symbol, timeframe.value) > 0
+
+    @classmethod
+    def sanitize_candles_for_display(cls, candles: list[ChartCandle]) -> list[ChartCandle]:
+        if not candles:
+            return []
+
+        ordered = sorted(candles, key=lambda item: item.started_at)
+        prev_traded_close: list[float | None] = []
+        last_traded_close: float | None = None
+        for candle in ordered:
+            prev_traded_close.append(last_traded_close)
+            if cls._is_structurally_valid_candle(candle) and int(candle.volume or 0) > 0:
+                last_traded_close = float(candle.close)
+
+        next_traded_close: list[float | None] = [None] * len(ordered)
+        upcoming_traded_close: float | None = None
+        for index in range(len(ordered) - 1, -1, -1):
+            next_traded_close[index] = upcoming_traded_close
+            candle = ordered[index]
+            if cls._is_structurally_valid_candle(candle) and int(candle.volume or 0) > 0:
+                upcoming_traded_close = float(candle.close)
+
+        sanitized: list[ChartCandle] = []
+        dropped = 0
+        for index, candle in enumerate(ordered):
+            if cls._is_displayable_candle(
+                candle,
+                prev_trade_close=prev_traded_close[index],
+                next_trade_close=next_traded_close[index],
+            ):
+                sanitized.append(candle)
+                continue
+            dropped += 1
+
+        if dropped > 0:
+            LOGGER.warning("ChartCandleService: dropped %s suspect historical candles from display path.", dropped)
+        return sanitized
+
+    @classmethod
+    def _is_displayable_candle(
+        cls,
+        candle: ChartCandle,
+        *,
+        prev_trade_close: float | None,
+        next_trade_close: float | None,
+    ) -> bool:
+        if not cls._is_structurally_valid_candle(candle):
+            return False
+
+        if int(candle.volume or 0) > 0:
+            return True
+
+        if not cls._is_flat_zero_volume_candle(candle):
+            return False
+
+        close_price = float(candle.close)
+        epsilon = _DISPLAY_PRICE_EPSILON
+        for reference_close in (prev_trade_close, next_trade_close):
+            if reference_close is not None and abs(close_price - reference_close) <= epsilon:
+                return True
+        return False
+
+    @classmethod
+    def _is_structurally_valid_candle(cls, candle: ChartCandle) -> bool:
+        epsilon = _DISPLAY_PRICE_EPSILON
+        open_price = float(candle.open)
+        high_price = float(candle.high)
+        low_price = float(candle.low)
+        close_price = float(candle.close)
+        if high_price + epsilon < low_price:
+            return False
+        if high_price + epsilon < max(open_price, close_price):
+            return False
+        if low_price - epsilon > min(open_price, close_price):
+            return False
+        return True
+
+    @classmethod
+    def _is_flat_zero_volume_candle(cls, candle: ChartCandle) -> bool:
+        epsilon = _DISPLAY_PRICE_EPSILON
+        open_price = float(candle.open)
+        high_price = float(candle.high)
+        low_price = float(candle.low)
+        close_price = float(candle.close)
+        return (
+            abs(open_price - close_price) <= epsilon
+            and abs(high_price - low_price) <= epsilon
+            and abs(open_price - high_price) <= epsilon
+            and abs(close_price - low_price) <= epsilon
+        )

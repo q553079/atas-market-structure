@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from atas_market_structure.adapter_bridge import AdapterPayloadBridge
 from atas_market_structure.chart_identity import canonical_chart_instance_id, derive_root_symbol, normalize_symbol
+from atas_market_structure.history_payload_quality import history_payload_chart_path_verdict
 from atas_market_structure.models import (
     AtasChartBarRaw,
     AdapterAcceptedResponse,
@@ -223,6 +224,24 @@ class AdapterIngestionService:
             root_symbol=payload.instrument.root_symbol,
             contract_symbol=payload.instrument.contract_symbol,
         )
+        trusted_for_chart_path, trust_reason = history_payload_chart_path_verdict(payload)
+        if not trusted_for_chart_path:
+            LOGGER.warning(
+                "ingest_history_bars: audit-only history payload skipped for chart path message_id=%s symbol=%s timeframe=%s reason=%s",
+                payload.message_id,
+                payload.instrument.symbol,
+                payload.bar_timeframe.value,
+                trust_reason,
+            )
+            return AdapterAcceptedResponse(
+                ingestion_id=accepted.ingestion_id,
+                message_id=accepted.message_id,
+                message_type=accepted.message_type,
+                stored_at=accepted.stored_at,
+                summary=accepted.summary,
+                durable_outputs=[],
+                bridge_errors=[],
+            )
         self._bridge.regime_monitor.ingest_history_bars(payload)
         raw_mirror_bars = self._build_raw_mirror_bars(payload)
         raw_written = self._repository.upsert_atas_chart_bars_raw(raw_mirror_bars)

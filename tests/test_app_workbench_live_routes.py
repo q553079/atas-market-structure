@@ -129,6 +129,141 @@ def test_replay_live_tail_returns_latest_price_and_recent_candles() -> None:
     assert isinstance(payload["significant_liquidity"], list)
     assert isinstance(payload["same_price_replenishment"], list)
 
+def test_replay_live_tail_sanitizes_inconsistent_continuous_state_last_price() -> None:
+    application = build_application()
+
+    base = datetime(2026, 3, 26, 22, 31, tzinfo=UTC)
+    application._repository.replace_chart_candles(
+        [
+            ChartCandle(
+                symbol="GC",
+                timeframe=Timeframe.MIN_1,
+                started_at=base + timedelta(minutes=index),
+                ended_at=base + timedelta(minutes=index + 1),
+                source_started_at=base + timedelta(minutes=index),
+                open=open_price,
+                high=high_price,
+                low=low_price,
+                close=close_price,
+                volume=volume,
+                tick_volume=1,
+                delta=delta,
+                updated_at=base + timedelta(minutes=index + 1),
+                source_timezone="UTC",
+            )
+            for index, (open_price, high_price, low_price, close_price, volume, delta) in enumerate(
+                [
+                    (4390.8, 4397.2, 4390.8, 4397.2, 9, 1),
+                    (4398.0, 4402.2, 4398.0, 4401.6, 22, 6),
+                    (4402.2, 4405.2, 4402.0, 4402.2, 17, 9),
+                    (4399.0, 4402.4, 4399.0, 4401.2, 8, 0),
+                ]
+            )
+        ]
+    )
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "GC"
+    continuous_payload["instrument"]["root_symbol"] = "GC"
+    continuous_payload["instrument"]["contract_symbol"] = "GC"
+    continuous_payload["source"]["instrument_symbol"] = "GC"
+    continuous_payload["source"]["chart_instance_id"] = "chart-GC-1m-CME-USD"
+    continuous_payload["message_id"] = "continuous-state-bad-last-price"
+    continuous_payload["observed_window_start"] = "2026-03-26T22:34:00Z"
+    continuous_payload["observed_window_end"] = "2026-03-26T22:34:08Z"
+    continuous_payload["emitted_at"] = "2026-03-26T22:34:08Z"
+    continuous_payload["price_state"]["last_price"] = 4377.8
+    continuous_payload["price_state"]["best_bid"] = 4399.0
+    continuous_payload["price_state"]["best_ask"] = 4400.0
+    continuous_payload["price_state"]["local_range_low"] = 4399.0
+    continuous_payload["price_state"]["local_range_high"] = 4402.0
+
+    application._repository.save_ingestion(
+        ingestion_id=f"ing-{uuid4().hex}",
+        ingestion_kind="adapter_continuous_state",
+        source_snapshot_id=continuous_payload["message_id"],
+        instrument_symbol="GC",
+        observed_payload=continuous_payload,
+        stored_at=datetime(2026, 3, 26, 22, 34, 9, tzinfo=UTC),
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=GC&display_timeframe=1m&chart_instance_id=chart-GC-1m-CME-USD&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["instrument_symbol"] == "GC"
+    assert payload["latest_price"] == 4399.5
+    assert payload["best_bid"] == 4399.0
+    assert payload["best_ask"] == 4400.0
+    assert payload["latest_price_source"] == "continuous_state"
+    assert payload["candles"][-1]["low"] >= 4399.0
+
+def test_replay_live_tail_sanitizes_outlier_last_price_with_local_range_midpoint_when_bid_missing() -> None:
+    application = build_application()
+
+    base = datetime(2026, 3, 26, 22, 22, tzinfo=UTC)
+    application._repository.replace_chart_candles(
+        [
+            ChartCandle(
+                symbol="GC",
+                timeframe=Timeframe.MIN_1,
+                started_at=base + timedelta(minutes=index),
+                ended_at=base + timedelta(minutes=index + 1),
+                source_started_at=base + timedelta(minutes=index),
+                open=4389.0 + index,
+                high=4392.0 + index,
+                low=4388.8 + index,
+                close=4391.0 + index,
+                volume=6 + index,
+                tick_volume=1,
+                delta=1,
+                updated_at=base + timedelta(minutes=index + 1),
+                source_timezone="UTC",
+            )
+            for index in range(4)
+        ]
+    )
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "GC"
+    continuous_payload["instrument"]["root_symbol"] = "GC"
+    continuous_payload["instrument"]["contract_symbol"] = "GC"
+    continuous_payload["source"]["instrument_symbol"] = "GC"
+    continuous_payload["source"]["chart_instance_id"] = "chart-GC-1m-CME-USD"
+    continuous_payload["message_id"] = "continuous-state-bad-high-last-price"
+    continuous_payload["observed_window_start"] = "2026-03-26T22:26:00Z"
+    continuous_payload["observed_window_end"] = "2026-03-26T22:26:41Z"
+    continuous_payload["emitted_at"] = "2026-03-26T22:26:41Z"
+    continuous_payload["price_state"]["last_price"] = 4515.0
+    continuous_payload["price_state"]["best_bid"] = None
+    continuous_payload["price_state"]["best_ask"] = 4392.0
+    continuous_payload["price_state"]["local_range_low"] = 4392.0
+    continuous_payload["price_state"]["local_range_high"] = 4392.0
+
+    application._repository.save_ingestion(
+        ingestion_id=f"ing-{uuid4().hex}",
+        ingestion_kind="adapter_continuous_state",
+        source_snapshot_id=continuous_payload["message_id"],
+        instrument_symbol="GC",
+        observed_payload=continuous_payload,
+        stored_at=datetime(2026, 3, 26, 22, 26, 42, tzinfo=UTC),
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=GC&display_timeframe=1m&chart_instance_id=chart-GC-1m-CME-USD&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["latest_price"] == 4392.0
+    assert payload["best_bid"] is None
+    assert payload["best_ask"] == 4392.0
+    assert payload["latest_price_source"] == "continuous_state"
+
 def test_replay_live_tail_matches_legacy_generic_chart_instance_id_with_canonical_request() -> None:
     application = build_application()
 
@@ -206,7 +341,7 @@ def test_replay_live_tail_ignores_zero_activity_heartbeats_for_candles() -> None
 
     assert live_tail_response.status_code == 200
     payload = json.loads(live_tail_response.body)
-    assert payload["latest_price"] == 24843.0
+    assert payload["latest_price"] == (payload["best_bid"] + payload["best_ask"]) / 2.0
     assert payload["source_message_count"] >= 2
     assert payload["candles"] == []
 

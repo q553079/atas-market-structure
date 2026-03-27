@@ -186,6 +186,28 @@ def test_adapter_continuous_state_ingestion_is_stored() -> None:
     bridged_analysis_response = application.dispatch("GET", f"/api/v1/analyses/{durable_output['analysis_id']}")
     assert bridged_analysis_response.status_code == 200
 
+def test_adapter_history_bars_accepts_numeric_timeframe_alias_from_atas() -> None:
+    application = build_application()
+    payload = load_json_fixture("atas_adapter.history_bars.sample.json")
+    payload["message_id"] = "history-bars-alias-1"
+    payload["display_timeframe"] = "1"
+    payload["bar_timeframe"] = "1"
+    payload["source"]["chart_instance_id"] = "chart-GC-1-CME-USD"
+    payload["instrument"]["symbol"] = "GC"
+    payload["instrument"]["root_symbol"] = "GC"
+    payload["instrument"]["contract_symbol"] = "GC"
+
+    response = application.dispatch(
+        "POST",
+        "/api/v1/adapter/history-bars",
+        json.dumps(payload).encode("utf-8"),
+    )
+
+    assert response.status_code == 201
+    body = json.loads(response.body)
+    assert body["message_type"] == "history_bars"
+    assert body["summary"]["history_bar_timeframe"] == "1m"
+
 def test_adapter_trigger_burst_ingestion_is_stored() -> None:
     application = build_application()
 

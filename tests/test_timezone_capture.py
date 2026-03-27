@@ -580,6 +580,69 @@ def test_history_bars_drop_forming_bar_before_storage() -> None:
         assert raw_rows[0].started_at_utc == t0
 
 
+def test_history_bars_untrusted_local_fallback_stays_audit_only() -> None:
+    with _temp_repo() as repo:
+        service = AdapterIngestionService(repository=repo)
+
+        t0 = datetime(2026, 3, 22, 9, 30, tzinfo=UTC)
+        payload_dict = _build_minimal_history_payload(
+            symbol="NQH6",
+            timeframe="1m",
+            bars=[
+                {
+                    "started_at": t0.isoformat(),
+                    "ended_at": (t0 + timedelta(seconds=59)).isoformat(),
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.5,
+                    "volume": 25,
+                    "delta": 5,
+                    "bar_timestamp_utc": t0.isoformat(),
+                    "original_bar_time_text": None,
+                }
+            ],
+            chart_display_timezone_name="China Standard Time",
+            chart_display_utc_offset_minutes=480,
+            time_context={
+                "instrument_timezone_value": None,
+                "instrument_timezone_source": "unavailable",
+                "chart_display_timezone_mode": "local",
+                "chart_display_timezone_source": "collector_local_fallback",
+                "chart_display_timezone_name": "China Standard Time",
+                "chart_display_utc_offset_minutes": 480,
+                "timezone_capture_confidence": "low",
+                "collector_local_timezone_name": "China Standard Time",
+                "collector_local_utc_offset_minutes": 480,
+                "timestamp_basis": "collector_local_timezone_fallback",
+                "started_at_output_timezone": "UTC",
+                "started_at_time_source": "collector_local_timezone_fallback",
+            },
+        )
+        payload_dict["source"].update(
+            {
+                "chart_display_timezone_mode": "local",
+                "chart_display_timezone_name": "China Standard Time",
+                "chart_display_utc_offset_minutes": 480,
+                "collector_local_timezone_name": "China Standard Time",
+                "collector_local_utc_offset_minutes": 480,
+                "timestamp_basis": "collector_local_timezone_fallback",
+                "timezone_capture_confidence": "low",
+            }
+        )
+
+        result = service.ingest_history_bars(AdapterHistoryBarsPayload.model_validate(payload_dict))
+
+        stored = repo.get_ingestion(result.ingestion_id)
+        assert stored is not None
+        assert stored.observed_payload["source"]["timestamp_basis"] == "collector_local_timezone_fallback"
+
+        raw_rows = repo.list_atas_chart_bars_raw(contract_symbol="NQH6", timeframe="1m")
+        assert raw_rows == []
+        chart_rows = repo.list_chart_candles("NQ", "1m", t0, t0 + timedelta(minutes=1), limit=10)
+        assert chart_rows == []
+
+
 # ---------------------------------------------------------------------------
 # Test 5: Full backfill-command → history-bars → backfill-ack chain
 # ---------------------------------------------------------------------------

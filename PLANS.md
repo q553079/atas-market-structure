@@ -23,6 +23,38 @@ Create a plan before changes such as:
 ## Rule
 Implementation should follow the approved plan instead of improvising broad rewrites.
 
+## 2026-03-27 GC History Timestamp Trust Guardrail
+- Goal
+  Prevent corrupted historical K-line rebuilds by excluding low-confidence local-time fallback payloads from chart persistence, raw-mirror fallback reads, and replay snapshot history selection.
+- Scope
+  Add a focused history-payload trust helper, wire it into adapter history ingestion, chart backfill, raw-mirror fallback loading, and replay history-payload collection, then clean/rebuild affected GC chart data from trusted history only.
+- Files expected to change
+  `PLANS.md`
+  `src/atas_market_structure/history_payload_quality.py`
+  `src/atas_market_structure/adapter_services.py`
+  `src/atas_market_structure/chart_candle_service.py`
+  `src/atas_market_structure/workbench_replay_service.py`
+  `tests/test_new_modules.py`
+  `tests/test_timezone_capture.py`
+  `tests/test_app_workbench_routes.py`
+- Invariants to preserve
+  ClickHouse remains the primary K-line read store.
+  SQLite remains append-only and auditable for stored ingestions.
+  Existing adapter routes, replay builder contracts, and degraded mode names remain unchanged.
+  AI stays outside the online deterministic recognition path.
+- Migration / compatibility strategy
+  Keep storing the original ingestion payloads in SQLite for auditability, but stop letting untrusted history timestamps reach chart-facing paths.
+  Treat `python_guardrail_forced_utc_from_original_bar_time_text` and UTC/forced UTC payloads as trusted.
+  Treat low-confidence local fallback payloads as audit-only and skip them for chart rebuild/read paths.
+- Tests to run
+  `python -m pytest tests\test_new_modules.py tests\test_timezone_capture.py tests\test_app_workbench_routes.py -q`
+  `node --check src\atas_market_structure\static\replay_workbench_replay_loader.js`
+  `node --check src\atas_market_structure\static\replay_workbench_bootstrap.js`
+  `node --check src\atas_market_structure\static\replay_workbench_actions.js`
+- Rollback notes
+  Remove the trust helper wiring and revert to accepting all stored history payloads for chart-facing paths.
+  Leave stored SQLite ingestions untouched; they remain available for later forensic cleanup.
+
 ## 2026-03-25 Options Strategy Environment
 - Goal
   Upgrade SPX options analysis from a single-snapshot gamma-map output into a deterministic, context-aware environment assessment that compares recent hourly snapshots and maps the current structure to strategy-friendly market regimes.

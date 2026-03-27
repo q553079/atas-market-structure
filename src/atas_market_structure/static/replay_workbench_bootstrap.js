@@ -17,8 +17,8 @@ import {
 } from "./replay_workbench_ui_utils.js";
 import { createAiThreadController } from "./replay_workbench_ai_threads.js";
 import { createAiChatController } from "./replay_workbench_ai_chat.js";
-import { createReplayLoader } from "./replay_workbench_replay_loader.js";
-import { createWorkbenchActions } from "./replay_workbench_actions.js";
+import { createReplayLoader } from "./replay_workbench_replay_loader.js?v=20260327-window-scope-fix";
+import { createWorkbenchActions } from "./replay_workbench_actions.js?v=20260327-window-scope-fix";
 import { createWorkbenchEventApi } from "./replay_workbench_event_api.js";
 import { createWorkbenchEventPanelController } from "./replay_workbench_event_panel.js";
 import { createWorkbenchEventManualTools } from "./replay_workbench_event_manual_tools.js";
@@ -29,7 +29,7 @@ import {
   clampChartView,
   buildChartViewportKey,
   snapshotChartViewForRegistry,
-} from "./replay_workbench_chart_utils.js";
+} from "./replay_workbench_chart_utils.js?v=20260327-window-scope-fix";
 import { focusChartViewOnEventCandidate } from "./replay_workbench_event_overlay.js";
 import { createPlanLifecycleEngine } from "./replay_workbench_plan_lifecycle.js";
 import { createSessionMemoryEngine } from "./replay_workbench_session_memory.js";
