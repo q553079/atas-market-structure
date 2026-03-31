@@ -2,7 +2,8 @@ import { createPlanId, summarizeText, writeStorage } from "./replay_workbench_ui
 import {
   normalizeWorkbenchAnnotation,
   normalizeWorkbenchPlanCard,
-} from "./replay_workbench_annotation_utils.js";
+  resolveChartViewTimeWindow,
+} from "./replay_workbench_annotation_utils.js?v=20260330-window-event-context-v1";
 
 function normalizePlanCard(raw = {}) {
   return normalizeWorkbenchPlanCard({
@@ -79,10 +80,107 @@ function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null);
 }
 
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergePlainObjects(base = {}, patch = {}) {
+  const merged = { ...(isPlainObject(base) ? base : {}) };
+  Object.entries(isPlainObject(patch) ? patch : {}).forEach(([key, value]) => {
+    if (isPlainObject(value) && isPlainObject(merged[key])) {
+      merged[key] = mergePlainObjects(merged[key], value);
+      return;
+    }
+    merged[key] = value;
+  });
+  return merged;
+}
+
+function mergeMessageMeta(baseMeta = {}, patchMeta = {}) {
+  const safeBase = isPlainObject(baseMeta) ? baseMeta : {};
+  const safePatch = isPlainObject(patchMeta) ? patchMeta : {};
+  const baseWorkbenchUi = mergePlainObjects(
+    isPlainObject(safeBase.workbenchUi) ? safeBase.workbenchUi : {},
+    isPlainObject(safeBase.workbench_ui) ? safeBase.workbench_ui : {},
+  );
+  const patchWorkbenchUi = mergePlainObjects(
+    isPlainObject(safePatch.workbenchUi) ? safePatch.workbenchUi : {},
+    isPlainObject(safePatch.workbench_ui) ? safePatch.workbench_ui : {},
+  );
+  const merged = {
+    ...safeBase,
+    ...safePatch,
+  };
+  const workbenchUi = mergePlainObjects(baseWorkbenchUi, patchWorkbenchUi);
+  if (Object.keys(workbenchUi).length) {
+    merged.workbench_ui = workbenchUi;
+  } else {
+    delete merged.workbench_ui;
+  }
+  delete merged.workbenchUi;
+  return merged;
+}
+
 function toArray(value) {
   if (Array.isArray(value)) return value;
   if (value == null) return [];
   return [value];
+}
+
+function extractIncomingMessageMeta(source = {}) {
+  if (!isPlainObject(source)) {
+    return {};
+  }
+  const sourceMeta = isPlainObject(source.meta) ? source.meta : {};
+  return mergeMessageMeta(sourceMeta, {
+    workbenchUi: isPlainObject(source.workbenchUi) ? source.workbenchUi : undefined,
+    workbench_ui: isPlainObject(source.workbench_ui) ? source.workbench_ui : undefined,
+  });
+}
+
+function getWorkbenchUiMeta(meta = {}) {
+  const merged = mergePlainObjects(
+    isPlainObject(meta?.workbenchUi) ? meta.workbenchUi : {},
+    isPlainObject(meta?.workbench_ui) ? meta.workbench_ui : {},
+  );
+  return Object.keys(merged).length ? merged : null;
+}
+
+function syncSessionReplyState(session, message, pendingAliases = []) {
+  if (!session || !message || message.role !== "assistant") {
+    return;
+  }
+  const aliases = new Set([
+    message.message_id,
+    message.meta?.localPendingMessageId,
+    ...pendingAliases,
+  ].filter(Boolean));
+  const currentActiveReplyId = typeof session.activeReplyId === "string" && session.activeReplyId.trim()
+    ? session.activeReplyId.trim()
+    : null;
+  const shouldAdoptReply = !currentActiveReplyId || aliases.has(currentActiveReplyId);
+  if (shouldAdoptReply && message.message_id) {
+    session.activeReplyId = message.message_id;
+  } else if (currentActiveReplyId) {
+    session.activeReplyId = currentActiveReplyId;
+  }
+  const workbenchUi = getWorkbenchUiMeta(message.meta);
+  if (!workbenchUi) {
+    return;
+  }
+  const isFocusedReply = shouldAdoptReply || session.activeReplyId === message.message_id;
+  const replyWindowAnchor = typeof workbenchUi.reply_window_anchor === "string" && workbenchUi.reply_window_anchor.trim()
+    ? workbenchUi.reply_window_anchor.trim()
+    : null;
+  const contextVersion = typeof workbenchUi.context_version === "string" && workbenchUi.context_version.trim()
+    ? workbenchUi.context_version.trim()
+    : null;
+  if (isFocusedReply && replyWindowAnchor) {
+    session.activeReplyWindowAnchor = replyWindowAnchor;
+  }
+  if (isFocusedReply && contextVersion) {
+    session.lastContextVersion = contextVersion;
+  }
 }
 
 function unwrapEventData(eventData = {}) {
@@ -158,8 +256,57 @@ function buildPromptBlockFromPreset(preset, message, session) {
   };
 }
 
+function inferPromptBlockSourceKind(kind = "") {
+  const normalizedKind = String(kind || "").trim().toLowerCase();
+  if (normalizedKind === "candles_20" || normalizedKind === "selected_bar" || normalizedKind === "manual_region") {
+    return "window_snapshot";
+  }
+  if (normalizedKind === "event_summary") {
+    return "nearby_event_summary";
+  }
+  if (normalizedKind === "recent_messages") {
+    return "recent_messages";
+  }
+  if (normalizedKind === "session_summary") {
+    return "memory_summary";
+  }
+  return "system_policy";
+}
+
 function normalizePromptBlock(raw = {}, session, fallback = {}) {
+  const fullPayload = isPlainObject(raw.full_payload)
+    ? raw.full_payload
+    : (isPlainObject(raw.fullPayload) ? raw.fullPayload : {});
+  const blockMeta = isPlainObject(fullPayload.block_meta)
+    ? fullPayload.block_meta
+    : (isPlainObject(fullPayload.blockMeta) ? fullPayload.blockMeta : {});
   const blockId = raw.block_id || raw.blockId || raw.id || fallback.blockId || `pb-${Date.now()}`;
+  const ephemeral = raw.ephemeral ?? fallback.ephemeral ?? true;
+  const pinned = !!(raw.pinned ?? fallback.pinned);
+  const blockVersion = Number(
+    firstDefined(raw.blockVersion, raw.block_version, blockMeta.blockVersion, blockMeta.block_version, fallback.blockVersion, fallback.block_version, 1)
+  );
+  const sourceKind = firstDefined(
+    raw.sourceKind,
+    raw.source_kind,
+    blockMeta.sourceKind,
+    blockMeta.source_kind,
+    fallback.sourceKind,
+    fallback.source_kind,
+    inferPromptBlockSourceKind(raw.kind || fallback.kind || "user_input"),
+  );
+  const scope = firstDefined(
+    raw.scope,
+    blockMeta.scope,
+    fallback.scope,
+    (!ephemeral || pinned) ? "session" : "request",
+  );
+  const editable = firstDefined(
+    raw.editable,
+    blockMeta.editable,
+    fallback.editable,
+    false,
+  );
   return {
     ...raw,
     id: raw.id || raw.block_id || raw.blockId || blockId,
@@ -172,8 +319,14 @@ function normalizePromptBlock(raw = {}, session, fallback = {}) {
     previewText: raw.preview_text || raw.previewText || fallback.previewText || "",
     preview_text: raw.preview_text || raw.previewText || fallback.previewText || "",
     sourceLabel: raw.source_label || raw.sourceLabel || fallback.sourceLabel || fallback.kind || "上下文块",
-    ephemeral: raw.ephemeral ?? fallback.ephemeral ?? true,
-    pinned: !!(raw.pinned ?? fallback.pinned),
+    ephemeral,
+    pinned,
+    blockVersion: Number.isFinite(blockVersion) && blockVersion > 0 ? blockVersion : 1,
+    block_version: Number.isFinite(blockVersion) && blockVersion > 0 ? blockVersion : 1,
+    sourceKind: String(sourceKind || "").trim() || inferPromptBlockSourceKind(raw.kind || fallback.kind || "user_input"),
+    source_kind: String(sourceKind || "").trim() || inferPromptBlockSourceKind(raw.kind || fallback.kind || "user_input"),
+    scope: String(scope || "").trim() || ((!ephemeral || pinned) ? "session" : "request"),
+    editable: !!editable,
     serverBacked: raw.serverBacked ?? fallback.serverBacked ?? true,
   };
 }
@@ -210,10 +363,14 @@ function replacePendingAssistantMessage(session, pendingMessageId, content, meta
     if (message.message_id !== pendingMessageId && localPendingId !== pendingMessageId) {
       return message;
     }
+    const mergedMeta = mergeMessageMeta(message.meta, meta);
+    mergedMeta.localPendingMessageId = message.meta?.localPendingMessageId || pendingMessageId;
+    mergedMeta.promptTraceId = meta.promptTraceId || meta.prompt_trace_id || message.promptTraceId || message.meta?.promptTraceId || null;
+    mergedMeta.prompt_trace_id = meta.promptTraceId || meta.prompt_trace_id || message.promptTraceId || message.meta?.promptTraceId || null;
     return {
       ...message,
       message_id: meta.message_id || meta.messageId || message.message_id,
-      promptTraceId: meta.promptTraceId || meta.prompt_trace_id || message.promptTraceId || message.meta?.promptTraceId || null,
+      promptTraceId: mergedMeta.promptTraceId || mergedMeta.prompt_trace_id || null,
       content,
       status: meta.status || message.status || "completed",
       replyTitle: meta.replyTitle || meta.reply_title || message.replyTitle || null,
@@ -222,19 +379,18 @@ function replacePendingAssistantMessage(session, pendingMessageId, content, meta
       planCards: Array.isArray(meta.planCards) ? meta.planCards : (message.planCards || []),
       mountedToChart: meta.mountedToChart ?? message.mountedToChart ?? false,
       mountedObjectIds: Array.isArray(meta.mountedObjectIds) ? meta.mountedObjectIds : (message.mountedObjectIds || []),
-      meta: {
-        ...(message.meta || {}),
-        localPendingMessageId: message.meta?.localPendingMessageId || pendingMessageId,
-        ...meta,
-        promptTraceId: meta.promptTraceId || meta.prompt_trace_id || message.promptTraceId || message.meta?.promptTraceId || null,
-      },
+      meta: mergedMeta,
       updated_at: new Date().toISOString(),
     };
   });
   session.messages = nextMessages;
   session.turns = nextMessages.map((item) => ({ role: item.role, content: item.content, meta: item.meta || {} }));
   const resolvedMessageId = meta.message_id || meta.messageId || pendingMessageId;
-  return nextMessages.find((item) => item.message_id === resolvedMessageId || item.meta?.localPendingMessageId === pendingMessageId) || null;
+  const resolvedMessage = nextMessages.find((item) => item.message_id === resolvedMessageId || item.meta?.localPendingMessageId === pendingMessageId) || null;
+  if (resolvedMessage) {
+    syncSessionReplyState(session, resolvedMessage, [pendingMessageId]);
+  }
+  return resolvedMessage;
 }
 
 function mergeMessageAnnotations(state, session, messageId, planCards = [], explicitAnnotations = []) {
@@ -245,9 +401,9 @@ function mergeMessageAnnotations(state, session, messageId, planCards = [], expl
 }
 
 function buildAnnotationBundle({ session, messageId, planCards = [], state, explicitAnnotations = [] }) {
-  const latestCandle = state.snapshot?.candles?.[state.snapshot.candles.length - 1];
-  const startTime = latestCandle?.started_at || state.snapshot?.window_start || new Date().toISOString();
-  const endTime = latestCandle?.ended_at || state.snapshot?.window_end || new Date().toISOString();
+  const chartWindow = resolveChartViewTimeWindow(state);
+  const startTime = chartWindow.startTime || state.snapshot?.window_start || new Date().toISOString();
+  const endTime = chartWindow.endTime || state.snapshot?.window_end || new Date().toISOString();
   const annotations = [];
 
   explicitAnnotations.forEach((item) => {
@@ -255,6 +411,12 @@ function buildAnnotationBundle({ session, messageId, planCards = [], state, expl
   });
 
   planCards.forEach((plan) => {
+    const compatEmitAnnotation = plan?.compat_emit_annotation
+      ?? plan?.payload?.compat_emit_annotation
+      ?? plan?.payload?.metadata?.compat_emit_annotation;
+    if (compatEmitAnnotation === false) {
+      return;
+    }
     const planExpiresAt = plan.expires_at || plan.time_validity?.expires_at || null;
     const planReason = plan.summary || plan.notes || "";
     const planSourceKind = plan.source_kind || "replay_analysis";
@@ -356,6 +518,60 @@ function buildOutgoingAttachments(session) {
       data_url: item.data_url || item.preview_url || "",
     }))
     .filter((item) => item.data_url);
+}
+
+function resolveOutgoingChartVisibleWindow(state) {
+  if (!state?.chartView) {
+    return null;
+  }
+  const chartWindow = resolveChartViewTimeWindow(state);
+  if (!chartWindow?.startTime || !chartWindow?.endTime) {
+    return null;
+  }
+  return {
+    window_start: chartWindow.startTime,
+    window_end: chartWindow.endTime,
+  };
+}
+
+function deriveSessionDateFromWindow(windowStart = null) {
+  const timestamp = Date.parse(String(windowStart || ""));
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function buildPendingWorkbenchUiShell(session, state, requestPayload = {}) {
+  const symbol = String(session?.symbol || state?.topBar?.symbol || "").trim() || null;
+  const timeframe = String(session?.timeframe || state?.topBar?.timeframe || "").trim() || null;
+  const chartVisibleWindow = isPlainObject(requestPayload.extra_context?.ui_context?.chart_visible_window)
+    ? requestPayload.extra_context.ui_context.chart_visible_window
+    : null;
+  const windowStart = chartVisibleWindow?.window_start || null;
+  const windowEnd = chartVisibleWindow?.window_end || null;
+  const replySessionDate = deriveSessionDateFromWindow(windowStart);
+  const shell = {
+    schema_version: "workbench_ui.v1",
+    symbol,
+    timeframe,
+    alignment_state: "pending_confirmation",
+    stale_state: "current_window",
+    context_version: session?.lastContextVersion || null,
+  };
+  if (windowStart || windowEnd) {
+    shell.reply_window = {
+      window_start: windowStart,
+      window_end: windowEnd,
+    };
+  }
+  if (symbol && timeframe && windowStart && windowEnd) {
+    shell.reply_window_anchor = `${symbol}|${timeframe}|${windowStart}|${windowEnd}|${replySessionDate || "pending"}`;
+  }
+  if (replySessionDate) {
+    shell.reply_session_date = replySessionDate;
+  }
+  return shell;
 }
 
 export function createAiChatController({
@@ -530,11 +746,12 @@ export function createAiChatController({
 
   function syncStreamingMessage(session, pendingMessageId, patch = {}, runtime = {}, eventData = {}) {
     const resolvedMessageId = resolveStreamingMessageId(session, pendingMessageId, runtime, eventData);
+    const mergedPatch = mergeMessageMeta(extractIncomingMessageMeta(eventData), patch);
     const next = replacePendingAssistantMessage(
       session,
       resolvedMessageId,
       patch.content ?? (session.messages || []).find((item) => item.message_id === resolvedMessageId)?.content ?? "",
-      patch,
+      mergedPatch,
     );
     persistSessions();
     refreshChatUi();
@@ -767,7 +984,8 @@ export function createAiChatController({
         ? (result.plan_cards || result.planCards).map((plan) => upsertPlanCardToSession(normalizePlanCard(plan), session.id, result.assistant_message?.message_id))
         : [];
       const structuredAnnotations = Array.isArray(result.annotations) ? result.annotations : [];
-      appendAiChatMessage("assistant", assistantContent, {
+      const appendedMessage = appendAiChatMessage("assistant", assistantContent, mergeMessageMeta(extractIncomingMessageMeta(result.assistant_message || {}), {
+        message_id: result.assistant_message?.message_id || result.assistant_message?.id || null,
         preset: result.preset,
         provider: result.provider,
         model: result.model,
@@ -776,8 +994,9 @@ export function createAiChatController({
         replyTitle: result.assistant_message?.reply_title || planCards[0]?.title || null,
         status: result.assistant_message?.status || "regenerated",
         parent_message_id: messageId,
-      }, session.id, session.title);
-      mergeMessageAnnotations(state, session, result.assistant_message?.message_id, planCards, structuredAnnotations);
+      }), session.id, session.title);
+      syncSessionReplyState(session, appendedMessage);
+      mergeMessageAnnotations(state, session, appendedMessage?.message_id || result.assistant_message?.message_id, planCards, structuredAnnotations);
       if (result.memory) {
         session.memory = {
           ...(session.memory || {}),
@@ -889,6 +1108,25 @@ export function createAiChatController({
           ...handoffContext,
         };
       }
+      const chartVisibleWindow = resolveOutgoingChartVisibleWindow(state);
+      if (chartVisibleWindow) {
+        requestPayload.extra_context = {
+          ...(requestPayload.extra_context || {}),
+          ui_context: {
+            ...(isPlainObject(requestPayload.extra_context?.ui_context) ? requestPayload.extra_context.ui_context : {}),
+            chart_visible_window: chartVisibleWindow,
+          },
+        };
+      }
+      const pendingWorkbenchUi = buildPendingWorkbenchUiShell(session, state, requestPayload);
+      if (pendingAssistant?.message_id) {
+        replacePendingAssistantMessage(session, pendingAssistant.message_id, pendingAssistant.content || "正在思考中…", {
+          status: "pending",
+          replyTitle: "AI 回复生成中",
+          workbench_ui: pendingWorkbenchUi,
+          localPendingMessageId: pendingAssistant.message_id,
+        });
+      }
       let result;
       try {
         await openChatStream(session, requestPayload, pendingAssistant?.message_id);
@@ -975,7 +1213,8 @@ export function createAiChatController({
           : []);
       const planCards = resolvedPlanCards.map((plan) => upsertPlanCardToSession(plan, session.id));
       const structuredAnnotations = Array.isArray(result.annotations) ? result.annotations : [];
-      const assistantMessage = replacePendingAssistantMessage(session, pendingAssistant?.message_id, assistantContent, {
+      const assistantMessageMeta = mergeMessageMeta(extractIncomingMessageMeta(result.assistant_message || {}), {
+        message_id: result.assistant_message?.message_id || result.assistant_message?.id || null,
         preset: result.preset,
         provider: result.provider,
         model: result.model,
@@ -989,7 +1228,8 @@ export function createAiChatController({
         mountedToChart: false,
         session_only: !!result.session_only,
         status: "completed",
-      }) || appendAiChatMessage("assistant", assistantContent, {
+      });
+      const assistantMessage = replacePendingAssistantMessage(session, pendingAssistant?.message_id, assistantContent, assistantMessageMeta) || appendAiChatMessage("assistant", assistantContent, mergeMessageMeta(assistantMessageMeta, {
         preset: result.preset,
         provider: result.provider,
         model: result.model,
@@ -1002,7 +1242,8 @@ export function createAiChatController({
         replyTitle: result.assistant_message?.reply_title || resolvedPlanCards[0]?.title || null,
         mountedToChart: false,
         session_only: !!result.session_only,
-      }, session.id, session.title);
+      }), session.id, session.title);
+      syncSessionReplyState(session, assistantMessage, [pendingAssistant?.message_id]);
       session.messages = session.messages.map((message) => message.message_id === assistantMessage.message_id
         ? {
             ...message,

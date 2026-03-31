@@ -7,6 +7,9 @@ from atas_market_structure.models import ReplayChartBar
 
 _MIN_REFERENCE_PAD = 1.0
 _REFERENCE_PAD_MULTIPLIER = 1.5
+_QUOTE_PAD_MULTIPLIER = 4.0
+_CANDLE_MIN_PAD = 2.0
+_CANDLE_PAD_MULTIPLIER = 2.5
 
 
 @dataclass(frozen=True)
@@ -46,14 +49,13 @@ def sanitize_live_tail_quote(
         best_bid = None
         best_ask = None
 
-    reference_prices = _collect_reference_prices(
+    band = _select_validation_band(
         best_bid=best_bid,
         best_ask=best_ask,
         local_range_low=local_range_low,
         local_range_high=local_range_high,
         reference_candle=reference_candle,
     )
-    band = _build_reference_band(reference_prices)
     if latest_price is None or band is None or _price_within_band(latest_price, band):
         return LiveTailQuoteSanitizationResult(
             latest_price=latest_price,
@@ -131,13 +133,78 @@ def _collect_reference_prices(
     return [value for value in prices if value is not None]
 
 
+def _select_validation_band(
+    *,
+    best_bid: float | None,
+    best_ask: float | None,
+    local_range_low: float | None,
+    local_range_high: float | None,
+    reference_candle: ReplayChartBar | None,
+) -> tuple[float, float] | None:
+    quote_band = _build_quote_band(best_bid, best_ask)
+    if quote_band is not None:
+        return quote_band
+
+    local_range_band = _build_reference_band(
+        [
+            _finite_or_none(local_range_low),
+            _finite_or_none(local_range_high),
+        ]
+    )
+    if local_range_band is not None:
+        return local_range_band
+
+    candle_band = _build_candle_band(reference_candle)
+    if candle_band is not None:
+        return candle_band
+
+    reference_prices = _collect_reference_prices(
+        best_bid=best_bid,
+        best_ask=best_ask,
+        local_range_low=local_range_low,
+        local_range_high=local_range_high,
+        reference_candle=reference_candle,
+    )
+    return _build_reference_band(reference_prices)
+
+
 def _build_reference_band(reference_prices: list[float]) -> tuple[float, float] | None:
+    reference_prices = [value for value in reference_prices if value is not None]
     if not reference_prices:
         return None
     low = min(reference_prices)
     high = max(reference_prices)
     span = max(0.0, high - low)
     pad = max(_MIN_REFERENCE_PAD, span * _REFERENCE_PAD_MULTIPLIER)
+    return (low - pad, high + pad)
+
+
+def _build_quote_band(best_bid: float | None, best_ask: float | None) -> tuple[float, float] | None:
+    best_bid = _finite_or_none(best_bid)
+    best_ask = _finite_or_none(best_ask)
+    if best_bid is None or best_ask is None or best_ask < best_bid:
+        return None
+    span = best_ask - best_bid
+    pad = max(_MIN_REFERENCE_PAD, span * _QUOTE_PAD_MULTIPLIER)
+    return (best_bid - pad, best_ask + pad)
+
+
+def _build_candle_band(reference_candle: ReplayChartBar | None) -> tuple[float, float] | None:
+    if reference_candle is None:
+        return None
+    prices = [
+        _finite_or_none(reference_candle.open),
+        _finite_or_none(reference_candle.high),
+        _finite_or_none(reference_candle.low),
+        _finite_or_none(reference_candle.close),
+    ]
+    prices = [value for value in prices if value is not None]
+    if not prices:
+        return None
+    low = min(prices)
+    high = max(prices)
+    span = max(0.0, high - low)
+    pad = max(_CANDLE_MIN_PAD, span * _CANDLE_PAD_MULTIPLIER)
     return (low - pad, high + pad)
 
 

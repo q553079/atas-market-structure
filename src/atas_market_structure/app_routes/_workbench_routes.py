@@ -251,17 +251,32 @@ def handle_workbench_routes(
             limit = int(query.get("limit", ["20000"])[0])
         except (ValueError, TypeError) as exc:
             return app._json_response(400, {"error": "invalid_parameter", "detail": str(exc)})
-        candles = app._chart_candle_service.get_candles(symbol, tf, ws, we, limit=limit)
-        return app._json_model_response(
+        skip_contract_overlay = str(query.get("skip_contract_overlay", ["false"])[0]).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        candles, display_metadata, event_annotations = app._chart_candle_service.get_display_candles_with_metadata(
+            symbol,
+            tf,
+            ws,
+            we,
+            limit=limit,
+            skip_contract_overlay=skip_contract_overlay,
+        )
+        return app._json_response(
             200,
-            ChartCandleEnvelope(
-                symbol=symbol,
-                timeframe=tf,
-                window_start=ws,
-                window_end=we,
-                count=len(candles),
-                candles=candles,
-            ),
+            {
+                "symbol": symbol,
+                "timeframe": tf.value,
+                "window_start": ws,
+                "window_end": we,
+                "count": len(candles),
+                "candles": [candle.model_dump(mode="json") for candle in candles],
+                "display_metadata": display_metadata,
+                "event_annotations": [item.model_dump(mode="json") for item in event_annotations],
+            },
         )
 
     if method == "POST" and route_path == "/api/v1/workbench/chart-candles/backfill":

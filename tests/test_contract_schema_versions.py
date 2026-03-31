@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from atas_market_structure.models import (
     BeliefStateSnapshot,
+    ChatMessage,
     EpisodeEvaluation,
     EventCandidate,
     EventMemoryEntry,
@@ -30,6 +31,7 @@ from atas_market_structure.models import (
     PromptTraceBlockSummary,
     PromptTraceEnvelope,
     PromptTraceListEnvelope,
+    PromptBlock,
     RecognizerBuild,
     RegimePosteriorContract,
     TuningRecommendation,
@@ -169,7 +171,16 @@ def test_workbench_event_contracts_normalize_legacy_schema_versions() -> None:
         lifecycle_state="candidate",
         invalidation_rule={},
         evaluation_window={},
-        metadata={},
+        metadata={
+            "presentation": {
+                "source_message_id": "msg-test",
+                "source_prompt_trace_id": "trace-test",
+                "anchor_time": now.isoformat(),
+                "anchor_price": 21524.0,
+                "is_fixed_anchor": False,
+                "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+            }
+        },
         dedup_key="dedup-1",
         promoted_projection_type=None,
         promoted_projection_id=None,
@@ -200,7 +211,16 @@ def test_workbench_event_contracts_normalize_legacy_schema_versions() -> None:
         lifecycle_state="candidate",
         invalidation_rule={},
         evaluation_window={},
-        metadata={},
+        metadata={
+            "presentation": {
+                "source_message_id": "msg-test",
+                "source_prompt_trace_id": "trace-test",
+                "anchor_time": now.isoformat(),
+                "anchor_price": 21524.0,
+                "is_fixed_anchor": False,
+                "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+            }
+        },
         stream_action="extracted",
         created_at=now,
         updated_at=now,
@@ -229,7 +249,16 @@ def test_workbench_event_contracts_normalize_legacy_schema_versions() -> None:
         lifecycle_state="candidate",
         invalidation_rule={},
         evaluation_window={},
-        metadata={},
+        metadata={
+            "presentation": {
+                "source_message_id": "msg-test",
+                "source_prompt_trace_id": "trace-test",
+                "anchor_time": now.isoformat(),
+                "anchor_price": 21524.0,
+                "is_fixed_anchor": False,
+                "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+            }
+        },
         memory_bucket="active",
         created_at=now,
         updated_at=now,
@@ -246,6 +275,8 @@ def test_workbench_event_contracts_normalize_legacy_schema_versions() -> None:
     assert stream_entry.schema_version == EVENT_STREAM_ENTRY_SCHEMA_VERSION
     assert memory_entry.schema_version == EVENT_MEMORY_ENTRY_SCHEMA_VERSION
     assert envelope.schema_version == WORKBENCH_EVENT_STREAM_ENVELOPE_SCHEMA_VERSION
+    assert candidate.metadata["presentation"]["source_prompt_trace_id"] == "trace-test"
+    assert candidate.metadata["presentation"]["is_fixed_anchor"] is False
 
 
 def test_workbench_prompt_trace_contracts_normalize_legacy_schema_versions() -> None:
@@ -290,6 +321,60 @@ def test_workbench_prompt_trace_contracts_normalize_legacy_schema_versions() -> 
     assert trace.schema_version == PROMPT_TRACE_SCHEMA_VERSION
     assert envelope.schema_version == WORKBENCH_PROMPT_TRACE_ENVELOPE_SCHEMA_VERSION
     assert list_envelope.schema_version == WORKBENCH_PROMPT_TRACE_LIST_ENVELOPE_SCHEMA_VERSION
+    assert trace.prompt_block_summaries[0].block_version == 1
+    assert trace.prompt_block_summaries[0].source_kind == "system_policy"
+    assert trace.prompt_block_summaries[0].scope == "request"
+    assert trace.prompt_block_summaries[0].editable is False
+    assert trace.prompt_block_summaries[0].selected is False
+    assert trace.prompt_block_summaries[0].pinned is False
+
+
+def test_chat_and_prompt_block_contracts_accept_additive_metadata_defaults() -> None:
+    now = datetime(2026, 3, 25, 9, 30, tzinfo=UTC)
+    message = ChatMessage(
+        message_id="msg-test",
+        session_id="sess-test",
+        parent_message_id=None,
+        prompt_trace_id=None,
+        role="assistant",
+        content="结构化回复",
+        status="completed",
+        reply_title=None,
+        stream_buffer="",
+        model="fake-chat-e2e",
+        attachments=[],
+        annotations=[],
+        plan_cards=[],
+        mounted_to_chart=False,
+        mounted_object_ids=[],
+        is_key_conclusion=False,
+        created_at=now,
+        updated_at=now,
+    )
+    prompt_block = PromptBlock(
+        block_id="pb-test",
+        session_id="sess-test",
+        symbol="NQ",
+        contract_id="NQM2026",
+        timeframe="1m",
+        kind="candles_20",
+        title="最近 20 根 K 线",
+        preview_text="K 线摘要",
+        full_payload={},
+        selected_by_default=False,
+        pinned=False,
+        ephemeral=True,
+        created_at=now,
+        expires_at=None,
+    )
+
+    assert message.meta == {}
+    assert prompt_block.block_version == 1
+    assert prompt_block.source_kind == "system_policy"
+    assert prompt_block.scope == "request"
+    assert prompt_block.editable is False
+    assert prompt_block.author is None
+    assert prompt_block.updated_at is None
 
 
 def test_workbench_event_outcome_contracts_normalize_legacy_schema_versions() -> None:

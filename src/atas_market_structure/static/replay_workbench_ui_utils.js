@@ -185,15 +185,18 @@ export function sanitizeReplayCandles(candles = [], options = {}) {
       correctedCount += 1;
     }
     const endedAtMs = Date.parse(raw.ended_at || raw.started_at);
-    const safeEndedAt = Number.isFinite(endedAtMs) && endedAtMs >= startedAtMs
-      ? raw.ended_at || raw.started_at
-      : raw.started_at;
-    if (deduped.has(raw.started_at)) {
+    const safeStartedAt = new Date(startedAtMs).toISOString();
+    const safeEndedAtMs = Number.isFinite(endedAtMs) && endedAtMs >= startedAtMs
+      ? endedAtMs
+      : startedAtMs;
+    const safeEndedAt = new Date(safeEndedAtMs).toISOString();
+    const dedupeKey = String(startedAtMs);
+    if (deduped.has(dedupeKey)) {
       duplicateCount += 1;
     }
-    deduped.set(raw.started_at, {
+    deduped.set(dedupeKey, {
       ...raw,
-      started_at: raw.started_at,
+      started_at: safeStartedAt,
       ended_at: safeEndedAt,
       open,
       high: normalizedHigh,

@@ -264,6 +264,78 @@ def test_replay_live_tail_sanitizes_outlier_last_price_with_local_range_midpoint
     assert payload["best_ask"] == 4392.0
     assert payload["latest_price_source"] == "continuous_state"
 
+
+def test_replay_live_tail_sanitizes_quote_outlier_even_when_recent_candle_range_is_wide() -> None:
+    application = build_application()
+
+    base = datetime(2026, 3, 27, 0, 32, tzinfo=UTC)
+    application._repository.replace_chart_candles(
+        [
+            ChartCandle(
+                symbol="GC",
+                timeframe=Timeframe.MIN_1,
+                started_at=base + timedelta(minutes=index),
+                ended_at=base + timedelta(minutes=index + 1),
+                source_started_at=base + timedelta(minutes=index),
+                open=open_price,
+                high=high_price,
+                low=low_price,
+                close=close_price,
+                volume=volume,
+                tick_volume=1,
+                delta=delta,
+                updated_at=base + timedelta(minutes=index + 1),
+                source_timezone="UTC",
+            )
+            for index, (open_price, high_price, low_price, close_price, volume, delta) in enumerate(
+                [
+                    (4388.6, 4389.2, 4388.0, 4388.0, 3, 2),
+                    (4388.6, 4388.6, 4388.0, 4388.6, 7, -5),
+                    (4387.6, 4390.2, 4387.6, 4390.2, 5, 2),
+                    (4389.6, 4389.6, 4384.4, 4384.4, 7, 5),
+                ]
+            )
+        ]
+    )
+
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+    continuous_payload["instrument"]["symbol"] = "GC"
+    continuous_payload["instrument"]["root_symbol"] = "GC"
+    continuous_payload["instrument"]["contract_symbol"] = "GC"
+    continuous_payload["source"]["instrument_symbol"] = "GC"
+    continuous_payload["source"]["chart_instance_id"] = "chart-GC-1m-CME-USD"
+    continuous_payload["message_id"] = "continuous-state-wide-candle-bad-last-price"
+    continuous_payload["observed_window_start"] = "2026-03-27T00:35:00Z"
+    continuous_payload["observed_window_end"] = "2026-03-27T00:35:42Z"
+    continuous_payload["emitted_at"] = "2026-03-27T00:35:42Z"
+    continuous_payload["price_state"]["last_price"] = 4377.8
+    continuous_payload["price_state"]["best_bid"] = 4394.8
+    continuous_payload["price_state"]["best_ask"] = 4395.8
+    continuous_payload["price_state"]["local_range_low"] = 4394.8
+    continuous_payload["price_state"]["local_range_high"] = 4395.8
+
+    application._repository.save_ingestion(
+        ingestion_id=f"ing-{uuid4().hex}",
+        ingestion_kind="adapter_continuous_state",
+        source_snapshot_id=continuous_payload["message_id"],
+        instrument_symbol="GC",
+        observed_payload=continuous_payload,
+        stored_at=datetime(2026, 3, 27, 0, 35, 43, tzinfo=UTC),
+    )
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=GC&display_timeframe=1m&chart_instance_id=chart-GC-1m-CME-USD&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert payload["latest_price"] == 4395.3
+    assert payload["best_bid"] == 4394.8
+    assert payload["best_ask"] == 4395.8
+    assert payload["latest_price_source"] == "continuous_state"
+
+
 def test_replay_live_tail_matches_legacy_generic_chart_instance_id_with_canonical_request() -> None:
     application = build_application()
 
@@ -443,6 +515,47 @@ def test_replay_live_tail_overlays_recent_continuous_updates_on_chart_candle_bas
     assert payload["candles"][-1]["started_at"] == (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
     assert payload["candles"][-1]["close"] == 26008.0
     assert payload["candles"][0]["started_at"] == (now - timedelta(minutes=4)).isoformat().replace("+00:00", "Z")
+
+
+def test_replay_live_tail_keeps_gap_filled_sparse_history_bounded_to_lookback() -> None:
+    application = build_application()
+
+    now = datetime.now(tz=UTC).replace(second=0, microsecond=0)
+    offsets = [30, 20, 10, 1]
+    chart_bars = [
+        ChartCandle(
+            symbol="GC",
+            timeframe=Timeframe.MIN_1,
+            started_at=now - timedelta(minutes=offset),
+            ended_at=now - timedelta(minutes=offset - 1),
+            source_started_at=now - timedelta(minutes=offset),
+            open=4380.0 + index,
+            high=4381.0 + index,
+            low=4379.0 + index,
+            close=4380.5 + index,
+            volume=10 + index,
+            tick_volume=10 + index,
+            delta=1 + index,
+            updated_at=now - timedelta(minutes=offset - 1),
+            source_timezone="UTC",
+        )
+        for index, offset in enumerate(offsets)
+    ]
+    application._repository.replace_chart_candles(chart_bars)
+
+    live_tail_response = application.dispatch(
+        "GET",
+        "/api/v1/workbench/live-tail?instrument_symbol=GC&display_timeframe=1m&lookback_bars=4",
+    )
+
+    assert live_tail_response.status_code == 200
+    payload = json.loads(live_tail_response.body)
+    assert len(payload["candles"]) == 4
+    assert payload["candles"][0]["started_at"] == (now - timedelta(minutes=4)).isoformat().replace("+00:00", "Z")
+    assert payload["candles"][-1]["started_at"] == (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+    assert all(candle["source_kind"] == "synthetic_gap_fill" for candle in payload["candles"][:-1])
+    assert all(candle["is_synthetic"] is True for candle in payload["candles"][:-1])
+
 
 def test_replay_live_tail_filters_suspect_zero_volume_chart_candle_history_rows() -> None:
     application = build_application()
@@ -733,7 +846,7 @@ def test_replay_workbench_builder_fills_missing_candles_with_synthetic_bars() ->
     assert raw.get("candle_gap_missing_bar_count", 0) >= 1
     assert raw.get("candle_gap_fill_bar_count", 0) >= 1
 
-def test_replay_workbench_builder_does_not_fill_large_session_breaks() -> None:
+def test_replay_workbench_builder_fills_large_tradable_gaps_without_compressing_minutes() -> None:
     application = build_application()
     continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
 
@@ -780,9 +893,69 @@ def test_replay_workbench_builder_does_not_fill_large_session_breaks() -> None:
     replay_payload = json.loads(replay_ingestion_response.body)["observed_payload"]
     candles = replay_payload["candles"]
 
-    assert len(candles) == 3
-    assert not any(str(candle["started_at"]).startswith("2026-03-16T14:31:00") for candle in candles)
+    assert len(candles) == 37
+    assert any(str(candle["started_at"]).startswith("2026-03-16T14:31:00") for candle in candles)
+    assert any(str(candle["started_at"]).startswith("2026-03-16T15:04:00") for candle in candles)
 
     raw = replay_payload.get("raw_features") or {}
     assert raw.get("candle_gap_count", 0) >= 1
-    assert raw.get("candle_gap_fill_bar_count", 0) == 0
+    assert raw.get("candle_gap_missing_bar_count", 0) == 34
+    assert raw.get("candle_gap_fill_bar_count", 0) == 34
+
+
+def test_replay_workbench_builder_skips_cme_maintenance_break_when_filling_minutes() -> None:
+    application = build_application()
+    continuous_payload = load_json_fixture("atas_adapter.continuous_state.sample.json")
+
+    base_time = datetime.fromisoformat("2026-03-16T20:55:00+00:00")
+    minutes = [0, 66, 67]
+    for index, minute_offset in enumerate(minutes):
+        payload = copy.deepcopy(continuous_payload)
+        emitted_at = base_time + timedelta(minutes=minute_offset)
+        payload["message_id"] = f"adapter-msg-maint-gap-{index:02d}"
+        payload["emitted_at"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_start"] = emitted_at.isoformat().replace("+00:00", "Z")
+        payload["observed_window_end"] = (emitted_at + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        payload["source"]["chart_instance_id"] = "NQ-maint-gap-test"
+        payload["instrument"]["symbol"] = "NQ"
+        payload["instrument"]["venue"] = "CME"
+        payload["price_state"]["last_price"] = 21580.0 + index
+        payload["trade_summary"]["volume"] = 50
+        payload["trade_summary"]["net_delta"] = 5
+        application.dispatch(
+            "POST",
+            "/api/v1/adapter/continuous-state",
+            json.dumps(payload).encode("utf-8"),
+        )
+
+    build_request = {
+        "cache_key": "NQ|1m|2026-03-16T20:55:00Z|2026-03-16T22:02:59Z",
+        "instrument_symbol": "NQ",
+        "display_timeframe": "1m",
+        "window_start": "2026-03-16T20:55:00Z",
+        "window_end": "2026-03-16T22:02:59Z",
+        "force_rebuild": True,
+        "min_continuous_messages": 1,
+    }
+    build_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/replay-builder/build",
+        json.dumps(build_request).encode("utf-8"),
+    )
+    assert build_response.status_code == 200
+    build_body = json.loads(build_response.body)
+    assert build_body["action"] == "built_from_local_history"
+
+    replay_ingestion_response = application.dispatch("GET", f"/api/v1/ingestions/{build_body['ingestion_id']}")
+    assert replay_ingestion_response.status_code == 200
+    replay_payload = json.loads(replay_ingestion_response.body)["observed_payload"]
+    candles = replay_payload["candles"]
+
+    assert any(str(candle["started_at"]).startswith("2026-03-16T20:56:00") for candle in candles)
+    assert any(str(candle["started_at"]).startswith("2026-03-16T22:00:00") for candle in candles)
+    assert not any(str(candle["started_at"]).startswith("2026-03-16T21:30:00") for candle in candles)
+
+    raw = replay_payload.get("raw_features") or {}
+    assert raw.get("candle_gap_count", 0) >= 1
+    assert raw.get("candle_gap_missing_bar_count", 0) == 5
+    assert raw.get("candle_gap_fill_bar_count", 0) == 5

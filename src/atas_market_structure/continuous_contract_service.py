@@ -70,6 +70,11 @@ class ContinuousContractService:
         )
         deduped_rows = self._dedupe_rows(raw_rows)
         contract_rows = self._group_rows_by_contract(deduped_rows)
+        contract_rows, contract_row_warnings = self._filter_generic_root_contract_rows(
+            contract_rows=contract_rows,
+            normalized_root=normalized_root,
+        )
+        warnings.extend(contract_row_warnings)
 
         LOGGER.info(
             "query_continuous_bars: root_symbol=%s timeframe=%s roll_mode=%s canonical_roll_mode=%s raw_rows=%s deduped_rows=%s contracts=%s",
@@ -186,6 +191,36 @@ class ContinuousContractService:
             grouped[contract_symbol].sort(key=lambda item: item.started_at_utc)
         return grouped
 
+    @staticmethod
+    def _filter_generic_root_contract_rows(
+        *,
+        contract_rows: dict[str, list[AtasChartBarRaw]],
+        normalized_root: str,
+    ) -> tuple[dict[str, list[AtasChartBarRaw]], list[str]]:
+        generic_root_contract = normalized_root.upper().strip()
+        if not generic_root_contract or generic_root_contract not in contract_rows:
+            return contract_rows, []
+
+        explicit_contracts = sorted(
+            contract_symbol
+            for contract_symbol in contract_rows
+            if contract_symbol and contract_symbol != generic_root_contract
+        )
+        if not explicit_contracts:
+            return contract_rows, []
+
+        filtered_rows = {
+            contract_symbol: rows
+            for contract_symbol, rows in contract_rows.items()
+            if contract_symbol != generic_root_contract
+        }
+        warning = (
+            f"Ignored generic root-level contract {generic_root_contract} because explicit contracts were present: "
+            + ", ".join(explicit_contracts)
+            + "."
+        )
+        return filtered_rows, [warning]
+
     def _resolve_segments(
         self,
         *,
@@ -240,18 +275,27 @@ class ContinuousContractService:
             )
 
         resolved: list[_ResolvedSegment] = []
+        previous_manual_segment_end: datetime | None = None
         for index, contract_symbol in enumerate(ordered_contracts):
             rows = contract_rows[contract_symbol]
-            next_start = None
-            if index + 1 < len(ordered_contracts):
-                next_contract = ordered_contracts[index + 1]
-                next_start = contract_rows[next_contract][0].started_at_utc
-            segment_rows = [row for row in rows if next_start is None or row.started_at_utc < next_start]
+            if roll_mode == RollMode.MANUAL_SEQUENCE:
+                segment_rows = [
+                    row for row in rows
+                    if previous_manual_segment_end is None or row.started_at_utc > previous_manual_segment_end
+                ]
+            else:
+                next_start = None
+                if index + 1 < len(ordered_contracts):
+                    next_contract = ordered_contracts[index + 1]
+                    next_start = contract_rows[next_contract][0].started_at_utc
+                segment_rows = [row for row in rows if next_start is None or row.started_at_utc < next_start]
             if not segment_rows:
                 warnings.append(
                     f"Contract {contract_symbol} had no non-overlapping bars after segment resolution and was skipped."
                 )
                 continue
+            if roll_mode == RollMode.MANUAL_SEQUENCE:
+                previous_manual_segment_end = segment_rows[-1].started_at_utc
             if index == 0:
                 roll_reason = "initial_contract"
             elif roll_mode == RollMode.MANUAL_SEQUENCE:
@@ -323,14 +367,16 @@ class ContinuousContractService:
         list[ContinuousContractMarker],
         str | None,
     ]:
+        segment_offsets = ContinuousContractService._resolve_segment_offsets(
+            resolved_segments=resolved_segments,
+            adjustment_mode=adjustment_mode,
+        )
         candles: list[ContinuousDerivedBar] = []
         segments: list[ContinuousContractSegment] = []
         markers: list[ContinuousContractMarker] = []
-        previous_adjusted_close: float | None = None
-        cumulative_offset = 0.0
         truncated = False
 
-        for resolved_segment in resolved_segments:
+        for segment_index, resolved_segment in enumerate(resolved_segments):
             if len(candles) >= limit:
                 truncated = True
                 break
@@ -338,12 +384,7 @@ class ContinuousContractService:
             if not segment_rows:
                 continue
 
-            segment_offset = cumulative_offset
-            if adjustment_mode == ContinuousAdjustmentMode.GAP_SHIFT and previous_adjusted_close is not None:
-                segment_offset = cumulative_offset + (previous_adjusted_close - segment_rows[0].open)
-                cumulative_offset = segment_offset
-            elif adjustment_mode == ContinuousAdjustmentMode.NONE:
-                segment_offset = 0.0
+            segment_offset = segment_offsets[segment_index]
 
             segment_candles: list[ContinuousDerivedBar] = []
             for row in segment_rows:
@@ -372,7 +413,6 @@ class ContinuousContractService:
                 continue
 
             candles.extend(segment_candles)
-            previous_adjusted_close = segment_candles[-1].close
             segments.append(
                 ContinuousContractSegment(
                     contract_symbol=resolved_segment.contract_symbol,
@@ -405,3 +445,50 @@ class ContinuousContractService:
         if truncated:
             truncation_warning = f"Continuous response was truncated to the requested limit={limit}."
         return candles, segments, markers, truncation_warning
+
+    @staticmethod
+    def _resolve_segment_offsets(
+        *,
+        resolved_segments: list[_ResolvedSegment],
+        adjustment_mode: ContinuousAdjustmentMode,
+    ) -> list[float]:
+        if not resolved_segments:
+            return []
+
+        if adjustment_mode == ContinuousAdjustmentMode.NONE:
+            return [0.0] * len(resolved_segments)
+
+        if adjustment_mode == ContinuousAdjustmentMode.GAP_SHIFT:
+            offsets: list[float] = []
+            previous_adjusted_close: float | None = None
+            cumulative_offset = 0.0
+            for resolved_segment in resolved_segments:
+                segment_rows = resolved_segment.rows
+                if not segment_rows:
+                    offsets.append(cumulative_offset)
+                    continue
+                segment_offset = cumulative_offset
+                if previous_adjusted_close is not None:
+                    segment_offset = cumulative_offset + (previous_adjusted_close - segment_rows[0].open)
+                    cumulative_offset = segment_offset
+                offsets.append(segment_offset)
+                previous_adjusted_close = segment_rows[-1].close + segment_offset
+            return offsets
+
+        if adjustment_mode == ContinuousAdjustmentMode.LATEST_GAP_SHIFT:
+            offsets = [0.0] * len(resolved_segments)
+            adjusted_next_first_open: float | None = None
+            for index in range(len(resolved_segments) - 1, -1, -1):
+                segment_rows = resolved_segments[index].rows
+                if not segment_rows:
+                    continue
+                if adjusted_next_first_open is None:
+                    offsets[index] = 0.0
+                else:
+                    offsets[index] = adjusted_next_first_open - segment_rows[-1].close
+                adjusted_next_first_open = segment_rows[0].open + offsets[index]
+            return offsets
+
+        raise ContinuousContractServiceError(
+            f"adjustment_mode '{adjustment_mode.value}' is not implemented in the current minimal runnable version."
+        )

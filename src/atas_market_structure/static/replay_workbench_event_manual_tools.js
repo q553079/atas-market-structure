@@ -27,6 +27,8 @@ export function createWorkbenchEventManualTools({
   createManualEventCandidate,
   renderSnapshot,
 }) {
+  let bindingsInstalled = false;
+
   function getManualToolState() {
     state.eventWorkbench = state.eventWorkbench || {};
     state.eventWorkbench.manualTool = state.eventWorkbench.manualTool || {
@@ -143,6 +145,7 @@ export function createWorkbenchEventManualTools({
     if (state.chartInteraction) {
       state.chartInteraction.regionMode = false;
       state.chartInteraction.draftRegion = null;
+      state.chartInteraction.regionAnchorActive = false;
     }
     updateToolbarUi();
     if (render) {
@@ -156,6 +159,7 @@ export function createWorkbenchEventManualTools({
     if (state.chartInteraction) {
       state.chartInteraction.regionMode = true;
       state.chartInteraction.draftRegion = null;
+      state.chartInteraction.regionAnchorActive = false;
     }
     updateToolbarUi();
     renderStatusStrip?.([{ label: "区域事件工具已激活，请在图表上拖拽框选。", variant: "emphasis" }]);
@@ -196,6 +200,10 @@ export function createWorkbenchEventManualTools({
   }
 
   function installBindings() {
+    if (bindingsInstalled) {
+      return;
+    }
+    bindingsInstalled = true;
     els.manualKeyLevelButton?.addEventListener("click", async () => {
       await runInstantTool("key_level");
     });

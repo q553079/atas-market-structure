@@ -107,7 +107,10 @@ class WorkbenchEventBase(CanonicalSchemaVersionedModel):
     lifecycle_state: EventCandidateLifecycleState = Field(..., description="Current lifecycle state.")
     invalidation_rule: dict[str, Any] = Field(default_factory=dict, description="Optional invalidation rule payload.")
     evaluation_window: dict[str, Any] = Field(default_factory=dict, description="Optional evaluation window payload.")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional additive metadata.")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional additive metadata. Stable workbench UI facts should live under metadata.presentation.",
+    )
     created_at: datetime = Field(..., description="Creation timestamp.")
     updated_at: datetime = Field(..., description="Last update timestamp.")
 
@@ -156,7 +159,10 @@ class EventCandidatePatchRequest(BaseModel):
     confidence: float | None = Field(None, ge=0.0, le=1.0, description="Updated confidence.")
     invalidation_rule: dict[str, Any] | None = Field(None, description="Updated invalidation rule payload.")
     evaluation_window: dict[str, Any] | None = Field(None, description="Updated evaluation window payload.")
-    metadata: dict[str, Any] | None = Field(None, description="Metadata fields to merge into the candidate metadata.")
+    metadata: dict[str, Any] | None = Field(
+        None,
+        description="Metadata fields to merge into the candidate metadata. Stable workbench UI facts should live under metadata.presentation.",
+    )
     lifecycle_action: EventLifecycleAction | None = Field(None, description="Optional validated lifecycle action.")
 
 
@@ -185,7 +191,10 @@ class CreateEventCandidateRequest(BaseModel):
     source_prompt_trace_id: str | None = Field(None, description="Optional prompt-trace identifier.")
     invalidation_rule: dict[str, Any] = Field(default_factory=dict, description="Optional invalidation rule payload.")
     evaluation_window: dict[str, Any] = Field(default_factory=dict, description="Optional evaluation window payload.")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional additive metadata.")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional additive metadata. Stable workbench UI facts should live under metadata.presentation.",
+    )
 
 
 class PromoteEventCandidateRequest(BaseModel):

@@ -130,7 +130,17 @@ def test_prompt_trace_service_builds_summary_snapshot_and_finalizes_links() -> N
         analysis_type="structure",
         analysis_range="current_window",
         analysis_style="standard",
-        extra_context={"manual_reason": "关注 21524 回踩", "selected_price": 21524.0},
+        extra_context={
+            "manual_reason": "关注 21524 回踩",
+            "selected_price": 21524.0,
+            "ui_context": {
+                "chart_visible_window": {
+                    "window_start": "2026-03-25T09:45:00Z",
+                    "window_end": "2026-03-25T10:05:00Z",
+                },
+                "session_date": "2026-03-25",
+            },
+        },
         attachments=[
             ReplayAiChatAttachment(
                 name="chart-snap.png",
@@ -155,11 +165,20 @@ def test_prompt_trace_service_builds_summary_snapshot_and_finalizes_links() -> N
     assert trace.message_id == "msg-trace-test"
     assert trace.selected_block_ids == [block_id]
     assert trace.bar_window_summary["selected_bar_count"] == 2
-    assert trace.manual_selection_summary["extra_context_keys"] == ["manual_reason", "selected_price"]
+    assert trace.manual_selection_summary["extra_context_keys"] == ["manual_reason", "selected_price", "ui_context"]
     assert trace.memory_summary["include_memory_summary"] is True
     assert trace.memory_summary["include_recent_messages"] is True
     assert trace.memory_summary["session_memory"]["market_context_summary"] == "当前更像延续结构。"
     assert trace.model_input_hash
+    assert trace.snapshot["context_version"] == trace.metadata["context_version"]
+    assert trace.snapshot["context_blocks"][0]["block_id"] == block_id
+    assert trace.snapshot["context_blocks"][0]["block_version"] == 1
+    assert trace.metadata["block_version_refs"][0]["block_version"] == 1
+    assert trace.metadata["block_version_refs"][0]["selected"] is True
+    assert trace.metadata["block_version_refs"][0]["pinned"] is False
+    assert trace.snapshot["reply_window"]["window_start"] == "2026-03-25T09:45:00+00:00"
+    assert trace.snapshot["reply_window"]["window_end"] == "2026-03-25T10:05:00+00:00"
+    assert trace.snapshot["reply_window_anchor"] == "NQ|1m|2026-03-25T09:45:00+00:00|2026-03-25T10:05:00+00:00|2026-03-25"
     assert "data:image" not in json.dumps(trace.snapshot, ensure_ascii=False)
     assert trace.metadata["attachment_summaries"]
 
@@ -176,4 +195,75 @@ def test_prompt_trace_service_builds_summary_snapshot_and_finalizes_links() -> N
     fetched = service.get_prompt_trace_by_message("msg-trace-test")
     assert fetched.trace.prompt_trace_id == trace.prompt_trace_id
     assert fetched.trace.prompt_block_summaries[0].kind == "candles_20"
+    assert fetched.trace.prompt_block_summaries[0].block_version == 1
+    assert fetched.trace.prompt_block_summaries[0].source_kind == "window_snapshot"
+    assert fetched.trace.prompt_block_summaries[0].scope == "request"
+    assert fetched.trace.prompt_block_summaries[0].editable is False
+    assert fetched.trace.prompt_block_summaries[0].selected is True
+    assert fetched.trace.prompt_block_summaries[0].pinned is False
+    assert fetched.trace.context_version == fetched.trace.metadata["context_version"]
+    assert fetched.trace.context_blocks == fetched.trace.snapshot["context_blocks"]
+    assert fetched.trace.block_version_refs == fetched.trace.metadata["block_version_refs"]
+    assert fetched.trace.reply_window_anchor == fetched.trace.metadata["reply_window_anchor"]
+    assert fetched.trace.snapshot["context_version"] == fetched.trace.metadata["context_version"]
     assert fetched.trace.attached_event_ids == ["evt-1", "evt-2"]
+
+
+def test_prompt_trace_service_uses_session_scope_for_legacy_pinned_prompt_blocks() -> None:
+    repository = _make_repository()
+    session_id, _block_id = _seed_session(repository)
+    service = ReplayWorkbenchPromptTraceService(repository=repository)
+    session = repository.get_chat_session(session_id)
+    assert session is not None
+
+    now = datetime(2026, 3, 25, 10, 15, tzinfo=UTC)
+    pinned_block_id = f"pb-{uuid4().hex}"
+    repository.save_prompt_block(
+        block_id=pinned_block_id,
+        session_id=session_id,
+        symbol="NQ",
+        contract_id="NQM2026",
+        timeframe="1m",
+        kind="recent_messages",
+        title="固定上下文",
+        preview_text="旧版固定块，没有 block_meta。",
+        full_payload={"messages": [{"role": "assistant", "content": "前一日结构摘要。"}]},
+        selected_by_default=False,
+        pinned=True,
+        ephemeral=True,
+        created_at=now,
+        expires_at=None,
+    )
+
+    request = ChatReplyRequest(
+        user_input="延续上一个固定上下文，帮我确认当前思路。",
+        selected_block_ids=[],
+        pinned_block_ids=[pinned_block_id],
+        include_memory_summary=False,
+        include_recent_messages=False,
+        model="fake-chat-e2e",
+        preset="general",
+        analysis_type="structure",
+        analysis_range="current_window",
+        analysis_style="standard",
+        extra_context={},
+        attachments=[],
+    )
+
+    trace = service.create_prompt_trace(
+        session=session,
+        message_id="msg-trace-pinned-legacy",
+        replay_ingestion_id=None,
+        request=request,
+        history=[],
+        model_user_input="延续上一个固定上下文，帮我确认当前思路。",
+    )
+
+    assert trace.snapshot["context_blocks"][0]["block_id"] == pinned_block_id
+    assert trace.snapshot["context_blocks"][0]["scope"] == "session"
+    assert trace.metadata["block_version_refs"][0]["scope"] == "session"
+    fetched = service.get_prompt_trace(trace.prompt_trace_id)
+    assert fetched.trace.prompt_block_summaries[0].block_id == pinned_block_id
+    assert fetched.trace.prompt_block_summaries[0].scope == "session"
+    assert fetched.trace.prompt_block_summaries[0].pinned is True
+    assert fetched.trace.context_blocks[0]["scope"] == "session"

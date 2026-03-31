@@ -33,6 +33,8 @@ const PRESENTATION_PRIORITY = {
   hover_spotlight: 3,
 };
 
+const VIEWPORT_CONTEXT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
 function coerceNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -47,6 +49,25 @@ export function toTimestampMs(value) {
   }
   const timestamp = new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function buildViewportContextWindow(viewportStartMs, viewportEndMs, contextLookbackMs = VIEWPORT_CONTEXT_LOOKBACK_MS) {
+  if (!Number.isFinite(viewportStartMs) || !Number.isFinite(viewportEndMs)) {
+    return null;
+  }
+  return {
+    startMs: viewportStartMs - Math.max(0, Number(contextLookbackMs) || 0),
+    endMs: viewportEndMs,
+  };
+}
+
+function timeRangeOverlapsWindow(startMs, endMs, windowStartMs, windowEndMs) {
+  const normalizedStart = Number.isFinite(startMs) ? startMs : endMs;
+  const normalizedEnd = Number.isFinite(endMs) ? endMs : startMs;
+  if (!Number.isFinite(normalizedStart) || !Number.isFinite(normalizedEnd)) {
+    return false;
+  }
+  return normalizedEnd >= windowStartMs && normalizedStart <= windowEndMs;
 }
 
 function clampValue(value, minimum, maximum) {
@@ -240,15 +261,13 @@ function resolveTimeWindow(descriptor, snapshot = {}) {
       startMs = windowStart && windowEnd ? Math.round((windowStart + windowEnd) / 2) : null;
       endMs = startMs;
     } else {
-      startMs = windowStart;
-      endMs = windowEnd;
+      startMs = null;
+      endMs = null;
     }
   } else if (!startMs) {
     startMs = endMs;
   } else if (!endMs) {
-    endMs = descriptor.candidateKind === "market_event"
-      ? startMs
-      : (windowEnd || startMs);
+    endMs = startMs;
   }
   return { startMs, endMs };
 }
@@ -438,13 +457,20 @@ export function focusChartViewOnEventCandidate({
   const startIndex = nearestIndexForTime(anchorTimes[0]);
   const endIndex = nearestIndexForTime(anchorTimes[anchorTimes.length - 1]);
   const targetCenter = Math.round((startIndex + endIndex) / 2);
+  const defaultMaximumSpan = Math.max(minimumSpan, Math.min(maximumSpan, candles.length));
   const currentSpan = currentView
     ? Math.max(minimumSpan, currentView.endIndex - currentView.startIndex + 1)
-    : Math.min(maximumSpan, Math.max(minimumSpan, candles.length));
+    : defaultMaximumSpan;
   const eventSpan = Math.max(6, Math.abs(endIndex - startIndex) + 12);
-  const targetSpan = clampValue(Math.max(currentSpan, eventSpan), minimumSpan, Math.min(maximumSpan, candles.length));
-  const desiredStart = Math.max(0, targetCenter - Math.floor(targetSpan / 2));
-  const desiredEnd = Math.min(candles.length - 1, desiredStart + targetSpan - 1);
+  // User-triggered focus may translate the viewport, but it should not silently shrink an already wider window.
+  const targetSpanCap = currentView ? Math.max(currentSpan, defaultMaximumSpan) : defaultMaximumSpan;
+  const targetSpan = clampValue(Math.max(currentSpan, eventSpan), minimumSpan, targetSpanCap);
+  let desiredStart = Math.max(0, targetCenter - Math.floor(targetSpan / 2));
+  let desiredEnd = Math.min(candles.length - 1, desiredStart + targetSpan - 1);
+  if (desiredEnd >= candles.length || (desiredEnd - desiredStart + 1) < targetSpan) {
+    desiredEnd = candles.length - 1;
+    desiredStart = Math.max(0, desiredEnd - targetSpan + 1);
+  }
   return clampChartView(candles.length, desiredStart, desiredEnd, currentView);
 }
 
@@ -462,20 +488,33 @@ export function buildEventOverlayMarkup({
   clampChartY = (value) => value,
   escapeHtml,
   legacyHoverItem = null,
+  viewportStartMs = null,
+  viewportEndMs = null,
+  contextLookbackMs = VIEWPORT_CONTEXT_LOOKBACK_MS,
 }) {
   const descriptors = buildOverlayDescriptors(candidates, eventWorkbenchState, legacyHoverItem);
   if (!descriptors.length) {
     return { markup: "", interactiveCount: 0 };
   }
   const safeEscape = typeof escapeHtml === "function" ? escapeHtml : ((value) => String(value || ""));
+  const viewportContextWindow = buildViewportContextWindow(viewportStartMs, viewportEndMs, contextLookbackMs);
   const parts = [];
   let interactiveCount = 0;
 
   descriptors.forEach((descriptor) => {
     const style = getVisualStyle(descriptor);
     const { startMs, endMs } = resolveTimeWindow(descriptor, snapshot);
+    if (
+      viewportContextWindow
+      && !timeRangeOverlapsWindow(startMs, endMs, viewportContextWindow.startMs, viewportContextWindow.endMs)
+    ) {
+      return;
+    }
     const x1 = startMs != null ? timeToX(startMs) : leftPad;
     const x2 = endMs != null ? timeToX(endMs) : (leftPad + chartWidth);
+    if (!Number.isFinite(x1) && !Number.isFinite(x2)) {
+      return;
+    }
     const refPrice = descriptor.priceRef;
     const lowPrice = descriptor.priceLower;
     const highPrice = descriptor.priceUpper;

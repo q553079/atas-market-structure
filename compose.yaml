@@ -13,6 +13,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
+      - ./src:/app/src
+      - ./scripts:/app/scripts
       - ./data:/app/data
       - sqlite_data:/app/sqlite
     restart: unless-stopped

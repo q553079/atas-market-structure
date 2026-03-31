@@ -25,6 +25,11 @@ function createDefaultSession(index = 0) {
     includeRecentMessages: false,
     promptBlocks: [],
     mountedReplyIds: [],
+    activeReplyId: null,
+    activeReplyWindowAnchor: null,
+    contextRecipeExpanded: false,
+    answerCardDensity: "compact",
+    lastContextVersion: null,
     activePlanId: null,
     recapItems: [],
     scrollOffset: 0,
@@ -118,6 +123,19 @@ export function createWorkbenchState() {
         includeRecentMessages: !!session?.includeRecentMessages,
         promptBlocks: Array.isArray(session?.promptBlocks) ? session.promptBlocks : [],
         mountedReplyIds: Array.isArray(session?.mountedReplyIds) ? session.mountedReplyIds : [],
+        activeReplyId: typeof session?.activeReplyId === "string" && session.activeReplyId.trim()
+          ? session.activeReplyId.trim()
+          : null,
+        activeReplyWindowAnchor: typeof session?.activeReplyWindowAnchor === "string" && session.activeReplyWindowAnchor.trim()
+          ? session.activeReplyWindowAnchor.trim()
+          : null,
+        contextRecipeExpanded: !!session?.contextRecipeExpanded,
+        answerCardDensity: ["full", "compact", "skim"].includes(String(session?.answerCardDensity || "").trim().toLowerCase())
+          ? String(session.answerCardDensity).trim().toLowerCase()
+          : "compact",
+        lastContextVersion: typeof session?.lastContextVersion === "string" && session.lastContextVersion.trim()
+          ? session.lastContextVersion.trim()
+          : null,
         unreadCount: Number.isFinite(session?.unreadCount) ? session.unreadCount : 0,
         scrollOffset: Number.isFinite(session?.scrollOffset) ? session.scrollOffset : 0,
         activePlanId: session?.activePlanId || null,
@@ -164,6 +182,8 @@ export function createWorkbenchState() {
     lastLiveTailIntegrityHash: null,
     autoBootstrapped: false,
     pendingChartRerender: false,
+    chartViewportWritebackSuspendedUntil: 0,
+    pendingLayoutViewportPreserve: null,
     symbolOptions: ["NQ", "ES", "CL", "YM", "RTY"],
     timeframeOptions: ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
     quickRanges: [
@@ -177,6 +197,8 @@ export function createWorkbenchState() {
     chartInteraction: {
       regionMode: false,
       draftRegion: null,
+      regionDragActive: false,
+      regionAnchorActive: false,
       panStartX: null,
       panStartY: null,
       panStartView: null,
@@ -282,13 +304,30 @@ export function createWorkbenchState() {
       error: null,
       expandedSnapshot: false,
     },
+    changeInspector: {
+      open: !!persistedWorkbench.changeInspector?.open,
+      mode: typeof persistedWorkbench.changeInspector?.mode === "string" && persistedWorkbench.changeInspector.mode.trim()
+        ? persistedWorkbench.changeInspector.mode.trim()
+        : "semantic",
+      baselineReplyId: typeof persistedWorkbench.changeInspector?.baselineReplyId === "string"
+        && persistedWorkbench.changeInspector.baselineReplyId.trim()
+        ? persistedWorkbench.changeInspector.baselineReplyId.trim()
+        : null,
+      compareReplyId: typeof persistedWorkbench.changeInspector?.compareReplyId === "string"
+        && persistedWorkbench.changeInspector.compareReplyId.trim()
+        ? persistedWorkbench.changeInspector.compareReplyId.trim()
+        : null,
+      pinned: !!persistedWorkbench.changeInspector?.pinned,
+    },
     replyExtractionState: {
       filter: persistedWorkbench.replyExtractionState?.filter || "all",
       showIgnored: !!persistedWorkbench.replyExtractionState?.showIgnored,
       pendingOnly: !!persistedWorkbench.replyExtractionState?.pendingOnly,
       intensity: persistedWorkbench.replyExtractionState?.intensity || "balanced",
       autoExtractEnabled: persistedWorkbench.replyExtractionState?.autoExtractEnabled !== false,
-      collapsed: !!persistedWorkbench.replyExtractionState?.collapsed,
+      collapsed: persistedWorkbench.replyExtractionState?.collapsed === undefined
+        ? true
+        : !!persistedWorkbench.replyExtractionState?.collapsed,
       bySymbol: persistedWorkbench.replyExtractionState?.bySymbol || {},
     },
     sessionComparisonEnabled: false,

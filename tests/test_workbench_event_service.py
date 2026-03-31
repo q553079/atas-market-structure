@@ -19,6 +19,7 @@ from atas_market_structure.models import (
     EventLifecycleAction,
     EventPromotionTarget,
     EventStreamExtractRequest,
+    EventStreamQuery,
     PromoteEventCandidateRequest,
     ReplayAiChatContent,
 )
@@ -36,10 +37,11 @@ def _make_repository() -> SQLiteAnalysisRepository:
     return repository
 
 
-def _seed_session(repository: SQLiteAnalysisRepository) -> tuple[str, str]:
+def _seed_session(repository: SQLiteAnalysisRepository) -> tuple[str, str, str]:
     now = datetime(2026, 3, 25, 9, 30, tzinfo=UTC)
     session_id = f"sess-{uuid4().hex}"
     message_id = f"msg-{uuid4().hex}"
+    prompt_trace_id = f"trace-{uuid4().hex}"
     repository.save_chat_session(
         session_id=session_id,
         workspace_id="replay_main",
@@ -69,6 +71,7 @@ def _seed_session(repository: SQLiteAnalysisRepository) -> tuple[str, str]:
         message_id=message_id,
         session_id=session_id,
         parent_message_id=None,
+        prompt_trace_id=prompt_trace_id,
         role="assistant",
         content="关注 21524 关键位，21524-21528 为支撑区，跌破 21518 失效，当前更像延续结构。",
         status="completed",
@@ -81,16 +84,81 @@ def _seed_session(repository: SQLiteAnalysisRepository) -> tuple[str, str]:
         mounted_object_ids=[],
         is_key_conclusion=False,
         request_payload={},
-        response_payload={},
+        response_payload={
+            "workbench_ui": {
+                "schema_version": "workbench_ui_contract_v1",
+                "symbol": "NQ",
+                "timeframe": "1m",
+                "reply_window": {
+                    "window_start": "2026-03-25T09:30:00Z",
+                    "window_end": "2026-03-25T10:30:00Z",
+                },
+                "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+                "reply_session_date": "2026-03-25",
+                "alignment_state": "aligned",
+                "assertion_level": "conditional",
+                "source_object_ids": ["ann-seeded-1"],
+            }
+        },
         created_at=now,
         updated_at=now,
     )
-    return session_id, message_id
+    repository.save_prompt_trace(
+        prompt_trace_id=prompt_trace_id,
+        session_id=session_id,
+        message_id=message_id,
+        symbol="NQ",
+        timeframe="1m",
+        analysis_type="structure",
+        analysis_range="current_window",
+        analysis_style="standard",
+        selected_block_ids=["pb-window"],
+        pinned_block_ids=["pb-memory"],
+        attached_event_ids=[],
+        prompt_block_summaries=[
+            {
+                "block_id": "pb-window",
+                "kind": "candles_20",
+                "title": "当前窗口",
+                "preview_text": "最近 20 根 K 线",
+                "block_version": 2,
+                "source_kind": "window_snapshot",
+                "scope": "request",
+                "editable": False,
+                "selected": True,
+                "pinned": False,
+            }
+        ],
+        bar_window_summary={"selected_bar_count": 20},
+        manual_selection_summary={},
+        memory_summary={"include_recent_messages": True},
+        final_system_prompt="system",
+        final_user_prompt="user",
+        model_name="test-model",
+        model_input_hash="hash-test",
+        snapshot={
+            "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+            "context_version": "ctx-test-v1",
+        },
+        metadata={
+            "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+            "context_version": "ctx-test-v1",
+            "block_version_refs": [
+                {
+                    "block_id": "pb-window",
+                    "block_version": 2,
+                }
+            ],
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    return session_id, message_id, prompt_trace_id
 
 
 def test_event_service_extracts_candidates_and_persists_stream_memory() -> None:
     repository = _make_repository()
-    session_id, message_id = _seed_session(repository)
+    session_id, message_id, prompt_trace_id = _seed_session(repository)
     service = ReplayWorkbenchEventService(repository=repository)
 
     envelope = service.extract_event_stream(
@@ -112,11 +180,16 @@ def test_event_service_extracts_candidates_and_persists_stream_memory() -> None:
     assert len(stored_candidates) == len(envelope.candidates)
     for candidate in stored_candidates:
         assert repository.get_event_candidate(candidate.event_id) is not None
+        assert candidate.source_prompt_trace_id == prompt_trace_id
+        assert candidate.metadata["presentation"]["source_message_id"] == message_id
+        assert candidate.metadata["presentation"]["source_prompt_trace_id"] == prompt_trace_id
+        assert candidate.metadata["presentation"]["reply_window_anchor"] == "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25"
+        assert candidate.metadata["presentation"]["is_fixed_anchor"] is False
 
 
 def test_event_service_creates_manual_candidate_and_persists_stream_memory() -> None:
     repository = _make_repository()
-    session_id, _message_id = _seed_session(repository)
+    session_id, message_id, prompt_trace_id = _seed_session(repository)
     service = ReplayWorkbenchEventService(repository=repository)
 
     mutation = service.create_event_candidate(
@@ -125,6 +198,7 @@ def test_event_service_creates_manual_candidate_and_persists_stream_memory() -> 
             candidate_kind=EventCandidateKind.KEY_LEVEL,
             title="手工关键位",
             summary="交易员手工标记的关键价位。",
+            anchor_start_ts=datetime(2026, 3, 25, 9, 42, tzinfo=UTC),
             price_ref=21524.0,
             metadata={"tool": "manual_key_level"},
         )
@@ -139,11 +213,19 @@ def test_event_service_creates_manual_candidate_and_persists_stream_memory() -> 
     stored = repository.get_event_candidate(mutation.candidate.event_id)
     assert stored is not None
     assert stored.metadata["tool"] == "manual_key_level"
+    assert stored.source_message_id == message_id
+    assert stored.source_prompt_trace_id == prompt_trace_id
+    assert stored.metadata["presentation"]["source_message_id"] == message_id
+    assert stored.metadata["presentation"]["source_prompt_trace_id"] == prompt_trace_id
+    assert stored.metadata["presentation"]["anchor_time"] == "2026-03-25T09:42:00+00:00"
+    assert stored.metadata["presentation"]["anchor_price"] == 21524.0
+    assert stored.metadata["presentation"]["reply_window_anchor"] == "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25"
+    assert stored.metadata["presentation"]["is_fixed_anchor"] is False
 
 
 def test_manual_candidate_can_mount_without_explicit_source_message_id() -> None:
     repository = _make_repository()
-    session_id, _message_id = _seed_session(repository)
+    session_id, _message_id, prompt_trace_id = _seed_session(repository)
     service = ReplayWorkbenchEventService(repository=repository)
 
     mutation = service.create_event_candidate(
@@ -163,11 +245,13 @@ def test_manual_candidate_can_mount_without_explicit_source_message_id() -> None
     assert mounted.candidate.lifecycle_state.value == "mounted"
     assert mounted.projected_annotation is not None
     assert mounted.projected_annotation.type in {"support_zone", "resistance_zone", "zone"}
+    assert mounted.candidate.metadata["presentation"]["source_prompt_trace_id"] == prompt_trace_id
+    assert mounted.candidate.metadata["presentation"]["is_fixed_anchor"] is True
 
 
 def test_event_service_state_transitions_and_projections_are_validated() -> None:
     repository = _make_repository()
-    session_id, message_id = _seed_session(repository)
+    session_id, message_id, prompt_trace_id = _seed_session(repository)
     repository.update_chat_message(
         message_id,
         content="计划：做多，入场 21524，止损 21518，TP1 21530，TP2 21536。",
@@ -214,6 +298,7 @@ def test_event_service_state_transitions_and_projections_are_validated() -> None
     )
     assert promoted.candidate.lifecycle_state.value == "promoted_plan"
     assert promoted.projected_plan_card is not None
+    assert promoted.candidate.metadata["presentation"]["source_prompt_trace_id"] == prompt_trace_id
 
     ignored = service.ignore_event_candidate(risk_note.event_id)
     assert ignored.candidate.lifecycle_state.value == "ignored"
@@ -224,7 +309,7 @@ def test_event_service_state_transitions_and_projections_are_validated() -> None
 
 def test_process_reply_event_backbone_preserves_annotation_compatibility() -> None:
     repository = _make_repository()
-    session_id, message_id = _seed_session(repository)
+    session_id, message_id, prompt_trace_id = _seed_session(repository)
     service = ReplayWorkbenchEventService(repository=repository)
     session = repository.get_chat_session(session_id)
     assert session is not None
@@ -267,3 +352,49 @@ def test_process_reply_event_backbone_preserves_annotation_compatibility() -> No
     assert annotations_by_label["结构化支撑区"].annotation_type == "support_zone"
     assert annotations_by_label["结构化风险位"].annotation_type == "stop_loss"
     assert any(item.title == "结构化计划" for item in result.plan_cards)
+    assert all(item.metadata["presentation"]["source_prompt_trace_id"] == prompt_trace_id for item in result.candidates)
+    assert all(item.metadata["presentation"]["reply_window_anchor"] == "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25" for item in result.candidates)
+
+
+def test_build_event_stream_projects_legacy_candidates_without_fixed_anchor() -> None:
+    repository = _make_repository()
+    session_id, message_id, prompt_trace_id = _seed_session(repository)
+    now = datetime(2026, 3, 25, 9, 36, tzinfo=UTC)
+    repository.save_event_candidate(
+        event_id=f"evt-{uuid4().hex}",
+        session_id=session_id,
+        candidate_kind="market_event",
+        title="旧事件",
+        summary="缺少 presentation 的旧事件。",
+        symbol="NQ",
+        timeframe="1m",
+        anchor_start_ts=None,
+        anchor_end_ts=None,
+        price_lower=None,
+        price_upper=None,
+        price_ref=None,
+        side_hint=None,
+        confidence=None,
+        evidence_refs=[],
+        source_type="ai_reply_text",
+        source_message_id=message_id,
+        source_prompt_trace_id=prompt_trace_id,
+        lifecycle_state="candidate",
+        invalidation_rule={},
+        evaluation_window={},
+        metadata={},
+        dedup_key=None,
+        promoted_projection_type=None,
+        promoted_projection_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+    service = ReplayWorkbenchEventService(repository=repository)
+
+    envelope = service.build_event_stream(EventStreamQuery(session_id=session_id))
+    legacy_candidate = next(item for item in envelope.candidates if item.title == "旧事件")
+
+    assert legacy_candidate.metadata["presentation"]["source_message_id"] == message_id
+    assert legacy_candidate.metadata["presentation"]["source_prompt_trace_id"] == prompt_trace_id
+    assert legacy_candidate.metadata["presentation"]["reply_window_anchor"] == "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25"
+    assert legacy_candidate.metadata["presentation"]["is_fixed_anchor"] is False

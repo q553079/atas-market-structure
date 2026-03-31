@@ -160,6 +160,7 @@ class ReplayWorkbenchPromptTraceService:
             selected_block_ids=request.selected_block_ids,
             pinned_block_ids=request.pinned_block_ids,
         )
+        context_blocks = self._build_context_blocks(prompt_block_summaries)
         attachment_summaries = [
             _summarize_chat_attachment(item, index)
             for index, item in enumerate(request.attachments[:3], start=1)
@@ -185,6 +186,29 @@ class ReplayWorkbenchPromptTraceService:
             model_user_input=model_user_input,
             attachment_summaries=attachment_summaries,
         )
+        reply_window = self._resolve_reply_window(
+            session=session,
+            replay_snapshot=replay_snapshot,
+            extra_context=request.extra_context or {},
+        )
+        reply_session_date = self._resolve_reply_session_date(
+            reply_window=reply_window,
+            extra_context=request.extra_context or {},
+        )
+        reply_window_anchor = self._build_reply_window_anchor(
+            symbol=session.symbol,
+            timeframe=str(session.timeframe),
+            reply_window=reply_window,
+            reply_session_date=reply_session_date,
+        )
+        context_version = self._build_context_version(
+            selected_block_ids=request.selected_block_ids,
+            pinned_block_ids=request.pinned_block_ids,
+            context_blocks=context_blocks,
+            include_memory_summary=bool(request.include_memory_summary),
+            include_recent_messages=bool(request.include_recent_messages),
+            preset=str(request.preset),
+        )
         model_input_hash = self._hash_input(
             {
                 "system": final_system_prompt,
@@ -198,9 +222,14 @@ class ReplayWorkbenchPromptTraceService:
             "mode": "replay_aware" if replay_snapshot is not None else "session_only",
             "preset": str(request.preset),
             "prompt_block_summaries": prompt_block_summaries,
+            "context_blocks": context_blocks,
+            "context_version": context_version,
             "bar_window_summary": bar_window_summary,
             "manual_selection_summary": manual_selection_summary,
             "memory_summary": memory_summary,
+            "reply_window": reply_window,
+            "reply_window_anchor": reply_window_anchor,
+            "reply_session_date": reply_session_date,
             "final_system_prompt": final_system_prompt,
             "final_user_prompt": final_user_prompt,
             "model_name": request.model or session.active_model or None,
@@ -214,6 +243,11 @@ class ReplayWorkbenchPromptTraceService:
             "attachment_summaries": attachment_summaries,
             "extra_context_keys": sorted((request.extra_context or {}).keys()),
             "session_only": replay_snapshot is None,
+            "context_version": context_version,
+            "block_version_refs": context_blocks,
+            "reply_window": reply_window,
+            "reply_window_anchor": reply_window_anchor,
+            "reply_session_date": reply_session_date,
             "truncation": request_snapshot.get("truncation", {}),
         }
         return snapshot, metadata
@@ -226,6 +260,8 @@ class ReplayWorkbenchPromptTraceService:
         pinned_block_ids: Iterable[str],
     ) -> list[dict[str, Any]]:
         ordered_ids = list(dict.fromkeys([*selected_block_ids, *pinned_block_ids]))
+        selected_block_id_set = set(selected_block_ids)
+        pinned_block_id_set = set(pinned_block_ids)
         summaries: list[dict[str, Any]] = []
         for block_id in ordered_ids:
             block = self._repository.get_prompt_block(block_id)
@@ -237,11 +273,18 @@ class ReplayWorkbenchPromptTraceService:
                         title="missing",
                         preview_text="Prompt block was selected but is no longer available.",
                         payload_summary={},
+                        block_version=1,
+                        source_kind="system_policy",
+                        scope="request",
+                        editable=False,
+                        selected=block_id in selected_block_id_set,
+                        pinned=block_id in pinned_block_id_set,
                     ).model_dump(mode="json")
                 )
                 continue
             if block.session_id != session.session_id and block.symbol != session.symbol:
                 continue
+            block_meta = self._resolve_block_meta(block)
             summaries.append(
                 PromptTraceBlockSummary(
                     block_id=block.block_id,
@@ -249,9 +292,174 @@ class ReplayWorkbenchPromptTraceService:
                     title=block.title,
                     preview_text=block.preview_text,
                     payload_summary=self._summarize_prompt_block_payload(block.full_payload),
+                    block_version=block_meta["block_version"],
+                    source_kind=block_meta["source_kind"],
+                    scope=block_meta["scope"],
+                    editable=block_meta["editable"],
+                    selected=block.block_id in selected_block_id_set,
+                    pinned=block.block_id in pinned_block_id_set,
                 ).model_dump(mode="json")
             )
         return summaries
+
+    @staticmethod
+    def _build_context_blocks(prompt_block_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        context_blocks: list[dict[str, Any]] = []
+        for item in prompt_block_summaries:
+            if not isinstance(item, dict):
+                continue
+            context_blocks.append(
+                {
+                    "block_id": item.get("block_id"),
+                    "block_version": item.get("block_version", 1),
+                    "source_kind": item.get("source_kind", "system_policy"),
+                    "scope": item.get("scope", "request"),
+                    "editable": bool(item.get("editable", False)),
+                    "selected": bool(item.get("selected", False)),
+                    "pinned": bool(item.get("pinned", False)),
+                }
+            )
+        return context_blocks
+
+    def _build_context_version(
+        self,
+        *,
+        selected_block_ids: Iterable[str],
+        pinned_block_ids: Iterable[str],
+        context_blocks: list[dict[str, Any]],
+        include_memory_summary: bool,
+        include_recent_messages: bool,
+        preset: str,
+    ) -> str:
+        payload = {
+            "selected_block_ids": list(selected_block_ids),
+            "pinned_block_ids": list(pinned_block_ids),
+            "context_blocks": context_blocks,
+            "include_memory_summary": include_memory_summary,
+            "include_recent_messages": include_recent_messages,
+            "preset": preset,
+        }
+        digest = self._hash_input(payload)[:16]
+        return f"ctx_v1_{digest}"
+
+    def _resolve_reply_window(
+        self,
+        *,
+        session: StoredChatSession,
+        replay_snapshot: ReplayWorkbenchSnapshotPayload | None,
+        extra_context: dict[str, Any],
+    ) -> dict[str, str]:
+        ui_context = extra_context.get("ui_context") if isinstance(extra_context.get("ui_context"), dict) else {}
+        chart_visible_window = ui_context.get("chart_visible_window") if isinstance(ui_context.get("chart_visible_window"), dict) else {}
+        window_start = (
+            chart_visible_window.get("window_start")
+            or chart_visible_window.get("start")
+            or extra_context.get("reply_window_start")
+        )
+        window_end = (
+            chart_visible_window.get("window_end")
+            or chart_visible_window.get("end")
+            or extra_context.get("reply_window_end")
+        )
+        if not window_start and replay_snapshot is not None:
+            window_start = replay_snapshot.window_start.astimezone(UTC).isoformat()
+        if not window_end and replay_snapshot is not None:
+            window_end = replay_snapshot.window_end.astimezone(UTC).isoformat()
+        if not window_start:
+            window_start = self._normalize_time_value(session.window_range.get("start") or session.window_range.get("window_start"))
+        if not window_end:
+            window_end = self._normalize_time_value(session.window_range.get("end") or session.window_range.get("window_end"))
+        return {
+            "window_start": self._normalize_time_value(window_start),
+            "window_end": self._normalize_time_value(window_end),
+        }
+
+    def _resolve_reply_session_date(self, *, reply_window: dict[str, str], extra_context: dict[str, Any]) -> str | None:
+        ui_context = extra_context.get("ui_context") if isinstance(extra_context.get("ui_context"), dict) else {}
+        session_date = (
+            ui_context.get("session_date")
+            or extra_context.get("session_date")
+            or extra_context.get("reply_session_date")
+        )
+        if isinstance(session_date, str) and session_date.strip():
+            return session_date.strip()
+        window_end = reply_window.get("window_end")
+        parsed_window_end = self._parse_time_value(window_end)
+        if parsed_window_end is None:
+            return None
+        return parsed_window_end.date().isoformat()
+
+    @staticmethod
+    def _build_reply_window_anchor(
+        *,
+        symbol: str,
+        timeframe: str,
+        reply_window: dict[str, str],
+        reply_session_date: str | None,
+    ) -> str | None:
+        window_start = reply_window.get("window_start")
+        window_end = reply_window.get("window_end")
+        if not window_start or not window_end or not reply_session_date:
+            return None
+        return f"{symbol}|{timeframe}|{window_start}|{window_end}|{reply_session_date}"
+
+    def _resolve_block_meta(self, block) -> dict[str, Any]:
+        full_payload = block.full_payload if isinstance(block.full_payload, dict) else {}
+        block_meta = full_payload.get("block_meta") if isinstance(full_payload.get("block_meta"), dict) else {}
+        return {
+            "block_version": self._coerce_block_version(block_meta.get("block_version")),
+            "source_kind": str(block_meta.get("source_kind") or self._default_source_kind(block.kind)),
+            "scope": str(block_meta.get("scope") or self._default_scope(ephemeral=block.ephemeral, pinned=block.pinned)),
+            "editable": bool(block_meta.get("editable", False)),
+            "author": block_meta.get("author"),
+            "updated_at": self._normalize_time_value(block_meta.get("updated_at") or block.created_at),
+        }
+
+    @staticmethod
+    def _coerce_block_version(value: Any) -> int:
+        try:
+            version = int(value)
+        except (TypeError, ValueError):
+            return 1
+        return version if version >= 1 else 1
+
+    @staticmethod
+    def _default_source_kind(kind: str) -> str:
+        return {
+            "candles_20": "window_snapshot",
+            "selected_bar": "window_snapshot",
+            "manual_region": "window_snapshot",
+            "event_summary": "nearby_event_summary",
+            "recent_messages": "recent_messages",
+            "session_summary": "memory_summary",
+        }.get(kind, "system_policy")
+
+    @staticmethod
+    def _default_scope(*, ephemeral: bool, pinned: bool = False) -> str:
+        return "session" if (not ephemeral or pinned) else "request"
+
+    @staticmethod
+    def _normalize_time_value(value: Any) -> str | None:
+        parsed = ReplayWorkbenchPromptTraceService._parse_time_value(value)
+        if parsed is None:
+            return str(value).strip() if isinstance(value, str) and value.strip() else None
+        return parsed.astimezone(UTC).isoformat()
+
+    @staticmethod
+    def _parse_time_value(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
     def _summarize_prompt_block_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict) or not payload:
@@ -548,6 +756,16 @@ class ReplayWorkbenchPromptTraceService:
         raise TypeError(f"Object of type {type(value)!r} is not JSON serializable")
 
     def _trace_model(self, stored: StoredPromptTrace) -> PromptTrace:
+        snapshot = stored.snapshot if isinstance(stored.snapshot, dict) else {}
+        metadata = stored.metadata if isinstance(stored.metadata, dict) else {}
+        context_blocks = snapshot.get("context_blocks")
+        if not isinstance(context_blocks, list):
+            context_blocks = metadata.get("block_version_refs")
+        if not isinstance(context_blocks, list):
+            context_blocks = []
+        block_version_refs = metadata.get("block_version_refs")
+        if not isinstance(block_version_refs, list):
+            block_version_refs = context_blocks
         return PromptTrace(
             prompt_trace_id=stored.prompt_trace_id,
             session_id=stored.session_id,
@@ -568,8 +786,15 @@ class ReplayWorkbenchPromptTraceService:
             final_user_prompt=stored.final_user_prompt,
             model_name=stored.model_name,
             model_input_hash=stored.model_input_hash,
-            snapshot=stored.snapshot,
-            metadata=stored.metadata,
+            context_version=snapshot.get("context_version") or metadata.get("context_version"),
+            context_blocks=context_blocks,
+            reply_window=snapshot.get("reply_window") if isinstance(snapshot.get("reply_window"), dict) else (
+                metadata.get("reply_window") if isinstance(metadata.get("reply_window"), dict) else {}
+            ),
+            reply_window_anchor=snapshot.get("reply_window_anchor") or metadata.get("reply_window_anchor"),
+            block_version_refs=block_version_refs,
+            snapshot=snapshot,
+            metadata=metadata,
             created_at=stored.created_at,
             updated_at=stored.updated_at,
         )

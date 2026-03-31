@@ -290,7 +290,9 @@ export function createReplayLoader({
     state.chartView = shouldPreserveChartView ? remappedChartView : null;
     state.pendingChartViewRestore = shouldPreserveChartView ? null : (savedChartView ? { ...savedChartView } : null);
     state.lastChartViewportKey = nextChartKey || null;
-    state.chartViewportResetPending = !shouldPreserveChartView || shouldForceViewportSync;
+    // Any snapshot swap can transiently narrow the live chart's logical range.
+    // Always re-assert the intended viewport from state/registry after applying a snapshot.
+    state.chartViewportResetPending = true;
     state.chartAutoScalePending = !(shouldPreserveChartView || savedChartView);
     state.lastSnapshotLoadReason = reason;
     state.fullHistoryLoaded = !normalizedSnapshot?.raw_features?.deferred_history_available;

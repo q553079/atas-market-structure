@@ -1,5 +1,13 @@
-import { createWorkbenchState } from "./replay_workbench_state.js";
-import { createWorkbenchElements } from "./replay_workbench_dom.js";
+/*
+ * Facade-only workbench bootstrap.
+ * Purpose: assemble controllers, wire focused modules, and bridge compatibility behavior.
+ * Do not add new hot-path DOM/render logic here.
+ * Put chart region runtime into `replay_workbench_chart_region_runtime.js`,
+ * render boundary logic into `replay_workbench_render_router.js`,
+ * and other surface-specific behavior into their nearest focused modules.
+ */
+import { createWorkbenchState } from "./replay_workbench_state.js?v=20260330-viewport-writeback-guard-v1";
+import { createWorkbenchElements } from "./replay_workbench_dom.js?v=20260327-region-window-repair-v2";
 import { fetchJson, toLocalInputValue, createCacheKeyHelpers } from "./replay_workbench_data_utils.js";
 import {
   timeframeLabel,
@@ -13,14 +21,16 @@ import {
   summarizeText,
   escapeHtml,
   createPlanId,
-  sanitizeReplayCandles,
 } from "./replay_workbench_ui_utils.js";
 import { createAiThreadController } from "./replay_workbench_ai_threads.js";
-import { createAiChatController } from "./replay_workbench_ai_chat.js";
-import { createReplayLoader } from "./replay_workbench_replay_loader.js?v=20260327-window-scope-fix";
-import { createWorkbenchActions } from "./replay_workbench_actions.js?v=20260327-window-scope-fix";
+import { createAiChatController } from "./replay_workbench_ai_chat.js?v=20260330-window-event-context-v1";
+import { normalizeChangeInspectorMode } from "./replay_workbench_change_inspector.js";
+import { createReplayLoader } from "./replay_workbench_replay_loader.js?v=20260330-viewport-writeback-guard-v1";
+import { createWorkbenchActions } from "./replay_workbench_actions.js?v=20260328-fast-path-splice-guard-v1";
+import { createChartInteractionController } from "./replay_workbench_chart_interactions.js?v=20260330-region-capture-sync-v1";
 import { createWorkbenchEventApi } from "./replay_workbench_event_api.js";
-import { createWorkbenchEventPanelController } from "./replay_workbench_event_panel.js";
+import { createWorkbenchEventPanelController } from "./replay_workbench_event_panel.js?v=20260331-nearby-dock-v1";
+import { createWorkbenchNearbyContextController } from "./replay_workbench_nearby_context.js?v=20260331-phase3-nearby-dock-v1";
 import { createWorkbenchEventManualTools } from "./replay_workbench_event_manual_tools.js";
 import { createWorkbenchEventOutcomePanelController } from "./replay_workbench_event_outcome_panel.js";
 import { createWorkbenchPromptTracePanelController } from "./replay_workbench_prompt_trace_panel.js";
@@ -30,18 +40,27 @@ import {
   buildChartViewportKey,
   snapshotChartViewForRegistry,
 } from "./replay_workbench_chart_utils.js?v=20260327-window-scope-fix";
-import { focusChartViewOnEventCandidate } from "./replay_workbench_event_overlay.js";
+import { focusChartViewOnEventCandidate } from "./replay_workbench_event_overlay.js?v=20260330-window-event-context-v1";
 import { createPlanLifecycleEngine } from "./replay_workbench_plan_lifecycle.js";
 import { createSessionMemoryEngine } from "./replay_workbench_session_memory.js";
 import { createAnnotationPanelController } from "./replay_workbench_annotation_panel.js";
 import { createAnnotationPopoverController } from "./replay_workbench_annotation_popover.js";
 import { createModelSwitcherController } from "./replay_workbench_model_switcher.js";
+import { createButtonRuntime } from "./replay_workbench_button_runtime.js?v=20260327-button-runtime-v1";
+import { bindWorkbenchAiControls } from "./replay_workbench_ai_controls.js?v=20260331-bootstrap-ai-controls-v1";
+import { bindChartRegionRuntime } from "./replay_workbench_chart_region_runtime.js";
+import { createWorkbenchRenderRouter } from "./replay_workbench_render_router.js";
 import {
   createDefaultAnnotationFilters,
   isAnnotationDeleted,
   normalizeWorkbenchAnnotation,
+  resolveChartViewTimeWindow,
   updateAnnotationPreference,
-} from "./replay_workbench_annotation_utils.js";
+} from "./replay_workbench_annotation_utils.js?v=20260330-window-event-context-v1";
+import {
+  getTimeframeMinutes,
+  isTimestampBeyondBarBucket,
+} from "./replay_workbench_live_time_policy.js";
 
 function renderStatusStripFactory(els) {
   return function renderStatusStrip(chips = []) {
@@ -536,12 +555,68 @@ function renderDrawers({ state, els }) {
 }
 
 
-export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRequestPayload }) {
+export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRequestPayload, renderRegionDraftPreview = null }) {
   const state = createWorkbenchState();
   const els = createWorkbenchElements(document);
   const { buildCacheKey, syncCacheKey, applyWindowPreset } = createCacheKeyHelpers({ els });
   const { ensureChartView, createDefaultChartView } = createChartViewHelpers({ state });
   const renderStatusStrip = renderStatusStripFactory(els);
+  const {
+    bindClickAction,
+    installButtonFeedback,
+    runButtonAction,
+    setButtonBusy,
+  } = createButtonRuntime({ renderStatusStrip });
+  let renderRouter = null;
+  function renderCoreSnapshot() {
+    return renderRouter?.renderCoreSnapshot?.();
+  }
+  function renderViewportDerivedSurfaces() {
+    return renderRouter?.renderViewportDerivedSurfaces?.();
+  }
+  function renderSidebarSnapshot() {
+    return renderRouter?.renderSidebarSnapshot?.();
+  }
+  function renderViewportSnapshot() {
+    return renderRouter?.renderViewportSnapshot?.();
+  }
+  function renderSecondaryAiPanels(options = {}) {
+    return renderRouter?.renderSecondaryAiPanels?.(options);
+  }
+  function markSecondaryAiPanelsClosed() {
+    renderRouter?.markSecondaryAiPanelsClosed?.();
+  }
+  function renderAiSurface(options = {}) {
+    return renderRouter?.renderAiSurface?.(options);
+  }
+  function renderAnnotationSurface(options = {}) {
+    return renderRouter?.renderAnnotationSurface?.(options);
+  }
+  function renderDeferredSurfaces() {
+    return renderRouter?.renderDeferredSurfaces?.();
+  }
+  function renderSnapshot() {
+    return renderRouter?.renderSnapshot?.();
+  }
+  const chartInteractionController = createChartInteractionController({
+    state,
+    els,
+    renderChart,
+    renderSnapshot,
+    renderViewportSnapshot,
+    renderRegionSelectionSurface: () => {
+      renderCoreSnapshot();
+      manualEventTools?.updateToolbarUi?.();
+    },
+    renderRegionDraftPreview,
+    loadFootprintBarDetail: async () => {},
+    clampChartView,
+    createDefaultChartView,
+  });
+  const {
+    beginRegionDraft,
+    updateRegionDraft,
+  } = chartInteractionController;
   const planLifecycleEngine = createPlanLifecycleEngine({ state });
   const sessionMemoryEngine = createSessionMemoryEngine({ state, els, fetchJson });
   const MOBILE_AI_BREAKPOINT = 1000;
@@ -583,11 +658,20 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   function persistWorkbenchState() {
+    const persistedWorkbench = readStorage("workbench", {});
     writeStorage("workbench", {
+      ...((persistedWorkbench && typeof persistedWorkbench === "object" && !Array.isArray(persistedWorkbench)) ? persistedWorkbench : {}),
       activeAiThreadId: state.activeAiThreadId,
       drawerState: state.drawerState,
       topBar: state.topBar,
       pinnedPlanId: state.pinnedPlanId,
+      changeInspector: {
+        open: !!state.changeInspector?.open,
+        mode: normalizeChangeInspectorMode(state.changeInspector?.mode, { open: !!state.changeInspector?.open }),
+        baselineReplyId: state.changeInspector?.baselineReplyId || null,
+        compareReplyId: state.changeInspector?.compareReplyId || null,
+        pinned: !!state.changeInspector?.pinned,
+      },
       annotationPreferences: state.annotationPreferences || {},
       layerState: state.layerState || collectLayerStateFromInputs(),
       symbolWorkspaceState: state.symbolWorkspaceState || {},
@@ -643,6 +727,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       chartViewportPersistTimer = null;
       persistWorkbenchState();
     }, 140);
+  }
+
+  function suspendChartViewportWriteback(ms = 480) {
+    const duration = Math.max(0, Number(ms) || 0);
+    const nextDeadline = performance.now() + duration;
+    const currentDeadline = Number(state.chartViewportWritebackSuspendedUntil) || 0;
+    state.chartViewportWritebackSuspendedUntil = Math.max(currentDeadline, nextDeadline);
   }
 
   function rememberCurrentChartView(snapshot = state.snapshot, { persist = true } = {}) {
@@ -937,6 +1028,163 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       els.refreshCacheViewerButton.title = !hasCacheKey
         ? "当前参数还没有可刷新的缓存键。"
         : (cacheActionBusy ? "当前正在刷新或加载数据，请稍后再试。" : "重新查询当前缓存状态。");
+    }
+  }
+
+  function formatDraftRegionLabel(draft) {
+    if (!draft?.started_at || !draft?.ended_at) {
+      return "";
+    }
+    return `${new Date(draft.started_at).toLocaleString()} -> ${new Date(draft.ended_at).toLocaleString()}`;
+  }
+
+  function resetChartRegionCaptureLayerBounds() {
+    if (!els.chartRegionCaptureLayer) {
+      return;
+    }
+    els.chartRegionCaptureLayer.style.inset = "";
+    els.chartRegionCaptureLayer.style.left = "";
+    els.chartRegionCaptureLayer.style.top = "";
+    els.chartRegionCaptureLayer.style.width = "";
+    els.chartRegionCaptureLayer.style.height = "";
+  }
+
+  function getActiveChartRegionSurfaceRect() {
+    const candidates = [
+      els.chartContainer,
+      els.chartSvg,
+    ].filter(Boolean);
+    for (const node of candidates) {
+      const style = window.getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden") {
+        continue;
+      }
+      const rect = node.getBoundingClientRect?.();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        return rect;
+      }
+    }
+    return null;
+  }
+
+  function syncChartRegionCaptureLayerBounds() {
+    const layer = els.chartRegionCaptureLayer;
+    const frameRect = els.chartFrame?.getBoundingClientRect?.();
+    const surfaceRect = getActiveChartRegionSurfaceRect();
+    if (!layer || !frameRect || !surfaceRect) {
+      resetChartRegionCaptureLayerBounds();
+      return;
+    }
+    const left = Math.max(0, Math.min(frameRect.width, surfaceRect.left - frameRect.left));
+    const top = Math.max(0, Math.min(frameRect.height, surfaceRect.top - frameRect.top));
+    const width = Math.max(0, Math.min(surfaceRect.width, frameRect.width - left));
+    const height = Math.max(0, Math.min(surfaceRect.height, frameRect.height - top));
+    layer.style.inset = "auto";
+    layer.style.left = `${left}px`;
+    layer.style.top = `${top}px`;
+    layer.style.width = `${width}px`;
+    layer.style.height = `${height}px`;
+  }
+
+  function updateRegionQuickActionState() {
+    const hasCandles = !!state.snapshot?.candles?.length;
+    const hasCacheKey = !!String(els.cacheKey?.value || "").trim();
+    const chartReloadBusy = state.buildInFlight || state.snapshotLoading;
+    const draft = state.chartInteraction?.draftRegion || null;
+    const hasDraft = !!draft;
+    const draftLabel = formatDraftRegionLabel(draft);
+    const canSaveDraft = !chartReloadBusy && hasDraft && !!state.currentReplayIngestionId;
+    const canRepairDraft = !chartReloadBusy && hasDraft && hasCacheKey;
+    const canSendDraftToChat = !chartReloadBusy && hasDraft;
+    const regionMode = !!state.chartInteraction?.regionMode;
+    const regionAnchorActive = !!state.chartInteraction?.regionAnchorActive;
+
+    if (els.armRegionButton) {
+      els.armRegionButton.disabled = !hasCandles || chartReloadBusy;
+      els.armRegionButton.classList.toggle("is-active", regionMode);
+      els.armRegionButton.textContent = regionMode ? "取消框选区域" : "开始框选区域";
+      if (!hasCandles) {
+        els.armRegionButton.title = "请先加载一段 K 线数据，再进行框选。";
+      } else if (chartReloadBusy) {
+        els.armRegionButton.title = "当前正在加载图表，请稍后再试。";
+      } else if (regionMode) {
+        els.armRegionButton.title = hasDraft
+          ? (regionAnchorActive
+              ? `已记录起点，移动鼠标预览并再次左击确认终点。当前框选: ${draftLabel}`
+              : `当前框选: ${draftLabel}`)
+          : "已进入框选模式，可左键点起点再点终点，或直接拖出时间窗。";
+      } else {
+        els.armRegionButton.title = "进入框选模式后，可左键点起点再点终点，或直接拖出起止时间。";
+      }
+    }
+
+    if (els.saveRegionQuickButton) {
+      els.saveRegionQuickButton.disabled = !canSaveDraft;
+      els.saveRegionQuickButton.title = !hasDraft
+        ? "先在图表上框选一个区域，再保存手工区域。"
+        : (!state.currentReplayIngestionId
+            ? "当前还没有可保存的 replay ingestion，先加载图表。"
+            : (chartReloadBusy ? "当前正在加载图表，请稍后再试。" : `保存当前框选区域: ${draftLabel}`));
+    }
+
+    if (els.saveRegionButton) {
+      els.saveRegionButton.disabled = !canSaveDraft;
+      els.saveRegionButton.title = els.saveRegionQuickButton?.title || "";
+    }
+
+    if (els.repairRegionQuickButton) {
+      els.repairRegionQuickButton.disabled = !canRepairDraft;
+      if (!hasDraft) {
+        els.repairRegionQuickButton.title = "先在图表上框选一个要删除并回补的时间窗。";
+      } else if (!hasCacheKey) {
+        els.repairRegionQuickButton.title = "当前参数还没有可修复的缓存键，请先加载图表。";
+      } else if (chartReloadBusy) {
+        els.repairRegionQuickButton.title = "当前正在加载图表，请稍后再试。";
+      } else {
+        els.repairRegionQuickButton.title = `删除并回补当前框选时间窗: ${draftLabel}`;
+      }
+    }
+
+    if (els.sendRegionToChatQuickButton) {
+      els.sendRegionToChatQuickButton.disabled = !canSendDraftToChat;
+      if (!hasDraft) {
+        els.sendRegionToChatQuickButton.title = "先在图表上框选一个区域，再发送到当前聊天区。";
+      } else if (chartReloadBusy) {
+        els.sendRegionToChatQuickButton.title = "当前正在加载图表，请稍后再试。";
+      } else {
+        els.sendRegionToChatQuickButton.title = `把当前框选区域发送到聊天区: ${draftLabel}`;
+      }
+    }
+
+    if (els.chartContainer) {
+      els.chartContainer.style.cursor = regionMode ? "crosshair" : "";
+    }
+    if (els.chartFrame) {
+      els.chartFrame.style.cursor = regionMode ? "crosshair" : "";
+      els.chartFrame.querySelectorAll("canvas").forEach((node) => {
+        node.style.cursor = regionMode ? "crosshair" : "";
+      });
+    }
+    if (els.chartSvg) {
+      els.chartSvg.style.cursor = regionMode ? "crosshair" : "";
+    }
+    if (els.chartRegionCaptureLayer) {
+      const captureActive = regionMode && hasCandles && !chartReloadBusy;
+      if (captureActive) {
+        syncChartRegionCaptureLayerBounds();
+      } else {
+        resetChartRegionCaptureLayerBounds();
+      }
+      els.chartRegionCaptureLayer.hidden = !captureActive;
+      els.chartRegionCaptureLayer.setAttribute("aria-hidden", captureActive ? "false" : "true");
+      els.chartRegionCaptureLayer.classList.toggle("is-active", captureActive);
+      els.chartRegionCaptureLayer.title = captureActive
+        ? (hasDraft
+            ? (regionAnchorActive
+                ? `已记录起点，移动鼠标预览并再次左击确认终点。当前框选: ${draftLabel}`
+                : `当前框选: ${draftLabel}`)
+            : "左键点起点再点终点，或直接拖拽以框选要保存或删除并回补的时间窗。")
+        : "";
     }
   }
 
@@ -1488,11 +1736,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       ? Math.max(1, state.chartView.endIndex - state.chartView.startIndex + 1)
       : 0;
     const maxSpan = Math.max(minimumSpan, Math.min(maximumSpan, candles.length));
-    const baselineSpan = currentSpan ? Math.min(currentSpan, maxSpan) : minimumSpan;
+    const targetSpanCap = currentSpan ? Math.max(currentSpan, maxSpan) : maxSpan;
+    const baselineSpan = currentSpan || minimumSpan;
     const paddingBars = Math.max(6, Math.ceil(focusSpan * 0.75));
     const targetSpan = Math.max(
       minimumSpan,
-      Math.min(maxSpan, Math.max(focusSpan + (paddingBars * 2), baselineSpan)),
+      Math.min(targetSpanCap, Math.max(focusSpan + (paddingBars * 2), baselineSpan)),
     );
     const centerIndex = Math.round((focusStartIndex + focusEndIndex) / 2);
     let startIndex = centerIndex - Math.floor(targetSpan / 2);
@@ -1865,7 +2114,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         pendingOnly: false,
         intensity: "balanced",
         autoExtractEnabled: true,
-        collapsed: false,
+        collapsed: true,
         bySymbol: {},
       };
     }
@@ -1969,6 +2218,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
   let eventPanelController = null;
   let eventOutcomeController = null;
+  let manualEventTools = null;
+  let annotationPanelController = null;
   const promptTracePanelController = createWorkbenchPromptTracePanelController({
     state,
     els,
@@ -2008,14 +2259,21 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         renderSnapshot();
       }
     },
+    onReplyFocusChanged: () => {
+      renderViewportDerivedSurfaces();
+    },
     onPromptBlocksChanged: (session, { selectedPromptBlockIds, pinnedContextBlockIds, includeMemorySummary, includeRecentMessages } = {}) => {
       void syncPromptBlocksToServer(session, { selectedPromptBlockIds, pinnedContextBlockIds, includeMemorySummary, includeRecentMessages });
       if (session.id === state.activeAiThreadId) {
         renderAiChat();
       }
     },
+    getPromptTrace: ({ promptTraceId = null, messageId = null } = {}) => promptTracePanelController.peekTrace({ promptTraceId, messageId }),
+    ensurePromptTrace: ({ promptTraceId = null, messageId = null } = {}) => promptTracePanelController.ensureTrace({ promptTraceId, messageId }),
+    onPromptTraceRequested: ({ promptTraceId = null, messageId = null } = {}) => promptTracePanelController.openPromptTraceForMessage({ promptTraceId, messageId }),
     fetchJson,
     renderStatusStrip,
+    hasVisibleNearbyContext: () => Array.isArray(state.eventStreamItems) && state.eventStreamItems.length > 0,
     onSessionActivated: (session) => {
       if (getWorkspaceRole(session) === "analyst") {
         rememberSymbolWorkspaceSession(session);
@@ -2081,8 +2339,11 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const targetSession = state.aiThreads.find((item) => item.id === candidate.session_id) || getActiveThread();
     if (targetSession) {
       setActiveThread(targetSession.id, targetSession.title, targetSession);
-      renderAiSurface();
     }
+    threadController?.focusReplyMessage(candidate.source_message_id, {
+      sessionId: targetSession?.id || null,
+      render: true,
+    });
     jumpToMessageWhenReady(candidate.source_message_id);
     return true;
   }
@@ -2311,10 +2572,16 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   });
   aiChat.bindStreamingControls?.();
 
+  const nearbyContextController = createWorkbenchNearbyContextController({
+    state,
+    getActiveThread,
+  });
+
   eventPanelController = createWorkbenchEventPanelController({
     state,
     els,
     eventApi,
+    nearbyContext: nearbyContextController,
     renderStatusStrip,
     persistWorkbenchState,
     getActiveThread,
@@ -2326,6 +2593,9 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       return true;
     },
     onOutcomeRequested: (candidate) => eventOutcomeController?.focusOutcomeForCandidate(candidate) || false,
+    onSurfaceItemsChanged: () => {
+      renderAiChat();
+    },
     afterMutation: async (mutation) => {
       if (mutation?.candidate?.session_id) {
         await hydrateSessionFromServer(mutation.candidate.session_id, {
@@ -2350,7 +2620,32 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     onEventSelected: (eventId) => eventPanelController?.selectEvent(eventId, { centerChart: true, scrollCard: true }),
   });
 
-  const manualEventTools = createWorkbenchEventManualTools({
+  renderRouter = createWorkbenchRenderRouter({
+    state,
+    els,
+    getActiveThread,
+    getSessionByRole: (symbol, role) => getSessionByRole(symbol, role),
+    getReplyExtractionState: () => getReplyExtractionState(),
+    renderChart,
+    renderDrawers: () => renderDrawers({ state, els }),
+    updateRegionQuickActionState,
+    updateDynamicAnalysisVisibility,
+    updateHeaderStatus,
+    renderEventPanel: () => eventPanelController?.renderEventPanel?.(),
+    renderAiThreadTabs,
+    renderContractNav,
+    renderAiChat,
+    decorateChatMessages: (options = {}) => eventPanelController?.decorateChatMessages?.(options),
+    renderOutcomeSurfaces: () => eventOutcomeController?.renderOutcomeSurfaces?.(),
+    renderEventScribePanel: () => renderEventScribePanel(),
+    renderReplyExtractionPanel: () => renderReplyExtractionPanel(),
+    queueAnnotationLifecycleRefresh,
+    renderAnnotationPanel: () => annotationPanelController?.renderAnnotationPanel?.(),
+    manualEventToolbarUpdate: () => manualEventTools?.updateToolbarUi?.(),
+    startLiveRefresh: () => startLiveRefresh(),
+  });
+
+  manualEventTools = createWorkbenchEventManualTools({
     state,
     els,
     renderStatusStrip,
@@ -2358,7 +2653,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     createManualEventCandidate: (payload) => eventPanelController?.createManualEventCandidate(payload),
     renderSnapshot: () => renderSnapshot(),
   });
-  const annotationPanelController = createAnnotationPanelController({
+  annotationPanelController = createAnnotationPanelController({
     state,
     els,
     renderSnapshot: () => renderSnapshot(),
@@ -2378,7 +2673,6 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     sessionMemoryEngine,
     renderSnapshot: () => renderSnapshot(),
   });
-  const buttonFeedbackTimers = new WeakMap();
   const defaultAttachmentAccept = els.attachmentInput?.getAttribute("accept") || "";
   const voiceCaptureState = {
     recognition: null,
@@ -2413,6 +2707,35 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         pinned: state.aiSidebarPinned,
       });
     }
+  }
+
+  function syncLightweightViewportRange(viewport = null) {
+    const targetViewport = viewport && typeof viewport === "object" ? viewport : null;
+    const chart = window._lwChartState?.chartInstance;
+    const volumeChart = window._lwChartState?.volumeChartInstance;
+    if (!targetViewport || !chart?.timeScale) {
+      return;
+    }
+    suspendChartViewportWriteback(720);
+    const range = {
+      from: Number(targetViewport.startIndex ?? 0),
+      to: Number(targetViewport.endIndex ?? 0),
+    };
+    const applyRange = () => {
+      try {
+        chart.timeScale().setVisibleLogicalRange(range);
+        const volumeScale = volumeChart?.timeScale ? volumeChart.timeScale() : null;
+        volumeScale?.setVisibleLogicalRange?.(range);
+      } catch (error) {
+        console.warn("布局变更后同步图表视口失败:", error);
+      }
+    };
+    applyRange();
+    window.requestAnimationFrame(() => {
+      applyRange();
+      window.setTimeout(applyRange, 90);
+      window.setTimeout(applyRange, 220);
+    });
   }
 
   function syncBottomDrawerVisibility() {
@@ -2516,6 +2839,19 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   function applyLayoutWidths() {
+    const preservedChartView = state.chartView
+      ? {
+          startIndex: state.chartView.startIndex,
+          endIndex: state.chartView.endIndex,
+          yMin: state.chartView.yMin ?? null,
+          yMax: state.chartView.yMax ?? null,
+        }
+      : null;
+    suspendChartViewportWriteback(720);
+    state.pendingLayoutViewportPreserve = preservedChartView ? { ...preservedChartView } : null;
+    if (preservedChartView) {
+      state.chartViewportResetPending = true;
+    }
     const nextSidebarWidth = Math.max(
       DESKTOP_SIDEBAR_MIN,
       Math.min(DESKTOP_SIDEBAR_MAX, Number(state.layout.chatWidth) || 440),
@@ -2529,63 +2865,15 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     els.aiChatThread.style.height = "";
     syncAiSidebarViewportState({ persist: false });
     writeStorage("layout", state.layout);
-    window.requestAnimationFrame(() => updateChatFollowState({ persist: false }));
+    window.requestAnimationFrame(() => {
+      updateChatFollowState({ persist: false });
+      if (preservedChartView) {
+        syncLightweightViewportRange(preservedChartView);
+      }
+    });
   }
 
-  const uiActionLocks = new Set();
-
-  function setButtonBusy(button, busy) {
-    if (!button) {
-      return;
-    }
-    button.dataset.busy = busy ? "true" : "false";
-    button.setAttribute("aria-busy", busy ? "true" : "false");
-    if ("disabled" in button) {
-      if (busy) {
-        button.dataset.wasDisabled = button.disabled ? "true" : "false";
-        button.disabled = true;
-      } else {
-        button.disabled = button.dataset.wasDisabled === "true";
-        delete button.dataset.wasDisabled;
-      }
-    }
-  }
-
-  function pulseButton(button) {
-    if (!button) {
-      return;
-    }
-    button.dataset.pressed = "true";
-    const previousTimer = buttonFeedbackTimers.get(button);
-    if (previousTimer) {
-      window.clearTimeout(previousTimer);
-    }
-    const timer = window.setTimeout(() => {
-      delete button.dataset.pressed;
-      buttonFeedbackTimers.delete(button);
-    }, 150);
-    buttonFeedbackTimers.set(button, timer);
-  }
-
-  function installButtonFeedback() {
-    document.addEventListener("pointerdown", (event) => {
-      const button = event.target?.closest("button");
-      if (!button || button.disabled) {
-        return;
-      }
-      pulseButton(button);
-    }, true);
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-      const button = document.activeElement;
-      if (!(button instanceof HTMLElement) || !button.matches("button") || button.disabled) {
-        return;
-      }
-      pulseButton(button);
-    }, true);
-  }
+  let bindingsAttached = false;
 
   function focusComposerInput() {
     if (!els.aiChatInput) {
@@ -2617,9 +2905,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
   function syncQuickActionButtonState() {
     const skillPanelOpen = !!els.aiSkillPanel && !els.aiSkillPanel.hidden;
+    const secondaryControlsOpen = !!els.aiSecondaryControls?.open;
     if (els.aiMoreButton) {
-      els.aiMoreButton.classList.toggle("is-active", skillPanelOpen);
-      els.aiMoreButton.setAttribute("aria-expanded", skillPanelOpen ? "true" : "false");
+      els.aiMoreButton.classList.toggle("is-active", secondaryControlsOpen || skillPanelOpen);
+      els.aiMoreButton.setAttribute("aria-expanded", secondaryControlsOpen ? "true" : "false");
     }
     [els.aiVoiceButton, els.aiVoiceInputButton].forEach((button) => {
       if (!button) {
@@ -2631,12 +2920,40 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     });
   }
 
+  function setSecondaryControlsOpen(open, { announce = false } = {}) {
+    if (!els.aiSecondaryControls) {
+      return;
+    }
+    const nextOpen = !!open;
+    const previousOpen = !!els.aiSecondaryControls.open;
+    els.aiSecondaryControls.open = nextOpen;
+    if (!nextOpen && els.aiSkillPanel && !els.aiSkillPanel.hidden) {
+      els.aiSkillPanel.hidden = true;
+    }
+    if (nextOpen) {
+      renderSecondaryAiPanels({ force: true });
+    } else {
+      markSecondaryAiPanelsClosed();
+    }
+    syncQuickActionButtonState();
+    if (!announce || previousOpen === nextOpen) {
+      return;
+    }
+    renderStatusStrip([{ label: nextOpen ? "More analysis tools opened" : "More analysis tools collapsed", variant: "emphasis" }]);
+    if (!nextOpen) {
+      focusComposerInput();
+    }
+  }
+
   function setSkillPanelVisible(visible, { announce = false } = {}) {
     if (!els.aiSkillPanel) {
       return;
     }
     const nextVisible = !!visible;
     const previousVisible = !els.aiSkillPanel.hidden;
+    if (nextVisible) {
+      setSecondaryControlsOpen(true);
+    }
     els.aiSkillPanel.hidden = !nextVisible;
     syncQuickActionButtonState();
     if (!announce || previousVisible === nextVisible) {
@@ -2756,6 +3073,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   async function addChartScreenshotAttachment(statusLabel = "已把图表截图加入当前会话附件。") {
+    renderStatusStrip([{ label: "正在生成图表截图…", variant: "emphasis" }]);
     const dataUrl = await captureChartFrameDataUrl();
     addQuickAttachment({
       name: `chart-${Date.now()}.png`,
@@ -2878,46 +3196,6 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       syncQuickActionButtonState();
       renderStatusStrip([{ label: `语音输入无法启动：${error.message || String(error)}`, variant: "warn" }]);
       focusComposerInput();
-    }
-  }
-
-  async function runButtonAction(button, action, {
-    silentError = false,
-    lockKey = "",
-    extraBusyTargets = [],
-    blockedLabel = "",
-  } = {}) {
-    const busyTargets = Array.from(new Set([button, ...extraBusyTargets].filter(Boolean)));
-    if (busyTargets.some((target) => target?.dataset.busy === "true")) {
-      if (blockedLabel) {
-        renderStatusStrip([{ label: blockedLabel, variant: "warn" }]);
-      }
-      return null;
-    }
-    const normalizedLockKey = String(lockKey || "").trim();
-    if (normalizedLockKey && uiActionLocks.has(normalizedLockKey)) {
-      if (blockedLabel) {
-        renderStatusStrip([{ label: blockedLabel, variant: "warn" }]);
-      }
-      return null;
-    }
-    if (normalizedLockKey) {
-      uiActionLocks.add(normalizedLockKey);
-    }
-    busyTargets.forEach((target) => setButtonBusy(target, true));
-    try {
-      return await action();
-    } catch (error) {
-      console.error("按钮动作失败:", error);
-      if (!silentError) {
-        renderStatusStrip([{ label: error.message || String(error), variant: "warn" }]);
-      }
-      return null;
-    } finally {
-      busyTargets.forEach((target) => setButtonBusy(target, false));
-      if (normalizedLockKey) {
-        uiActionLocks.delete(normalizedLockKey);
-      }
     }
   }
 
@@ -3096,68 +3374,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   let liveRefreshInterval = null;
   let liveRefreshRequestInFlight = false;
 
-  function getTimeframeMinutes(timeframe) {
-    const minutesByTimeframe = {
-      "1m": 1,
-      "5m": 5,
-      "15m": 15,
-      "30m": 30,
-      "1h": 60,
-      "1d": 1440,
-    };
-    return minutesByTimeframe[timeframe] || 1;
-  }
-
-  function buildCandleSignature(candle) {
-    if (!candle) {
-      return "";
-    }
-    return [
-      candle.started_at || "",
-      candle.open ?? "",
-      candle.high ?? "",
-      candle.low ?? "",
-      candle.close ?? "",
-      candle.volume ?? "",
-    ].join(":");
-  }
-
-  function hasSameStartedAtPrefix(previousCandles = [], nextCandles = [], length = previousCandles.length) {
-    if (!Array.isArray(previousCandles) || !Array.isArray(nextCandles) || length <= 0) {
-      return false;
-    }
-    for (let index = 0; index < length; index += 1) {
-      if (previousCandles[index]?.started_at !== nextCandles[index]?.started_at) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  function canUseTailUpdate(previousCandles = [], nextCandles = []) {
-    if (!previousCandles.length || !nextCandles.length || nextCandles.length < previousCandles.length) {
-      return false;
-    }
-    if (nextCandles.length - previousCandles.length > 1) {
-      return false;
-    }
-    const previousLastStartedAt = previousCandles[previousCandles.length - 1]?.started_at;
-    const nextLastStartedAt = nextCandles[nextCandles.length - 1]?.started_at;
-    if (!previousLastStartedAt || !nextLastStartedAt) {
-      return false;
-    }
-    if (nextCandles.length === previousCandles.length) {
-      return previousLastStartedAt === nextLastStartedAt;
-    }
-    return hasSameStartedAtPrefix(previousCandles.slice(0, -1), nextCandles, previousCandles.length - 1)
-      && nextCandles[nextCandles.length - 2]?.started_at === previousLastStartedAt;
-  }
-
-  function canUseAppendTail(previousCandles = [], nextCandles = []) {
-    if (!previousCandles.length || !nextCandles.length || nextCandles.length <= previousCandles.length) {
-      return false;
-    }
-    return hasSameStartedAtPrefix(previousCandles, nextCandles, previousCandles.length);
+  function isFreshLiveTailResponse(response) {
+    return String(response?.data_status?.freshness || "").toLowerCase() === "fresh";
   }
 
   function applyLiveResponseMeta(response) {
@@ -3369,7 +3587,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
   }
 
   function mergeLiveTailIntoSnapshot(response, timeframe) {
-    if (!state.snapshot?.candles?.length || !response?.candles?.length) {
+    if (!state.snapshot) {
       return { merged: false, requiresReload: false, updateType: "full_reset" };
     }
     const preservedEventAnnotations = (Array.isArray(state.snapshot.event_annotations) ? state.snapshot.event_annotations : [])
@@ -3385,6 +3603,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       ...previousLiveTail,
       instrument_symbol: response.instrument_symbol ?? previousLiveTail.instrument_symbol ?? state.snapshot.instrument_symbol ?? null,
       display_timeframe: response.display_timeframe ?? previousLiveTail.display_timeframe ?? state.snapshot.display_timeframe ?? null,
+      data_status: response.data_status ?? previousLiveTail.data_status ?? null,
       latest_observed_at: response.latest_observed_at ?? previousLiveTail.latest_observed_at ?? null,
       latest_price: response.latest_price ?? previousLiveTail.latest_price ?? null,
       best_bid: response.best_bid ?? previousLiveTail.best_bid ?? null,
@@ -3404,107 +3623,20 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       active_post_harvest_response: response.active_post_harvest_response ?? previousLiveTail.active_post_harvest_response ?? null,
       integrity: response.integrity ?? previousLiveTail.integrity ?? null,
     };
-    const existingCandles = Array.isArray(state.snapshot.candles) ? [...state.snapshot.candles] : [];
-    const incomingCandles = response.candles.filter((item) => item?.started_at);
-    if (!existingCandles.length || !incomingCandles.length) {
-      return { merged: false, requiresReload: false, updateType: "full_reset" };
-    }
-    const maxTemporalDriftMs = getTimeframeMinutes(timeframe) * 10 * 60 * 1000;
-    const incomingLast = incomingCandles[incomingCandles.length - 1];
-    const incomingLastEndedAtMs = new Date(incomingLast?.ended_at || incomingLast?.started_at || 0).getTime();
-    const latestObservedAtMs = new Date(response.latest_observed_at || 0).getTime();
-    if (
-      Number.isFinite(incomingLastEndedAtMs)
-      && Number.isFinite(latestObservedAtMs)
-      && latestObservedAtMs - incomingLastEndedAtMs > maxTemporalDriftMs
-    ) {
-      console.warn("Ignoring stale live-tail candles that lag latest_observed_at", {
-        timeframe,
-        latest_observed_at: response.latest_observed_at,
-        incoming_last_started_at: incomingLast?.started_at || null,
-        incoming_last_ended_at: incomingLast?.ended_at || null,
-      });
-      state.snapshot = {
-        ...state.snapshot,
-        live_tail: nextLiveTail,
-      };
-      return { merged: true, requiresReload: false, updateType: "quote_only" };
-    }
-    const alignedIndex = existingCandles.findIndex((bar) => bar.started_at === incomingCandles[0].started_at);
-    if (alignedIndex < 0) {
-      const lastExisting = existingCandles[existingCandles.length - 1];
-      if (!lastExisting || new Date(incomingCandles[0].started_at) <= new Date(lastExisting.started_at)) {
-        const reverseDriftMs = lastExisting
-          ? new Date(lastExisting.started_at).getTime() - new Date(incomingCandles[0].started_at).getTime()
-          : NaN;
-        if (Number.isFinite(reverseDriftMs) && reverseDriftMs > maxTemporalDriftMs) {
-          console.warn("Ignoring stale live-tail candles that would rewind the current snapshot", {
-            timeframe,
-            snapshot_last_started_at: lastExisting?.started_at || null,
-            incoming_first_started_at: incomingCandles[0]?.started_at || null,
-          });
-          state.snapshot = {
-            ...state.snapshot,
-            live_tail: nextLiveTail,
-          };
-          return { merged: true, requiresReload: false, updateType: "quote_only" };
-        }
-        return { merged: false, requiresReload: true, updateType: "full_reset" };
-      }
-      const seamGapMs = new Date(incomingCandles[0].started_at).getTime() - new Date(lastExisting.ended_at || lastExisting.started_at).getTime();
-      const maxSeamGapMs = getTimeframeMinutes(timeframe) * 2 * 60 * 1000;
-      if (Number.isFinite(seamGapMs) && seamGapMs > maxSeamGapMs) {
-        return { merged: false, requiresReload: true, updateType: "full_reset" };
-      }
-      existingCandles.push(...incomingCandles);
-    } else {
-      existingCandles.splice(alignedIndex, existingCandles.length - alignedIndex, ...incomingCandles);
-    }
-    const deduped = [];
-    const seen = new Set();
-    existingCandles.forEach((bar) => {
-      if (!bar?.started_at || seen.has(bar.started_at)) {
-        return;
-      }
-      seen.add(bar.started_at);
-      deduped.push(bar);
-    });
-    deduped.sort((left, right) => new Date(left.started_at) - new Date(right.started_at));
-    const previousCandles = state.snapshot.candles;
-    const previousLength = previousCandles.length;
-    const previousLastSignature = buildCandleSignature(previousCandles[previousCandles.length - 1]);
-    const nextCandles = sanitizeReplayCandles(
-      deduped,
-      { context: "live-tail-merge" },
+    const existingCandles = Array.isArray(state.snapshot.candles) ? state.snapshot.candles : [];
+    const lastSnapshotBar = existingCandles[existingCandles.length - 1] || null;
+    const requiresReload = !!(
+      isFreshLiveTailResponse(response)
+      && lastSnapshotBar
+      && isTimestampBeyondBarBucket(response?.latest_observed_at, lastSnapshotBar, timeframe)
     );
     state.snapshot = {
       ...state.snapshot,
       live_tail: nextLiveTail,
-      candles: nextCandles,
       event_annotations: [...preservedEventAnnotations, ...liveEventAnnotations],
       focus_regions: [...preservedFocusRegions, ...liveFocusRegions],
-      window_end: response.latest_observed_at ?? state.snapshot.window_end,
     };
-    const nextLastSignature = buildCandleSignature(nextCandles[nextCandles.length - 1]);
-    let updateType = "full_reset";
-    if (canUseTailUpdate(previousCandles, nextCandles) && previousLastSignature !== nextLastSignature) {
-      updateType = "tail_update";
-    } else if (canUseAppendTail(previousCandles, nextCandles)) {
-      updateType = "append_tail";
-    }
-    if (updateType === "append_tail" && state.chartView && state.followLatest) {
-      const growth = Math.max(0, nextCandles.length - previousLength);
-      if (growth > 0) {
-        state.chartView = clampChartView(
-          nextCandles.length,
-          state.chartView.startIndex + growth,
-          state.chartView.endIndex + growth,
-          state.chartView,
-        );
-        state.chartViewportResetPending = true;
-      }
-    }
-    return { merged: true, requiresReload: false, updateType };
+    return { merged: true, requiresReload, updateType: "quote_only" };
   }
 
   function syncRelativeWindowToNow() {
@@ -3581,60 +3713,6 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         liveRefreshRequestInFlight = false;
       }
     }, 5000);
-  }
-
-  function renderCoreSnapshot() {
-    const startedAt = performance.now();
-    renderChart();
-    updateDynamicAnalysisVisibility();
-    updateHeaderStatus();
-    state.perf.coreRenderMs = Math.round(performance.now() - startedAt);
-    if (state.snapshot?.candles?.length) {
-      startLiveRefresh();
-    }
-  }
-
-  function renderViewportDerivedSurfaces() {
-    renderDrawers({ state, els });
-    updateHeaderStatus();
-  }
-
-  function renderSidebarSnapshot() {
-    const startedAt = performance.now();
-    renderViewportDerivedSurfaces();
-    updateDynamicAnalysisVisibility();
-    state.perf.sidebarRenderMs = Math.round(performance.now() - startedAt);
-  }
-
-  function renderAiSurface() {
-    renderAiThreadTabs();
-    renderAiChat();
-    eventPanelController?.decorateChatMessages();
-    eventPanelController?.renderEventPanel();
-    eventOutcomeController?.renderOutcomeSurfaces();
-    renderEventScribePanel();
-    renderReplyExtractionPanel();
-    renderContractNav();
-  }
-
-  function renderAnnotationSurface({ skipLifecycle = false } = {}) {
-    if (!skipLifecycle) {
-      queueAnnotationLifecycleRefresh({ delay: 1200, refreshMemory: true, forceServer: true });
-      return;
-    }
-    annotationPanelController.renderAnnotationPanel();
-  }
-
-  function renderDeferredSurfaces() {
-    renderAiSurface();
-    renderAnnotationSurface({ skipLifecycle: false });
-  }
-
-  function renderSnapshot() {
-    renderCoreSnapshot();
-    renderSidebarSnapshot();
-    renderDeferredSurfaces();
-    manualEventTools?.updateToolbarUi?.();
   }
 
   async function runBuildFlow({ forceRefresh = false, syncRelativeWindow = false, silentProgress = false } = {}) {
@@ -3789,13 +3867,17 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       if (message?.role !== "assistant") {
         return;
       }
+      const workbenchUi = message?.meta?.workbench_ui && typeof message.meta.workbench_ui === "object"
+        ? message.meta.workbench_ui
+        : (message?.meta?.workbenchUi && typeof message.meta.workbenchUi === "object" ? message.meta.workbenchUi : null);
       const structuredCount = [
         ...(Array.isArray(message.annotations) ? message.annotations : []),
         ...(Array.isArray(message.planCards) ? message.planCards : []),
         ...(Array.isArray(message.meta?.annotations) ? message.meta.annotations : []),
         ...(Array.isArray(message.meta?.planCards) ? message.meta.planCards : []),
       ].length;
-      if (structuredCount > 0 && message.message_id) {
+      const hasWorkbenchUi = !!workbenchUi && Object.keys(workbenchUi).length > 0;
+      if ((structuredCount > 0 || hasWorkbenchUi) && message.message_id) {
         ids.add(message.message_id);
       }
     });
@@ -4139,6 +4221,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const intensity = extractionState?.intensity || "balanced";
     const autoExtractEnabled = extractionState?.autoExtractEnabled !== false;
     let filtered = Array.isArray(items) ? [...items] : [];
+    filtered = filtered.filter((item) => isReplyExtractionItemNearChartWindow(item));
     if (!autoExtractEnabled) {
       filtered = filtered.filter((item) => String(item?.stableKey || "").startsWith("annotation:"));
     }
@@ -4351,6 +4434,75 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     return getActiveThread();
   }
 
+  const CHART_EVENT_CONTEXT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
+  function getChartContextTimeBounds(lookbackMs = CHART_EVENT_CONTEXT_LOOKBACK_MS) {
+    const chartWindow = resolveChartViewTimeWindow(state);
+    const visibleStartMs = Date.parse(chartWindow.startTime || "");
+    const visibleEndMs = Date.parse(chartWindow.endTime || "");
+    if (!Number.isFinite(visibleStartMs) || !Number.isFinite(visibleEndMs)) {
+      return null;
+    }
+    return {
+      startMs: visibleStartMs - Math.max(0, Number(lookbackMs) || 0),
+      endMs: visibleEndMs,
+      visibleStartMs,
+      visibleEndMs,
+    };
+  }
+
+  function isTimestampWithinChartContext(timestampMs, contextBounds = getChartContextTimeBounds()) {
+    if (!contextBounds || !Number.isFinite(timestampMs)) {
+      return false;
+    }
+    return timestampMs >= contextBounds.startMs && timestampMs <= contextBounds.endMs;
+  }
+
+  function isReplyExtractionItemNearChartWindow(item = {}) {
+    const contextBounds = getChartContextTimeBounds();
+    if (!contextBounds) {
+      return true;
+    }
+    const linkedCluster = item?.linkedClusterKey ? state.chartEventModel?.clusterIndex?.[item.linkedClusterKey] : null;
+    const linkedClusterMs = Number.isFinite(Number(linkedCluster?.time)) ? Number(linkedCluster.time) * 1000 : null;
+    const observedAtMs = new Date(item?.observedAt || item?.start_time || item?.created_at || "").getTime();
+    const anchorTimeMs = Number.isFinite(linkedClusterMs) ? linkedClusterMs : observedAtMs;
+    return isTimestampWithinChartContext(anchorTimeMs, contextBounds);
+  }
+
+  function resolveCandidateAnnotationWindow(candidate = {}, timeframe = "1m") {
+    const chartWindow = resolveChartViewTimeWindow(state);
+    const linkedCluster = candidate?.linkedClusterKey ? state.chartEventModel?.clusterIndex?.[candidate.linkedClusterKey] : null;
+    const linkedClusterMs = Number.isFinite(Number(linkedCluster?.time)) ? Number(linkedCluster.time) * 1000 : null;
+    const observedAtMs = new Date(candidate?.observedAt || "").getTime();
+    const explicitStartMs = new Date(candidate?.start_time || candidate?.startTime || "").getTime();
+    const anchorTimeMs = Number.isFinite(linkedClusterMs)
+      ? linkedClusterMs
+      : Number.isFinite(observedAtMs)
+        ? observedAtMs
+        : (Number.isFinite(explicitStartMs) ? explicitStartMs : null);
+    if (!Number.isFinite(anchorTimeMs)) {
+      return {
+        startTime: chartWindow.startTime,
+        endTime: chartWindow.endTime,
+        anchorTime: null,
+        linkedClusterKey: linkedCluster?.key || candidate?.linkedClusterKey || null,
+      };
+    }
+    const barMinutes = Math.max(1, Number(getTimeframeMinutes(timeframe)) || 1);
+    const spanMs = Math.max(5 * 60 * 1000, barMinutes * 3 * 60 * 1000);
+    const explicitEndMs = new Date(candidate?.expiresAt || candidate?.expires_at || candidate?.end_time || candidate?.endTime || "").getTime();
+    const endTimeMs = Number.isFinite(explicitEndMs) && explicitEndMs >= anchorTimeMs
+      ? explicitEndMs
+      : anchorTimeMs + spanMs;
+    return {
+      startTime: new Date(anchorTimeMs).toISOString(),
+      endTime: new Date(endTimeMs).toISOString(),
+      anchorTime: new Date(anchorTimeMs).toISOString(),
+      linkedClusterKey: linkedCluster?.key || candidate?.linkedClusterKey || null,
+    };
+  }
+
   function findPromotedAnnotationByCandidate(candidate = {}, sessionId = null) {
     const candidateKey = getReplyCandidateKey(candidate);
     if (!candidateKey) {
@@ -4373,8 +4525,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const targetSession = session || resolveCandidateSession(candidate);
     const symbol = String(targetSession?.symbol || targetSession?.contractId || state.topBar?.symbol || "NQ").trim().toUpperCase() || "NQ";
     const timeframe = targetSession?.timeframe || state.topBar?.timeframe || "1m";
-    const startTime = state.snapshot?.window_start || new Date().toISOString();
-    const endTime = state.snapshot?.window_end || new Date().toISOString();
+    const annotationWindow = resolveCandidateAnnotationWindow(candidate, timeframe);
     const latestClose = state.snapshot?.candles?.[state.snapshot.candles.length - 1]?.close ?? null;
     const basePrice = Number.isFinite(candidate.price) ? candidate.price : (Number.isFinite(latestClose) ? latestClose : null);
     const side = inferCandidateSide(candidate);
@@ -4436,8 +4587,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       subtype: null,
       label: candidate.label || (type === "entry_line" ? "候选入场" : "候选标记"),
       reason,
-      start_time: startTime,
-      end_time: endTime,
+      start_time: annotationWindow.startTime,
+      end_time: annotationWindow.endTime,
       expires_at: candidate.expiresAt || candidate.expires_at || null,
       status: "active",
       priority: candidate.priority ?? null,
@@ -4447,6 +4598,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       source_kind: "event_candidate",
       source_event_key: candidateKey,
       event_kind: candidate.type || null,
+      anchor_time: annotationWindow.anchorTime,
+      linked_cluster_key: annotationWindow.linkedClusterKey,
       source_reply_title: candidate.replyTitle || candidate.sourceReplyTitle || null,
       side,
       entry_price: Number.isFinite(entryPrice) ? entryPrice : null,
@@ -4469,7 +4622,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     const targetSession = resolveCandidateSession(candidate);
     const existing = findPromotedAnnotationByCandidate(candidate, targetSession?.id);
     if (existing) {
+      const timeframe = targetSession?.timeframe || state.topBar?.timeframe || "1m";
+      const annotationWindow = resolveCandidateAnnotationWindow(candidate, timeframe);
       existing.visible = true;
+      existing.start_time = annotationWindow.startTime || existing.start_time;
+      existing.end_time = annotationWindow.endTime || existing.end_time;
+      existing.anchor_time = annotationWindow.anchorTime || existing.anchor_time || existing.start_time || null;
+      existing.linked_cluster_key = annotationWindow.linkedClusterKey || existing.linked_cluster_key || null;
       existing.updated_at = new Date().toISOString();
       return { annotation: existing, created: false, session: targetSession };
     }
@@ -4736,8 +4895,8 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
             sourceTitle: session.title || (sessionRole === "scribe" ? "事件整理 AI" : "行情分析 AI"),
             messageId: annotation.message_id || null,
             sessionId: session.id,
-            observedAt: annotation.started_at || annotation.created_at || annotation.updated_at || null,
-          });
+            observedAt: annotation.anchor_time || annotation.start_time || annotation.started_at || annotation.created_at || annotation.updated_at || null,
+            });
         });
       const structuredMessageIds = structuredMessageIdsBySession.get(session.id) || new Set();
       const allowMessageExtraction = aggressiveMode
@@ -5480,52 +5639,11 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     });
   }
 
-  function initializeSkillPanel() {
-    if (!els.aiSkillPanel || !els.aiSkillGrid) return;
-    const skills = [
-      { id: "kline_analysis", name: "K线分析", icon: "📊", prompt: "请分析当前K线图表并给出交易建议" },
-      { id: "recent_bars", name: "最近20根K线", icon: "📈", prompt: "请分析最近20根K线并给出交易计划" },
-      { id: "focus_regions", name: "重点区域", icon: "🎯", prompt: "请围绕当前重点区域给出计划" },
-      { id: "live_depth", name: "实时挂单", icon: "📋", prompt: "请结合当前盘口结构给出建议" },
-      { id: "manual_region", name: "手工区域", icon: "✏️", prompt: "请围绕手工区域做标准分析" },
-      { id: "selected_bar", name: "选中K线", icon: "🔍", prompt: "请分析当前选中K线" },
-    ];
-    els.aiSkillGrid.innerHTML = skills.map((skill) => `
-      <div class="ai-skill-card" data-skill-id="${skill.id}">
-        <div class="ai-skill-icon">${skill.icon}</div>
-        <div class="ai-skill-name">${skill.name}</div>
-      </div>
-    `).join("");
-    const skillCards = Array.from(els.aiSkillGrid.querySelectorAll(".ai-skill-card"));
-    skillCards.forEach((card) => {
-      card.addEventListener("click", async () => {
-        const skillId = card.dataset.skillId;
-        const skill = skills.find((s) => s.id === skillId);
-        if (skill) {
-          await dispatchAiComposerSend({
-            button: card,
-            extraBusyTargets: skillCards,
-            beforeSend: () => {
-              updateComposerDraft(skill.prompt);
-              setSkillPanelVisible(false);
-              return true;
-            },
-          });
-        }
-      });
-    });
-    if (els.aiSkillSearch) {
-      els.aiSkillSearch.addEventListener("input", (e) => {
-        const query = e.target.value.toLowerCase();
-        els.aiSkillGrid.querySelectorAll(".ai-skill-card").forEach((card) => {
-          const name = card.querySelector(".ai-skill-name").textContent.toLowerCase();
-          card.style.display = name.includes(query) ? "flex" : "none";
-        });
-      });
-    }
-  }
-
   function attachBindings() {
+    if (bindingsAttached) {
+      return;
+    }
+    bindingsAttached = true;
     applyLayoutWidths();
     bindChatScrollBehavior();
     installButtonFeedback();
@@ -5535,53 +5653,52 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       els.chartScreenshotButton,
       els.chartToolbarScreenshotButton,
     ].filter(Boolean);
+    const regionDraftTargets = [
+      els.chartRegionCaptureLayer,
+      els.chartFrame,
+      els.chartContainer,
+      els.chartSvg,
+    ].filter(Boolean);
+    const saveRegionButtons = [
+      els.saveRegionButton,
+      els.saveRegionQuickButton,
+    ].filter(Boolean);
+    const repairWindowButtons = [
+      els.repairChartButton,
+      els.repairRegionQuickButton,
+    ].filter(Boolean);
 
     // AI 侧边栏控制
-    els.aiSidebarTrigger?.addEventListener("click", toggleAiSidebar);
-    els.aiSidebarCloseButton?.addEventListener("click", closeAiSidebar);
-    els.aiSidebarPinButton?.addEventListener("click", () => {
+    bindClickAction(els.aiSidebarTrigger, () => {
+      toggleAiSidebar();
+    });
+    bindClickAction(els.aiSidebarCloseButton, () => {
+      closeAiSidebar();
+    });
+    bindClickAction(els.aiSidebarPinButton, () => {
       state.aiSidebarPinned = !state.aiSidebarPinned;
       writeStorage("aiSidebarState", { open: state.aiSidebarOpen, pinned: state.aiSidebarPinned });
       syncAiSidebarPinButtonState();
       renderStatusStrip([{ label: state.aiSidebarPinned ? "AI 侧栏固定偏好已开启" : "AI 侧栏固定偏好已关闭", variant: "emphasis" }]);
     });
 
-    // 技能面板控制
-    els.aiChatInput?.addEventListener("input", (e) => {
-      const value = e.target.value;
-      if (value.startsWith("@") || value.startsWith("/")) {
-        setSkillPanelVisible(true);
-      } else if (els.aiSkillPanel && !els.aiSkillPanel.hidden) {
-        setSkillPanelVisible(false);
-      }
-    });
-
-    // 快速操作按钮
-    els.aiKlineAnalysisButton?.addEventListener("click", async () => {
-      await runAiPresetButtonAction(els.aiKlineAnalysisButton, async () => {
-        await aiChat.handlePresetAnalysis("recent_20_bars", "请分析当前K线图表并给出交易建议。", false);
-        renderSnapshot();
-      });
-    });
-    els.aiMoreButton?.addEventListener("click", () => {
-      setSkillPanelVisible(els.aiSkillPanel?.hidden ?? true, { announce: true });
-    });
-    els.aiAttachmentButton?.addEventListener("click", () => {
+    bindClickAction(els.aiAttachmentButton, () => {
       openAttachmentPicker({ statusLabel: "选择文件后会附加到当前会话。", accept: defaultAttachmentAccept });
     });
-    els.aiScreenshotButton?.addEventListener("click", async () => {
-      await runButtonAction(els.aiScreenshotButton, async () => {
-        await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
-      }, {
-        lockKey: "chart-screenshot-attachment",
-        extraBusyTargets: screenshotAttachmentButtons,
-      });
+    bindClickAction(els.aiScreenshotButton, async () => {
+      await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
+    }, {
+      useBusyState: true,
+      lockKey: "chart-screenshot-attachment",
+      extraBusyTargets: screenshotAttachmentButtons,
+      blockedLabel: "图表截图正在生成，请等待完成。",
     });
-    els.aiVoiceButton?.addEventListener("click", startVoiceCapture);
-    els.aiVoiceInputButton?.addEventListener("click", startVoiceCapture);
-
-    // 初始化技能面板
-    initializeSkillPanel();
+    bindClickAction(els.aiVoiceButton, () => {
+      startVoiceCapture();
+    });
+    bindClickAction(els.aiVoiceInputButton, () => {
+      startVoiceCapture();
+    });
 
     // 恢复侧边栏状态
     const sidebarState = readStorage("aiSidebarState", { open: false, pinned: false });
@@ -5590,6 +5707,20 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     syncAiSidebarViewportState({ persist: false });
     syncAiSidebarPinButtonState();
     syncQuickActionButtonState();
+    bindWorkbenchAiControls({
+      els,
+      bindClickAction,
+      renderStatusStrip,
+      renderSnapshot,
+      getActiveThread,
+      persistSessions: () => persistSessions(),
+      aiChat,
+      setSecondaryControlsOpen,
+      setSkillPanelVisible,
+      syncQuickActionButtonState,
+      updateComposerDraft,
+      dispatchAiComposerSend,
+    });
     let resizeTimer = null;
     window.addEventListener("resize", () => {
       if (resizeTimer) {
@@ -5601,7 +5732,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }, 120);
     });
     els.timeframeTabs.forEach((button) => {
-      button.addEventListener("click", () => {
+      bindClickAction(button, () => {
         els.displayTimeframe.value = button.dataset.timeframe;
         els.timeframeTabs.forEach((item) => item.classList.toggle("active", item === button));
         syncCacheKey();
@@ -5736,34 +5867,64 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderViewportDerivedSurfaces();
     }
 
-    els.zoomInButton?.addEventListener("click", () => zoomTimeAxis(0.6));
-    els.zoomOutButton?.addEventListener("click", () => zoomTimeAxis(1.6));
-    els.zoomPriceInButton?.addEventListener("click", () => zoomPriceAxis(0.84));
-    els.zoomPriceOutButton?.addEventListener("click", () => zoomPriceAxis(1.2));
-    els.resetViewButton?.addEventListener("click", () => resetChartView());
+    bindClickAction(els.zoomInButton, () => {
+      zoomTimeAxis(0.6);
+    });
+    bindClickAction(els.zoomOutButton, () => {
+      zoomTimeAxis(1.6);
+    });
+    bindClickAction(els.zoomPriceInButton, () => {
+      zoomPriceAxis(0.84);
+    });
+    bindClickAction(els.zoomPriceOutButton, () => {
+      zoomPriceAxis(1.2);
+    });
+    bindClickAction(els.resetViewButton, () => {
+      resetChartView();
+    });
     els.chartContainer?.addEventListener("wheel", (event) => {
       if (!state.snapshot?.candles?.length) {
         return;
       }
+      const wantsPriceZoom = event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+      const wantsTimeZoom = event.ctrlKey || event.metaKey || event.altKey;
+      if (!wantsPriceZoom && !wantsTimeZoom) {
+        return;
+      }
       event.preventDefault();
-      if (event.shiftKey) {
+      if (wantsPriceZoom) {
         zoomPriceAxis(event.deltaY < 0 ? 0.84 : 1.2);
         return;
       }
       zoomTimeAxis(event.deltaY < 0 ? 0.8 : 1.25);
     }, { passive: false });
+    bindChartRegionRuntime({
+      state,
+      els,
+      bindClickAction,
+      beginRegionDraft,
+      updateRegionDraft,
+      updateRegionQuickActionState,
+      renderStatusStrip,
+      getActiveChartRegionSurfaceRect,
+      regionDraftTargets,
+      renderRegionModeChanged: () => {
+        renderCoreSnapshot();
+        manualEventTools?.updateToolbarUi?.();
+      },
+    });
 
-    els.headerMoreButton?.addEventListener("click", () => {
+    bindClickAction(els.headerMoreButton, () => {
       toggleHeaderMoreMenu();
     });
-    els.lookupCacheButton?.addEventListener("click", async () => {
+    bindClickAction(els.lookupCacheButton, async () => {
       closeHeaderMoreMenu();
       await lookupCacheFromHeader({ button: els.lookupCacheButton, openViewerOnSuccess: true });
     });
-    els.closeCacheViewerButton?.addEventListener("click", () => {
+    bindClickAction(els.closeCacheViewerButton, () => {
       closeCacheViewer();
     });
-    els.refreshCacheViewerButton?.addEventListener("click", async () => {
+    bindClickAction(els.refreshCacheViewerButton, async () => {
       if (!String(els.cacheKey?.value || "").trim()) {
         updateCacheViewer();
         renderStatusStrip([{ label: "当前参数还没有缓存键。", variant: "warn" }]);
@@ -5771,21 +5932,25 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       }
       await lookupCacheFromHeader({ button: els.refreshCacheViewerButton, openViewerOnSuccess: false });
     });
-    els.invalidateCacheButton?.addEventListener("click", async () => {
+    bindClickAction(els.invalidateCacheButton, async () => {
       closeHeaderMoreMenu();
       await invalidateCacheFromHeader({ button: els.invalidateCacheButton });
     });
-    els.repairChartButton?.addEventListener("click", async () => {
+    bindClickAction(els.repairChartButton, async () => {
       closeHeaderMoreMenu();
-      await runButtonAction(els.repairChartButton, async () => {
-        const result = await actions.handleRepairCurrentWindow();
-        if (result) {
-          markWorkbenchSynced();
-          syncBackfillProgressPolling({ force: true });
-        }
-      }, { silentError: true });
+      const result = await actions.handleRepairCurrentWindow();
+      if (result) {
+        markWorkbenchSynced();
+        syncBackfillProgressPolling({ force: true });
+      }
+    }, {
+      useBusyState: true,
+      silentError: true,
+      lockKey: "atas-window-repair",
+      extraBusyTargets: repairWindowButtons.filter((button) => button !== els.repairChartButton),
+      blockedLabel: "当前修复请求正在发送，请等待上一条请求完成。",
     });
-    els.exportSettingsButton?.addEventListener("click", () => {
+    bindClickAction(els.exportSettingsButton, () => {
       exportCurrentSettings();
       renderStatusStrip([{ label: "当前工作台设置已导出。", variant: "good" }]);
       closeHeaderMoreMenu();
@@ -5805,21 +5970,28 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       if (event.key !== "Escape") {
         return;
       }
+      state.chartInteraction.regionAnchorActive = false;
+      state.chartInteraction.regionDragActive = false;
       closeHeaderMoreMenu();
       closeCacheViewer();
+      updateRegionQuickActionState();
     });
 
-    els.buildButton.addEventListener("click", async () => {
-      await runButtonAction(els.buildButton, async () => {
-        await runBuildFlow({ forceRefresh: false, syncRelativeWindow: false });
-      }, { silentError: true });
+    bindClickAction(els.buildButton, async () => {
+      await runBuildFlow({ forceRefresh: false, syncRelativeWindow: false });
+    }, {
+      useBusyState: true,
+      silentError: true,
+      blockedLabel: "图表正在加载，请稍候。",
     });
-    els.refreshAllButton.addEventListener("click", async () => {
-      await runButtonAction(els.refreshAllButton, async () => {
-        await runBuildFlow({ forceRefresh: true, syncRelativeWindow: true });
-      }, { silentError: true });
+    bindClickAction(els.refreshAllButton, async () => {
+      await runBuildFlow({ forceRefresh: true, syncRelativeWindow: !!state.followLatest });
+    }, {
+      useBusyState: true,
+      silentError: true,
+      blockedLabel: "图表正在刷新，请稍候。",
     });
-    els.restoreLayoutButton.addEventListener("click", () => {
+    bindClickAction(els.restoreLayoutButton, () => {
       const persistedLayout = readStorage("layout", null);
       if (persistedLayout) {
         state.layout = { ...state.layout, ...persistedLayout };
@@ -5831,16 +6003,15 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderSnapshot();
     });
 
-    els.aiNewThreadButton.addEventListener("click", async () => {
-      await runButtonAction(els.aiNewThreadButton, async () => {
-        await aiChat.createNewThread();
-        renderSnapshot();
-      }, {
-        lockKey: "ai-new-thread",
-        blockedLabel: "正在创建新会话，请稍候。",
-      });
+    bindClickAction(els.aiNewThreadButton, async () => {
+      await aiChat.createNewThread();
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      lockKey: "ai-new-thread",
+      blockedLabel: "正在创建新会话，请稍候。",
     });
-    els.aiChatSendButton.addEventListener("click", async () => {
+    bindClickAction(els.aiChatSendButton, async () => {
       await dispatchAiComposerSend();
     });
     els.aiChatInput.addEventListener("input", (event) => aiChat.handleComposerInput(event.target.value));
@@ -5850,7 +6021,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         await dispatchAiComposerSend();
       }
     });
-    els.eventScribeSendButton?.addEventListener("click", async () => {
+    bindClickAction(els.eventScribeSendButton, async () => {
       await sendEventScribeMessage({ button: els.eventScribeSendButton });
     });
     els.eventScribeInput?.addEventListener("input", async (event) => {
@@ -5866,42 +6037,40 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         await sendEventScribeMessage({ button: els.eventScribeSendButton });
       }
     });
-    els.eventScribeMirrorButton?.addEventListener("click", async () => {
-      await runButtonAction(els.eventScribeMirrorButton, async () => {
-        const analystSession = getSessionByRole(state.topBar?.symbol, "analyst");
-        const latestAssistantReply = getLatestAssistantMessage(analystSession);
-        const session = await ensureScribeSessionForSymbol(state.topBar?.symbol);
-        if (!latestAssistantReply) {
-          renderStatusStrip([{ label: "当前还没有可整理的行情分析回复。", variant: "warn" }]);
-          return null;
-        }
-        const nextDraft = `请提取下面这条回复中的关键价位、区域、风险、事件顺序，并整理成可审阅候选项：\n\n${latestAssistantReply.content}`;
-        session.draftText = nextDraft;
-        session.draft = nextDraft;
-        rememberSymbolWorkspaceSession(session);
-        if (els.eventScribeInput) {
-          els.eventScribeInput.value = nextDraft;
-          els.eventScribeInput.focus();
-        }
-        renderEventScribePanel();
-        return true;
-      }, {
-        lockKey: "event-scribe-mirror",
-        blockedLabel: "正在准备事件整理草稿，请稍候。",
-      });
+    bindClickAction(els.eventScribeMirrorButton, async () => {
+      const analystSession = getSessionByRole(state.topBar?.symbol, "analyst");
+      const latestAssistantReply = getLatestAssistantMessage(analystSession);
+      const session = await ensureScribeSessionForSymbol(state.topBar?.symbol);
+      if (!latestAssistantReply) {
+        renderStatusStrip([{ label: "当前还没有可整理的行情分析回复。", variant: "warn" }]);
+        return null;
+      }
+      const nextDraft = `请提取下面这条回复中的关键价位、区域、风险、事件顺序，并整理成可审阅候选项：\n\n${latestAssistantReply.content}`;
+      session.draftText = nextDraft;
+      session.draft = nextDraft;
+      rememberSymbolWorkspaceSession(session);
+      if (els.eventScribeInput) {
+        els.eventScribeInput.value = nextDraft;
+        els.eventScribeInput.focus();
+      }
+      renderEventScribePanel();
+      return true;
+    }, {
+      useBusyState: true,
+      lockKey: "event-scribe-mirror",
+      blockedLabel: "正在准备事件整理草稿，请稍候。",
     });
-    els.eventScribeNewSessionButton?.addEventListener("click", async () => {
-      await runButtonAction(els.eventScribeNewSessionButton, async () => {
-        await createFreshScribeSession(state.topBar?.symbol);
-        renderSnapshot();
-      }, {
-        lockKey: "event-scribe-new-session",
-        blockedLabel: "正在创建事件整理会话，请稍候。",
-      });
+    bindClickAction(els.eventScribeNewSessionButton, async () => {
+      await createFreshScribeSession(state.topBar?.symbol);
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      lockKey: "event-scribe-new-session",
+      blockedLabel: "正在创建事件整理会话，请稍候。",
     });
     if (!eventPanelController) {
       els.eventStreamFilterBar?.querySelectorAll("[data-event-stream-filter]").forEach((button) => {
-        button.addEventListener("click", () => {
+        bindClickAction(button, () => {
           state.eventStreamFilter = button.dataset.eventStreamFilter || "all";
           persistWorkbenchState();
           renderChart();
@@ -5909,13 +6078,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       });
     }
     els.replyExtractionFilterBar?.querySelectorAll("[data-reply-extraction-filter]").forEach((button) => {
-      button.addEventListener("click", () => {
+      bindClickAction(button, () => {
         getReplyExtractionState().filter = button.dataset.replyExtractionFilter || "all";
         persistWorkbenchState();
         renderReplyExtractionPanel();
       });
     });
-    els.replyExtractionShowIgnoredButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionShowIgnoredButton, () => {
       const extractionState = getReplyExtractionState();
       if (extractionState.pendingOnly) {
         extractionState.pendingOnly = false;
@@ -5924,7 +6093,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       persistWorkbenchState();
       renderReplyExtractionPanel();
     });
-    els.replyExtractionPendingOnlyButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionPendingOnlyButton, () => {
       const extractionState = getReplyExtractionState();
       extractionState.pendingOnly = true;
       extractionState.showIgnored = false;
@@ -5932,7 +6101,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderReplyExtractionPanel();
       renderStatusStrip([{ label: "事件整理已切换为仅看未处理。", variant: "emphasis" }]);
     });
-    els.replyExtractionShowHistoryButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionShowHistoryButton, () => {
       const extractionState = getReplyExtractionState();
       extractionState.pendingOnly = false;
       extractionState.showIgnored = true;
@@ -5940,10 +6109,10 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderReplyExtractionPanel();
       renderStatusStrip([{ label: "事件整理已切换为完整历史视图。", variant: "emphasis" }]);
     });
-    els.replyExtractionExportButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionExportButton, () => {
       exportReplyExtractionSummary();
     });
-    els.replyExtractionAutoButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionAutoButton, () => {
       const extractionState = getReplyExtractionState();
       extractionState.autoExtractEnabled = extractionState.autoExtractEnabled === false;
       persistWorkbenchState();
@@ -5960,19 +6129,19 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderReplyExtractionPanel();
       renderStatusStrip([{ label: `事件整理强度已切换为：${extractionState.intensity}`, variant: "emphasis" }]);
     });
-    els.replyExtractionBatchConfirmButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionBatchConfirmButton, () => {
       applyReplyExtractionBatchAction("confirm");
     });
-    els.replyExtractionBatchMountButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionBatchMountButton, () => {
       applyReplyExtractionBatchAction("mount");
     });
-    els.replyExtractionBatchPromoteButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionBatchPromoteButton, () => {
       applyReplyExtractionBatchAction("promote-plan");
     });
-    els.replyExtractionBatchIgnoreButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionBatchIgnoreButton, () => {
       applyReplyExtractionBatchAction("ignore");
     });
-    els.replyExtractionCollapseButton?.addEventListener("click", () => {
+    bindClickAction(els.replyExtractionCollapseButton, () => {
       const extractionState = getReplyExtractionState();
       extractionState.collapsed = !extractionState.collapsed;
       persistWorkbenchState();
@@ -5982,23 +6151,62 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         variant: "emphasis",
       }]);
     });
-    els.saveRegionButton?.addEventListener("click", async () => {
-      await runButtonAction(els.saveRegionButton, async () => {
-        await actions.handleSaveRegion();
-        renderSnapshot();
-      }, { silentError: true });
+    bindClickAction(els.saveRegionButton, async () => {
+      await actions.handleSaveRegion();
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      silentError: true,
+      lockKey: "save-draft-region",
+      extraBusyTargets: saveRegionButtons.filter((button) => button !== els.saveRegionButton),
+      blockedLabel: "当前框选区域正在保存，请等待完成。",
     });
-    els.saveRegionQuickButton?.addEventListener("click", async () => {
-      await runButtonAction(els.saveRegionQuickButton, async () => {
-        await actions.handleSaveRegion();
-        renderSnapshot();
-      }, { silentError: true });
+    bindClickAction(els.saveRegionQuickButton, async () => {
+      await actions.handleSaveRegion();
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      silentError: true,
+      lockKey: "save-draft-region",
+      extraBusyTargets: saveRegionButtons.filter((button) => button !== els.saveRegionQuickButton),
+      blockedLabel: "当前框选区域正在保存，请等待完成。",
     });
-    els.recordEntryButton?.addEventListener("click", async () => {
-      await runButtonAction(els.recordEntryButton, async () => {
-        await actions.handleRecordEntry();
-        renderSnapshot();
-      }, { silentError: true });
+    bindClickAction(els.repairRegionQuickButton, async () => {
+      const result = await actions.handleRepairDraftRegion();
+      if (result) {
+        markWorkbenchSynced();
+        syncBackfillProgressPolling({ force: true });
+      }
+    }, {
+      useBusyState: true,
+      silentError: true,
+      lockKey: "atas-window-repair",
+      extraBusyTargets: repairWindowButtons.filter((button) => button !== els.repairRegionQuickButton),
+      blockedLabel: "当前修复请求正在发送，请等待上一条请求完成。",
+    });
+    bindClickAction(els.sendRegionToChatQuickButton, async () => {
+      const session = getActiveThread();
+      await aiChat.handleAiChat("general", actions.buildDraftRegionChatPrompt(), {
+        id: session.id,
+        title: session.title,
+        symbol: session.symbol,
+        contractId: session.contractId,
+        timeframe: session.timeframe,
+        windowRange: session.windowRange,
+      });
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      lockKey: "send-region-to-chat",
+      blockedLabel: "当前框选区域正在发送到聊天区，请稍候。",
+    });
+    bindClickAction(els.recordEntryButton, async () => {
+      await actions.handleRecordEntry();
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      silentError: true,
+      blockedLabel: "正在记录开仓，请稍候。",
     });
 
     els.aiChatThread?.addEventListener("click", async (event) => {
@@ -6037,133 +6245,50 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       renderSnapshot();
     });
 
-    els.analysisSendCurrentButton.addEventListener("click", async () => {
-      await runButtonAction(els.analysisSendCurrentButton, async () => {
-        const session = getActiveThread();
-        session.analysisTemplate = {
-          type: els.analysisTypeSelect.value,
-          range: els.analysisRangeSelect.value,
-          style: els.analysisStyleSelect.value,
-          sendMode: "current",
-        };
-        persistSessions();
-        await aiChat.handlePresetAnalysis(els.analysisTypeSelect.value, `请基于当前${els.analysisRangeSelect.value}做${els.analysisStyleSelect.value}风格分析。`, false);
-        renderSnapshot();
-      });
+    bindClickAction(els.gammaAutoDiscoverButton, async () => {
+      await loadGammaAnalysis({ autoDiscoverLatest: true });
+    }, {
+      useBusyState: true,
+      silentError: true,
+      lockKey: "gamma-load",
+      extraBusyTargets: [els.gammaLoadButton].filter(Boolean),
+      blockedLabel: "Gamma 数据正在加载，请稍候。",
     });
-    els.analysisSendNewButton.addEventListener("click", async () => {
-      await runButtonAction(els.analysisSendNewButton, async () => {
-        await aiChat.handlePresetAnalysis(els.analysisTypeSelect.value, `请基于当前${els.analysisRangeSelect.value}做${els.analysisStyleSelect.value}风格分析。`, true);
-        renderSnapshot();
-      });
+    bindClickAction(els.gammaLoadButton, async () => {
+      await loadGammaAnalysis({ autoDiscoverLatest: false });
+    }, {
+      useBusyState: true,
+      silentError: true,
+      lockKey: "gamma-load",
+      extraBusyTargets: [els.gammaAutoDiscoverButton].filter(Boolean),
+      blockedLabel: "Gamma 数据正在加载，请稍候。",
     });
-    els.gammaAutoDiscoverButton?.addEventListener("click", async () => {
-      await runButtonAction(els.gammaAutoDiscoverButton, async () => {
-        await loadGammaAnalysis({ autoDiscoverLatest: true });
-      }, { silentError: true });
+    bindClickAction(els.gammaSendCurrentButton, async () => {
+      await sendGammaToChat(false);
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      lockKey: "gamma-send-current",
+      blockedLabel: "Gamma 内容正在发送，请稍候。",
     });
-    els.gammaLoadButton?.addEventListener("click", async () => {
-      await runButtonAction(els.gammaLoadButton, async () => {
-        await loadGammaAnalysis({ autoDiscoverLatest: false });
-      }, { silentError: true });
-    });
-    els.gammaSendCurrentButton?.addEventListener("click", async () => {
-      await runButtonAction(els.gammaSendCurrentButton, async () => {
-        await sendGammaToChat(false);
-        renderSnapshot();
-      });
-    });
-    els.gammaSendNewButton?.addEventListener("click", async () => {
-      await runButtonAction(els.gammaSendNewButton, async () => {
-        await sendGammaToChat(true);
-        renderSnapshot();
-      });
+    bindClickAction(els.gammaSendNewButton, async () => {
+      await sendGammaToChat(true);
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      lockKey: "gamma-send-new",
+      blockedLabel: "Gamma 内容正在发送，请稍候。",
     });
 
-    const aiPresetButtons = [
-      els.aiKlineAnalysisButton,
-      els.recent20BarsButton,
-      els.recent20MinutesButton,
-      els.focusRegionsButton,
-      els.liveDepthButton,
-      els.manualRegionButton,
-      els.selectedBarButton,
-    ].filter(Boolean);
-
-    function setAiPresetButtonsBusy(activeButton, busy) {
-      aiPresetButtons.forEach((button) => {
-        if (!button) {
-          return;
-        }
-        const isTarget = button === activeButton;
-        button.disabled = !!busy;
-        button.dataset.busy = busy && isTarget ? "true" : "false";
-        button.classList.toggle("is-active", !!busy && isTarget);
-      });
-    }
-
-    async function runAiPresetButtonAction(button, action) {
-      if (button?.dataset.busy === "true") {
-        return null;
-      }
-      setAiPresetButtonsBusy(button, true);
-      try {
-        return await action();
-      } catch (error) {
-        console.error("AI 快捷动作失败:", error);
-        renderStatusStrip([{ label: error?.message || String(error), variant: "warn" }]);
-        return null;
-      } finally {
-        setAiPresetButtonsBusy(button, false);
-      }
-    }
-
-    els.recent20BarsButton.addEventListener("click", async () => {
-      await runAiPresetButtonAction(els.recent20BarsButton, async () => {
-        await aiChat.handlePresetAnalysis("recent_20_bars", "请分析最近20根K线并给出交易计划。", false);
-        renderSnapshot();
-      });
-    });
-    els.recent20MinutesButton.addEventListener("click", async () => {
-      await runAiPresetButtonAction(els.recent20MinutesButton, async () => {
-        await aiChat.handlePresetAnalysis("recent_20_minutes", "请分析最近20分钟并给出交易计划。", false);
-        renderSnapshot();
-      });
-    });
-    els.focusRegionsButton.addEventListener("click", async () => {
-      await runAiPresetButtonAction(els.focusRegionsButton, async () => {
-        await aiChat.handlePresetAnalysis("focus_regions", "请围绕当前重点区域给出计划。", false);
-        renderSnapshot();
-      });
-    });
-    els.liveDepthButton.addEventListener("click", async () => {
-      await runAiPresetButtonAction(els.liveDepthButton, async () => {
-        await aiChat.handlePresetAnalysis("live_depth", "请结合当前盘口结构给出建议。", false);
-        renderSnapshot();
-      });
-    });
-    els.manualRegionButton.addEventListener("click", async () => {
-      await runAiPresetButtonAction(els.manualRegionButton, async () => {
-        await aiChat.handlePresetAnalysis("manual_region", aiChat.buildManualRegionAnalysisPrompt(), false);
-        renderSnapshot();
-      });
-    });
-    els.selectedBarButton.addEventListener("click", async () => {
-      await runAiPresetButtonAction(els.selectedBarButton, async () => {
-        await aiChat.handlePresetAnalysis("selected_bar", aiChat.buildSelectedBarAnalysisPrompt(), false);
-        renderSnapshot();
-      });
-    });
-
-    els.annotationManagerButton.addEventListener("click", () => {
+    bindClickAction(els.annotationManagerButton, () => {
       state.annotationPanelOpen = true;
       renderSnapshot();
     });
-    els.toggleAnnotationPanelButton.addEventListener("click", () => {
+    bindClickAction(els.toggleAnnotationPanelButton, () => {
       state.annotationPanelOpen = !state.annotationPanelOpen;
       renderSnapshot();
     });
-    els.closeAnnotationPanelButton.addEventListener("click", () => {
+    bindClickAction(els.closeAnnotationPanelButton, () => {
       state.annotationPanelOpen = false;
       renderSnapshot();
     });
@@ -6187,13 +6312,13 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       writeStorage("annotationFilters", state.annotationFilters);
       renderSnapshot();
     });
-    els.annotationShowSelectedOnlyButton?.addEventListener("click", () => {
+    bindClickAction(els.annotationShowSelectedOnlyButton, () => {
       state.annotationFilters.selectedOnly = true;
       state.annotationFilters.annotationIds = state.selectedAnnotationId ? [state.selectedAnnotationId] : ["__none__"];
       writeStorage("annotationFilters", state.annotationFilters);
       renderSnapshot();
     });
-    els.annotationHideAllButton?.addEventListener("click", () => {
+    bindClickAction(els.annotationHideAllButton, () => {
       state.annotationFilters.onlyCurrentSession = false;
       state.annotationFilters.sessionIds = [];
       state.annotationFilters.messageIds = [];
@@ -6201,7 +6326,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       writeStorage("annotationFilters", state.annotationFilters);
       renderSnapshot();
     });
-    els.annotationShowPinnedButton?.addEventListener("click", () => {
+    bindClickAction(els.annotationShowPinnedButton, () => {
       state.annotationFilters.onlyCurrentSession = false;
       state.annotationFilters.sessionIds = [];
       state.annotationFilters.messageIds = [];
@@ -6212,62 +6337,67 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       writeStorage("annotationFilters", state.annotationFilters);
       renderSnapshot();
     });
-    els.annotationFilterResetButton.addEventListener("click", resetAnnotationFilters);
+    bindClickAction(els.annotationFilterResetButton, () => {
+      resetAnnotationFilters();
+    });
 
-    els.sessionRenameButton?.addEventListener("click", () => {
+    bindClickAction(els.sessionRenameButton, () => {
       const nextTitle = window.prompt("输入会话名称", getActiveThread().title);
       if (nextTitle && nextTitle.trim()) {
         renameActiveThread(nextTitle.trim());
+        renderStatusStrip([{ label: "当前会话名称已更新。", variant: "good" }]);
         renderSnapshot();
       }
     });
-    els.sessionPinButton?.addEventListener("click", () => {
+    bindClickAction(els.sessionPinButton, () => {
       togglePinActiveThread();
+      renderStatusStrip([{ label: "当前会话置顶状态已更新。", variant: "emphasis" }]);
       renderSnapshot();
     });
-    els.sessionDeleteButton?.addEventListener("click", () => {
+    bindClickAction(els.sessionDeleteButton, () => {
       if (window.confirm("确认归档当前会话？")) {
         deleteActiveThread();
+        renderStatusStrip([{ label: "当前会话已归档。", variant: "emphasis" }]);
         renderSnapshot();
       }
     });
-    els.sessionMoreButton?.addEventListener("click", async () => {
-      await runButtonAction(els.sessionMoreButton, async () => {
-        if (!els.sessionMoreMenu) {
-          return null;
-        }
-        const willOpen = els.sessionMoreMenu.hidden;
-        if (!willOpen) {
-          els.sessionMoreMenu.hidden = true;
-          return true;
-        }
-        els.sessionMoreMenu.hidden = false;
-        renderSnapshot();
-        if (syncSessionsFromServer) {
-          try {
-            await syncSessionsFromServer({ activateFirst: false });
-            renderSnapshot();
-            els.sessionMoreMenu.hidden = false;
-          } catch (error) {
-            console.warn("刷新会话工作区失败:", error);
-          }
-        }
-        els.sessionMoreMenu.querySelector("[data-session-search-input]")?.focus();
+    bindClickAction(els.sessionMoreButton, async () => {
+      if (!els.sessionMoreMenu) {
+        return null;
+      }
+      const willOpen = els.sessionMoreMenu.hidden;
+      if (!willOpen) {
+        els.sessionMoreMenu.hidden = true;
         return true;
-      }, {
-        lockKey: "session-more-menu",
-        blockedLabel: "会话列表正在刷新，请稍候。",
-      });
+      }
+      els.sessionMoreMenu.hidden = false;
+      renderSnapshot();
+      if (syncSessionsFromServer) {
+        try {
+          await syncSessionsFromServer({ activateFirst: false });
+          renderSnapshot();
+          els.sessionMoreMenu.hidden = false;
+        } catch (error) {
+          console.warn("刷新会话工作区失败:", error);
+        }
+      }
+      els.sessionMoreMenu.querySelector("[data-session-search-input]")?.focus();
+      return true;
+    }, {
+      useBusyState: true,
+      lockKey: "session-more-menu",
+      blockedLabel: "会话列表正在刷新，请稍候。",
     });
-    els.clearPinnedPlanButton?.addEventListener("click", () => {
+    bindClickAction(els.clearPinnedPlanButton, () => {
       state.pinnedPlanId = null;
       const session = getActiveThread();
       session.activePlanId = null;
       persistSessions();
+      renderStatusStrip([{ label: "当前置顶计划已清空。", variant: "emphasis" }]);
       renderSnapshot();
     });
 
-    els.addAttachmentButton?.addEventListener("click", () => {
+    bindClickAction(els.addAttachmentButton, () => {
       openAttachmentPicker({ statusLabel: "选择要附加到当前会话的文件。", accept: defaultAttachmentAccept });
     });
     els.attachmentInput?.addEventListener("change", async () => {
@@ -6285,26 +6415,26 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
         els.attachmentInput.setAttribute("accept", defaultAttachmentAccept);
       }
     });
-    els.chartScreenshotButton?.addEventListener("click", async () => {
-      await runButtonAction(els.chartScreenshotButton, async () => {
-        await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
-      }, {
-        lockKey: "chart-screenshot-attachment",
-        extraBusyTargets: screenshotAttachmentButtons,
-      });
+    bindClickAction(els.chartScreenshotButton, async () => {
+      await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
+    }, {
+      useBusyState: true,
+      lockKey: "chart-screenshot-attachment",
+      extraBusyTargets: screenshotAttachmentButtons,
+      blockedLabel: "图表截图正在生成，请等待完成。",
     });
-    els.chartToolbarScreenshotButton?.addEventListener("click", async () => {
-      await runButtonAction(els.chartToolbarScreenshotButton, async () => {
-        await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
-      }, {
-        lockKey: "chart-screenshot-attachment",
-        extraBusyTargets: screenshotAttachmentButtons,
-      });
+    bindClickAction(els.chartToolbarScreenshotButton, async () => {
+      await addChartScreenshotAttachment("已把图表截图加入当前会话附件。");
+    }, {
+      useBusyState: true,
+      lockKey: "chart-screenshot-attachment",
+      extraBusyTargets: screenshotAttachmentButtons,
+      blockedLabel: "图表截图正在生成，请等待完成。",
     });
-    els.externalScreenshotButton?.addEventListener("click", () => {
+    bindClickAction(els.externalScreenshotButton, () => {
       openAttachmentPicker({ statusLabel: "选择一张外部截图图片。", accept: "image/*" });
     });
-    els.clearAttachmentsButton?.addEventListener("click", () => {
+    bindClickAction(els.clearAttachmentsButton, () => {
       clearAttachments();
       renderStatusStrip([{ label: "当前会话附件已清空。", variant: "emphasis" }]);
       renderSnapshot();
@@ -6343,7 +6473,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       [els.drawerGammaButton, els.drawerGammaPanel, "gamma"],
     ];
     drawerButtons.forEach(([button, panel, key]) => {
-      button?.addEventListener("click", () => {
+      bindClickAction(button, () => {
         setDrawerOpen(key, !state.drawerState[key]);
       });
       if (panel) {
@@ -6386,26 +6516,28 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
       });
     });
 
-    // 按钮绑定已在 replay_workbench_bindings.js 中处理，这里只处理 sendViewportButton
-    if (els.sendViewportButton) {
-      els.sendViewportButton.addEventListener("click", async () => {
-        await runButtonAction(els.sendViewportButton, async () => {
-          const summary = els.chartViewportMeta?.textContent || "当前可视区域";
-          const session = getActiveThread();
-          await aiChat.handleAiChat("general", `请基于当前图表可视区域继续分析：${summary}`, {
-            id: session.id,
-            title: session.title,
-            symbol: session.symbol,
-            contractId: session.contractId,
-            timeframe: session.timeframe,
-            windowRange: session.windowRange,
-          });
-          renderSnapshot();
-        });
+    bindClickAction(els.sendViewportButton, async () => {
+      const summary = els.chartViewportMeta?.textContent || "当前可视区域";
+      const session = getActiveThread();
+      await aiChat.handleAiChat("general", `请基于当前图表可视区域继续分析：${summary}`, {
+        id: session.id,
+        title: session.title,
+        symbol: session.symbol,
+        contractId: session.contractId,
+        timeframe: session.timeframe,
+        windowRange: session.windowRange,
       });
-    }
+      renderSnapshot();
+    }, {
+      useBusyState: true,
+      lockKey: "send-viewport-to-ai",
+      blockedLabel: "当前视区正在发送给 AI，请稍候。",
+    });
 
     els.chartSvg.addEventListener("click", (event) => {
+      if (state.chartInteraction.regionMode) {
+        return;
+      }
       const target = event.target.closest("[data-annotation-id]");
       if (!target) {
         annotationPopoverController.hideAnnotationPopover();
@@ -6457,6 +6589,7 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     els,
     ensureChartView,
     rememberCurrentChartView,
+    syncChartRegionCaptureLayerBounds,
     buildCacheKey,
     syncCacheKey,
     renderSnapshot,

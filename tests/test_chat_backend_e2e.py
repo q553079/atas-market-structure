@@ -64,6 +64,11 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert prompt_blocks_response.status_code == 200
     prompt_blocks_payload = json.loads(prompt_blocks_response.body)
     assert len(prompt_blocks_payload["blocks"]) == 3
+    assert prompt_blocks_payload["blocks"][0]["block_version"] == 1
+    assert prompt_blocks_payload["blocks"][0]["source_kind"] == "window_snapshot"
+    assert prompt_blocks_payload["blocks"][0]["scope"] == "request"
+    assert prompt_blocks_payload["blocks"][0]["editable"] is False
+    assert prompt_blocks_payload["blocks"][0]["full_payload"]["block_meta"]["block_version"] == 1
 
     screenshot_attachment = {
         "name": "chart-snap.png",
@@ -95,14 +100,28 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert reply_payload["session"]["session_id"] == session_id
     assert reply_payload["user_message"]["role"] == "user"
     assert reply_payload["user_message"]["attachments"] == [screenshot_attachment]
+    assert reply_payload["user_message"]["meta"]["attachments"] == [screenshot_attachment]
     assert reply_payload["assistant_message"]["role"] == "assistant"
     assert reply_payload["assistant_message"]["status"] == "completed"
     assert reply_payload["assistant_message"]["prompt_trace_id"]
+    assert reply_payload["assistant_message"]["meta"]["prompt_trace_id"] == reply_payload["assistant_message"]["prompt_trace_id"]
     assert "做多" in reply_payload["reply_text"]
     assert len(reply_payload["plan_cards"]) >= 1
     assert len(reply_payload["annotations"]) >= 1
     assert len(reply_payload["assistant_message"]["annotations"]) >= 1
     assert len(reply_payload["assistant_message"]["plan_cards"]) >= 1
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["schema_version"] == "workbench_ui_contract_v1"
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["symbol"] == "NQ"
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["timeframe"] == "1m"
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["source_event_ids"]
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["source_object_ids"]
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["context_blocks"]
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["selected_block_count"] >= 1
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["pinned_block_count"] == 0
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["include_memory_summary"] is False
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["include_recent_messages"] is True
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["model_name"] == "fake-chat-e2e"
+    assert "stale_state" not in reply_payload["assistant_message"]["meta"]["workbench_ui"]
     assert reply_payload["memory"]["session_id"] == session_id
     assert reply_payload["memory"]["latest_question"] == "如果这里回踩，还能不能继续做多？"
 
@@ -154,7 +173,21 @@ def test_chat_session_reply_flow_persists_session_objects_and_memory() -> None:
     assert stored_prompt_trace is not None
     assert stored_prompt_trace.message_id == assistant_message_id
     assert stored_prompt_trace.attached_event_ids
+    assert stored_messages[-1].response_payload["workbench_ui"]["context_version"] == stored_prompt_trace.metadata["context_version"]
+    assert stored_messages[-1].response_payload["workbench_ui"]["context_blocks"] == stored_prompt_trace.snapshot["context_blocks"]
+    assert stored_messages[-1].response_payload["workbench_ui"]["selected_block_count"] == len(stored_prompt_trace.snapshot["context_blocks"])
+    assert stored_messages[-1].response_payload["workbench_ui"]["pinned_block_count"] == 0
+    assert stored_messages[-1].response_payload["workbench_ui"]["include_memory_summary"] is False
+    assert stored_messages[-1].response_payload["workbench_ui"]["include_recent_messages"] is True
+    assert stored_messages[-1].response_payload["workbench_ui"]["reply_window_anchor"] == stored_prompt_trace.metadata["reply_window_anchor"]
+    assert stored_messages[-1].response_payload["workbench_ui"]["source_event_ids"] == stored_messages[-1].response_payload["event_candidate_ids"]
+    assert "stale_state" not in stored_messages[-1].response_payload["workbench_ui"]
     assert all(item.source_prompt_trace_id == stored_prompt_trace.prompt_trace_id for item in stored_event_candidates)
+    assert all(item.metadata["presentation"]["source_message_id"] == assistant_message_id for item in stored_event_candidates)
+    assert all(item.metadata["presentation"]["source_prompt_trace_id"] == stored_prompt_trace.prompt_trace_id for item in stored_event_candidates)
+    assert all(item.metadata["presentation"]["reply_window_anchor"] == stored_prompt_trace.metadata["reply_window_anchor"] for item in stored_event_candidates)
+    assert all(item.metadata["presentation"]["is_fixed_anchor"] is False for item in stored_event_candidates)
+    assert any(item.metadata["presentation"].get("anchor_price") is not None for item in stored_event_candidates)
 
 def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
     application, repository = build_application()
@@ -218,6 +251,11 @@ def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
     assert reply_payload["annotations"] == []
     assert reply_payload["assistant_message"]["status"] == "completed"
     assert reply_payload["assistant_message"]["prompt_trace_id"]
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["assertion_level"] == "insufficient_context"
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["alignment_state"] == "pending_confirmation"
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["include_memory_summary"] is True
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["include_recent_messages"] is True
+    assert "stale_state" not in reply_payload["assistant_message"]["meta"]["workbench_ui"]
     assert reply_payload["memory"]["latest_question"] == "还没加载图表，先帮我整理一下当前思路。"
 
     stored_messages = repository.list_chat_messages(session_id=session_id)
@@ -227,3 +265,68 @@ def test_chat_session_reply_flow_works_without_replay_snapshot() -> None:
     stored_trace = repository.get_prompt_trace(reply_payload["assistant_message"]["prompt_trace_id"])
     assert stored_trace is not None
     assert stored_trace.message_id == reply_payload["assistant_message"]["message_id"]
+    assert stored_trace.metadata["context_version"] == reply_payload["assistant_message"]["meta"]["workbench_ui"]["context_version"]
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["context_blocks"] == stored_trace.snapshot["context_blocks"]
+
+
+def test_chat_reply_fallback_workbench_ui_uses_explicit_session_date_without_prompt_trace() -> None:
+    application, _repository = build_application()
+    application._replay_workbench_chat_service._prompt_trace_service = None
+
+    create_session_response = application.dispatch(
+        "POST",
+        "/api/v1/workbench/chat/sessions",
+        json.dumps(
+            {
+                "workspace_id": "replay_main",
+                "title": "无 Trace 降级",
+                "symbol": "NQ",
+                "contract_id": "NQM2026",
+                "timeframe": "1m",
+                "window_range": {
+                    "start": "2026-03-17T13:30:00Z",
+                    "end": "2026-03-17T20:00:00Z",
+                },
+                "active_model": "fake-chat-e2e",
+                "start_blank": True,
+            }
+        ).encode("utf-8"),
+    )
+    assert create_session_response.status_code == 201
+    session_id = json.loads(create_session_response.body)["session"]["session_id"]
+
+    reply_response = application.dispatch(
+        "POST",
+        f"/api/v1/workbench/chat/sessions/{session_id}/reply",
+        json.dumps(
+            {
+                "replay_ingestion_id": None,
+                "preset": ReplayAiChatPreset.GENERAL.value,
+                "user_input": "按今天交易日先整理一下。",
+                "selected_block_ids": [],
+                "pinned_block_ids": [],
+                "include_memory_summary": False,
+                "include_recent_messages": False,
+                "model": "fake-chat-e2e",
+                "attachments": [],
+                "extra_context": {
+                    "ui_context": {
+                        "session_date": "2026-03-18",
+                    },
+                },
+            }
+        ).encode("utf-8"),
+    )
+    assert reply_response.status_code == 200
+    reply_payload = json.loads(reply_response.body)
+
+    workbench_ui = reply_payload["assistant_message"]["meta"]["workbench_ui"]
+    assert reply_payload["assistant_message"]["prompt_trace_id"] is None
+    assert reply_payload["assistant_message"]["meta"]["prompt_trace_id"] is None
+    assert workbench_ui["reply_session_date"] == "2026-03-18"
+    assert workbench_ui["reply_window_anchor"].endswith("|2026-03-18")
+    assert workbench_ui["include_memory_summary"] is False
+    assert workbench_ui["include_recent_messages"] is False
+    assert workbench_ui["selected_block_count"] == 0
+    assert workbench_ui["pinned_block_count"] == 0
+    assert workbench_ui["model_name"] == "fake-chat-e2e"

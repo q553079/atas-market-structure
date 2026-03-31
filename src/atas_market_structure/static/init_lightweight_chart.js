@@ -1,4 +1,5 @@
 import { sanitizeReplayCandles } from "./replay_workbench_ui_utils.js";
+import { isTimestampWithinBarBucket } from "./replay_workbench_live_time_policy.js";
 
 let chartInstance = null;
 let volumeChartInstance = null;
@@ -17,10 +18,161 @@ let livePreviewState = null;
 let livePreviewListener = null;
 
 function getRenderableCandles(snapshot) {
-  return sanitizeReplayCandles(snapshot?.candles || [], {
+  const normalized = sanitizeReplayCandles(snapshot?.candles || [], {
     context: "chart-render",
     log: false,
   });
+  return suppressRenderableTailOutliers(normalized, snapshot);
+}
+
+function computeTailGuardMedian(numbers = []) {
+  const values = numbers
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  if (!values.length) {
+    return null;
+  }
+  const middle = Math.floor(values.length / 2);
+  if (values.length % 2 === 0) {
+    return (values[middle - 1] + values[middle]) / 2;
+  }
+  return values[middle];
+}
+
+function findNearestObservedBar(candles = [], startIndex = 0, direction = -1) {
+  for (let index = startIndex; index >= 0 && index < candles.length; index += direction) {
+    const bar = candles[index];
+    if (bar && !isSyntheticGapBar(bar)) {
+      return { bar, index };
+    }
+  }
+  return { bar: null, index: -1 };
+}
+
+function buildTailOutlierStats(candles = [], index = 0) {
+  const contextBars = [];
+  for (let offset = Math.max(0, index - 12); offset <= Math.min(candles.length - 1, index + 6); offset += 1) {
+    if (offset === index) {
+      continue;
+    }
+    const bar = candles[offset];
+    if (!bar || isSyntheticGapBar(bar)) {
+      continue;
+    }
+    contextBars.push(bar);
+  }
+  const ranges = [];
+  const closeMoves = [];
+  let previousClose = null;
+  contextBars.forEach((bar) => {
+    const high = Number(bar?.high);
+    const low = Number(bar?.low);
+    const close = Number(bar?.close);
+    if (Number.isFinite(high) && Number.isFinite(low)) {
+      ranges.push(Math.max(0, high - low));
+    }
+    if (Number.isFinite(close) && Number.isFinite(previousClose)) {
+      closeMoves.push(Math.abs(close - previousClose));
+    }
+    previousClose = Number.isFinite(close) ? close : previousClose;
+  });
+  const medianRange = computeTailGuardMedian(ranges);
+  const medianMove = computeTailGuardMedian(closeMoves);
+  return {
+    medianRange,
+    medianMove,
+    maxRange: Math.max(
+      4,
+      Number.isFinite(medianRange) ? medianRange * 8 : 0,
+      Number.isFinite(medianMove) ? medianMove * 16 : 0,
+    ),
+    maxDisplacement: Math.max(
+      6,
+      Number.isFinite(medianRange) ? medianRange * 6 : 0,
+      Number.isFinite(medianMove) ? medianMove * 14 : 0,
+    ),
+    maxNeighborDrift: Math.max(
+      2,
+      Number.isFinite(medianRange) ? medianRange * 3 : 0,
+      Number.isFinite(medianMove) ? medianMove * 6 : 0,
+    ),
+  };
+}
+
+function suppressRenderableTailOutliers(candles = [], snapshot = null) {
+  if (!Array.isArray(candles) || candles.length < 3) {
+    return candles;
+  }
+  const freshness = String(snapshot?.live_tail?.data_status?.freshness || "").toLowerCase();
+  const guardedTailStart = Math.max(0, candles.length - 24);
+  const nextCandles = [...candles];
+  let suppressedCount = 0;
+
+  for (let index = guardedTailStart; index < candles.length; index += 1) {
+    const bar = candles[index];
+    if (!bar || isSyntheticGapBar(bar)) {
+      continue;
+    }
+    const open = Number(bar?.open);
+    const high = Number(bar?.high);
+    const low = Number(bar?.low);
+    const close = Number(bar?.close);
+    if (![open, high, low, close].every((value) => Number.isFinite(value))) {
+      continue;
+    }
+    const stats = buildTailOutlierStats(candles, index);
+    const range = Math.max(0, high - low);
+    if (!(range > stats.maxRange)) {
+      continue;
+    }
+
+    const previous = findNearestObservedBar(candles, index - 1, -1).bar;
+    const next = findNearestObservedBar(candles, index + 1, 1).bar;
+    const previousClose = Number(previous?.close);
+    const nextClose = Number(next?.close);
+    const anchorCandidates = [previousClose, nextClose].filter((value) => Number.isFinite(value));
+    const anchorClose = computeTailGuardMedian(anchorCandidates);
+    if (!Number.isFinite(anchorClose)) {
+      continue;
+    }
+    const displacement = Math.max(
+      Math.abs(open - anchorClose),
+      Math.abs(high - anchorClose),
+      Math.abs(low - anchorClose),
+      Math.abs(close - anchorClose),
+    );
+    const neighborDrift = (
+      Number.isFinite(previousClose) && Number.isFinite(nextClose)
+        ? Math.abs(previousClose - nextClose)
+        : 0
+    );
+    const isTailStale = freshness !== "fresh" && index >= candles.length - 4;
+    const isIsolatedOutlier = displacement > stats.maxDisplacement && (
+      (Number.isFinite(previousClose) && Number.isFinite(nextClose) && neighborDrift <= stats.maxNeighborDrift)
+      || isTailStale
+    );
+    if (!isIsolatedOutlier) {
+      continue;
+    }
+
+    const syntheticOpen = Number.isFinite(previousClose) ? previousClose : anchorClose;
+    const syntheticClose = Number.isFinite(nextClose) ? nextClose : anchorClose;
+    nextCandles[index] = {
+      ...bar,
+      open: syntheticOpen,
+      high: Math.max(syntheticOpen, syntheticClose),
+      low: Math.min(syntheticOpen, syntheticClose),
+      close: syntheticClose,
+      visual_suppressed_outlier: true,
+    };
+    suppressedCount += 1;
+  }
+
+  if (suppressedCount > 0) {
+    console.warn(`chart-render: suppressed ${suppressedCount} suspicious tail candle(s)`);
+  }
+  return nextCandles;
 }
 
 function toChartTime(value) {
@@ -50,14 +202,35 @@ function formatUtcChartTime(time) {
   return "";
 }
 
-function utcTickMarkFormatter(time) {
-  if (typeof time === "number") {
-    const d = new Date(time * 1000);
-    const hh = String(d.getUTCHours()).padStart(2, "0");
-    const min = String(d.getUTCMinutes()).padStart(2, "0");
-    return `${hh}:${min}`;
+function formatUtcTickDate(d) {
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${mm}/${dd}`;
+}
+
+function utcTickMarkFormatter(time, tickMarkType) {
+  if (typeof time !== "number") {
+    return null;
   }
-  return null;
+  const d = new Date(time * 1000);
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const min = String(d.getUTCMinutes()).padStart(2, "0");
+  const sec = String(d.getUTCSeconds()).padStart(2, "0");
+  const tickTypes = window.LightweightCharts?.TickMarkType || {};
+
+  if (tickMarkType === tickTypes.TimeWithSeconds || d.getUTCSeconds() !== 0) {
+    return `${hh}:${min}:${sec}`;
+  }
+  if (
+    tickMarkType === tickTypes.DayOfMonth
+    || tickMarkType === tickTypes.DayOfWeek
+    || tickMarkType === tickTypes.Month
+    || tickMarkType === tickTypes.Year
+    || (d.getUTCHours() === 0 && d.getUTCMinutes() === 0)
+  ) {
+    return `${formatUtcTickDate(d)} ${hh}:${min}`;
+  }
+  return `${hh}:${min}`;
 }
 
 function getBarVolume(bar) {
@@ -184,6 +357,53 @@ function buildSnapshotSignature(snapshot) {
   return `${candles.length}:${lastBar.started_at || ""}:${lastBar.ended_at || ""}:${lastBar.close || ""}`;
 }
 
+function buildBarSignature(bar) {
+  if (!bar || typeof bar !== "object") {
+    return "";
+  }
+  return [
+    toChartTime(bar.started_at),
+    Number(bar.open),
+    Number(bar.high),
+    Number(bar.low),
+    Number(bar.close),
+    getBarVolume(bar),
+    Number(bar.delta ?? 0),
+    Number(bar.bid_volume ?? 0),
+    Number(bar.ask_volume ?? 0),
+    bar.is_synthetic === true ? 1 : 0,
+    String(bar.source_kind || ""),
+  ].join(":");
+}
+
+function resolveBarSignature(bar) {
+  if (!bar || typeof bar !== "object") {
+    return "";
+  }
+  if (typeof bar.signature === "string") {
+    return bar.signature;
+  }
+  return buildBarSignature(bar);
+}
+
+function hasSameBarSignatures(previousCandles = [], nextCandles = [], length = previousCandles.length) {
+  if (!Array.isArray(previousCandles) || !Array.isArray(nextCandles) || length < 0) {
+    return false;
+  }
+  if (length === 0) {
+    return true;
+  }
+  if (previousCandles.length < length || nextCandles.length < length) {
+    return false;
+  }
+  for (let index = 0; index < length; index += 1) {
+    if (resolveBarSignature(previousCandles[index]) !== resolveBarSignature(nextCandles[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function syncStateChartViewFromLogicalRange(logicalRange, snapshot, chartView) {
   if (!logicalRange || !snapshot?.candles?.length || !chartView) {
     return;
@@ -196,7 +416,7 @@ function syncStateChartViewFromLogicalRange(logicalRange, snapshot, chartView) {
 }
 
 function canApplyTailUpdate(snapshot, updateType) {
-  if (!lastChartDataset || updateType === "initial") {
+  if (!lastChartDataset || updateType === "initial" || updateType === "chart_refresh") {
     return false;
   }
   const candles = getRenderableCandles(snapshot);
@@ -217,13 +437,15 @@ function canApplyTailUpdate(snapshot, updateType) {
   if (!previousLastStartedAt || !nextLastStartedAt) {
     return false;
   }
-  return candles.length === previousCandles.length
-    ? previousLastStartedAt === nextLastStartedAt
-    : candles[candles.length - 2]?.started_at === previousLastStartedAt;
+  if (candles.length === previousCandles.length) {
+    return previousLastStartedAt === nextLastStartedAt
+      && hasSameBarSignatures(previousCandles, candles, previousCandles.length - 1);
+  }
+  return hasSameBarSignatures(previousCandles, candles, previousCandles.length);
 }
 
 function canApplyAppendTail(snapshot, updateType) {
-  if (!lastChartDataset || updateType !== "append_tail") {
+  if (!lastChartDataset || updateType !== "append_tail" || updateType === "chart_refresh") {
     return false;
   }
   const candles = getRenderableCandles(snapshot);
@@ -231,7 +453,11 @@ function canApplyAppendTail(snapshot, updateType) {
   if (!candles.length || !previousCandles.length || candles.length <= previousCandles.length) {
     return false;
   }
-  return previousCandles.every((bar, index) => bar?.started_at === candles[index]?.started_at);
+  if (previousCandles.length === 1) {
+    return previousCandles[0]?.started_at === candles[0]?.started_at;
+  }
+  return hasSameBarSignatures(previousCandles, candles, previousCandles.length - 1)
+    && previousCandles[previousCandles.length - 1]?.started_at === candles[previousCandles.length - 1]?.started_at;
 }
 
 function canApplyPrependHistory(snapshot, updateType) {
@@ -244,7 +470,7 @@ function canApplyPrependHistory(snapshot, updateType) {
     return false;
   }
   const suffix = candles.slice(candles.length - previousCandles.length);
-  return suffix.every((bar, index) => bar?.started_at === previousCandles[index]?.started_at);
+  return hasSameBarSignatures(previousCandles, suffix, previousCandles.length);
 }
 
 function buildCandlePoint(bar) {
@@ -273,6 +499,14 @@ function buildVolumePoint(bar) {
       ? "rgba(34, 171, 148, 0.58)"
       : "rgba(242, 54, 69, 0.58)",
   };
+}
+
+function restoreRenderedLastBar(lastBar) {
+  if (!lastBar) {
+    return;
+  }
+  candleSeries.update(buildCandlePoint(lastBar));
+  volumeSeries.update(buildVolumePoint(lastBar));
 }
 
 function applyTailUpdate(snapshot) {
@@ -344,47 +578,124 @@ function isLiveTailFreshForPreview(liveTail) {
   return String(liveTail?.data_status?.freshness || "").toLowerCase() === "fresh";
 }
 
-function resolveLivePreviewTargetPrice(lastBar, liveTail) {
+function computeMedian(values = []) {
+  const ordered = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  if (!ordered.length) {
+    return null;
+  }
+  const middle = Math.floor(ordered.length / 2);
+  if (ordered.length % 2 === 0) {
+    return (ordered[middle - 1] + ordered[middle]) / 2;
+  }
+  return ordered[middle];
+}
+
+function buildLivePreviewSanityWindow(candles = [], lastBar = null) {
+  const observed = candles
+    .filter((bar) => bar && !isSyntheticGapBar(bar))
+    .slice(-24);
+
+  const ranges = [];
+  const closeMoves = [];
+  const anchors = [];
+  let previousClose = null;
+
+  observed.forEach((bar) => {
+    const open = Number(bar?.open);
+    const high = Number(bar?.high);
+    const low = Number(bar?.low);
+    const close = Number(bar?.close);
+    if (![open, high, low, close].every((value) => Number.isFinite(value))) {
+      return;
+    }
+    anchors.push(open, high, low, close);
+    ranges.push(Math.max(0, high - low));
+    if (Number.isFinite(previousClose)) {
+      closeMoves.push(Math.abs(close - previousClose));
+    }
+    previousClose = close;
+  });
+
+  if (lastBar && typeof lastBar === "object") {
+    [lastBar.open, lastBar.high, lastBar.low, lastBar.close].forEach((value) => {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) {
+        anchors.push(numeric);
+      }
+    });
+  }
+
+  const anchorLow = anchors.length ? Math.min(...anchors) : null;
+  const anchorHigh = anchors.length ? Math.max(...anchors) : null;
+  const medianRange = computeMedian(ranges);
+  const medianCloseMove = computeMedian(closeMoves);
+  const padding = Math.max(
+    1,
+    Number.isFinite(medianRange) ? medianRange * 6 : 0,
+    Number.isFinite(medianCloseMove) ? medianCloseMove * 12 : 0,
+  );
+  const maxSpread = Math.max(
+    0.5,
+    Number.isFinite(medianRange) ? medianRange * 3 : 0,
+    Number.isFinite(medianCloseMove) ? medianCloseMove * 6 : 0,
+  );
+
+  return {
+    low: Number.isFinite(anchorLow) ? anchorLow - padding : null,
+    high: Number.isFinite(anchorHigh) ? anchorHigh + padding : null,
+    maxSpread,
+  };
+}
+
+function resolveLivePreviewTargetPrice(candles, lastBar, liveTail) {
+  const sanityWindow = buildLivePreviewSanityWindow(candles, lastBar);
   const latestPrice = Number(liveTail?.latest_price);
-  if (!Number.isFinite(latestPrice)) {
+  const bestBid = Number(liveTail?.best_bid);
+  const bestAsk = Number(liveTail?.best_ask);
+  const hasValidBook = Number.isFinite(bestBid) && Number.isFinite(bestAsk) && bestAsk >= bestBid;
+  const quoteMidpoint = hasValidBook ? (bestBid + bestAsk) / 2 : null;
+  const quoteSpread = hasValidBook ? (bestAsk - bestBid) : null;
+
+  if (Number.isFinite(quoteSpread) && quoteSpread > sanityWindow.maxSpread) {
     return null;
   }
 
-  const referencePrices = [
-    Number(lastBar?.open),
-    Number(lastBar?.high),
-    Number(lastBar?.low),
-    Number(lastBar?.close),
-    Number(liveTail?.best_bid),
-    Number(liveTail?.best_ask),
-  ].filter((value) => Number.isFinite(value));
-  if (!referencePrices.length) {
-    return latestPrice;
+  const candidates = [];
+  if (Number.isFinite(latestPrice)) {
+    if (!Number.isFinite(quoteMidpoint) || !Number.isFinite(quoteSpread)) {
+      candidates.push(latestPrice);
+    } else if (latestPrice >= (bestBid - quoteSpread) && latestPrice <= (bestAsk + quoteSpread)) {
+      candidates.push(latestPrice);
+    }
   }
-
-  const referenceLow = Math.min(...referencePrices);
-  const referenceHigh = Math.max(...referencePrices);
-  const referenceSpan = Math.max(0, referenceHigh - referenceLow);
-  const referencePad = Math.max(1, referenceSpan * 1.5);
-  if (latestPrice >= (referenceLow - referencePad) && latestPrice <= (referenceHigh + referencePad)) {
-    return latestPrice;
+  if (Number.isFinite(quoteMidpoint)) {
+    candidates.push(quoteMidpoint);
   }
-
-  const bestBid = Number(liveTail?.best_bid);
-  const bestAsk = Number(liveTail?.best_ask);
-  if (Number.isFinite(bestBid) && Number.isFinite(bestAsk) && bestAsk >= bestBid) {
-    return (bestBid + bestAsk) / 2;
-  }
-
   const lastClose = Number(lastBar?.close);
   if (Number.isFinite(lastClose)) {
-    return lastClose;
+    candidates.push(lastClose);
   }
   const lastOpen = Number(lastBar?.open);
   if (Number.isFinite(lastOpen)) {
-    return lastOpen;
+    candidates.push(lastOpen);
   }
-  return latestPrice;
+
+  for (const candidate of candidates) {
+    if (
+      Number.isFinite(candidate)
+      && (
+        !Number.isFinite(sanityWindow.low)
+        || !Number.isFinite(sanityWindow.high)
+        || (candidate >= sanityWindow.low && candidate <= sanityWindow.high)
+      )
+    ) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function interpolateQuoteValue(startValue, targetValue, progress) {
@@ -415,18 +726,20 @@ export function startLiveQuotePreview(snapshot, liveTail, options = {}) {
   }
 
   const lastBar = candles[candles.length - 1];
-  if (!isLiveTailFreshForPreview(liveTail)) {
+  if (
+    isSyntheticGapBar(lastBar)
+    || !isLiveTailFreshForPreview(liveTail)
+    || !isTimestampWithinBarBucket(liveTail?.latest_observed_at, lastBar, snapshot?.display_timeframe)
+  ) {
     cancelLivePreviewAnimation({ emitNull: true });
-    candleSeries.update(buildCandlePoint(lastBar));
-    volumeSeries.update(buildVolumePoint(lastBar));
+    restoreRenderedLastBar(lastBar);
     livePreviewState = null;
     return false;
   }
-  const latestPrice = resolveLivePreviewTargetPrice(lastBar, liveTail);
+  const latestPrice = resolveLivePreviewTargetPrice(candles, lastBar, liveTail);
   if (!Number.isFinite(latestPrice)) {
     cancelLivePreviewAnimation({ emitNull: true });
-    candleSeries.update(buildCandlePoint(lastBar));
-    volumeSeries.update(buildVolumePoint(lastBar));
+    restoreRenderedLastBar(lastBar);
     livePreviewState = null;
     return false;
   }
@@ -572,9 +885,9 @@ export function initLightweightCharts(els) {
       timeVisible: true,
       secondsVisible: false,
       rightOffset: 6,
-      barSpacing: 10,
-      minBarSpacing: 4,
-      lockVisibleTimeRangeOnResize: false,
+      barSpacing: 6,
+      minBarSpacing: 1,
+      lockVisibleTimeRangeOnResize: true,
       fixLeftEdge: false,
       fixRightEdge: false,
       tickMarkFormatter: utcTickMarkFormatter,
@@ -595,12 +908,12 @@ export function initLightweightCharts(els) {
         time: true,
         price: true,
       },
-      mouseWheel: true,
-      pinch: true,
+      mouseWheel: false,
+      pinch: false,
       axisDoubleClickReset: true,
     },
     handleScroll: {
-      mouseWheel: true,
+      mouseWheel: false,
       pressedMouseMove: true,
       horzTouchDrag: true,
       vertTouchDrag: true,
@@ -733,18 +1046,37 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
   const signature = buildSnapshotSignature(snapshot);
   const shouldFitInitially = !lastDataSignature;
   const dataChanged = signature !== lastDataSignature;
+  const incrementalEligible = updateType !== "chart_refresh";
 
-  if (dataChanged && canApplyTailUpdate(snapshot, updateType)) {
+  if (!dataChanged) {
+    if (candleSeries?.setMarkers) {
+      candleSeries.setMarkers(Array.isArray(options.markers) ? options.markers : []);
+    }
+    if (syncStateFromLogicalRange && chartInstance && candles.length && chartView) {
+      const logicalRange = chartInstance.timeScale().getVisibleLogicalRange?.();
+      if (logicalRange) {
+        syncStateChartViewFromLogicalRange(logicalRange, { ...snapshot, candles }, chartView);
+      }
+    }
+    if (els?.chartContainer) {
+      els.chartContainer.style.cursor = chartView?.regionMode ? "crosshair" : "grab";
+      els.chartContainer.dataset.lastUpdateType = lastUpdateType;
+      els.chartContainer.dataset.lastChartUpdateMs = String(Math.round(performance.now() - startedAt));
+    }
+    return;
+  }
+
+  if (incrementalEligible && canApplyTailUpdate(snapshot, updateType)) {
     applyTailUpdate(snapshot);
     const { emaData } = buildChartData(snapshot);
     emaSeries.setData(emaData);
     lastUpdateType = updateType;
-  } else if (dataChanged && canApplyAppendTail(snapshot, updateType)) {
+  } else if (incrementalEligible && canApplyAppendTail(snapshot, updateType)) {
     applyAppendTail(snapshot);
     const { emaData } = buildChartData(snapshot);
     emaSeries.setData(emaData);
     lastUpdateType = updateType;
-  } else if (dataChanged && canApplyPrependHistory(snapshot, updateType)) {
+  } else if (incrementalEligible && canApplyPrependHistory(snapshot, updateType)) {
     applyPrependHistory(snapshot);
     lastUpdateType = updateType;
   } else {
@@ -752,12 +1084,17 @@ export function updateChartData(snapshot, chartView, els, options = {}) {
     candleSeries.setData(candleData);
     volumeSeries.setData(volumeData);
     emaSeries.setData(emaData);
-    lastUpdateType = dataChanged ? updateType : lastUpdateType;
+    lastUpdateType = updateType;
   }
 
   if (dataChanged && chartInstance) {
     lastDataSignature = signature;
-    lastChartDataset = { candles: candles.map((bar) => ({ started_at: bar.started_at })) };
+    lastChartDataset = {
+      candles: candles.map((bar) => ({
+        started_at: bar.started_at,
+        signature: buildBarSignature(bar),
+      })),
+    };
     if (shouldFitInitially) {
       try {
         chartInstance.timeScale().fitContent();

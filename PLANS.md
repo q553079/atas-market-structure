@@ -23,6 +23,107 @@ Create a plan before changes such as:
 ## Rule
 Implementation should follow the approved plan instead of improvising broad rewrites.
 
+## 2026-03-27 Replay Workbench Button Reliability Cleanup
+- Goal
+  Remove dead frontend button-binding paths and standardize live button actions behind one idempotent, anti-double-click binding flow so chart and AI controls stay reliable as new buttons are added.
+- Scope
+  Keep the existing replay/AI features and route contracts, delete the unused legacy binding module, and tighten the active bootstrap binding layer with shared button helpers, immediate feedback, and screenshot/send responsiveness improvements.
+- Files expected to change
+  `PLANS.md`
+  `src/atas_market_structure/static/replay_workbench_bootstrap.js`
+  `src/atas_market_structure/static/replay_workbench.html`
+  `src/atas_market_structure/static/replay_workbench_bindings.js`
+- Invariants to preserve
+  Existing button ids, DOM structure, and public frontend route contracts stay compatible.
+  AI remains outside the online deterministic recognition path.
+  No new production dependency is added.
+- Migration / compatibility strategy
+  Treat `replay_workbench_bootstrap.js` as the only active button binding entrypoint.
+  Keep existing button semantics, but route key actions through a shared binding helper with action locks and user feedback.
+  Delete the unused legacy binding module only after verifying nothing imports it.
+- Tests to run
+  `docker compose -f compose.yaml -f docker-compose.yml up -d --build atas-market-structure`
+  Request `http://127.0.0.1:8080/workbench/replay` and confirm the updated bootstrap version string is served.
+- Rollback notes
+  Restore the deleted legacy module and revert the bootstrap helper wiring.
+  Static asset rollback is sufficient; no persisted data or backend contracts are touched.
+
+## 2026-03-27 Compose Dev Source Mount
+- Goal
+  Stop requiring image rebuilds for every frontend or main-service code change by mounting the local source tree directly into the Dockerized development services.
+- Scope
+  Update the development compose services so the workbench app and realtime API read Python/static code from the workspace while preserving existing data volumes and service names.
+- Files expected to change
+  `PLANS.md`
+  `compose.yaml`
+  `docker-compose.yml`
+- Invariants to preserve
+  Existing service names, ports, env var names, and data volumes remain unchanged.
+  SQLite/ClickHouse persistent data remains on their current volumes.
+  No route contracts or business logic are changed.
+- Migration / compatibility strategy
+  Add source bind mounts only for code paths under active development.
+  Keep the built image path available, but let mounted workspace files override `/app/src` and `/app/scripts` at runtime.
+  Expect Python code changes to require container restart, while static file reads can reflect mounted files immediately.
+- Tests to run
+  `docker compose -f compose.yaml -f docker-compose.yml up -d atas-market-structure realtime-api`
+  Verify `/workbench/replay` returns the updated static asset version without rebuilding the image.
+- Rollback notes
+  Remove the added bind mounts and restart the services to return to image-only runtime behavior.
+
+## 2026-03-27 GC Recent Rollover Continuous Repair
+- Goal
+  Make recent GC rollover repairable on a display-only read path by removing generic root-symbol contamination from continuous sequencing and adding an additive adjustment mode that anchors repaired history to the latest contract price basis.
+- Scope
+  Keep raw mirrored history append-only, refine continuous-contract segment resolution for explicit contract sequences, and extend continuous adjustment options without changing write-path persistence.
+- Files expected to change
+  `PLANS.md`
+  `src/atas_market_structure/models/_enums.py`
+  `src/atas_market_structure/continuous_contract_service.py`
+  `tests/test_continuous_contract_service.py`
+- Invariants to preserve
+  Raw contract history remains auditable and unmodified.
+  ClickHouse and SQLite write paths remain unchanged.
+  Existing routes stay backward compatible; the new adjustment mode is additive.
+  AI stays outside the online deterministic recognition path.
+- Migration / compatibility strategy
+  Keep existing `gap_shift` semantics unchanged for callers that already rely on it.
+  Filter generic root-symbol rows only when explicit contract rows are present in the same continuous query window.
+  Add a latest-basis adjustment mode as an additive enum value so callers can opt in explicitly.
+- Tests to run
+  `python -m pytest tests\\test_continuous_contract_service.py -q`
+- Rollback notes
+  Remove the additive adjustment mode and revert the generic-root filtering logic; stored raw and chart data remain untouched.
+
+## 2026-03-27 GC Display Contract Rollover Markers
+- Goal
+  Keep recent GC chart prices on their true source contracts while making the rollover visually continuous by splicing explicit contract bars on the read path and marking the contract switch point instead of shifting prices.
+- Scope
+  Add a shared chart-display helper that prefers explicit contract raw bars when multiple contracts are present, emits additive rollover annotations/metadata, and reuses that display path from both the fast chart endpoint and replay snapshot builds.
+- Files expected to change
+  `PLANS.md`
+  `src/atas_market_structure/chart_candle_service.py`
+  `src/atas_market_structure/app_routes/_workbench_routes.py`
+  `src/atas_market_structure/workbench_replay_service.py`
+  `src/atas_market_structure/static/replay_workbench_actions.js`
+  `tests/test_chart_candle_service.py`
+- Invariants to preserve
+  Raw mirrored contract history remains append-only and auditable.
+  ClickHouse remains the primary main-chart read store.
+  Real traded OHLC values are not shifted or rewritten for display.
+  Existing replay/event payload contracts stay backward compatible; any added fields are additive.
+- Migration / compatibility strategy
+  Keep the earlier continuous adjustment modes available, but stop using price-shifted continuity for the main chart display path.
+  Emit rollover markers through additive metadata/event annotations so the current frontend event layer can render them without a chart-library rewrite.
+  Overlay display-repaired candles by timestamp onto existing history snapshots instead of destructively replacing broader coverage.
+- Tests to run
+  `python -m pytest tests\test_continuous_contract_service.py tests\test_chart_candle_service.py -q`
+  `node --check src\atas_market_structure\static\replay_workbench_actions.js`
+- Rollback notes
+  Stop calling the display splice helper from the route and replay build path.
+  Remove the additive rollover annotations/metadata.
+  Leave stored raw bars and chart candles untouched.
+
 ## 2026-03-27 GC History Timestamp Trust Guardrail
 - Goal
   Prevent corrupted historical K-line rebuilds by excluding low-confidence local-time fallback payloads from chart persistence, raw-mirror fallback reads, and replay snapshot history selection.
@@ -398,3 +499,288 @@ Implementation should follow the approved plan instead of improvising broad rewr
   `python -m pytest tests\\test_workbench_replay_backfill_ranges.py -q`
 - Rollback notes
   Remove the helper import and revert `requested_ranges` normalization to the previous unchunked behavior.
+
+## 2026-03-31 Replay Workbench Attention-First UI Delivery
+- Goal
+  Deliver the replay workbench attention-first UI in phased, additive slices so the product moves from multi-panel sprawl to a chart-first, structured-answer, nearby-context workflow without breaking deterministic recognition, existing chat history, or current route compatibility.
+- Scope
+  Freeze additive semantics for reply/context/event state first, then reshape the first screen, introduce structured answer cards and cautious-output rules, convert the event stream into a nearby-context dock, make Prompt/Context governance explicit, add a default-collapsed Change Inspector, and finish with incremental-rendering and motion stability work.
+- Files expected to change
+  `PLANS.md`
+  `docs/implementation/workbench_attention_first_ui_delivery_plan_2026-03-31.md`
+  `docs/implementation/workbench_attention_first_ui_contracts_2026-03-31.md`
+  `docs/implementation/workbench_attention_first_ui_phase0_mapping_2026-03-31.md`
+  `docs/implementation/workbench_attention_first_ui_phase0_codex_prompt_pack_2026-03-31.md`
+  `docs/workbench/replay_workbench_attention_first_ui_v1.md`
+  `src/atas_market_structure/models/_schema_versions.py`
+  `src/atas_market_structure/models/_chat.py`
+  `src/atas_market_structure/models/_workbench_prompt_traces.py`
+  `src/atas_market_structure/models/__init__.py`
+  `src/atas_market_structure/workbench_chat_service.py`
+  `src/atas_market_structure/workbench_event_service.py`
+  `src/atas_market_structure/workbench_prompt_trace_service.py`
+  `src/atas_market_structure/app_routes/_workbench_routes.py`
+  `src/atas_market_structure/app_routes/_workbench_prompt_trace_routes.py`
+  `src/atas_market_structure/static/replay_workbench.html`
+  `src/atas_market_structure/static/replay_workbench.css`
+  `src/atas_market_structure/static/replay_workbench_dom.js`
+  `src/atas_market_structure/static/replay_workbench_state.js`
+  `src/atas_market_structure/static/replay_workbench_bootstrap.js`
+  `src/atas_market_structure/static/replay_workbench_ai_chat.js`
+  `src/atas_market_structure/static/replay_workbench_ai_threads.js`
+  `src/atas_market_structure/static/replay_workbench_event_panel.js`
+  `src/atas_market_structure/static/replay_workbench_prompt_trace_panel.js`
+  `src/atas_market_structure/static/replay_workbench_answer_cards.js`
+  `src/atas_market_structure/static/replay_workbench_nearby_context.js`
+  `src/atas_market_structure/static/replay_workbench_context_recipe.js`
+  `src/atas_market_structure/static/replay_workbench_change_inspector.js`
+  `tests/test_app_chat_routes.py`
+  `tests/test_chat_backend_e2e.py`
+  `tests/test_contract_schema_versions.py`
+  `tests/test_workbench_prompt_trace_service.py`
+- Invariants to preserve
+  The recognition pipeline and degraded-mode behavior remain unchanged, and AI stays outside the online deterministic recognition path.
+  All new UI/state payload fields remain additive and backward compatible.
+  Existing viewport behavior must not regress: no reset on ordinary refresh, stream update, or context-panel interaction.
+  Large compatibility-shell frontend files should not absorb new business logic once focused modules exist.
+- Migration / compatibility strategy
+  Execute in phases. First freeze shared semantics such as `chart_visible_window`, `reply_window_anchor`, `assertion_level`, prompt-block versioning, and nearby-event rules through a dedicated contract spec plus a Phase 0 mapping doc that assigns each field to an existing persistence or state container. Then layer in new surfaces behind additive metadata and focused frontend modules while keeping legacy rendering paths alive as compatibility fallbacks.
+  Delay Change Inspector until structured answer cards, viewport binding, and prompt/context versioning are stable enough to support semantic diffs instead of noisy text diffs.
+- Tests to run
+  `python -m pytest tests\\test_app_chat_routes.py tests\\test_chat_backend_e2e.py tests\\test_workbench_prompt_trace_service.py tests\\test_contract_schema_versions.py -q`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_chat.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_prompt_trace_panel.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_answer_cards.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_nearby_context.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_context_recipe.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_change_inspector.js`
+- Rollback notes
+  Roll back by phase, keeping additive metadata rows and payload fields in place while disabling the corresponding new frontend modules or route wiring.
+  Revert the active surface to the prior compatibility UI instead of deleting stored prompt traces, chat rows, or additive event/context metadata.
+
+## 2026-03-31 Replay Workbench Nearby Context Phase 0 Closeout
+- Scope
+  Close the Phase 0 event-side additive contracts by projecting stable presentation facts into event metadata and route payloads, then extract nearby-context derivation from the legacy event panel into a dedicated frontend module without changing the visible primary layout.
+- Invariants to preserve
+  The deterministic recognition pipeline, K-line generation/aggregation/live-tail paths, and degraded-mode behavior remain untouched.
+  No database schema changes or new production dependencies are introduced.
+  Ordinary event refresh, reply sync, and nearby-context recomputation must not reset the chart viewport or clear reply focus.
+  Legacy event payloads without the new metadata must remain usable and must not be misclassified as fixed-anchor or nearby by default.
+- Compatibility approach
+  Persist only stable event facts in additive `metadata.presentation` fields and keep transient classifications such as `nearby`, `influencing`, `historical`, and `stale_state` as frontend-derived view state.
+  Keep `replay_workbench_event_panel.js` as a facade/wiring layer and move new nearby-context business logic into `replay_workbench_nearby_context.js`, with minimal bootstrap wiring only.
+- Tests
+  `python -m pytest tests\\test_contract_schema_versions.py tests\\test_workbench_event_service.py tests\\test_workbench_event_api.py tests\\test_chat_backend_e2e.py -q`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_nearby_context.js`
+  `npx playwright test tests\\playwright_workbench_event_interaction.spec.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+- Rollback notes
+  Remove the new nearby-context module wiring and stop projecting the additive presentation metadata in the workbench event service and route responses, leaving legacy event-panel behavior intact.
+
+## 2026-03-31 Replay Workbench Attention-First Phase 1 First-Screen Convergence
+- Scope
+  Reshape the default replay workbench first screen into the attention-first four-module path of chart workspace, input composer, AI workspace, and nearby/event context while sinking low-frequency AI/event utilities behind secondary collapsed entry points.
+- Invariants to preserve
+  The deterministic recognition pipeline, backend route contracts, K-line/rendering paths, and existing viewport reset rules remain unchanged.
+  `activeReplyId`, `activeReplyWindowAnchor`, change-inspector state, prompt-trace access, event-panel interactions, and active-session persistence must survive layout changes.
+  No feature is deleted; low-frequency controls may be reordered, collapsed, or moved behind secondary entry points only.
+- Compatibility approach
+  Keep existing DOM ids for all current controls and panels, reuse collapsible/more-menu patterns instead of creating a new workflow, and treat `replay_workbench_bootstrap.js`, `replay_workbench_ai_threads.js`, and `replay_workbench_event_panel.js` as wiring/facade layers only.
+  Preserve current event-panel and prompt/change-inspector rendering paths, but reduce first-screen competition by default-collapsing secondary AI utilities and consolidating redundant quick-entry affordances.
+- Tests
+  `node --check src\\atas_market_structure\\static\\replay_workbench_dom.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+  `npx playwright test tests\\playwright_workbench_event_interaction.spec.js`
+- Rollback notes
+  Revert the new first-screen shell and secondary-collapse wiring while leaving underlying session, reply-focus, nearby-context, and prompt/change-inspector state untouched so the prior multi-panel layout continues to function.
+
+## 2026-03-31 Replay Workbench Attention-First Phase 2 Structured Answer Cards
+- Scope
+  Upgrade assistant replies from generic chat bubbles into additive structured answer cards with `Full / Compact / Skim` presentation, visible `assertion_level`, and cautious-output sections, while keeping legacy messages, prompt trace, mounted replies, active reply focus, and change-inspector flows compatible.
+- Invariants to preserve
+  The deterministic recognition pipeline, backend contracts, K-line/rendering/live-tail paths, and viewport reset rules remain unchanged.
+  `activeReplyId`, `activeReplyWindowAnchor`, mounted reply state, prompt trace actions, regenerate actions, context recipe visibility, and change inspector state must survive the rendering upgrade.
+  Legacy assistant messages without `meta.workbench_ui` must continue to render and interact without crashes.
+- Compatibility approach
+  Put new card parsing/rendering in `replay_workbench_answer_cards.js` and keep `replay_workbench_ai_threads.js` focused on orchestration and wiring.
+  Preserve existing `chat-message` / `chat-bubble` / `chat-bubble-body` wrappers and `data-message-action` buttons so legacy event decoration, prompt-trace hooks, and mounted-reply actions continue to work.
+  Use `meta.workbench_ui` when present, fall back to legacy bubble rendering when absent, and synthesize only minimal pending-card shell metadata on the client for in-flight replies.
+- Tests
+  `node --check src\\atas_market_structure\\static\\replay_workbench_answer_cards.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_chat.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+  `npx playwright test tests\\playwright_event_structured_priority.spec.js`
+- Rollback notes
+  Revert the answer-card module wiring and card-specific styling while keeping stored chat messages, additive `meta.workbench_ui`, active reply state, and prompt trace data intact so the prior bubble renderer continues to function.
+
+## 2026-03-31 Replay Workbench Attention-First Phase 3 Nearby Context Dock
+- Scope
+  Convert the visible event-stream reading path into a grouped, window-local Nearby Context Dock that derives `刚发生 / 仍在影响当前窗口 / 固定锚点` from the current chart window, active reply, reply-window anchor, and visible or mounted objects, while keeping backend event history intact.
+- Invariants to preserve
+  The deterministic recognition pipeline, backend Python contracts, K-line/rendering/live-tail paths, and viewport reset rules remain unchanged.
+  `activeReplyId`, `activeReplyWindowAnchor`, answer cards, context recipe, change inspector, prompt trace access, and existing event-panel button actions must keep working.
+  Nearby, influencing, and historical remain frontend-derived only; legacy events without presentation metadata must stay usable but must not be promoted to fixed-anchor by fallback logic.
+- Compatibility approach
+  Move the grouping and window-binding derivation into `replay_workbench_nearby_context.js`, keep `replay_workbench_event_panel.js` as facade/wiring plus grouped rendering, and reuse existing DOM ids in the event column so the visible layout stays stable.
+  Preserve full event history in memory and behind a lightweight history affordance while capping the default front-surface nearby items to a small set appropriate for first-screen reading.
+- Tests
+  `node --check src\\atas_market_structure\\static\\replay_workbench_nearby_context.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `npx playwright test tests\\playwright_workbench_event_interaction.spec.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+- Rollback notes
+  Revert the grouped nearby-dock rendering and wiring while leaving additive event presentation metadata, active reply anchors, and backend event history untouched so the previous flat event list remains available.
+
+## 2026-03-31 Replay Workbench Attention-First Phase 4 Context Recipe Governance And Trace Explainability
+- Scope
+  Make the replay workbench reply context inspectable by adding a dedicated Context Recipe summary and expanded view, surfacing prompt-governance metadata and exact block-version usage, and aligning the third-layer Prompt Trace with the same context-version and reply-window facts.
+- Invariants to preserve
+  The deterministic recognition pipeline, event-recognition chain, K-line generation/aggregation/live-tail paths, and public degraded-mode behavior remain unchanged.
+  No database schema changes or new production dependencies are introduced, and all contract changes stay additive through `response_payload`, `snapshot`, `metadata`, or `full_payload`.
+  Expanding or collapsing Context Recipe and Prompt Trace must not reset the chart viewport, active session, or active reply focus, and legacy messages or prompt blocks without governance fields must remain readable.
+- Compatibility approach
+  Move Context Recipe rendering logic into `replay_workbench_context_recipe.js` and keep `replay_workbench_ai_threads.js` as orchestration and state wiring only.
+  Reuse existing additive backend fields for `context_version`, `reply_window`, `reply_window_anchor`, and block governance metadata, supplementing only UI-friendly projections where needed without renaming public payload fields.
+  Keep Prompt Trace as a third-layer panel, but align its wording and block-version presentation with the Context Recipe so the same reply describes the same context on both surfaces.
+- Tests
+  `python -m pytest tests\\test_workbench_prompt_trace_service.py tests\\test_chat_backend_e2e.py tests\\test_app_chat_routes.py -q`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_context_recipe.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_prompt_trace_panel.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_chat.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+- Rollback notes
+  Remove the dedicated Context Recipe module wiring and the extra trace explainability projections while preserving stored additive metadata so the previous inline recipe rendering and legacy Prompt Trace summary continue to function.
+
+## 2026-03-31 Replay Workbench Attention-First Phase 5 Change Inspector
+- Scope
+  Add a dedicated replay-workbench change-inspector module that stays default-collapsed, compares only eligible structured assistant replies, and explains reply/context/event/object deltas as semantic changes rather than raw long-text diffs.
+- Invariants to preserve
+  The deterministic recognition pipeline, backend Python contracts, K-line generation/aggregation/live-tail paths, and viewport reset rules remain unchanged.
+  `activeReplyId`, `activeReplyWindowAnchor`, answer-card rendering, context-recipe visibility, nearby-context behavior, session persistence, and existing prompt-trace actions must survive inspector open/close and mode changes.
+  Legacy messages and ineligible reply pairs must remain readable without forcing a compare path, and new replies must not auto-steal focus by opening the inspector.
+- Compatibility approach
+  Move inspector eligibility, comparison, and rendering logic into `replay_workbench_change_inspector.js`, keeping `replay_workbench_ai_threads.js` limited to orchestration and state wiring.
+  Reuse the existing additive `state.changeInspector` shape by treating `open=false` as `collapsed` and `mode` as `peek` or `expanded`, while removing the old raw text-diff path and degrading to hidden or lightweight cues for ineligible comparisons.
+  Prefer `meta.workbench_ui`, answer-card summaries, and context-recipe metadata as stable semantic sources, while falling back conservatively for legacy messages without misclassifying them as comparable structured replies.
+- Tests
+  `node --check src\\atas_market_structure\\static\\replay_workbench_change_inspector.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_answer_cards.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_context_recipe.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+  `npx playwright test tests\\playwright_event_structured_priority.spec.js`
+- Rollback notes
+  Remove the dedicated change-inspector module wiring and restore the prior inline compare presentation while leaving additive reply metadata, answer-card state, and persisted change-inspector identifiers untouched so the legacy reply view keeps functioning.
+
+## 2026-03-31 Replay Workbench Attention-First Phase 6 Incremental Rendering And Stability
+- Scope
+  Improve replay workbench rendering stability by adding a focused render-stability module for keyed patching, scroll/focus/hover preservation, and restrained transition coordination across AI reply cards, nearby context, change inspector, and context recipe surfaces.
+- Invariants to preserve
+  The deterministic recognition pipeline, backend contracts, K-line generation/aggregation/live-tail paths, and viewport reset rules remain unchanged.
+  `activeReplyId`, `activeReplyWindowAnchor`, answer-card semantics, nearby-context grouping, context recipe state, change-inspector state, prompt-trace access, and active-session persistence must survive any render optimization.
+  No new production dependency is introduced, and no public route contract, enum, or degraded-mode behavior is changed.
+- Compatibility approach
+  Keep initial full render paths as fallback, but route subsequent single-item updates through focused keyed or targeted patch helpers in `replay_workbench_render_stability.js`.
+  Limit `replay_workbench_bootstrap.js`, `replay_workbench_ai_threads.js`, and `replay_workbench_event_panel.js` to orchestration and wiring; keep business semantics in their existing feature modules.
+  If a targeted patch cannot safely apply, fall back to the existing full-surface render after capturing and restoring scroll/focus/selection state.
+- Tests
+  `node --check src\\atas_market_structure\\static\\replay_workbench_render_stability.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_answer_cards.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_nearby_context.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_change_inspector.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_context_recipe.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+  `npx playwright test tests\\playwright_workbench_event_interaction.spec.js`
+  `npx playwright test tests\\playwright_event_structured_priority.spec.js`
+- Rollback notes
+  Remove the render-stability module wiring and revert each surface to its prior full rerender path while leaving additive UI state, reply metadata, and nearby/change-inspector/context-recipe contracts intact.
+
+## 2026-03-31 Replay Workbench Attention-First Post-Phase-6 Bootstrap AI Controls Split
+- Scope
+  Extract the replay workbench AI controls wiring from `replay_workbench_bootstrap.js` into a focused frontend module without changing the current attention-first behavior, DOM ids, state shape, or analysis preset semantics.
+- Invariants to preserve
+  The deterministic recognition pipeline, backend/public contracts, K-line generation/aggregation/live-tail paths, and viewport reset rules remain unchanged.
+  `aiKlineAnalysisButton`, `aiMoreButton`, `aiSecondaryControls`, `analysisTypeSelect`, `analysisSendCurrentButton`, `analysisSendNewButton`, `focusRegionsButton`, `liveDepthButton`, `manualRegionButton`, and `selectedBarButton` must keep their current behavior.
+  Change Inspector stays default-collapsed, the main AI send path remains intact, and no new production dependency is introduced.
+- Compatibility approach
+  Keep `replay_workbench_bootstrap.js` as orchestration and dependency assembly only, and move the AI controls button wiring plus local busy helpers into a dedicated `replay_workbench_ai_controls.js` module.
+  Inject existing helpers such as `bindClickAction`, `setSecondaryControlsOpen`, `persistSessions`, `renderSnapshot`, and `aiChat` so the split does not rename public fields or duplicate business semantics.
+- Tests
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_controls.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `npx playwright test tests\\playwright_replay_ui_fix.spec.js`
+  `npx playwright test tests\\playwright_event_structured_priority.spec.js`
+- Rollback notes
+  Remove the dedicated AI-controls module and restore the previous inline button wiring in `replay_workbench_bootstrap.js` while leaving the current attention-first UI surface and analysis template contracts unchanged.
+
+## 2026-03-31 Replay Workbench Attention-First UI Structure Correction
+- Goal
+  Fix the largest remaining first-screen structural mismatches against the attention-first design by removing the independent event column, reducing first-screen action noise, and shifting AI reading priority from thread-first to answer-first.
+- Scope
+  Limit this pass to frontend layout, shell ordering, and visibility strategy across the replay workbench first screen. Keep all existing event, reply, prompt-trace, and change-inspector capabilities, but move them into the intended reading hierarchy.
+- Files expected to change
+  `PLANS.md`
+  `docs/implementation/workbench_attention_first_ui_structure_correction_2026-03-31.md`
+  `src/atas_market_structure/static/replay_workbench.html`
+  `src/atas_market_structure/static/replay_workbench.css`
+  `src/atas_market_structure/static/replay_workbench_dom.js`
+  `src/atas_market_structure/static/replay_workbench_ai_threads.js`
+  `src/atas_market_structure/static/replay_workbench_answer_cards.js`
+  `tests/playwright_replay_ui_fix.spec.js`
+  `tests/playwright_workbench_event_interaction.spec.js`
+  `tests/playwright_event_structured_priority.spec.js`
+- Invariants to preserve
+  Event backend contracts, `nearby / influencing / fixed_anchor / historical` semantics, and chart/event overlay semantics remain unchanged.
+  `activeReplyId`, `activeReplyWindowAnchor`, render stability, legacy message compatibility, and scroll/focus preservation must keep working.
+  Change Inspector stays default-collapsed, Prompt Trace stays third-layer, and no new production dependency is added.
+- Migration / compatibility strategy
+  Reuse existing DOM ids and event-panel data paths, but move `eventStreamPanel` under the AI reading path instead of keeping it as a first-screen middle column.
+  Promote the active structured reply into a dedicated answer slot above the thread, keep the thread as a lower reading layer, and sink secondary chart/composer/session actions behind collapsed or more-entry shells rather than deleting them.
+- Tests to run
+  `python -m pytest tests\\test_contract_schema_versions.py tests\\test_workbench_event_service.py tests\\test_workbench_event_api.py tests\\test_chat_backend_e2e.py tests\\test_workbench_prompt_trace_service.py tests\\test_app_chat_routes.py -q`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_answer_cards.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_context_recipe.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_change_inspector.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_dom.js`
+  `npx playwright test "tests/playwright_replay_ui_fix.spec.js" "tests/playwright_workbench_event_interaction.spec.js" "tests/playwright_event_structured_priority.spec.js"`
+- Rollback notes
+  Restore the prior multi-column shell and thread-first AI surface while keeping additive metadata, stored chat replies, event history, and prompt-trace data intact.
+
+## 2026-03-31 Replay Workbench Attention-First Performance Hot Path Cleanup
+- Scope
+  Tighten the frontend hot paths for region drag, AI/event local rerender boundaries, and attention-first acceptance checks without redesigning the workbench or changing backend semantics. Extract the region drag runtime, render routing, and event/chat decoration ownership out of the existing bootstrap and event-panel facades so the split is structural, not cosmetic.
+- Invariants to preserve
+  Region selection semantics, viewport reset rules, answer-card / nearby-context / context-recipe / change-inspector behavior, public route contracts, schema/enums, and deterministic recognition boundaries remain unchanged.
+- Compatibility approach
+  Keep existing full-render behavior as the safe fallback, but move high-frequency drag updates to cached `requestAnimationFrame` scheduling, prefer targeted event/chat decoration updates, route local chart interactions through narrower render helpers, and keep bootstrap/event-panel as orchestration-only facades over focused modules.
+- Tests
+  `python -m pytest tests\\test_contract_schema_versions.py tests\\test_workbench_event_service.py tests\\test_workbench_event_api.py tests\\test_chat_backend_e2e.py tests\\test_workbench_prompt_trace_service.py tests\\test_app_chat_routes.py -q`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_event_panel.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_render_stability.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_chart_interactions.js`
+  `node --check src\\atas_market_structure\\static\\init_lightweight_chart.js`
+  `npx playwright test "tests/playwright_replay_ui_fix.spec.js" "tests/playwright_workbench_event_interaction.spec.js" "tests/playwright_event_structured_priority.spec.js"`
+- Rollback notes
+  Revert the new drag scheduler/cache, restore the previous AI/event full-rerender triggers, and drop the additive acceptance assertions; no persisted data or backend contracts need migration.

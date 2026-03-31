@@ -22,7 +22,7 @@
     </div>
 
     <main class="workbench-main" id="workbenchMain">
-      <section class="chart-workspace panel-surface" id="chartWorkspace">
+      <section class="chart-workspace panel-surface" id="chartWorkspace" data-attention-primary-module="chart-workspace">
         <header class="workbench-header-bar">
           <div class="header-group header-group-main">
             <div class="field compact searchable-field">
@@ -75,16 +75,16 @@
           </div>
           <div class="header-group header-group-actions">
             <div class="button-row tight header-actions-row">
-              <button id="buildButton" type="button">加载图表</button>
-              <button id="refreshAllButton" type="button" class="secondary">刷新</button>
+              <button id="buildButton" type="button" data-attention-primary-action="build-chart">加载图表</button>
               <button id="headerMoreButton" type="button" class="secondary" aria-expanded="false" aria-controls="headerMoreMenu">更多▼</button>
-              <button id="restoreLayoutButton" type="button" class="secondary">恢复布局</button>
             </div>
             <div id="headerMoreMenu" class="header-more-menu card-surface" hidden>
               <div class="header-more-summary">
                 <div class="meta" id="headerMoreMenuStatus">NQ / 1m · 未加载</div>
                 <div class="meta" id="headerMoreMenuSync">最近同步：未同步</div>
               </div>
+              <button id="refreshAllButton" type="button" class="secondary tiny">刷新</button>
+              <button id="restoreLayoutButton" type="button" class="secondary tiny">恢复布局</button>
               <button id="lookupCacheButton" type="button" class="secondary tiny">查看缓存</button>
               <button id="invalidateCacheButton" type="button" class="secondary tiny">重置缓存</button>
               <button id="repairChartButton" type="button" class="secondary tiny">修复当前图表</button>
@@ -185,24 +185,29 @@
               <button id="annotationManagerButton" class="secondary" type="button">标记管理</button>
             </div>
           </div>
-          <div class="chart-toolbar primary-toolbar header-chart-toolbar">
-            <button id="zoomInButton" class="secondary" type="button">放大</button>
-            <button id="zoomOutButton" class="secondary" type="button">缩小</button>
-            <button id="zoomPriceInButton" class="secondary" type="button">价格放大</button>
-            <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
-            <button id="resetViewButton" class="secondary" type="button">重置视图</button>
-            <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
-            <button id="saveRegionQuickButton" class="secondary" type="button">保存区域</button>
-            <button id="manualKeyLevelButton" class="secondary" type="button">关键位 L</button>
-            <button id="manualEventZoneButton" class="secondary" type="button">区域 Z</button>
-            <button id="manualRiskNoteButton" class="secondary" type="button">风险 R</button>
-            <button id="saveEventCandidateButton" class="secondary" type="button" hidden>保存事件</button>
-            <button id="cancelEventCandidateToolButton" class="secondary" type="button" hidden>取消事件工具</button>
-            <button id="chartToolbarScreenshotButton" class="secondary" type="button">图表截图</button>
-            <button id="sendViewportButton" class="secondary" type="button">发送视区</button>
-            <span class="meta" id="chartViewportMeta">视图未初始化</span>
-            <span class="meta" id="eventToolMeta">L 建关键位，Z 建区域，R 建风险。</span>
-          </div>
+          <details class="chart-toolbar-secondary-shell card-surface" id="chartToolbarSecondary">
+            <summary class="chart-toolbar-secondary-summary" data-attention-primary-action="chart-tools">图表工具</summary>
+            <div class="chart-toolbar primary-toolbar header-chart-toolbar">
+              <button id="zoomInButton" class="secondary" type="button">放大</button>
+              <button id="zoomOutButton" class="secondary" type="button">缩小</button>
+              <button id="zoomPriceInButton" class="secondary" type="button">价格放大</button>
+              <button id="zoomPriceOutButton" class="secondary" type="button">价格缩小</button>
+              <button id="resetViewButton" class="secondary" type="button">重置视图</button>
+              <button id="armRegionButton" class="secondary" type="button">开始框选区域</button>
+              <button id="saveRegionQuickButton" class="secondary" type="button">保存区域</button>
+              <button id="repairRegionQuickButton" class="secondary" type="button">删除并回补</button>
+              <button id="sendRegionToChatQuickButton" class="secondary" type="button">发送到聊天区</button>
+              <button id="manualKeyLevelButton" class="secondary" type="button">关键位 L</button>
+              <button id="manualEventZoneButton" class="secondary" type="button">区域 Z</button>
+              <button id="manualRiskNoteButton" class="secondary" type="button">风险 R</button>
+              <button id="saveEventCandidateButton" class="secondary" type="button" hidden>保存事件</button>
+              <button id="cancelEventCandidateToolButton" class="secondary" type="button" hidden>取消事件工具</button>
+              <button id="chartToolbarScreenshotButton" class="secondary" type="button">图表截图</button>
+              <button id="sendViewportButton" class="secondary" type="button">发送视区</button>
+              <span class="meta" id="chartViewportMeta">视图未初始化</span>
+              <span class="meta" id="eventToolMeta">L 建关键位，Z 建区域，R 建风险。</span>
+            </div>
+          </details>
           <div class="layer-strip header-layer-strip" id="chartLayerStrip">
             <label><input id="layerLargeOrders" type="checkbox">大单</label>
             <label><input id="layerAbsorption" type="checkbox">吸收</label>
@@ -242,27 +247,9 @@
           <div id="volumeChartContainer" class="volume-chart-container" style="display:none"></div>
           <svg id="chartSvg" viewBox="0 0 1200 760" preserveAspectRatio="none" style="display:none"></svg>
           <div id="chartEventOverlayLayer" class="chart-event-overlay-layer" hidden></div>
+          <div id="chartRegionCaptureLayer" class="chart-region-capture-layer" hidden aria-hidden="true"></div>
         </div>
         <div class="chart-event-rail card-surface" id="chartEventRail" hidden></div>
-      </section>
-
-      <section class="event-stream-column card-surface" id="eventStreamPanel">
-        <div class="workspace-section-header compact">
-          <div>
-            <h2>事件流</h2>
-            <p id="eventStreamSummary">正在等待正式 EventCandidate。</p>
-          </div>
-        </div>
-        <div class="event-outcome-summary-panel" id="eventOutcomeSummary"></div>
-        <div class="event-outcome-focus-panel" id="eventOutcomeFocus" hidden></div>
-        <div class="mini-filter-bar" id="eventStreamFilterBar" aria-label="事件流筛选">
-          <button type="button" class="secondary tiny is-active" data-event-stream-filter="all">全部</button>
-          <button type="button" class="secondary tiny" data-event-stream-filter="key_level">关键位</button>
-          <button type="button" class="secondary tiny" data-event-stream-filter="price_zone">区域</button>
-          <button type="button" class="secondary tiny" data-event-stream-filter="market_event">事件</button>
-          <button type="button" class="secondary tiny" data-event-stream-filter="risk_note">风险</button>
-        </div>
-        <div class="event-stream-list" id="eventStreamList"></div>
       </section>
 
       <div class="resize-handle vertical" id="rightResizeHandle" title="拖动调整右侧聊天宽度"></div>
@@ -311,184 +298,79 @@
                   <strong>行情分析</strong>
                 </div>
                 <div class="panel-actions">
+                  <button
+                    id="changeInspectorToggle"
+                    class="secondary tiny change-inspector-toggle"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="changeInspectorPanel"
+                    hidden
+                  >变化对比</button>
                   <button id="toggleAnnotationPanelButton" class="secondary tiny" type="button">标记管理</button>
                 </div>
               </div>
 
-        <div class="chat-session-strip" id="aiThreadTabs"></div>
-
-        <div class="analysis-template-panel card-surface">
-          <div class="field compact">
-            <label for="analysisTypeSelect">分析类型</label>
-            <select id="analysisTypeSelect">
-              <option value="recent_20_bars">最近20根K线</option>
-              <option value="recent_20_minutes">最近20分钟</option>
-              <option value="focus_regions">重点价格区域</option>
-              <option value="live_depth">实时挂单结构</option>
-              <option value="selected_bar">选中K线足迹</option>
-              <option value="manual_region">手工区域复盘</option>
-              <option value="entry_review">开仓评价</option>
-              <option value="event_timeline">事件时间线总结</option>
-            </select>
-          </div>
-          <div class="field compact">
-            <label for="analysisRangeSelect">分析范围</label>
-            <select id="analysisRangeSelect">
-              <option value="current_window">当前窗口</option>
-              <option value="1h">最近1小时</option>
-              <option value="3h">最近3小时</option>
-              <option value="selected_region">当前选中区域</option>
-              <option value="selected_bar">当前选中K线</option>
-              <option value="latest_entry">最近一次开仓</option>
-            </select>
-          </div>
-          <div class="field compact">
-            <label for="analysisStyleSelect">输出风格</label>
-            <select id="analysisStyleSelect">
-              <option value="brief">简短结论</option>
-              <option value="standard" selected>标准分析</option>
-              <option value="longform">长文复盘</option>
-              <option value="trade_only">只给交易建议</option>
-              <option value="risk_only">只给风险提示</option>
-            </select>
-          </div>
-          <div class="button-row tight">
-            <button id="analysisSendCurrentButton" type="button">发送到当前会话</button>
-            <button id="analysisSendNewButton" type="button" class="secondary">新会话发送</button>
-          </div>
+        <div class="ai-quick-actions ai-primary-actions card-surface" id="aiPrimaryActions">
+          <button id="aiKlineAnalysisButton" class="ai-quick-action-pill primary" type="button" title="分析当前窗口" data-attention-primary-action="analyze-current-window">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" fill="currentColor"/>
+            </svg>
+            <span>分析当前窗口</span>
+          </button>
+          <button
+            id="aiMoreButton"
+            class="ai-quick-action-pill"
+            type="button"
+            title="更多分析入口"
+            aria-expanded="false"
+            aria-controls="aiSecondaryControls"
+            data-attention-primary-action="open-secondary-tools"
+          >
+            <span>更多工具</span>
+          </button>
         </div>
 
-        <div class="chat-toolbar secondary-toolbar card-surface">
-          <button id="recent20BarsButton" class="secondary" type="button">最近20K</button>
-          <button id="recent20MinutesButton" class="secondary" type="button">最近20分钟</button>
-          <button id="focusRegionsButton" class="secondary" type="button">重点区域</button>
-          <button id="liveDepthButton" class="secondary" type="button">实时挂单</button>
-          <button id="manualRegionButton" class="secondary" type="button">插入手工区域</button>
-          <button id="selectedBarButton" class="secondary" type="button">插入选中K线</button>
-          <button id="chartScreenshotButton" class="secondary" type="button">图表截图</button>
-          <button id="externalScreenshotButton" class="secondary" type="button">外部截图</button>
-          <button id="addAttachmentButton" class="secondary" type="button">附件</button>
-          <button id="aiModelSwitcherButton" class="secondary" type="button">AI切换</button>
-          <input id="attachmentInput" type="file" accept="image/*,.pdf,.txt,.md" multiple hidden>
-        </div>
-
-        <div class="chat-current-session card-surface">
-          <div class="chat-current-session-head">
-            <strong id="currentSessionTitle">会话：01</strong>
-            <span class="mono" id="currentSessionModelLabel">模型：服务端默认</span>
-          </div>
-          <div class="button-row tight session-manage-row">
-            <button id="sessionRenameButton" type="button" class="secondary tiny">重命名</button>
-            <button id="sessionPinButton" type="button" class="secondary tiny">固定/取消固定</button>
-            <button id="sessionDeleteButton" type="button" class="secondary tiny">归档会话</button>
-            <button id="sessionMoreButton" type="button" class="secondary tiny">更多▼</button>
-          </div>
-          <div id="sessionMoreMenu" class="session-more-menu" hidden></div>
-          <div class="chat-memory-summary" id="sessionMemorySummary" hidden>无摘要</div>
-        </div>
-
-        <div class="chat-pinned-plan card-surface" id="pinnedPlanCard" hidden>
-          <div class="strip-head">
-            <span class="strip-title">当前主计划</span>
-            <button id="clearPinnedPlanButton" type="button" class="secondary tiny">取消固定</button>
-          </div>
-          <div id="pinnedPlanCardBody" class="chat-plan-card-summary">暂无固定计划</div>
-          <div class="button-row tight" id="pinnedPlanCardActions"></div>
-        </div>
-
-        <div class="session-context-strip card-surface" id="sessionContextStrip" hidden>
-          <div class="strip-head">
-            <span class="strip-title">会话摘要</span>
-          </div>
-          <div class="meta">无摘要。</div>
-        </div>
-
-        <div class="mounted-reply-strip card-surface" id="mountedReplyStrip" hidden>
-          <div class="strip-head">
-            <span class="strip-title">已挂载回复 / 计划</span>
-          </div>
-          <div class="strip-chip-row"></div>
-        </div>
-
-        <div class="prompt-selection-bar card-surface" id="promptSelectionBar" hidden>
-          <div class="strip-head">
-            <span class="strip-title">当前 Prompt 上下文</span>
-          </div>
-          <div class="strip-chip-row"></div>
-        </div>
-
-        <div class="chat-thread-shell">
-          <div id="aiChatThread" class="chat-thread embedded-chat-thread"></div>
-          <button id="aiChatScrollToBottomButton" class="secondary tiny chat-scroll-to-bottom" type="button" hidden>回到底部</button>
-        </div>
-
-        <section class="secondary-ai-panel card-surface" id="eventScribePanel">
-          <div class="secondary-ai-panel-head">
-            <div>
-              <strong>事件判断 AI</strong>
-              <div class="meta" id="eventScribeSessionLabel">未建立会话</div>
+            <div class="chat-composer card-surface" data-attention-primary-module="input-composer">
+              <div class="chat-composer-input-wrapper">
+                <textarea id="aiChatInput" placeholder="发消息、输入 @ 或 / 选择技能"></textarea>
+                <div class="chat-composer-tools">
+                  <details class="chat-composer-tools-menu" id="chatComposerToolsMenu">
+                    <summary class="chat-composer-tools-summary" data-attention-primary-action="composer-more-tools">附加</summary>
+                    <div class="chat-composer-tools-popover card-surface">
+                      <button id="aiAttachmentButton" class="ai-composer-icon" type="button" title="附件">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                          <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.31 2.69 6 6 6s6-2.69 6-6V6h-2.5z" fill="currentColor"/>
+                        </svg>
+                        <span>附件</span>
+                      </button>
+                      <button id="aiScreenshotButton" class="ai-composer-icon" type="button" title="截图">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                          <path d="M17.5 4.5c-1.95 0-4.05.4-5.5 1.5l-5 5c-1.9 1.9-1.9 5.1 0 7s5.1 1.9 7 0l3.5-3.5c.78-.78.78-2.05 0-2.83-.78-.78-2.05-.78-2.83 0L12 13.5c-.39.39-1.02.39-1.41 0-.39-.39-.39-1.02 0-1.41l3.5-3.5c1.17-1.17 3.07-1.17 4.24 0 1.17 1.17 1.17 3.07 0 4.24l-3.5 3.5c-1.56 1.56-4.09 1.56-5.65 0-1.56-1.56-1.56-4.09 0-5.65l5-5c1.45-1.45 3.55-1.5 5-1.5 2.76 0 5 2.24 5 5s-2.24 5-5 5c-1.1 0-2-.9-2-2s.9-2 2-2c.55 0 1 .45 1 1s-.45 1-1 1c-.83 0-1.5-.67-1.5-1.5S16.67 4.5 17.5 4.5z" fill="currentColor"/>
+                        </svg>
+                        <span>截图</span>
+                      </button>
+                      <button id="aiVoiceInputButton" class="ai-composer-icon" type="button" title="语音输入">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/>
+                          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="currentColor"/>
+                        </svg>
+                        <span>语音</span>
+                      </button>
+                    </div>
+                  </details>
+                  <button id="aiChatStopButton" class="ai-composer-icon" type="button" title="停止生成" hidden>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+                    </svg>
+                  </button>
+                  <button id="aiChatSendButton" class="ai-composer-send" type="button" title="发送" data-attention-primary-action="send-message">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="button-row tight">
-              <button id="eventScribeMirrorButton" type="button" class="secondary tiny">引用主回复</button>
-              <button id="eventScribeNewSessionButton" type="button" class="secondary tiny">新事件会话</button>
-            </div>
-          </div>
-          <div class="secondary-ai-thread" id="eventScribeThread"></div>
-          <div class="secondary-ai-composer">
-            <textarea id="eventScribeInput" placeholder="整理价位、区域、事件、风险"></textarea>
-            <div class="button-row tight">
-              <button id="eventScribeSendButton" type="button">发送</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="reply-extraction-panel card-surface" id="replyExtractionPanel">
-          <div class="secondary-ai-panel-head">
-            <div>
-              <strong>事件整理</strong>
-              <div class="meta" id="replyExtractionSummary">等待事件整理。</div>
-            </div>
-            <div class="button-row tight">
-              <button type="button" class="secondary tiny" id="replyExtractionCollapseButton">收起</button>
-            </div>
-          </div>
-          <div class="reply-extraction-controls" id="replyExtractionControls">
-            <button type="button" class="secondary tiny is-active" id="replyExtractionAutoButton">自动记录：开</button>
-            <label class="field compact reply-extraction-intensity-field">
-              <span class="meta">记录强度</span>
-              <select id="replyExtractionIntensitySelect">
-                <option value="strict">严格</option>
-                <option value="balanced" selected>平衡</option>
-                <option value="aggressive">激进</option>
-              </select>
-            </label>
-            <div class="button-row tight reply-extraction-batch-actions">
-              <button type="button" class="secondary tiny" id="replyExtractionBatchConfirmButton">批量确认</button>
-              <button type="button" class="secondary tiny" id="replyExtractionBatchMountButton">批量上图</button>
-              <button type="button" class="secondary tiny" id="replyExtractionBatchPromoteButton">批量转计划卡</button>
-              <button type="button" class="secondary tiny" id="replyExtractionBatchIgnoreButton">批量忽略</button>
-            </div>
-          </div>
-          <div class="mini-filter-bar" id="replyExtractionFilterBar" aria-label="提取候选筛选">
-            <button type="button" class="secondary tiny is-active" data-reply-extraction-filter="all">全部</button>
-            <button type="button" class="secondary tiny" data-reply-extraction-filter="plan">行动</button>
-            <button type="button" class="secondary tiny" data-reply-extraction-filter="zone">区域</button>
-            <button type="button" class="secondary tiny" data-reply-extraction-filter="risk">风险</button>
-            <button type="button" class="secondary tiny" data-reply-extraction-filter="price">价位</button>
-            <button type="button" class="secondary tiny" id="replyExtractionShowIgnoredButton">显示已忽略</button>
-          </div>
-          <div class="reply-extraction-list" id="replyExtractionList"></div>
-          <div class="reply-extraction-footer" id="replyExtractionFooter">
-            <div class="reply-extraction-footer-meta" id="replyExtractionFooterMeta">当前显示候选事件流。</div>
-            <div class="button-row tight">
-              <button type="button" class="secondary tiny" id="replyExtractionPendingOnlyButton">仅看未处理</button>
-              <button type="button" class="secondary tiny" id="replyExtractionShowHistoryButton">查看全部历史</button>
-              <button type="button" class="secondary tiny" id="replyExtractionExportButton">导出事件摘要</button>
-            </div>
-          </div>
-        </section>
-
-        <div id="aiChatResizeHandle" class="chat-resize-handle" title="拖动调整聊天窗口高度"></div>
 
         <div class="attachment-preview card-surface" id="attachmentPreviewBar" hidden>
           <div class="attachment-preview-head">
@@ -505,72 +387,274 @@
           <div id="attachmentPreviewList" class="attachment-preview-list"></div>
         </div>
 
-            <!-- 快速技能选择面板 -->
-            <div class="ai-skill-panel card-surface" id="aiSkillPanel" hidden>
-              <div class="ai-skill-search">
-                <input type="text" id="aiSkillSearch" placeholder="搜索技能..." autocomplete="off">
-              </div>
-              <div class="ai-skill-grid" id="aiSkillGrid">
-                <!-- 技能卡片将通过 JS 动态生成 -->
-              </div>
-            </div>
+        <section class="ai-workspace-surface" id="aiWorkspaceSurface" data-attention-primary-module="ai-workspace">
+          <div class="chat-session-strip" id="aiThreadTabs"></div>
 
-            <!-- 快速操作按钮 -->
-            <div class="ai-quick-actions">
-              <button id="aiVoiceButton" class="ai-quick-action-pill" type="button" title="语音输入">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/>
-                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="currentColor"/>
-                </svg>
-                <span>语音</span>
-              </button>
-              <button id="aiKlineAnalysisButton" class="ai-quick-action-pill" type="button" title="K线分析">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" fill="currentColor"/>
-                </svg>
-                <span>K线分析</span>
-              </button>
-              <button id="aiMoreButton" class="ai-quick-action-pill" type="button" title="更多">
-                <span>更多</span>
-              </button>
-            </div>
+          <section class="ai-answer-workspace attention-first-phase1-shell" id="aiAnswerWorkspace" hidden aria-hidden="true">
+            <section class="active-reply-workspace-card attention-first-panel card-surface" id="activeReplyWorkspaceCard" hidden aria-hidden="true"></section>
+            <section class="context-recipe-panel attention-first-panel card-surface" id="contextRecipePanel" hidden aria-hidden="true">
+              <div class="strip-head attention-first-panel-head">
+                <span class="strip-title">Context Recipe</span>
+              </div>
+              <div class="attention-first-skeleton-copy">
+                Phase 1 skeleton. Future context recipe summary mounts here.
+              </div>
+            </section>
+            <section
+              class="change-inspector-panel attention-first-panel card-surface is-collapsed"
+              id="changeInspectorPanel"
+              data-mode="collapsed"
+              hidden
+              aria-hidden="true"
+            >
+              <div class="strip-head attention-first-panel-head">
+                <span class="strip-title">Change Inspector</span>
+                <button
+                  id="changeInspectorCloseButton"
+                  class="secondary tiny"
+                  type="button"
+                  aria-label="关闭变化对比"
+                >关闭</button>
+              </div>
+              <div class="change-inspector-panel-body">
+                <div class="attention-first-skeleton-copy">
+                  Default-collapsed Phase 1 skeleton. Semantic diff content mounts here later.
+                </div>
+              </div>
+            </section>
+          </section>
 
-            <div class="chat-composer card-surface">
-              <div class="chat-composer-input-wrapper">
-                <textarea id="aiChatInput" placeholder="发消息、输入 @ 或 / 选择技能"></textarea>
-                <div class="chat-composer-tools">
-                  <button id="aiAttachmentButton" class="ai-composer-icon" type="button" title="附件">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.31 2.69 6 6 6s6-2.69 6-6V6h-2.5z" fill="currentColor"/>
-                    </svg>
-                  </button>
-                  <button id="aiScreenshotButton" class="ai-composer-icon" type="button" title="截图">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <path d="M17.5 4.5c-1.95 0-4.05.4-5.5 1.5l-5 5c-1.9 1.9-1.9 5.1 0 7s5.1 1.9 7 0l3.5-3.5c.78-.78.78-2.05 0-2.83-.78-.78-2.05-.78-2.83 0L12 13.5c-.39.39-1.02.39-1.41 0-.39-.39-.39-1.02 0-1.41l3.5-3.5c1.17-1.17 3.07-1.17 4.24 0 1.17 1.17 1.17 3.07 0 4.24l-3.5 3.5c-1.56 1.56-4.09 1.56-5.65 0-1.56-1.56-1.56-4.09 0-5.65l5-5c1.45-1.45 3.55-1.5 5-1.5 2.76 0 5 2.24 5 5s-2.24 5-5 5c-1.1 0-2-.9-2-2s.9-2 2-2c.55 0 1 .45 1 1s-.45 1-1 1c-.83 0-1.5-.67-1.5-1.5S16.67 4.5 17.5 4.5z" fill="currentColor"/>
-                    </svg>
-                  </button>
-                  <button id="aiVoiceInputButton" class="ai-composer-icon" type="button" title="语音输入">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <section class="nearby-context-dock attention-first-panel card-surface" id="nearbyContextDock" data-attention-primary-module="nearby-context" hidden aria-hidden="true">
+            <div class="nearby-context-dock-summary" id="nearbyContextDockSummary"></div>
+            <section class="event-stream-panel-body" id="eventStreamPanel">
+              <div class="workspace-section-header compact nearby-context-panel-header">
+                <div>
+                  <h2>Nearby Context</h2>
+                  <p id="eventStreamSummary">当前窗口附近的正式事件会出现在这里。</p>
+                </div>
+              </div>
+              <div class="event-outcome-summary-panel" id="eventOutcomeSummary"></div>
+              <div class="event-outcome-focus-panel" id="eventOutcomeFocus" hidden></div>
+              <div class="mini-filter-bar" id="eventStreamFilterBar" aria-label="事件流筛选">
+                <button type="button" class="secondary tiny is-active" data-event-stream-filter="all">全部</button>
+                <button type="button" class="secondary tiny" data-event-stream-filter="key_level">关键位</button>
+                <button type="button" class="secondary tiny" data-event-stream-filter="price_zone">区域</button>
+                <button type="button" class="secondary tiny" data-event-stream-filter="market_event">事件</button>
+                <button type="button" class="secondary tiny" data-event-stream-filter="risk_note">风险</button>
+              </div>
+              <div class="event-stream-list" id="eventStreamList"></div>
+            </section>
+          </section>
+
+          <div class="chat-thread-shell">
+            <div id="aiChatThread" class="chat-thread embedded-chat-thread"></div>
+            <button id="aiChatScrollToBottomButton" class="secondary tiny chat-scroll-to-bottom" type="button" hidden>回到底部</button>
+          </div>
+
+          <div id="aiChatResizeHandle" class="chat-resize-handle" title="拖动调整聊天窗口高度"></div>
+        </section>
+
+            <details class="ai-secondary-controls card-surface" id="aiSecondaryControls">
+              <summary class="ai-secondary-controls-summary">
+                <div class="ai-secondary-controls-copy">
+                  <strong>更多分析入口与低频工作区</strong>
+                  <p>模板、快捷分析、会话管理、Prompt 上下文、事件判断和事件整理都保留在这里。</p>
+                </div>
+                <span class="ai-secondary-controls-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="ai-secondary-controls-body">
+                <div class="ai-secondary-note">
+                  输入 <code>@</code> 或 <code>/</code> 可展开快捷技能；默认首屏只保留主发送路径和“分析当前窗口”。
+                </div>
+
+                <div class="ai-secondary-utility-row">
+                  <button id="aiVoiceButton" class="ai-quick-action-pill" type="button" title="语音输入">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                       <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" fill="currentColor"/>
                       <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="currentColor"/>
                     </svg>
+                    <span>语音输入</span>
                   </button>
-                  <button id="aiChatStopButton" class="ai-composer-icon" type="button" title="停止生成" hidden>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
-                    </svg>
-                  </button>
-                  <button id="aiChatSendButton" class="ai-composer-send" type="button" title="发送">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/>
-                    </svg>
+                  <button id="aiNewThreadButton" class="ai-quick-action-pill" type="button">
+                    <span>新会话</span>
                   </button>
                 </div>
+
+                <!-- 快速技能选择面板 -->
+                <div class="ai-skill-panel card-surface" id="aiSkillPanel" hidden>
+                  <div class="ai-skill-search">
+                    <input type="text" id="aiSkillSearch" placeholder="搜索技能..." autocomplete="off">
+                  </div>
+                  <div class="ai-skill-grid" id="aiSkillGrid">
+                    <!-- 技能卡片将通过 JS 动态生成 -->
+                  </div>
+                </div>
+
+                <div class="analysis-template-panel card-surface">
+                  <div class="field compact">
+                    <label for="analysisTypeSelect">分析类型</label>
+                    <select id="analysisTypeSelect">
+                      <option value="recent_20_bars">最近20根K线</option>
+                      <option value="recent_20_minutes">最近20分钟</option>
+                      <option value="focus_regions">重点价格区域</option>
+                      <option value="live_depth">实时挂单结构</option>
+                      <option value="selected_bar">选中K线足迹</option>
+                      <option value="manual_region">手工区域复盘</option>
+                      <option value="entry_review">开仓评价</option>
+                      <option value="event_timeline">事件时间线总结</option>
+                    </select>
+                  </div>
+                  <div class="field compact">
+                    <label for="analysisRangeSelect">分析范围</label>
+                    <select id="analysisRangeSelect">
+                      <option value="current_window">当前窗口</option>
+                      <option value="1h">最近1小时</option>
+                      <option value="3h">最近3小时</option>
+                      <option value="selected_region">当前选中区域</option>
+                      <option value="selected_bar">当前选中K线</option>
+                      <option value="latest_entry">最近一次开仓</option>
+                    </select>
+                  </div>
+                  <div class="field compact">
+                    <label for="analysisStyleSelect">输出风格</label>
+                    <select id="analysisStyleSelect">
+                      <option value="brief">简短结论</option>
+                      <option value="standard" selected>标准分析</option>
+                      <option value="longform">长文复盘</option>
+                      <option value="trade_only">只给交易建议</option>
+                      <option value="risk_only">只给风险提示</option>
+                    </select>
+                  </div>
+                  <div class="button-row tight">
+                    <button id="analysisSendCurrentButton" type="button">发送到当前会话</button>
+                    <button id="analysisSendNewButton" type="button" class="secondary">新会话发送</button>
+                  </div>
+                </div>
+
+                <div class="chat-toolbar secondary-toolbar card-surface">
+                  <button id="focusRegionsButton" class="secondary" type="button">重点区域</button>
+                  <button id="liveDepthButton" class="secondary" type="button">实时挂单</button>
+                  <button id="manualRegionButton" class="secondary" type="button">插入手工区域</button>
+                  <button id="selectedBarButton" class="secondary" type="button">插入选中K线</button>
+                  <button id="chartScreenshotButton" class="secondary" type="button">图表截图</button>
+                  <button id="externalScreenshotButton" class="secondary" type="button">外部截图</button>
+                  <button id="addAttachmentButton" class="secondary" type="button">附件</button>
+                  <button id="aiModelSwitcherButton" class="secondary" type="button">AI切换</button>
+                  <input id="attachmentInput" type="file" accept="image/*,.pdf,.txt,.md" multiple hidden>
+                </div>
+
+                <div class="chat-current-session card-surface">
+                  <div class="chat-current-session-head">
+                    <strong id="currentSessionTitle">会话：01</strong>
+                    <span class="mono" id="currentSessionModelLabel">模型：服务端默认</span>
+                  </div>
+                  <div class="button-row tight session-manage-row">
+                    <button id="sessionRenameButton" type="button" class="secondary tiny">重命名</button>
+                    <button id="sessionPinButton" type="button" class="secondary tiny">固定/取消固定</button>
+                    <button id="sessionDeleteButton" type="button" class="secondary tiny">归档会话</button>
+                    <button id="sessionMoreButton" type="button" class="secondary tiny">更多▼</button>
+                  </div>
+                  <div id="sessionMoreMenu" class="session-more-menu" hidden></div>
+                  <div class="chat-memory-summary" id="sessionMemorySummary" hidden>无摘要</div>
+                </div>
+
+                <div class="chat-pinned-plan card-surface" id="pinnedPlanCard" hidden>
+                  <div class="strip-head">
+                    <span class="strip-title">当前主计划</span>
+                    <button id="clearPinnedPlanButton" type="button" class="secondary tiny">取消固定</button>
+                  </div>
+                  <div id="pinnedPlanCardBody" class="chat-plan-card-summary">暂无固定计划</div>
+                  <div class="button-row tight" id="pinnedPlanCardActions"></div>
+                </div>
+
+                <div class="session-context-strip card-surface" id="sessionContextStrip" hidden>
+                  <div class="strip-head">
+                    <span class="strip-title">会话摘要</span>
+                  </div>
+                  <div class="meta">无摘要。</div>
+                </div>
+
+                <div class="mounted-reply-strip card-surface" id="mountedReplyStrip" hidden>
+                  <div class="strip-head">
+                    <span class="strip-title">已挂载回复 / 计划</span>
+                  </div>
+                  <div class="strip-chip-row"></div>
+                </div>
+
+                <div class="prompt-selection-bar card-surface" id="promptSelectionBar" hidden>
+                  <div class="strip-head">
+                    <span class="strip-title">当前 Prompt 上下文</span>
+                  </div>
+                  <div class="strip-chip-row"></div>
+                </div>
+
+                <section class="secondary-ai-panel card-surface" id="eventScribePanel">
+                  <div class="secondary-ai-panel-head">
+                    <div>
+                      <strong>事件判断 AI</strong>
+                      <div class="meta" id="eventScribeSessionLabel">未建立会话</div>
+                    </div>
+                    <div class="button-row tight">
+                      <button id="eventScribeMirrorButton" type="button" class="secondary tiny">引用主回复</button>
+                      <button id="eventScribeNewSessionButton" type="button" class="secondary tiny">新事件会话</button>
+                    </div>
+                  </div>
+                  <div class="secondary-ai-thread" id="eventScribeThread"></div>
+                  <div class="secondary-ai-composer">
+                    <textarea id="eventScribeInput" placeholder="整理价位、区域、事件、风险"></textarea>
+                    <div class="button-row tight">
+                      <button id="eventScribeSendButton" type="button">发送</button>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="reply-extraction-panel card-surface is-collapsed" id="replyExtractionPanel">
+                  <div class="secondary-ai-panel-head">
+                    <div>
+                      <strong>事件整理</strong>
+                      <div class="meta" id="replyExtractionSummary">等待事件整理。</div>
+                    </div>
+                    <div class="button-row tight">
+                      <button type="button" class="secondary tiny is-active" id="replyExtractionCollapseButton">展开</button>
+                    </div>
+                  </div>
+                  <div class="reply-extraction-controls" id="replyExtractionControls" hidden>
+                    <button type="button" class="secondary tiny is-active" id="replyExtractionAutoButton">自动记录：开</button>
+                    <label class="field compact reply-extraction-intensity-field">
+                      <span class="meta">记录强度</span>
+                      <select id="replyExtractionIntensitySelect">
+                        <option value="strict">严格</option>
+                        <option value="balanced" selected>平衡</option>
+                        <option value="aggressive">激进</option>
+                      </select>
+                    </label>
+                    <div class="button-row tight reply-extraction-batch-actions">
+                      <button type="button" class="secondary tiny" id="replyExtractionBatchConfirmButton">批量确认</button>
+                      <button type="button" class="secondary tiny" id="replyExtractionBatchMountButton">批量上图</button>
+                      <button type="button" class="secondary tiny" id="replyExtractionBatchPromoteButton">批量转计划卡</button>
+                      <button type="button" class="secondary tiny" id="replyExtractionBatchIgnoreButton">批量忽略</button>
+                    </div>
+                  </div>
+                  <div class="mini-filter-bar" id="replyExtractionFilterBar" aria-label="提取候选筛选" hidden>
+                    <button type="button" class="secondary tiny is-active" data-reply-extraction-filter="all">全部</button>
+                    <button type="button" class="secondary tiny" data-reply-extraction-filter="plan">行动</button>
+                    <button type="button" class="secondary tiny" data-reply-extraction-filter="zone">区域</button>
+                    <button type="button" class="secondary tiny" data-reply-extraction-filter="risk">风险</button>
+                    <button type="button" class="secondary tiny" data-reply-extraction-filter="price">价位</button>
+                    <button type="button" class="secondary tiny" id="replyExtractionShowIgnoredButton">显示已忽略</button>
+                  </div>
+                  <div class="reply-extraction-list" id="replyExtractionList" hidden></div>
+                  <div class="reply-extraction-footer" id="replyExtractionFooter" hidden>
+                    <div class="reply-extraction-footer-meta" id="replyExtractionFooterMeta">当前显示候选事件流。</div>
+                    <div class="button-row tight">
+                      <button type="button" class="secondary tiny" id="replyExtractionPendingOnlyButton">仅看未处理</button>
+                      <button type="button" class="secondary tiny" id="replyExtractionShowHistoryButton">查看全部历史</button>
+                      <button type="button" class="secondary tiny" id="replyExtractionExportButton">导出事件摘要</button>
+                    </div>
+                  </div>
+                </section>
               </div>
-              <div class="chat-composer-actions">
-                <button id="aiNewThreadButton" class="secondary tiny" type="button">+ 新会话</button>
-              </div>
-            </div>
+            </details>
           </div>
         </div>
         </div>
@@ -844,14 +928,14 @@
       isChartViewFollowingLatest,
 } from "/static/replay_workbench_chart_utils.js?v=20260327-window-scope-fix";
 import { escapeHtml } from "/static/replay_workbench_ui_utils.js?v=20260327-window-scope-fix";
-import { appendChartOverlayMarkup } from "/static/replay_workbench_chart_overlays.js?v=20260327-window-scope-fix";
+import { appendChartOverlayMarkup } from "/static/replay_workbench_chart_overlays.js?v=20260330-window-event-context-v1";
 import { appendChartSeriesMarkup } from "/static/replay_workbench_chart_series.js?v=20260327-window-scope-fix";
 import { appendChartBubbleMarkup } from "/static/replay_workbench_chart_bubbles.js?v=20260327-window-scope-fix";
 import { appendChartAxesMarkup } from "/static/replay_workbench_chart_axes.js?v=20260327-window-scope-fix";
 import { createChartViewportContext } from "/static/replay_workbench_chart_viewport.js?v=20260327-window-scope-fix";
-import { bootReplayWorkbench } from "/static/replay_workbench_bootstrap.js?v=20260327-window-scope-fix";
+import { bootReplayWorkbench } from "/static/replay_workbench_bootstrap.js?v=20260330-window-event-context-v2";
 import { mountReplayWorkbenchPipelineDock } from "/static/replay_workbench_pipeline_dock.js?v=20260327-window-scope-fix";
-import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/replay_workbench_event_overlay.js?v=20260327-window-scope-fix";
+import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/replay_workbench_event_overlay.js?v=20260330-window-event-context-v1";
     import {
       initLightweightCharts,
       updateChartData,
@@ -861,8 +945,7 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       subscribeCrosshairMove,
       subscribeClick,
       subscribeVisibleRangeChange,
-} from "/static/init_lightweight_chart.js?v=20260327-window-scope-fix";
-
+} from "/static/init_lightweight_chart.js?v=20260330-viewport-wheel-guard-v1";
     const app = {};
     let chartInfoBadgeState = {
       symbol: "-",
@@ -1407,6 +1490,12 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
         };
       }
 
+      const visibleStartTime = toMarkerSeconds(candles[Math.max(0, view.startIndex)]?.started_at);
+      const visibleEndTime = toMarkerSeconds(candles[Math.min(candles.length - 1, view.endIndex)]?.ended_at || candles[Math.min(candles.length - 1, view.endIndex)]?.started_at);
+      const contextLookbackSeconds = 24 * 60 * 60;
+      const contextStartTime = Number.isFinite(visibleStartTime) ? visibleStartTime - contextLookbackSeconds : null;
+      const contextEndTime = Number.isFinite(visibleEndTime) ? visibleEndTime : null;
+
       const rawItems = [];
       const pushItem = (category, source, timeValue, fallbackText = "", meta = {}) => {
         if (!isMarkerLayerVisible(category, els)) {
@@ -1414,6 +1503,13 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
         }
         const snappedTime = snapMarkerToCandle(toMarkerSeconds(timeValue), candles);
         if (!Number.isFinite(snappedTime)) {
+          return;
+        }
+        if (
+          Number.isFinite(contextStartTime)
+          && Number.isFinite(contextEndTime)
+          && (snappedTime < contextStartTime || snappedTime > contextEndTime)
+        ) {
           return;
         }
         const notes = (Array.isArray(meta.notes) ? meta.notes : []).filter(Boolean);
@@ -1572,8 +1668,6 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
 
       const clusterIndex = Object.fromEntries(clusters.map((cluster) => [cluster.key, cluster]));
       const clusterByTime = Object.fromEntries(clusters.map((cluster) => [String(cluster.time), cluster]));
-      const visibleStartTime = toMarkerSeconds(candles[Math.max(0, view.startIndex)]?.started_at);
-      const visibleEndTime = toMarkerSeconds(candles[Math.min(candles.length - 1, view.endIndex)]?.started_at);
       const visibleClusters = clusters.filter((cluster) => {
         if (!Number.isFinite(visibleStartTime) || !Number.isFinite(visibleEndTime)) {
           return true;
@@ -1637,13 +1731,40 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       };
     }
 
+    function suspendChartViewportWriteback(ms = 480) {
+      if (!app.state) {
+        return;
+      }
+      const duration = Math.max(0, Number(ms) || 0);
+      const nextDeadline = performance.now() + duration;
+      const currentDeadline = Number(app.state.chartViewportWritebackSuspendedUntil) || 0;
+      app.state.chartViewportWritebackSuspendedUntil = Math.max(currentDeadline, nextDeadline);
+    }
+
+    function isChartViewportWritebackSuspended() {
+      return (Number(app.state?.chartViewportWritebackSuspendedUntil) || 0) > performance.now();
+    }
+
     function requestChartViewportRefresh() {
       if (!app.state || app.state.pendingChartRerender) {
+        return;
+      }
+      if (isChartViewportWritebackSuspended() && !app.state.pendingLayoutViewportPreserve) {
         return;
       }
       app.state.pendingChartRerender = true;
       window.requestAnimationFrame(() => {
         app.state.pendingChartRerender = false;
+        const preservedViewport = app.state.pendingLayoutViewportPreserve || null;
+        if (preservedViewport) {
+          suspendChartViewportWriteback(720);
+          app.state.pendingLayoutViewportPreserve = null;
+          app.state.chartView = {
+            ...(app.state.chartView || {}),
+            ...preservedViewport,
+          };
+          app.state.chartViewportResetPending = true;
+        }
         renderChart();
         app.renderViewportDerivedSurfaces?.();
       });
@@ -1678,30 +1799,33 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       }
     }
 
-    function syncLightweightChartViewportToState({ autoScalePrice = false } = {}) {
+    function syncLightweightChartViewportToState({ autoScalePrice = false, chartViewOverride = null } = {}) {
       const { state } = app;
       const chart = window._lwChartState?.chartInstance;
       const volumeChart = window._lwChartState?.volumeChartInstance;
-      if (!chart?.timeScale || !state?.chartView) {
+      const targetChartView = chartViewOverride || state?.chartView;
+      if (!chart?.timeScale || !targetChartView) {
         return;
       }
       const range = {
-        from: Number(state.chartView.startIndex ?? 0),
-        to: Number(state.chartView.endIndex ?? 0),
+        from: Number(targetChartView.startIndex ?? 0),
+        to: Number(targetChartView.endIndex ?? 0),
       };
-      try {
-        chart.timeScale().setVisibleLogicalRange(range);
-        const volumeScale = volumeChart?.timeScale ? volumeChart.timeScale() : null;
-        volumeScale?.setVisibleLogicalRange?.(range);
-      } catch (error) {
-        console.warn("同步图表视口失败:", error);
-      }
-      requestAnimationFrame(() => {
+      suspendChartViewportWriteback(720);
+      const applyRange = () => {
         try {
           chart.timeScale().setVisibleLogicalRange(range);
+          const volumeScale = volumeChart?.timeScale ? volumeChart.timeScale() : null;
+          volumeScale?.setVisibleLogicalRange?.(range);
         } catch (error) {
-          console.warn("二次同步图表视口失败:", error);
+          console.warn("同步图表视口失败:", error);
         }
+      };
+      applyRange();
+      requestAnimationFrame(() => {
+        applyRange();
+        window.setTimeout(applyRange, 90);
+        window.setTimeout(applyRange, 220);
       });
       if (!autoScalePrice) {
         return;
@@ -1741,6 +1865,9 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       if (key === "continuous_state") {
         return { short: "CS", className: "cs", title: "continuous_state" };
       }
+      if (key === "quote_midpoint") {
+        return { short: "QM", className: "qm", title: "quote_midpoint" };
+      }
       if (key === "ticks_raw") {
         return { short: "TK", className: "tk", title: "ticks_raw" };
       }
@@ -1765,24 +1892,47 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       `;
     }
 
+    function midpointQuoteValue(first, second) {
+      const firstNumeric = Number(first);
+      const secondNumeric = Number(second);
+      if (!Number.isFinite(firstNumeric) || !Number.isFinite(secondNumeric) || secondNumeric < firstNumeric) {
+        return null;
+      }
+      return (firstNumeric + secondNumeric) / 2;
+    }
+
+    function resolveChartInfoLiveQuote(liveTail, preview) {
+      const previewQuote = preview && typeof preview === "object" ? preview : {};
+      if (!liveTail || typeof liveTail !== "object") {
+        return previewQuote;
+      }
+
+      const freshness = String(liveTail?.data_status?.freshness || "").toLowerCase();
+      const fallbackLatestPrice = freshness === "fresh"
+        ? liveTail.latest_price
+        : (midpointQuoteValue(liveTail.best_bid, liveTail.best_ask) ?? liveTail.latest_price);
+      const fallbackLatestPriceSource = freshness === "fresh"
+        ? liveTail.latest_price_source
+        : (midpointQuoteValue(liveTail.best_bid, liveTail.best_ask) != null ? "quote_midpoint" : liveTail.latest_price_source);
+
+      return {
+        ...liveTail,
+        latest_price: previewQuote.latest_price ?? fallbackLatestPrice,
+        best_bid: previewQuote.best_bid ?? liveTail.best_bid,
+        best_ask: previewQuote.best_ask ?? liveTail.best_ask,
+        latest_observed_at: previewQuote.latest_observed_at ?? liveTail.latest_observed_at,
+        latest_price_source: previewQuote.latest_price_source ?? fallbackLatestPriceSource,
+        best_bid_source: previewQuote.best_bid_source ?? liveTail.best_bid_source,
+        best_ask_source: previewQuote.best_ask_source ?? liveTail.best_ask_source,
+      };
+    }
+
     function renderChartInfoBadge({ symbol = "-", timeframe = "-", timestamp = null, liveTail = null } = {}, liveQuotePreview = null) {
       const { els } = app;
       if (!els) {
         return;
       }
-      const preview = liveQuotePreview && typeof liveQuotePreview === "object" ? liveQuotePreview : {};
-      const quote = liveTail && typeof liveTail === "object"
-        ? {
-          ...liveTail,
-          latest_price: preview.latest_price ?? liveTail.latest_price,
-          best_bid: preview.best_bid ?? liveTail.best_bid,
-          best_ask: preview.best_ask ?? liveTail.best_ask,
-          latest_observed_at: preview.latest_observed_at ?? liveTail.latest_observed_at,
-          latest_price_source: preview.latest_price_source ?? liveTail.latest_price_source,
-          best_bid_source: preview.best_bid_source ?? liveTail.best_bid_source,
-          best_ask_source: preview.best_ask_source ?? liveTail.best_ask_source,
-        }
-        : preview;
+      const quote = resolveChartInfoLiveQuote(liveTail, liveQuotePreview);
       if (els.chartInfoSymbol) {
         els.chartInfoSymbol.textContent = symbol;
       }
@@ -1810,11 +1960,150 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       renderChartInfoBadge(chartInfoBadgeState, app.state?.liveQuotePreview || null);
     }
 
+    function clearChartRegionDraftOverlay() {
+      const layer = app?.els?.chartRegionCaptureLayer;
+      if (!layer) {
+        return;
+      }
+      layer.innerHTML = "";
+    }
+
+    function renderChartRegionDraftOverlay({ draft, timeToX, logicalToX = null, priceToY, snapshot = null }) {
+      const layer = app?.els?.chartRegionCaptureLayer;
+      if (!layer) {
+        return;
+      }
+      app?.syncChartRegionCaptureLayerBounds?.();
+      if (!draft || typeof timeToX !== "function" || typeof priceToY !== "function") {
+        clearChartRegionDraftOverlay();
+        return;
+      }
+      const resolveFiniteCoordinate = (value, fallbackResolver = null) => {
+        const direct = timeToX(value);
+        if (direct != null && Number.isFinite(Number(direct))) {
+          return Number(direct);
+        }
+        if (typeof fallbackResolver === "function") {
+          const fallback = fallbackResolver(value);
+          if (fallback != null && Number.isFinite(Number(fallback))) {
+            return Number(fallback);
+          }
+        }
+        return null;
+      };
+      const logicalFallback = typeof logicalToX === "function"
+        ? (value) => {
+            const targetMs = Date.parse(value || "");
+            if (!Number.isFinite(targetMs)) {
+              return null;
+            }
+            const candles = Array.isArray(snapshot?.candles) ? snapshot.candles : [];
+            if (!candles.length) {
+              return null;
+            }
+            let index = candles.findIndex((item) => Date.parse(item?.started_at || "") === targetMs);
+            if (index < 0) {
+              index = candles.findIndex((item) => Date.parse(item?.ended_at || "") === targetMs);
+              if (index >= 0 && index < candles.length - 1) {
+                index += 1;
+              }
+            }
+            return index >= 0 ? logicalToX(index) : null;
+          }
+        : null;
+      const rawX1 = resolveFiniteCoordinate(draft.started_at, logicalFallback);
+      const rawX2 = resolveFiniteCoordinate(draft.ended_at, logicalFallback);
+      const rawY1 = priceToY(draft.price_high);
+      const rawY2 = priceToY(draft.price_low);
+      if (![rawX1, rawX2, rawY1, rawY2].every(Number.isFinite)) {
+        clearChartRegionDraftOverlay();
+        return;
+      }
+      const left = Math.max(0, Math.min(rawX1, rawX2));
+      const top = Math.max(0, Math.min(rawY1, rawY2));
+      const width = Math.max(2, Math.abs(rawX2 - rawX1));
+      const height = Math.max(2, Math.abs(rawY2 - rawY1));
+      const startedAt = draft.started_at ? new Date(draft.started_at) : null;
+      const endedAt = draft.ended_at ? new Date(draft.ended_at) : null;
+      const label = startedAt && endedAt
+        ? `${startedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -> ${endedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : "框选中";
+      layer.innerHTML = `
+        <div class="chart-region-draft-box" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px;">
+          <div class="chart-region-draft-label">${escapeHtml(label)}</div>
+        </div>
+      `;
+    }
+
+    function buildDraftRegionOverlayContext() {
+      const draft = app?.state?.chartInteraction?.draftRegion || null;
+      const snapshot = app?.state?.snapshot || null;
+      if (!draft) {
+        return null;
+      }
+      app?.syncChartRegionCaptureLayerBounds?.();
+      const chartContainerVisible = !!app?.els?.chartContainer
+        && window.getComputedStyle(app.els.chartContainer).display !== "none";
+      if (window._lwChartState?.chartInstance && window._lwChartState?.candleSeries && chartContainerVisible) {
+        return {
+          draft,
+          snapshot,
+          timeToX: (value) => window._lwChartState.chartInstance.timeScale().timeToCoordinate(Math.round(new Date(value).getTime() / 1000)),
+          logicalToX: (index) => window._lwChartState.chartInstance.timeScale().logicalToCoordinate(index),
+          priceToY: (value) => window._lwChartState.candleSeries.priceToCoordinate(value),
+        };
+      }
+      const metrics = app?.state?.chartMetrics;
+      if (!metrics) {
+        return null;
+      }
+      const timeSpan = Number(metrics.visibleEndTime) - Number(metrics.visibleStartTime);
+      const priceSpan = Number(metrics.yMax) - Number(metrics.yMin);
+      return {
+        draft,
+        snapshot,
+        timeToX: (value) => {
+          const timestamp = Date.parse(value || "");
+          if (!Number.isFinite(timestamp)) {
+            return null;
+          }
+          if (!Number.isFinite(timeSpan) || Math.abs(timeSpan) < 1) {
+            return Number(metrics.leftPad) + Number(metrics.chartWidth) / 2;
+          }
+          return Number(metrics.leftPad) + ((timestamp - Number(metrics.visibleStartTime)) / timeSpan) * Number(metrics.chartWidth);
+        },
+        priceToY: (value) => {
+          const price = Number(value);
+          if (!Number.isFinite(price) || !Number.isFinite(priceSpan) || priceSpan <= 0) {
+            return null;
+          }
+          return Number(metrics.topPad) + ((Number(metrics.yMax) - price) / priceSpan) * Number(metrics.chartHeight);
+        },
+      };
+    }
+
+    let draftRegionPreviewFrame = 0;
+    function renderRegionDraftPreview() {
+      if (draftRegionPreviewFrame) {
+        return;
+      }
+      draftRegionPreviewFrame = window.requestAnimationFrame(() => {
+        draftRegionPreviewFrame = 0;
+        const context = buildDraftRegionOverlayContext();
+        if (!context) {
+          clearChartRegionDraftOverlay();
+          return;
+        }
+        renderChartRegionDraftOverlay(context);
+      });
+    }
+
     function renderChart() {
       const { state, els, ensureChartView } = app;
       syncChartViewportSize();
       const snapshot = state?.snapshot;
       if (!snapshot || !snapshot.candles || !snapshot.candles.length) {
+        clearChartRegionDraftOverlay();
         startLiveQuotePreview(null, null);
         els.chartPlaceholder.style.display = "flex";
         els.chartViewportMeta.textContent = "视图未初始化";
@@ -1886,7 +2175,9 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       const candles = snapshot.candles;
       ensureChartView(snapshot);
       const liveChart = window._lwChartState?.chartInstance;
-      if (!state.chartViewportResetPending && liveChart?.timeScale && state.chartView) {
+      const shouldSyncChartViewFromLiveRange = !state.chartViewportResetPending
+        && !isChartViewportWritebackSuspended();
+      if (shouldSyncChartViewFromLiveRange && liveChart?.timeScale && state.chartView) {
         const logicalRange = liveChart.timeScale().getVisibleLogicalRange?.();
         if (logicalRange) {
           const nextStart = Math.max(0, Math.floor(logicalRange.from ?? state.chartView.startIndex));
@@ -2005,6 +2296,9 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
                   if (!app.state?.snapshot?.candles?.length) {
                     return;
                   }
+                  if (isChartViewportWritebackSuspended()) {
+                    return;
+                  }
                   requestChartViewportRefresh();
                 });
 
@@ -2014,7 +2308,7 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
                   updateChartData(snapshot, view, els, {
                     updateType,
                     markers: eventModel.markers,
-                    syncStateFromLogicalRange: !state.chartViewportResetPending,
+                    syncStateFromLogicalRange: shouldSyncChartViewFromLiveRange,
                   });
                   if (state.chartViewportResetPending || state.chartAutoScalePending) {
                     syncLightweightChartViewportToState({
@@ -2048,6 +2342,13 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
                     timestamp: lastCandle ? new Date(lastCandle.started_at) : new Date(),
                     liveTail: snapshot?.live_tail || null,
                   });
+                  renderChartRegionDraftOverlay({
+                    draft: state.chartInteraction?.draftRegion || null,
+                    snapshot,
+                    timeToX: (value) => window._lwChartState.chartInstance.timeScale().timeToCoordinate(Math.round(new Date(value).getTime() / 1000)),
+                    logicalToX: (index) => window._lwChartState.chartInstance.timeScale().logicalToCoordinate(index),
+                    priceToY: (value) => window._lwChartState.candleSeries.priceToCoordinate(value),
+                  });
                   app.rememberCurrentChartView?.(snapshot);
                   startLiveQuotePreview(snapshot, snapshot?.live_tail || null);
                   renderEventHoverOverlay();
@@ -2078,7 +2379,7 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
             updateChartData(snapshot, view, els, {
               updateType,
               markers: eventModel.markers,
-              syncStateFromLogicalRange: !state.chartViewportResetPending,
+              syncStateFromLogicalRange: shouldSyncChartViewFromLiveRange,
             });
             if (state.chartViewportResetPending || state.chartAutoScalePending) {
               syncLightweightChartViewportToState({
@@ -2111,6 +2412,13 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
               timeframe: els.displayTimeframe?.value || snapshot?.display_timeframe || "-",
               timestamp: lastCandle ? new Date(lastCandle.started_at) : new Date(),
               liveTail: snapshot?.live_tail || null,
+            });
+            renderChartRegionDraftOverlay({
+              draft: state.chartInteraction?.draftRegion || null,
+              snapshot,
+              timeToX: (value) => window._lwChartState.chartInstance.timeScale().timeToCoordinate(Math.round(new Date(value).getTime() / 1000)),
+              logicalToX: (index) => window._lwChartState.chartInstance.timeScale().logicalToCoordinate(index),
+              priceToY: (value) => window._lwChartState.candleSeries.priceToCoordinate(value),
             });
             app.rememberCurrentChartView?.(snapshot);
             startLiveQuotePreview(snapshot, snapshot?.live_tail || null);
@@ -2255,6 +2563,8 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
         events,
         visibleCandles,
         visibleCandlesLength: visibleCandles.length,
+        visibleStartTime,
+        visibleEndTime,
         withinVisibleWindow,
         timeToX,
         priceToY,
@@ -2283,11 +2593,19 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
         clampChartY,
         escapeHtml,
         legacyHoverItem: state.eventWorkbench?.hoverEventId ? null : state.eventStreamHoverItem,
+        viewportStartMs: visibleStartTime,
+        viewportEndMs: visibleEndTime,
       });
       if (eventOverlayPayload.markup) {
         markupParts.push(eventOverlayPayload.markup);
       }
       svg.innerHTML = markupParts.join("");
+      renderChartRegionDraftOverlay({
+        draft: state.chartInteraction?.draftRegion || null,
+        snapshot,
+        timeToX,
+        priceToY,
+      });
       bindEventOverlayInteractions(svg, {
         onEventEnter: (eventId) => app.handleEventOverlayEnter?.(eventId),
         onEventLeave: () => app.handleEventOverlayLeave?.(),
@@ -2320,6 +2638,14 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       const width = els.chartFrame?.clientWidth || els.chartSvg.clientWidth || 1200;
       const height = els.chartFrame?.clientHeight || els.chartSvg.clientHeight || 760;
       const chartWidth = els.chartContainer?.clientWidth || width;
+      const view = state?.chartView || null;
+      const candles = Array.isArray(snapshot?.candles) ? snapshot.candles : [];
+      const viewportStartMs = view && candles.length
+        ? new Date(candles[Math.max(0, Math.min(candles.length - 1, Math.floor(view.startIndex ?? 0)))]?.started_at || "").getTime()
+        : null;
+      const viewportEndMs = view && candles.length
+        ? new Date(candles[Math.max(0, Math.min(candles.length - 1, Math.ceil(view.endIndex ?? 0)))]?.ended_at || candles[Math.max(0, Math.min(candles.length - 1, Math.ceil(view.endIndex ?? 0)))]?.started_at || "").getTime()
+        : null;
       const svg = els.chartSvg;
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.dataset.overlayMode = "true";
@@ -2337,6 +2663,8 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
         clampChartY: (value, padding = 12) => Math.max(padding, Math.min(height - padding, value)),
         escapeHtml,
         legacyHoverItem: state.eventWorkbench?.hoverEventId ? null : state.eventStreamHoverItem,
+        viewportStartMs,
+        viewportEndMs,
       });
       if (!overlayPayload.markup) {
         svg.innerHTML = "";
@@ -2355,6 +2683,7 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
 
     Object.assign(app, bootReplayWorkbench({
       renderChart,
+      renderRegionDraftPreview,
       getRenderSnapshot: () => app.renderSnapshot,
       getBuildRequestPayload: () => buildRequestPayload,
     }));
@@ -2364,6 +2693,9 @@ import { bindEventOverlayInteractions, buildEventOverlayMarkup } from "/static/r
       }
       renderChartInfoBadge(chartInfoBadgeState, previewQuote || null);
     });
+    app.suspendChartViewportWriteback = suspendChartViewportWriteback;
+    app.isChartViewportWritebackSuspended = isChartViewportWritebackSuspended;
+    app.syncLightweightChartViewportToState = syncLightweightChartViewportToState;
     app.renderEventHoverOverlay = renderEventHoverOverlay;
     window.addEventListener("replay-workbench:hover-item-changed", () => {
       renderEventHoverOverlay();

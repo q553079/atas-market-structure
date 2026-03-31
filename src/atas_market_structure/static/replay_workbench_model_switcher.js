@@ -9,6 +9,8 @@ export function createModelSwitcherController({
   sessionMemoryEngine,
   renderSnapshot,
 }) {
+  let actionsBound = false;
+
   function getResolvedTargetModel(session) {
     return els.activeModelSelect?.value || session?.activeModel || null;
   }
@@ -107,6 +109,10 @@ export function createModelSwitcherController({
   }
 
   function bindModelSwitcherActions() {
+    if (actionsBound) {
+      return;
+    }
+    actionsBound = true;
     els.aiModelSwitcherButton?.addEventListener("click", () => {
       openModelSwitcher();
     });

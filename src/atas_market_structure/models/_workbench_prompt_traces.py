@@ -22,6 +22,12 @@ class PromptTraceBlockSummary(BaseModel):
     title: str = Field(..., description="Prompt block title.")
     preview_text: str = Field("", description="Compact preview text shown in the UI.")
     payload_summary: dict[str, Any] = Field(default_factory=dict, description="Readable payload summary for the block.")
+    block_version: int = Field(1, ge=1, description="Exact prompt-block version referenced by this trace.")
+    source_kind: str = Field("system_policy", description="Additive source classification for this trace block summary.")
+    scope: str = Field("request", description="Additive scope classification for this trace block summary.")
+    editable: bool = Field(False, description="Whether the source prompt block was editable.")
+    selected: bool = Field(False, description="Whether the block was explicitly selected for this request.")
+    pinned: bool = Field(False, description="Whether the block was pinned for this request.")
 
 
 class PromptTrace(CanonicalSchemaVersionedModel):
@@ -51,6 +57,23 @@ class PromptTrace(CanonicalSchemaVersionedModel):
     final_user_prompt: str = Field("", description="Final user prompt snapshot sent to the model.")
     model_name: str | None = Field(None, description="Resolved model name used for the request.")
     model_input_hash: str = Field(..., description="Stable hash of the model input snapshot.")
+    context_version: str | None = Field(None, description="Additive top-level projection of the exact context version used.")
+    context_blocks: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Additive top-level projection of exact block refs used for this reply.",
+    )
+    reply_window: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additive top-level projection of the reply window bound to this trace.",
+    )
+    reply_window_anchor: str | None = Field(
+        None,
+        description="Additive top-level projection of the exact reply window anchor.",
+    )
+    block_version_refs: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Additive top-level projection of exact block version refs from trace metadata.",
+    )
     snapshot: dict[str, Any] = Field(default_factory=dict, description="Expanded input snapshot for trace replay/debug.")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additive metadata and truncation markers.")
     created_at: datetime = Field(..., description="Creation timestamp.")

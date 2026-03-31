@@ -163,6 +163,41 @@ function buildFallbackPreferenceSignature(annotation = {}, fallback = {}) {
   ].filter(Boolean).join(":");
 }
 
+export function resolveChartViewTimeWindow(state = null) {
+  const candles = Array.isArray(state?.snapshot?.candles) ? state.snapshot.candles : [];
+  const maxIndex = Math.max(0, candles.length - 1);
+  const snapshotWindowStart = state?.snapshot?.window_start || null;
+  const snapshotWindowEnd = state?.snapshot?.window_end || null;
+  if (candles.length && state?.chartView) {
+    const rawStartIndex = Number(state.chartView.startIndex);
+    const rawEndIndex = Number(state.chartView.endIndex);
+    const startIndex = Math.max(0, Math.min(Number.isFinite(rawStartIndex) ? Math.floor(rawStartIndex) : maxIndex, maxIndex));
+    const endIndex = Math.max(
+      startIndex,
+      Math.min(Number.isFinite(rawEndIndex) ? Math.ceil(rawEndIndex) : maxIndex, maxIndex),
+    );
+    const startTime = candles[startIndex]?.started_at || candles[startIndex]?.ended_at || snapshotWindowStart;
+    const endTime = candles[endIndex]?.ended_at || candles[endIndex]?.started_at || snapshotWindowEnd || startTime;
+    if (startTime || endTime) {
+      return {
+        startTime: startTime || endTime || new Date().toISOString(),
+        endTime: endTime || startTime || new Date().toISOString(),
+        startIndex,
+        endIndex,
+      };
+    }
+  }
+  const latestCandle = candles.length ? candles[candles.length - 1] : null;
+  const startTime = latestCandle?.started_at || snapshotWindowStart || new Date().toISOString();
+  const endTime = latestCandle?.ended_at || latestCandle?.started_at || snapshotWindowEnd || startTime;
+  return {
+    startTime,
+    endTime,
+    startIndex: candles.length ? maxIndex : null,
+    endIndex: candles.length ? maxIndex : null,
+  };
+}
+
 export function createDefaultAnnotationFilters() {
   return {
     ...DEFAULT_ANNOTATION_FILTERS,
@@ -402,11 +437,10 @@ export function normalizeWorkbenchAnnotation(raw = {}, {
   const resolvedSessionId = toCleanString(raw.session_id || raw.sessionId || sessionId || session?.id || session?.sessionId || "") || null;
   const resolvedMessageId = toCleanString(raw.message_id || raw.messageId || messageId || "") || null;
   const resolvedPlanId = toCleanString(raw.plan_id || raw.planId || planId || "") || null;
-  const candles = Array.isArray(state?.snapshot?.candles) ? state.snapshot.candles : [];
-  const latestCandle = candles.length ? candles[candles.length - 1] : null;
+  const chartWindow = resolveChartViewTimeWindow(state);
   const now = new Date().toISOString();
-  const startTime = raw.start_time || latestCandle?.started_at || state?.snapshot?.window_start || now;
-  const endTime = raw.end_time || latestCandle?.ended_at || state?.snapshot?.window_end || startTime;
+  const startTime = raw.start_time || chartWindow.startTime || state?.snapshot?.window_start || now;
+  const endTime = raw.end_time || chartWindow.endTime || state?.snapshot?.window_end || startTime;
   const type = toCleanString(raw.type || raw.annotation_type || raw.subtype || defaultType) || "entry_line";
   const isPendingPlanChild = ["stop_loss", "take_profit"].includes(type) && raw.status == null && !!resolvedPlanId;
   const normalizedLifecycle = normalizeLifecycleStatus(raw.status || defaultStatus || (isPendingPlanChild ? "inactive_waiting_entry" : "active"), type);

@@ -24,6 +24,7 @@ def _build_app() -> tuple[MarketStructureApplication, SQLiteAnalysisRepository, 
     now = datetime(2026, 3, 25, 9, 30, tzinfo=UTC)
     session_id = f"sess-{uuid4().hex}"
     message_id = f"msg-{uuid4().hex}"
+    prompt_trace_id = f"trace-{uuid4().hex}"
     repository.save_chat_session(
         session_id=session_id,
         workspace_id="replay_main",
@@ -53,6 +54,7 @@ def _build_app() -> tuple[MarketStructureApplication, SQLiteAnalysisRepository, 
         message_id=message_id,
         session_id=session_id,
         parent_message_id=None,
+        prompt_trace_id=prompt_trace_id,
         role="assistant",
         content="关注 21524，21524-21528 为支撑区，跌破 21518 失效，当前偏延续。",
         status="completed",
@@ -104,6 +106,65 @@ def _build_app() -> tuple[MarketStructureApplication, SQLiteAnalysisRepository, 
                     "reason": "当前更像延续而不是反转。",
                 },
             ],
+            "workbench_ui": {
+                "schema_version": "workbench_ui_contract_v1",
+                "symbol": "NQ",
+                "timeframe": "1m",
+                "reply_window": {
+                    "window_start": "2026-03-25T09:30:00Z",
+                    "window_end": "2026-03-25T10:30:00Z",
+                },
+                "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+                "reply_session_date": "2026-03-25",
+                "alignment_state": "aligned",
+                "assertion_level": "conditional",
+                "source_object_ids": ["ann-api-1", "plan-api-1"],
+            },
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    repository.save_prompt_trace(
+        prompt_trace_id=prompt_trace_id,
+        session_id=session_id,
+        message_id=message_id,
+        symbol="NQ",
+        timeframe="1m",
+        analysis_type="structure",
+        analysis_range="current_window",
+        analysis_style="standard",
+        selected_block_ids=["pb-window"],
+        pinned_block_ids=[],
+        attached_event_ids=[],
+        prompt_block_summaries=[
+            {
+                "block_id": "pb-window",
+                "kind": "candles_20",
+                "title": "当前窗口",
+                "preview_text": "最近 20 根 K 线",
+                "block_version": 2,
+                "source_kind": "window_snapshot",
+                "scope": "request",
+                "editable": False,
+                "selected": True,
+                "pinned": False,
+            }
+        ],
+        bar_window_summary={"selected_bar_count": 20},
+        manual_selection_summary={},
+        memory_summary={"include_recent_messages": True},
+        final_system_prompt="system",
+        final_user_prompt="user",
+        model_name="test-model",
+        model_input_hash="hash-test",
+        snapshot={
+            "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+            "context_version": "ctx-api-v1",
+        },
+        metadata={
+            "reply_window_anchor": "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25",
+            "context_version": "ctx-api-v1",
+            "block_version_refs": [{"block_id": "pb-window", "block_version": 2}],
         },
         created_at=now,
         updated_at=now,
@@ -123,6 +184,10 @@ def test_event_stream_routes_support_extract_mutation_and_filters() -> None:
     extract_payload = json.loads(extract_response.body)
     assert extract_payload["schema_version"] == "workbench_event_stream_envelope_v1"
     assert len(extract_payload["candidates"]) >= 4
+    assert all(item["metadata"]["presentation"]["source_message_id"] == message_id for item in extract_payload["candidates"])
+    assert all(item["metadata"]["presentation"]["source_prompt_trace_id"] for item in extract_payload["candidates"])
+    assert all(item["metadata"]["presentation"]["reply_window_anchor"] == "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25" for item in extract_payload["candidates"])
+    assert all(item["metadata"]["presentation"]["is_fixed_anchor"] is False for item in extract_payload["candidates"])
 
     candidates_by_kind = {item["candidate_kind"]: item for item in extract_payload["candidates"]}
     key_level = candidates_by_kind["key_level"]
@@ -150,6 +215,8 @@ def test_event_stream_routes_support_extract_mutation_and_filters() -> None:
     mount_payload = json.loads(mount_response.body)
     assert mount_payload["candidate"]["lifecycle_state"] == "mounted"
     assert mount_payload["projected_annotation"]["type"] == "entry_line"
+    assert mount_payload["candidate"]["metadata"]["presentation"]["is_fixed_anchor"] is True
+    assert mount_payload["candidate"]["metadata"]["presentation"]["reply_window_anchor"] == "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25"
 
     promote_response = application.dispatch(
         "POST",
@@ -206,6 +273,8 @@ def test_event_candidate_create_route_supports_manual_candidates() -> None:
     assert create_payload["candidate"]["source_type"] == "manual"
     assert create_payload["candidate"]["candidate_kind"] == "price_zone"
     assert create_payload["candidate"]["source_message_id"] is not None
+    assert create_payload["candidate"]["source_prompt_trace_id"] is not None
+    assert create_payload["candidate"]["metadata"]["presentation"]["reply_window_anchor"] == "NQ|1m|2026-03-25T09:30:00Z|2026-03-25T10:30:00Z|2026-03-25"
     assert create_payload["stream_entry"]["stream_action"] == "created"
     assert create_payload["memory_entry"]["memory_bucket"] == "active"
 

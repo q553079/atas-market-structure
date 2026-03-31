@@ -44,8 +44,161 @@ export function createWorkbenchActions({
     state.manualRegions.sort((left, right) => new Date(left.started_at) - new Date(right.started_at));
     state.chartInteraction.draftRegion = null;
     state.chartInteraction.regionMode = false;
+    state.chartInteraction.regionDragActive = false;
+    state.chartInteraction.regionAnchorActive = false;
     renderStatusStrip([{ label: "手工区域已保存", variant: "good" }]);
     renderSnapshot();
+  }
+
+  function buildDraftRegionChatPrompt() {
+    const draft = state.chartInteraction?.draftRegion || null;
+    if (!draft?.started_at || !draft?.ended_at) {
+      throw new Error("当前没有可发送到聊天区的框选区域。");
+    }
+    const instrumentSymbol = String(
+      state.snapshot?.instrument_symbol
+        || state.snapshot?.instrument?.symbol
+        || state.topBar?.symbol
+        || els.instrumentSymbol?.value
+        || "",
+    ).trim().toUpperCase() || "NQ";
+    const displayTimeframe = String(
+      state.snapshot?.display_timeframe
+        || state.topBar?.timeframe
+        || els.displayTimeframe?.value
+        || "1m",
+    ).trim() || "1m";
+    const priceLow = Number(draft.price_low);
+    const priceHigh = Number(draft.price_high);
+    const safeLow = Number.isFinite(priceLow) ? priceLow.toFixed(2) : "--";
+    const safeHigh = Number.isFinite(priceHigh) ? priceHigh.toFixed(2) : "--";
+    return [
+      `请围绕我刚框选的图表区域做分析。`,
+      `品种=${instrumentSymbol}，周期=${displayTimeframe}。`,
+      `时间窗=${new Date(draft.started_at).toLocaleString()} -> ${new Date(draft.ended_at).toLocaleString()}。`,
+      `价格区间=${safeLow} -> ${safeHigh}。`,
+      `请结合当前图表上下文，说明这段区域的结构、关键价位、可能的入场方式、止损、止盈和无效条件。`,
+    ].join(" ");
+  }
+
+  function formatRepairWindowLabel(windowStart, windowEnd) {
+    const startLabel = windowStart ? new Date(windowStart).toLocaleString() : "--";
+    const endLabel = windowEnd ? new Date(windowEnd).toLocaleString() : "--";
+    return `${startLabel} -> ${endLabel}`;
+  }
+
+  function normalizeRepairWindowBounds(windowStart, windowEnd) {
+    const startMs = Date.parse(windowStart || "");
+    const endMs = Date.parse(windowEnd || "");
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      throw new Error("修复时间窗无效，无法发起回补。");
+    }
+    return {
+      windowStart: new Date(Math.min(startMs, endMs)).toISOString(),
+      windowEnd: new Date(Math.max(startMs, endMs)).toISOString(),
+    };
+  }
+
+  function resolveRepairRequestContext() {
+    syncCacheKey();
+    const cacheKey = (els.cacheKey?.value || "").trim();
+    if (!cacheKey) {
+      throw new Error("当前窗口还没有可修复的缓存键。");
+    }
+
+    const snapshotInstrument = state.snapshot?.instrument || {};
+    const pending = state.pendingBackfill || {};
+    const instrumentSymbol = String(
+      snapshotInstrument.symbol || state.snapshot?.instrument_symbol || els.instrumentSymbol?.value || "",
+    ).trim().toUpperCase();
+    if (!instrumentSymbol) {
+      throw new Error("当前没有可修复的品种标识。");
+    }
+
+    return {
+      cacheKey,
+      instrumentSymbol,
+      contractSymbol: String(
+        snapshotInstrument.contract_symbol || pending.contract_symbol || pending.target_contract_symbol || "",
+      ).trim().toUpperCase() || null,
+      rootSymbol: String(
+        snapshotInstrument.root_symbol || pending.root_symbol || pending.target_root_symbol || els.instrumentSymbol?.value || "",
+      ).trim().toUpperCase() || null,
+      chartInstanceId: String(
+        els.chartInstanceId?.value || state.snapshot?.source?.chart_instance_id || pending.chart_instance_id || "",
+      ).trim() || null,
+      displayTimeframe: String(els.displayTimeframe?.value || state.topBar?.timeframe || "1m").trim() || "1m",
+    };
+  }
+
+  function confirmRepairWindow({ scopeLabel, context, windowStart, windowEnd }) {
+    const confirmed = window.confirm([
+      `确认删除并回补${scopeLabel}？`,
+      `品种: ${context.instrumentSymbol}`,
+      `周期: ${context.displayTimeframe}`,
+      `时间: ${formatRepairWindowLabel(windowStart, windowEnd)}`,
+      context.chartInstanceId
+        ? `图表实例: ${context.chartInstanceId}`
+        : "图表实例: 未绑定，将由同品种图表领取任务",
+      "",
+      "这会先删除该时间窗的后端数据，再等待 ATAS 回补。",
+    ].join("\n"));
+    if (!confirmed) {
+      renderStatusStrip([{ label: "已取消当前修复操作。", variant: "emphasis" }]);
+      return false;
+    }
+    return true;
+  }
+
+  async function requestHistoryRepairWindow({ windowStart, windowEnd, reason, scopeLabel }) {
+    const context = resolveRepairRequestContext();
+    const normalizedWindow = normalizeRepairWindowBounds(windowStart, windowEnd);
+    const result = await fetchJson("/api/v1/workbench/atas-backfill-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cache_key: context.cacheKey,
+        instrument_symbol: context.instrumentSymbol,
+        contract_symbol: context.contractSymbol,
+        root_symbol: context.rootSymbol,
+        target_contract_symbol: context.contractSymbol,
+        target_root_symbol: context.rootSymbol,
+        display_timeframe: context.displayTimeframe,
+        window_start: normalizedWindow.windowStart,
+        window_end: normalizedWindow.windowEnd,
+        chart_instance_id: context.chartInstanceId,
+        reason,
+        request_history_bars: true,
+        request_history_footprint: false,
+        replace_existing_history: true,
+      }),
+    });
+
+    state.pendingBackfill = result?.request || null;
+    const resolvedChartInstanceId = result?.request?.chart_instance_id || context.chartInstanceId || "";
+    if (els.chartInstanceId) {
+      els.chartInstanceId.value = resolvedChartInstanceId;
+    }
+    renderStatusStrip([
+      {
+        label: result?.reused_existing_request
+          ? `${scopeLabel}已有修复任务，继续等待 ATAS 重发`
+          : `${scopeLabel}已清空，等待 ATAS 重发`,
+        variant: result?.reused_existing_request ? "emphasis" : "warn",
+      },
+      {
+        label: `${context.instrumentSymbol} ${context.displayTimeframe} ${formatRepairWindowLabel(normalizedWindow.windowStart, normalizedWindow.windowEnd)}`,
+        variant: "good",
+      },
+      {
+        label: resolvedChartInstanceId
+          ? `chart_instance_id=${resolvedChartInstanceId}`
+          : "未绑定图表实例，按当前品种窗口修复",
+        variant: resolvedChartInstanceId ? "good" : "warn",
+      },
+    ]);
+    renderSnapshot();
+    return result;
   }
 
   function resetReplaySurfaceState({ preserveBuildResponse = true } = {}) {
@@ -69,6 +222,10 @@ export function createWorkbenchActions({
     state.selectedCandleIndex = null;
     state.selectedFootprintBar = null;
     state.chartView = null;
+    state.chartInteraction.regionMode = false;
+    state.chartInteraction.draftRegion = null;
+    state.chartInteraction.regionDragActive = false;
+    state.chartInteraction.regionAnchorActive = false;
   }
 
   function resolveSnapshotIdentity(snapshot) {
@@ -177,6 +334,42 @@ export function createWorkbenchActions({
     return leftWindow.startMs <= rightWindow.endMs && rightWindow.startMs <= leftWindow.endMs;
   }
 
+  function isSyntheticGapFillBar(bar) {
+    return !!bar && (
+      bar.is_synthetic === true
+      || String(bar.source_kind || "").trim().toLowerCase() === "synthetic_gap_fill"
+    );
+  }
+
+  function countSyntheticGapFillBars(candles = []) {
+    if (!Array.isArray(candles) || !candles.length) {
+      return 0;
+    }
+    return candles.reduce((count, bar) => count + (isSyntheticGapFillBar(bar) ? 1 : 0), 0);
+  }
+
+  function isChartCandlesFastPathSnapshot(snapshot) {
+    const snapshotMode = String(snapshot?.source?.snapshot_mode || "").trim().toLowerCase();
+    return snapshotMode === "chart-candles-fast-path" || snapshotMode === "chart-candles-fast-path-roll-marked";
+  }
+
+  function shouldPreserveCurrentSnapshotCandles(baseSnapshot, currentSnapshot) {
+    if (!isChartCandlesFastPathSnapshot(currentSnapshot)) {
+      return false;
+    }
+    const baseCandles = Array.isArray(baseSnapshot?.candles) ? baseSnapshot.candles : [];
+    const currentCandles = Array.isArray(currentSnapshot?.candles) ? currentSnapshot.candles : [];
+    if (!baseCandles.length || !currentCandles.length) {
+      return false;
+    }
+    const baseSyntheticCount = countSyntheticGapFillBars(baseCandles);
+    if (baseSyntheticCount <= 0) {
+      return false;
+    }
+    const currentSyntheticCount = countSyntheticGapFillBars(currentCandles);
+    return currentSyntheticCount < baseSyntheticCount;
+  }
+
   function mergeSnapshotCandles(baseSnapshot, currentSnapshot) {
     if (!baseSnapshot || !currentSnapshot || !sameSnapshotScope(baseSnapshot, currentSnapshot)) {
       return baseSnapshot;
@@ -189,9 +382,22 @@ export function createWorkbenchActions({
     if (!baseCandles.length || !currentCandles.length) {
       return baseSnapshot;
     }
-    const authoritativeWindow = resolveSnapshotWindowBounds(baseSnapshot, baseCandles);
+    const preserveCurrentCandles = shouldPreserveCurrentSnapshotCandles(baseSnapshot, currentSnapshot);
+    const authoritativeSnapshot = preserveCurrentCandles ? currentSnapshot : baseSnapshot;
+    const supplementalSnapshot = preserveCurrentCandles ? baseSnapshot : currentSnapshot;
+    const authoritativeCandles = preserveCurrentCandles ? currentCandles : baseCandles;
+    const supplementalCandles = preserveCurrentCandles ? baseCandles : currentCandles;
+    const authoritativeWindow = resolveSnapshotWindowBounds(authoritativeSnapshot, authoritativeCandles);
+    if (preserveCurrentCandles) {
+      console.warn("Preserving fast-path chart candles over gap-filled build snapshot", {
+        current_snapshot_mode: currentSnapshot?.source?.snapshot_mode || null,
+        base_snapshot_mode: baseSnapshot?.source?.snapshot_mode || null,
+        base_synthetic_gap_fill_count: countSyntheticGapFillBars(baseCandles),
+        current_synthetic_gap_fill_count: countSyntheticGapFillBars(currentCandles),
+      });
+    }
     const mergedByStartedAt = new Map();
-    currentCandles.forEach((bar) => {
+    supplementalCandles.forEach((bar) => {
       if (!bar?.started_at) {
         return;
       }
@@ -206,7 +412,7 @@ export function createWorkbenchActions({
       }
       mergedByStartedAt.set(bar.started_at, bar);
     });
-    baseCandles.forEach((bar) => {
+    authoritativeCandles.forEach((bar) => {
       if (bar?.started_at) {
         mergedByStartedAt.set(bar.started_at, bar);
       }
@@ -216,8 +422,16 @@ export function createWorkbenchActions({
     const firstMergedCandle = mergedCandles[0] || null;
     const lastMergedCandle = mergedCandles[mergedCandles.length - 1] || null;
     const nextRawFeatures = {
-      ...(currentSnapshot.raw_features || {}),
+      ...(supplementalSnapshot.raw_features || {}),
       ...(baseSnapshot.raw_features || {}),
+      chart_data_source: authoritativeSnapshot?.raw_features?.chart_data_source
+        || baseSnapshot?.raw_features?.chart_data_source
+        || supplementalSnapshot?.raw_features?.chart_data_source
+        || null,
+      display_metadata: authoritativeSnapshot?.raw_features?.display_metadata
+        || baseSnapshot?.raw_features?.display_metadata
+        || supplementalSnapshot?.raw_features?.display_metadata
+        || null,
       total_candle_count: Math.max(
         mergedCandles.length,
         Number(currentSnapshot?.raw_features?.total_candle_count || 0),
@@ -227,8 +441,12 @@ export function createWorkbenchActions({
     return {
       ...baseSnapshot,
       source: {
-        ...(currentSnapshot.source || {}),
+        ...(supplementalSnapshot.source || {}),
         ...(baseSnapshot.source || {}),
+        snapshot_mode: authoritativeSnapshot?.source?.snapshot_mode
+          || baseSnapshot?.source?.snapshot_mode
+          || supplementalSnapshot?.source?.snapshot_mode
+          || null,
       },
       raw_features: nextRawFeatures,
       live_tail: currentSnapshot.live_tail || baseSnapshot.live_tail || null,
@@ -281,8 +499,117 @@ export function createWorkbenchActions({
     };
   }
 
+  function computeFastPathMedian(values = []) {
+    const ordered = values
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+      .sort((left, right) => left - right);
+    if (!ordered.length) {
+      return null;
+    }
+    const middle = Math.floor(ordered.length / 2);
+    if (ordered.length % 2 === 0) {
+      return (ordered[middle - 1] + ordered[middle]) / 2;
+    }
+    return ordered[middle];
+  }
+
+  function collectSuspiciousFastPathCandles(candles = []) {
+    if (!Array.isArray(candles) || candles.length < 3) {
+      return [];
+    }
+    const suspicious = [];
+    const ranges = [];
+    const closeMoves = [];
+    let previousClose = null;
+    candles.forEach((bar) => {
+      const high = Number(bar?.high);
+      const low = Number(bar?.low);
+      const close = Number(bar?.close);
+      if (Number.isFinite(high) && Number.isFinite(low)) {
+        ranges.push(Math.max(0, high - low));
+      }
+      if (Number.isFinite(close) && Number.isFinite(previousClose)) {
+        closeMoves.push(Math.abs(close - previousClose));
+      }
+      previousClose = Number.isFinite(close) ? close : previousClose;
+    });
+    const medianRange = computeFastPathMedian(ranges);
+    const medianMove = computeFastPathMedian(closeMoves);
+    const maxRange = Math.max(
+      12,
+      Number.isFinite(medianRange) ? medianRange * 6 : 0,
+      Number.isFinite(medianMove) ? medianMove * 12 : 0,
+    );
+    const maxDisplacement = Math.max(
+      16,
+      Number.isFinite(medianRange) ? medianRange * 5 : 0,
+      Number.isFinite(medianMove) ? medianMove * 10 : 0,
+    );
+    for (let index = 1; index < candles.length - 1; index += 1) {
+      const previousBar = candles[index - 1];
+      const currentBar = candles[index];
+      const nextBar = candles[index + 1];
+      const previousCloseValue = Number(previousBar?.close);
+      const nextCloseValue = Number(nextBar?.close);
+      const open = Number(currentBar?.open);
+      const high = Number(currentBar?.high);
+      const low = Number(currentBar?.low);
+      const close = Number(currentBar?.close);
+      if (![open, high, low, close, previousCloseValue, nextCloseValue].every((value) => Number.isFinite(value))) {
+        continue;
+      }
+      const anchorClose = (previousCloseValue + nextCloseValue) / 2;
+      const range = Math.max(0, high - low);
+      const displacement = Math.max(
+        Math.abs(open - anchorClose),
+        Math.abs(high - anchorClose),
+        Math.abs(low - anchorClose),
+        Math.abs(close - anchorClose),
+      );
+      if (range > maxRange && displacement > maxDisplacement) {
+        suspicious.push({
+          started_at: currentBar.started_at || null,
+          range,
+          displacement,
+        });
+      }
+    }
+    return suspicious;
+  }
+
+  function shouldRejectFastChartSnapshot(result) {
+    const displayMetadata = result?.display_metadata && typeof result.display_metadata === "object"
+      ? result.display_metadata
+      : {};
+    const chartDataSource = String(displayMetadata.chart_data_source || "").trim().toLowerCase();
+    const adjustmentMode = String(displayMetadata.continuous_adjustment_mode || "").trim().toLowerCase();
+    const hasRollover = displayMetadata.contract_rollover_applied === true;
+    const candles = Array.isArray(result?.candles) ? result.candles : [];
+    if (!candles.length) {
+      return false;
+    }
+    if (!(chartDataSource === "chart_candles_contract_splice" && hasRollover && adjustmentMode === "none")) {
+      return false;
+    }
+    const suspicious = collectSuspiciousFastPathCandles(candles);
+    if (!suspicious.length) {
+      return false;
+    }
+    console.warn("Rejecting suspicious fast chart snapshot from contract splice source", {
+      chart_data_source: chartDataSource,
+      adjustment_mode: adjustmentMode,
+      suspicious_count: suspicious.length,
+      suspicious_tail: suspicious.slice(-5),
+    });
+    return true;
+  }
+
   function buildFastChartSnapshot(payload, result) {
     if (!result || typeof result !== "object") {
+      return null;
+    }
+    if (shouldRejectFastChartSnapshot(result)) {
       return null;
     }
     const currentInstrument = state.snapshot?.instrument && typeof state.snapshot.instrument === "object"
@@ -296,6 +623,10 @@ export function createWorkbenchActions({
     const carriedRootSymbol = currentSymbol && currentSymbol === requestedSymbol
       ? String(currentInstrument.root_symbol || "").trim().toUpperCase()
       : "";
+    const displayMetadata = result.display_metadata && typeof result.display_metadata === "object"
+      ? result.display_metadata
+      : {};
+    const chartDataSource = String(displayMetadata.chart_data_source || "clickhouse").trim() || "clickhouse";
     return {
       instrument_symbol: requestedSymbol,
       display_timeframe: String(result.timeframe || payload.display_timeframe || "").trim(),
@@ -308,13 +639,15 @@ export function createWorkbenchActions({
       },
       source: {
         chart_backend: "clickhouse",
-        snapshot_mode: "chart-candles-fast-path",
+        snapshot_mode: displayMetadata.contract_rollover_applied
+          ? "chart-candles-fast-path-roll-marked"
+          : "chart-candles-fast-path",
         chart_instance_id: String(payload.chart_instance_id || "").trim() || null,
       },
       window_start: result.window_start || payload.window_start || null,
       window_end: result.window_end || payload.window_end || null,
       candles: Array.isArray(result.candles) ? result.candles : [],
-      event_annotations: [],
+      event_annotations: Array.isArray(result.event_annotations) ? result.event_annotations : [],
       focus_regions: [],
       strategy_candidates: [],
       integrity: null,
@@ -323,7 +656,8 @@ export function createWorkbenchActions({
       raw_features: {
         total_candle_count: Number(result.count || (Array.isArray(result.candles) ? result.candles.length : 0) || 0),
         deferred_history_available: false,
-        chart_data_source: "clickhouse",
+        chart_data_source: chartDataSource,
+        display_metadata: displayMetadata,
       },
     };
   }
@@ -337,6 +671,7 @@ export function createWorkbenchActions({
       timeframe: String(payload.display_timeframe).trim(),
       window_start: String(payload.window_start).trim(),
       window_end: String(payload.window_end).trim(),
+      skip_contract_overlay: "true",
     });
     const startedAt = performance.now();
     const result = await fetchJson(`/api/v1/workbench/chart-candles?${query.toString()}`);
@@ -656,72 +991,57 @@ export function createWorkbenchActions({
   }
 
   async function handleRepairCurrentWindow() {
-    syncCacheKey();
-    const cacheKey = (els.cacheKey?.value || "").trim();
     const windowStart = toUtcString(els.windowStart?.value);
     const windowEnd = toUtcString(els.windowEnd?.value);
-    if (!cacheKey) {
-      throw new Error("当前窗口还没有可修复的缓存键。");
-    }
     if (!windowStart || !windowEnd) {
       throw new Error("修复当前图表前需要完整的开始和结束时间。");
     }
-
-    const snapshotInstrument = state.snapshot?.instrument || {};
-    const pending = state.pendingBackfill || {};
-    const instrumentSymbol = String(
-      snapshotInstrument.symbol || state.snapshot?.instrument_symbol || els.instrumentSymbol?.value || "",
-    ).trim().toUpperCase();
-    if (!instrumentSymbol) {
-      throw new Error("当前没有可修复的品种标识。");
+    const context = resolveRepairRequestContext();
+    const normalizedWindow = normalizeRepairWindowBounds(windowStart, windowEnd);
+    if (!confirmRepairWindow({
+      scopeLabel: "当前图表窗口",
+      context,
+      windowStart: normalizedWindow.windowStart,
+      windowEnd: normalizedWindow.windowEnd,
+    })) {
+      return null;
     }
-
-    const contractSymbol = String(
-      snapshotInstrument.contract_symbol || pending.contract_symbol || pending.target_contract_symbol || "",
-    ).trim().toUpperCase() || null;
-    const rootSymbol = String(
-      snapshotInstrument.root_symbol || pending.root_symbol || pending.target_root_symbol || els.instrumentSymbol?.value || "",
-    ).trim().toUpperCase() || null;
-    const chartInstanceId = String(
-      els.chartInstanceId?.value || state.snapshot?.source?.chart_instance_id || pending.chart_instance_id || "",
-    ).trim() || null;
-
-    const result = await fetchJson("/api/v1/workbench/atas-backfill-requests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cache_key: cacheKey,
-        instrument_symbol: instrumentSymbol,
-        contract_symbol: contractSymbol,
-        root_symbol: rootSymbol,
-        target_contract_symbol: contractSymbol,
-        target_root_symbol: rootSymbol,
-        display_timeframe: els.displayTimeframe?.value || state.topBar?.timeframe || "1m",
-        window_start: windowStart,
-        window_end: windowEnd,
-        chart_instance_id: chartInstanceId,
-        reason: "manual_chart_repair",
-        request_history_bars: true,
-        request_history_footprint: false,
-        replace_existing_history: true,
-      }),
+    return requestHistoryRepairWindow({
+      windowStart: normalizedWindow.windowStart,
+      windowEnd: normalizedWindow.windowEnd,
+      reason: "manual_chart_repair",
+      scopeLabel: "当前窗口",
     });
+  }
 
-    state.pendingBackfill = result?.request || null;
-    if (els.chartInstanceId) {
-      els.chartInstanceId.value = result?.request?.chart_instance_id || chartInstanceId || "";
+  async function handleRepairDraftRegion() {
+    const draft = state.chartInteraction.draftRegion;
+    if (!draft) {
+      throw new Error("请先在图表上框选一个需要删除并回补的时间窗。");
     }
-    renderStatusStrip([
-      {
-        label: result?.reused_existing_request ? "已有修复任务，继续等待 ATAS 重发" : "已清空目标窗口，等待 ATAS 重发",
-        variant: result?.reused_existing_request ? "emphasis" : "warn",
-      },
-      {
-        label: chartInstanceId ? `chart_instance_id=${chartInstanceId}` : "未绑定图表实例，按当前品种窗口修复",
-        variant: chartInstanceId ? "good" : "warn",
-      },
-    ]);
-    renderSnapshot();
+    const context = resolveRepairRequestContext();
+    const normalizedWindow = normalizeRepairWindowBounds(draft.started_at, draft.ended_at);
+    if (!confirmRepairWindow({
+      scopeLabel: "框选区域",
+      context,
+      windowStart: normalizedWindow.windowStart,
+      windowEnd: normalizedWindow.windowEnd,
+    })) {
+      return null;
+    }
+    const result = await requestHistoryRepairWindow({
+      windowStart: normalizedWindow.windowStart,
+      windowEnd: normalizedWindow.windowEnd,
+      reason: "manual_chart_region_repair",
+      scopeLabel: "框选区域",
+    });
+    if (result) {
+      state.chartInteraction.draftRegion = null;
+      state.chartInteraction.regionMode = false;
+      state.chartInteraction.regionDragActive = false;
+      state.chartInteraction.regionAnchorActive = false;
+      renderSnapshot();
+    }
     return result;
   }
 
@@ -795,11 +1115,13 @@ export function createWorkbenchActions({
 
   return {
     saveDraftRegion,
+    buildDraftRegionChatPrompt,
     handleBuild,
     handleFastChartRefresh,
     handleLookup,
     handleInvalidate,
     handleRepairCurrentWindow,
+    handleRepairDraftRegion,
     handleRecordEntry,
     handleAiReview,
     handleSaveRegion,

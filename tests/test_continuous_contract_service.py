@@ -22,6 +22,7 @@ from atas_market_structure.models import (
     RollMode,
     Timeframe,
 )
+from atas_market_structure.models._replay import AtasChartBarRaw
 from atas_market_structure.repository import SQLiteAnalysisRepository
 
 
@@ -299,3 +300,205 @@ def test_mirror_endpoint_and_continuous_endpoint_return_different_semantics() ->
         assert continuous_body["candles"][-1]["source_contract_symbol"] == "NQM6"
         assert len(continuous_body["contract_markers"]) == 4
         assert continuous_body["candles"] != mirror_body["bars"]
+
+
+class _StubRepository:
+    def __init__(self, rows: list[AtasChartBarRaw]) -> None:
+        self._rows = rows
+
+    def list_atas_chart_bars_raw(
+        self,
+        *,
+        root_symbol: str | None = None,
+        timeframe: str | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+        limit: int = 5000,
+        **_: object,
+    ) -> list[AtasChartBarRaw]:
+        filtered: list[AtasChartBarRaw] = []
+        for row in self._rows:
+            if root_symbol is not None and (row.root_symbol or "").upper() != root_symbol.upper():
+                continue
+            if timeframe is not None and row.timeframe.value != timeframe:
+                continue
+            if window_start is not None and row.started_at_utc < window_start:
+                continue
+            if window_end is not None and row.started_at_utc > window_end:
+                continue
+            filtered.append(row)
+        return filtered[:limit]
+
+
+def _make_bar(
+    *,
+    contract_symbol: str,
+    root_symbol: str,
+    started_at: datetime,
+    open_price: float,
+    close_price: float,
+) -> AtasChartBarRaw:
+    high_price = max(open_price, close_price) + 0.5
+    low_price = min(open_price, close_price) - 0.5
+    return AtasChartBarRaw(
+        chart_instance_id=f"chart-{contract_symbol}",
+        root_symbol=root_symbol,
+        contract_symbol=contract_symbol,
+        symbol=contract_symbol,
+        venue="CME",
+        timeframe=Timeframe.MIN_1,
+        bar_timestamp_utc=started_at,
+        started_at_utc=started_at,
+        ended_at_utc=started_at + timedelta(minutes=1),
+        source_started_at=started_at,
+        open=open_price,
+        high=high_price,
+        low=low_price,
+        close=close_price,
+        volume=1,
+        bid_volume=1,
+        ask_volume=0,
+        delta=1,
+        trade_count=1,
+        updated_at=started_at + timedelta(seconds=1),
+    )
+
+
+def _build_service(rows: list[AtasChartBarRaw]) -> ContinuousContractService:
+    return ContinuousContractService(repository=_StubRepository(rows))
+
+
+def test_manual_sequence_ignores_generic_root_rows_and_prefers_earlier_contract_until_exhausted() -> None:
+    base = datetime(2026, 3, 25, 0, 0, tzinfo=UTC)
+    service = _build_service(
+        [
+            _make_bar(contract_symbol="GCJ6", root_symbol="GC", started_at=base, open_price=100.0, close_price=101.0),
+            _make_bar(contract_symbol="GCJ6", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=101.0, close_price=102.0),
+            _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base, open_price=95.0, close_price=96.0),
+            _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=96.0, close_price=97.0),
+            _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base + timedelta(minutes=2), open_price=97.0, close_price=98.0),
+            _make_bar(contract_symbol="GC", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=96.5, close_price=96.5),
+        ]
+    )
+
+    envelope = service.query_continuous_bars(
+        root_symbol="GC",
+        timeframe=Timeframe.MIN_1,
+        roll_mode=RollMode.MANUAL_SEQUENCE,
+        window_start=base,
+        window_end=base + timedelta(minutes=3),
+        adjustment_mode=ContinuousAdjustmentMode.NONE,
+        manual_sequence=["GCJ6", "GCM6"],
+    )
+
+    assert [segment.contract_symbol for segment in envelope.contract_segments] == ["GCJ6", "GCM6"]
+    assert [candle.source_contract_symbol for candle in envelope.candles] == ["GCJ6", "GCJ6", "GCM6"]
+    assert any("Ignored generic root-level contract GC" in warning for warning in envelope.warnings)
+
+
+def test_latest_gap_shift_anchors_history_to_latest_contract_basis_without_changing_gap_shift() -> None:
+    base = datetime(2026, 3, 25, 0, 0, tzinfo=UTC)
+    rows = [
+        _make_bar(contract_symbol="GCJ6", root_symbol="GC", started_at=base, open_price=100.0, close_price=101.0),
+        _make_bar(contract_symbol="GCJ6", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=101.0, close_price=102.0),
+        _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base, open_price=95.0, close_price=96.0),
+        _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=96.0, close_price=97.0),
+        _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base + timedelta(minutes=2), open_price=97.0, close_price=98.0),
+    ]
+    service = _build_service(rows)
+
+    forward_envelope = service.query_continuous_bars(
+        root_symbol="GC",
+        timeframe=Timeframe.MIN_1,
+        roll_mode=RollMode.MANUAL_SEQUENCE,
+        window_start=base,
+        window_end=base + timedelta(minutes=3),
+        adjustment_mode=ContinuousAdjustmentMode.GAP_SHIFT,
+        manual_sequence=["GCJ6", "GCM6"],
+    )
+    latest_basis_envelope = service.query_continuous_bars(
+        root_symbol="GC",
+        timeframe=Timeframe.MIN_1,
+        roll_mode=RollMode.MANUAL_SEQUENCE,
+        window_start=base,
+        window_end=base + timedelta(minutes=3),
+        adjustment_mode=ContinuousAdjustmentMode.LATEST_GAP_SHIFT,
+        manual_sequence=["GCJ6", "GCM6"],
+    )
+
+    assert [segment.adjustment_offset for segment in forward_envelope.contract_segments] == [0.0, 5.0]
+    assert [segment.adjustment_offset for segment in latest_basis_envelope.contract_segments] == [-5.0, 0.0]
+    assert latest_basis_envelope.candles[1].close == pytest.approx(latest_basis_envelope.candles[2].open)
+    assert latest_basis_envelope.candles[0].open == pytest.approx(95.0)
+    assert latest_basis_envelope.candles[1].close == pytest.approx(97.0)
+
+
+def test_by_contract_start_ignores_generic_root_rows_when_explicit_contracts_exist() -> None:
+    base = datetime(2026, 3, 25, 0, 0, tzinfo=UTC)
+    service = _build_service(
+        [
+            _make_bar(contract_symbol="GCJ6", root_symbol="GC", started_at=base, open_price=100.0, close_price=101.0),
+            _make_bar(contract_symbol="GCJ6", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=101.0, close_price=102.0),
+            _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base + timedelta(minutes=2), open_price=95.0, close_price=96.0),
+            _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base + timedelta(minutes=3), open_price=96.0, close_price=97.0),
+            _make_bar(contract_symbol="GC", root_symbol="GC", started_at=base + timedelta(minutes=2), open_price=96.5, close_price=96.5),
+        ]
+    )
+
+    envelope = service.query_continuous_bars(
+        root_symbol="GC",
+        timeframe=Timeframe.MIN_1,
+        roll_mode=RollMode.BY_CONTRACT_START,
+        window_start=base,
+        window_end=base + timedelta(minutes=4),
+        adjustment_mode=ContinuousAdjustmentMode.NONE,
+    )
+
+    assert [segment.contract_symbol for segment in envelope.contract_segments] == ["GCJ6", "GCM6"]
+    assert all(segment.contract_symbol != "GC" for segment in envelope.contract_segments)
+    assert any("Ignored generic root-level contract GC" in warning for warning in envelope.warnings)
+
+
+def test_generic_root_rows_are_preserved_when_no_explicit_contracts_exist() -> None:
+    base = datetime(2026, 3, 25, 0, 0, tzinfo=UTC)
+    service = _build_service(
+        [
+            _make_bar(contract_symbol="GC", root_symbol="GC", started_at=base, open_price=100.0, close_price=101.0),
+            _make_bar(contract_symbol="GC", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=101.0, close_price=102.0),
+        ]
+    )
+
+    envelope = service.query_continuous_bars(
+        root_symbol="GC",
+        timeframe=Timeframe.MIN_1,
+        roll_mode=RollMode.BY_CONTRACT_START,
+        window_start=base,
+        window_end=base + timedelta(minutes=2),
+        adjustment_mode=ContinuousAdjustmentMode.NONE,
+    )
+
+    assert [segment.contract_symbol for segment in envelope.contract_segments] == ["GC"]
+    assert not any("Ignored generic root-level contract GC" in warning for warning in envelope.warnings)
+
+
+def test_manual_sequence_still_requires_all_explicit_contracts_after_root_filter() -> None:
+    base = datetime(2026, 3, 25, 0, 0, tzinfo=UTC)
+    service = _build_service(
+        [
+            _make_bar(contract_symbol="GCJ6", root_symbol="GC", started_at=base, open_price=100.0, close_price=101.0),
+            _make_bar(contract_symbol="GCM6", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=95.0, close_price=96.0),
+            _make_bar(contract_symbol="GCU6", root_symbol="GC", started_at=base + timedelta(minutes=2), open_price=90.0, close_price=91.0),
+            _make_bar(contract_symbol="GC", root_symbol="GC", started_at=base + timedelta(minutes=1), open_price=96.5, close_price=96.5),
+        ]
+    )
+
+    with pytest.raises(ContinuousContractServiceError, match="missing GCU6"):
+        service.query_continuous_bars(
+            root_symbol="GC",
+            timeframe=Timeframe.MIN_1,
+            roll_mode=RollMode.MANUAL_SEQUENCE,
+            window_start=base,
+            window_end=base + timedelta(minutes=3),
+            adjustment_mode=ContinuousAdjustmentMode.NONE,
+            manual_sequence=["GCJ6", "GCM6"],
+        )

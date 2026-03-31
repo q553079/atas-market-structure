@@ -146,6 +146,15 @@ async function waitForSeededAssistantReply(page) {
   );
 }
 
+async function ensureChartToolsOpen(page) {
+  const manualKeyLevelButton = page.locator("#manualKeyLevelButton");
+  if (await manualKeyLevelButton.isVisible().catch(() => false)) {
+    return;
+  }
+  await page.locator("#chartToolbarSecondary > summary").click();
+  await expect(manualKeyLevelButton).toBeVisible();
+}
+
 test.beforeAll(async () => {
   const serverScript = path.join(__dirname, "playwright_support", "fake_workbench_ui_server.py");
   serverProcess = spawn("python", [serverScript], {
@@ -174,17 +183,20 @@ test("formal event candidates drive event cards, hover spotlight, overlay click,
   await installReplayRoutes(page, snapshot);
   await buildReplay(page, snapshot);
   await waitForSeededAssistantReply(page);
+  await ensureChartToolsOpen(page);
 
   const createResponse = page.waitForResponse((response) => {
     return response.request().method() === "POST"
       && response.url().endsWith("/api/v1/workbench/event-candidates");
   });
+  await page.locator("#chartToolbarSecondary").evaluate((node) => { node.open = true; });
   await page.locator("#manualKeyLevelButton").click();
   await createResponse;
 
   const zoneCard = page.locator(".event-candidate-card", { hasText: "手工关键位" }).first();
   await expect(zoneCard).toBeVisible({ timeout: 15000 });
   await expect(page.locator("#eventStreamSummary")).toContainText("当前");
+  await expect(page.locator("#eventStreamList")).toContainText("刚发生");
 
   const zoneChip = page.locator(".message-event-chip", { hasText: "手工关键位" }).first();
   await expect(zoneChip).toBeVisible({ timeout: 15000 });
@@ -201,6 +213,10 @@ test("formal event candidates drive event cards, hover spotlight, overlay click,
   await expect.poll(async () => page.locator("#chartSvg .event-overlay-hit").count()).toBe(0);
 
   await zoneCard.click();
+  await expect(zoneCard).toHaveClass(/is-selected/);
+  await expect(zoneCard).not.toHaveClass(/is-mounted/);
+
+  await zoneCard.locator('[data-event-action="mount"]').click();
   await expect(zoneCard).toHaveClass(/is-mounted/, { timeout: 10000 });
 
   await page.locator("#statusDataChip").hover();
@@ -208,6 +224,33 @@ test("formal event candidates drive event cards, hover spotlight, overlay click,
 
   const eventId = await zoneCard.getAttribute("data-event-id");
   expect(eventId).toBeTruthy();
+  const stableMountedCard = await page.evaluate((id) => {
+    const selector = `.event-candidate-card[data-event-id="${id}"]`;
+    const node = document.querySelector(selector);
+    window.__mountedEventCardNode = node;
+    return !!node;
+  }, eventId);
+  expect(stableMountedCard).toBeTruthy();
+
+  const createAnotherResponse = page.waitForResponse((response) => {
+    return response.request().method() === "POST"
+      && response.url().endsWith("/api/v1/workbench/event-candidates");
+  });
+  await page.locator("#chartToolbarSecondary").evaluate((node) => { node.open = true; });
+  await page.locator("#manualKeyLevelButton").click();
+  await createAnotherResponse;
+  await expect(page.locator(".event-candidate-card", { hasText: "手工关键位" }).nth(1)).toBeVisible({ timeout: 10000 });
+  const preservedMountedCard = await page.evaluate((id) => {
+    const selector = `.event-candidate-card[data-event-id="${id}"]`;
+    const node = document.querySelector(selector);
+    return {
+      sameNode: !!window.__mountedEventCardNode && node === window.__mountedEventCardNode,
+      mounted: !!node?.classList.contains("is-mounted"),
+    };
+  }, eventId);
+  expect(preservedMountedCard.sameNode).toBeTruthy();
+  expect(preservedMountedCard.mounted).toBeTruthy();
+
   await page.locator(`#chartSvg .event-overlay-hit[data-event-id="${eventId}"]`).click({ force: true });
   await expect(zoneCard).toHaveClass(/is-selected/);
 });
@@ -217,18 +260,20 @@ test("manual chart-created event candidates can mount and survive reload", async
   await installReplayRoutes(page, snapshot);
   await buildReplay(page, snapshot);
   await waitForSeededAssistantReply(page);
+  await ensureChartToolsOpen(page);
 
   const createResponse = page.waitForResponse((response) => {
     return response.request().method() === "POST"
       && response.url().endsWith("/api/v1/workbench/event-candidates");
   });
+  await page.locator("#chartToolbarSecondary").evaluate((node) => { node.open = true; });
   await page.locator("#manualKeyLevelButton").click();
   await createResponse;
 
   const manualCard = page.locator(".event-candidate-card", { hasText: "手工关键位" }).first();
   await expect(manualCard).toBeVisible({ timeout: 10000 });
 
-  await manualCard.click();
+  await manualCard.locator('[data-event-action="mount"]').click();
   await expect(manualCard).toHaveClass(/is-mounted/, { timeout: 10000 });
 
   await page.reload({ waitUntil: "domcontentloaded" });

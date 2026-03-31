@@ -267,6 +267,13 @@ def test_prompt_trace_routes_expose_trace_by_message_trace_id_and_session() -> N
     reply_payload = json.loads(reply_response.body)
     prompt_trace_id = reply_payload["assistant_message"]["prompt_trace_id"]
     message_id = reply_payload["assistant_message"]["message_id"]
+    assert reply_payload["assistant_message"]["meta"]["prompt_trace_id"] == prompt_trace_id
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["schema_version"] == "workbench_ui_contract_v1"
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["context_version"]
+    assert "context_blocks" in reply_payload["assistant_message"]["meta"]["workbench_ui"]
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["include_memory_summary"] is True
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["include_recent_messages"] is True
+    assert "stale_state" not in reply_payload["assistant_message"]["meta"]["workbench_ui"]
 
     by_message_response = application.dispatch(
         "GET",
@@ -276,6 +283,13 @@ def test_prompt_trace_routes_expose_trace_by_message_trace_id_and_session() -> N
     by_message_payload = json.loads(by_message_response.body)
     assert by_message_payload["trace"]["prompt_trace_id"] == prompt_trace_id
     assert by_message_payload["trace"]["message_id"] == message_id
+    assert by_message_payload["trace"]["context_version"] == by_message_payload["trace"]["snapshot"]["context_version"]
+    assert by_message_payload["trace"]["context_blocks"] == by_message_payload["trace"]["snapshot"]["context_blocks"]
+    assert by_message_payload["trace"]["block_version_refs"] == by_message_payload["trace"]["metadata"]["block_version_refs"]
+    assert by_message_payload["trace"]["reply_window_anchor"] == by_message_payload["trace"]["metadata"]["reply_window_anchor"]
+    assert by_message_payload["trace"]["metadata"]["context_version"] == reply_payload["assistant_message"]["meta"]["workbench_ui"]["context_version"]
+    assert by_message_payload["trace"]["metadata"]["reply_window_anchor"] == reply_payload["assistant_message"]["meta"]["workbench_ui"]["reply_window_anchor"]
+    assert reply_payload["assistant_message"]["meta"]["workbench_ui"]["context_blocks"] == by_message_payload["trace"]["context_blocks"]
 
     by_id_response = application.dispatch(
         "GET",
@@ -285,6 +299,12 @@ def test_prompt_trace_routes_expose_trace_by_message_trace_id_and_session() -> N
     by_id_payload = json.loads(by_id_response.body)
     assert by_id_payload["trace"]["prompt_trace_id"] == prompt_trace_id
     assert by_id_payload["trace"]["session_id"] == session_id
+    assert by_id_payload["trace"]["context_version"] == by_id_payload["trace"]["snapshot"]["context_version"]
+    assert by_id_payload["trace"]["context_blocks"] == by_id_payload["trace"]["snapshot"]["context_blocks"]
+    assert by_id_payload["trace"]["block_version_refs"] == by_id_payload["trace"]["metadata"]["block_version_refs"]
+    assert by_id_payload["trace"]["reply_window_anchor"] == by_id_payload["trace"]["metadata"]["reply_window_anchor"]
+    assert by_id_payload["trace"]["metadata"]["context_version"] == by_id_payload["trace"]["snapshot"]["context_version"]
+    assert by_id_payload["trace"]["metadata"]["block_version_refs"] == by_id_payload["trace"]["snapshot"]["context_blocks"]
 
     by_session_response = application.dispatch(
         "GET",
@@ -295,6 +315,9 @@ def test_prompt_trace_routes_expose_trace_by_message_trace_id_and_session() -> N
     assert by_session_payload["schema_version"] == "workbench_prompt_trace_list_envelope_v1"
     assert len(by_session_payload["traces"]) == 1
     assert by_session_payload["traces"][0]["prompt_trace_id"] == prompt_trace_id
+    assert by_session_payload["traces"][0]["context_version"] == by_session_payload["traces"][0]["snapshot"]["context_version"]
+    assert by_session_payload["traces"][0]["context_blocks"] == by_session_payload["traces"][0]["snapshot"]["context_blocks"]
+    assert by_session_payload["traces"][0]["metadata"]["context_version"] == reply_payload["assistant_message"]["meta"]["workbench_ui"]["context_version"]
 
 
 def test_prompt_trace_list_route_requires_session_id_query_parameter() -> None:

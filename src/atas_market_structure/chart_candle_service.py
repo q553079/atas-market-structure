@@ -28,13 +28,18 @@ MIN_1 | MIN_5 | MIN_15 | MIN_30 | HOUR_1 | HOUR_4
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from atas_market_structure.continuous_contract_service import (
+    ContinuousContractService,
+    ContinuousContractServiceError,
+)
 from atas_market_structure.history_payload_quality import history_payload_chart_path_verdict
-from atas_market_structure.models._enums import Timeframe
-from atas_market_structure.models._replay import ChartCandle
+from atas_market_structure.models._enums import ContinuousAdjustmentMode, RollMode, Timeframe
+from atas_market_structure.models._replay import ChartCandle, ReplayEventAnnotation
 
 if TYPE_CHECKING:
     from atas_market_structure.repository import AnalysisRepository
@@ -61,6 +66,13 @@ _TF_SECONDS: dict[Timeframe, int] = {
 }
 _DISPLAY_PRICE_EPSILON = 1e-6
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ChartDisplayResult:
+    candles: list[ChartCandle]
+    event_annotations: list[ReplayEventAnnotation]
+    display_metadata: dict[str, Any]
 
 
 def _floor(dt: datetime, tf: Timeframe) -> datetime:
@@ -96,6 +108,7 @@ class ChartCandleService:
 
     def __init__(self, repository: "AnalysisRepository") -> None:
         self._repo = repository
+        self._continuous_contract_service = ContinuousContractService(repository=repository)
 
     # ─── Incremental (live) upsert ─────────────────────────────────────────────
 
@@ -282,6 +295,341 @@ class ChartCandleService:
             limit=limit,
         )
         return self.sanitize_candles_for_display(candles)
+
+    def get_display_candle_result(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 20000,
+        skip_contract_overlay: bool = False,
+    ) -> ChartDisplayResult:
+        base_candles = self.get_candles(symbol, timeframe, window_start, window_end, limit=limit)
+        if skip_contract_overlay:
+            return self._default_display_result(
+                candles=base_candles,
+                timeframe=timeframe,
+                source_timeframe=timeframe,
+            )
+        source_timeframe = self._resolve_contract_overlay_source_timeframe(
+            symbol=symbol,
+            timeframe=timeframe,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        if source_timeframe is None:
+            return self._default_display_result(
+                candles=base_candles,
+                timeframe=timeframe,
+                source_timeframe=timeframe,
+            )
+
+        contract_sequence = self._derive_explicit_contract_sequence(
+            symbol=symbol,
+            timeframe=source_timeframe,
+            window_start=window_start,
+            window_end=window_end,
+            limit=limit,
+        )
+        if len(contract_sequence) < 2:
+            return self._default_display_result(
+                candles=base_candles,
+                timeframe=timeframe,
+                source_timeframe=source_timeframe,
+                contract_sequence=contract_sequence,
+            )
+
+        try:
+            envelope = self._continuous_contract_service.query_continuous_bars(
+                root_symbol=symbol.upper().strip(),
+                timeframe=source_timeframe,
+                roll_mode=RollMode.MANUAL_SEQUENCE,
+                window_start=window_start,
+                window_end=window_end,
+                limit=min(50000, max(limit * 8, 5000)),
+                adjustment_mode=ContinuousAdjustmentMode.NONE,
+                manual_sequence=contract_sequence,
+            )
+        except ContinuousContractServiceError as exc:
+            warning = f"contract_overlay_fallback: {exc}"
+            LOGGER.warning(
+                "ChartCandleService: fallback to base chart candles symbol=%s timeframe=%s reason=%s",
+                symbol,
+                timeframe.value,
+                exc,
+            )
+            return self._default_display_result(
+                candles=base_candles,
+                timeframe=timeframe,
+                source_timeframe=source_timeframe,
+                contract_sequence=contract_sequence,
+                warnings=[warning],
+            )
+        if not envelope.candles:
+            return self._default_display_result(
+                candles=base_candles,
+                timeframe=timeframe,
+                source_timeframe=source_timeframe,
+                contract_sequence=contract_sequence,
+                warnings=envelope.warnings,
+            )
+
+        overlay_candles = self._build_overlay_candles_from_continuous(
+            symbol=symbol,
+            timeframe=timeframe,
+            source_timeframe=source_timeframe,
+            source_candles=envelope.candles,
+            base_candles=base_candles,
+        )
+        if not overlay_candles:
+            return self._default_display_result(
+                candles=base_candles,
+                timeframe=timeframe,
+                source_timeframe=source_timeframe,
+                contract_sequence=contract_sequence,
+                warnings=envelope.warnings,
+            )
+
+        merged_by_started_at: dict[datetime, ChartCandle] = {
+            candle.started_at: candle
+            for candle in base_candles
+        }
+        for candle in overlay_candles:
+            merged_by_started_at[candle.started_at] = candle
+        merged_candles = self.sanitize_candles_for_display(
+            [merged_by_started_at[key] for key in sorted(merged_by_started_at)]
+        )
+        rollovers = self._build_rollover_descriptors(
+            contract_segments=envelope.contract_segments,
+            timeframe=timeframe,
+            merged_candles=merged_candles,
+        )
+        event_annotations = self._build_rollover_event_annotations(rollovers)
+        return ChartDisplayResult(
+            candles=merged_candles,
+            event_annotations=event_annotations,
+            display_metadata={
+                "chart_data_source": "chart_candles_contract_splice",
+                "contract_rollover_applied": bool(rollovers),
+                "contract_sequence": contract_sequence,
+                "contract_rollovers": rollovers,
+                "continuous_roll_mode": RollMode.MANUAL_SEQUENCE.value,
+                "continuous_adjustment_mode": ContinuousAdjustmentMode.NONE.value,
+                "source_timeframe": source_timeframe.value,
+                "warnings": envelope.warnings,
+            },
+        )
+
+    def get_display_candles_with_metadata(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int = 20000,
+        skip_contract_overlay: bool = False,
+    ) -> tuple[list[ChartCandle], dict[str, Any], list[ReplayEventAnnotation]]:
+        result = self.get_display_candle_result(
+            symbol=symbol,
+            timeframe=timeframe,
+            window_start=window_start,
+            window_end=window_end,
+            limit=limit,
+            skip_contract_overlay=skip_contract_overlay,
+        )
+        return result.candles, result.display_metadata, result.event_annotations
+
+    def _default_display_result(
+        self,
+        *,
+        candles: list[ChartCandle],
+        timeframe: Timeframe,
+        source_timeframe: Timeframe,
+        contract_sequence: list[str] | None = None,
+        warnings: list[str] | None = None,
+    ) -> ChartDisplayResult:
+        return ChartDisplayResult(
+            candles=candles,
+            event_annotations=[],
+            display_metadata={
+                "chart_data_source": "chart_candles",
+                "contract_rollover_applied": False,
+                "contract_sequence": contract_sequence or [],
+                "contract_rollovers": [],
+                "continuous_roll_mode": None,
+                "continuous_adjustment_mode": ContinuousAdjustmentMode.NONE.value,
+                "source_timeframe": source_timeframe.value or timeframe.value,
+                "warnings": warnings or [],
+            },
+        )
+
+    def _resolve_contract_overlay_source_timeframe(
+        self,
+        *,
+        symbol: str,
+        timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> Timeframe | None:
+        candidates = [timeframe]
+        if timeframe != Timeframe.MIN_1:
+            candidates.append(Timeframe.MIN_1)
+        for candidate in candidates:
+            if self._repo.count_atas_chart_bars_raw(
+                root_symbol=symbol.upper().strip(),
+                timeframe=candidate.value,
+                window_start=window_start,
+                window_end=window_end,
+            ) > 0:
+                return candidate
+        return None
+
+    def _derive_explicit_contract_sequence(
+        self,
+        *,
+        symbol: str,
+        timeframe: Timeframe,
+        window_start: datetime,
+        window_end: datetime,
+        limit: int,
+    ) -> list[str]:
+        rows = self._repo.list_atas_chart_bars_raw(
+            root_symbol=symbol.upper().strip(),
+            timeframe=timeframe.value,
+            window_start=window_start,
+            window_end=window_end,
+            limit=min(50000, max(limit * 8, 5000)),
+        )
+        normalized_root = symbol.upper().strip()
+        coverage: dict[str, tuple[datetime, datetime]] = {}
+        for row in rows:
+            contract_symbol = (row.contract_symbol or row.symbol or "").upper().strip()
+            if not contract_symbol or contract_symbol == normalized_root:
+                continue
+            existing = coverage.get(contract_symbol)
+            if existing is None:
+                coverage[contract_symbol] = (row.started_at_utc, row.started_at_utc)
+                continue
+            coverage[contract_symbol] = (
+                min(existing[0], row.started_at_utc),
+                max(existing[1], row.started_at_utc),
+            )
+        return [
+            contract_symbol
+            for contract_symbol, _window in sorted(
+                coverage.items(),
+                key=lambda item: (item[1][1], item[1][0], item[0]),
+            )
+        ]
+
+    def _build_overlay_candles_from_continuous(
+        self,
+        *,
+        symbol: str,
+        timeframe: Timeframe,
+        source_timeframe: Timeframe,
+        source_candles: list[Any],
+        base_candles: list[ChartCandle],
+    ) -> list[ChartCandle]:
+        if not source_candles:
+            return []
+        if source_timeframe == timeframe:
+            base_by_started_at = {candle.started_at: candle for candle in base_candles}
+            output: list[ChartCandle] = []
+            for candle in source_candles:
+                existing = base_by_started_at.get(candle.started_at_utc)
+                output.append(
+                    ChartCandle(
+                        symbol=symbol.upper().strip(),
+                        timeframe=timeframe,
+                        started_at=candle.started_at_utc,
+                        ended_at=candle.ended_at_utc,
+                        source_started_at=candle.source_started_at_utc,
+                        open=candle.open,
+                        high=candle.high,
+                        low=candle.low,
+                        close=candle.close,
+                        volume=int(candle.volume or 0),
+                        tick_volume=existing.tick_volume if existing is not None else max(1, int(candle.volume or 0)),
+                        delta=int(candle.delta or 0),
+                        updated_at=existing.updated_at if existing is not None else candle.started_at_utc,
+                        source_timezone=existing.source_timezone if existing is not None else None,
+                    )
+                )
+            return output
+        return self._aggregate_into_tf(
+            symbol.upper().strip(),
+            timeframe,
+            [
+                {
+                    "started_at": candle.started_at_utc,
+                    "ended_at": candle.ended_at_utc,
+                    "open": candle.open,
+                    "high": candle.high,
+                    "low": candle.low,
+                    "close": candle.close,
+                    "volume": candle.volume,
+                    "delta": candle.delta,
+                }
+                for candle in source_candles
+            ],
+        )
+
+    def _build_rollover_descriptors(
+        self,
+        *,
+        contract_segments: list[Any],
+        timeframe: Timeframe,
+        merged_candles: list[ChartCandle],
+    ) -> list[dict[str, Any]]:
+        if len(contract_segments) < 2:
+            return []
+        price_by_started_at = {candle.started_at: candle for candle in merged_candles}
+        rollovers: list[dict[str, Any]] = []
+        previous_segment = contract_segments[0]
+        for current_segment in contract_segments[1:]:
+            marker_started_at = _floor(current_segment.segment_start_utc, timeframe)
+            marker_candle = price_by_started_at.get(marker_started_at)
+            rollovers.append(
+                {
+                    "observed_at": marker_started_at,
+                    "from_contract": previous_segment.contract_symbol,
+                    "to_contract": current_segment.contract_symbol,
+                    "roll_reason": current_segment.roll_reason,
+                    "price": marker_candle.open if marker_candle is not None else None,
+                }
+            )
+            previous_segment = current_segment
+        return rollovers
+
+    @staticmethod
+    def _build_rollover_event_annotations(
+        rollovers: list[dict[str, Any]],
+    ) -> list[ReplayEventAnnotation]:
+        output: list[ReplayEventAnnotation] = []
+        for rollover in rollovers:
+            observed_at = rollover["observed_at"]
+            from_contract = str(rollover.get("from_contract") or "").upper()
+            to_contract = str(rollover.get("to_contract") or "").upper()
+            if not from_contract or not to_contract:
+                continue
+            output.append(
+                ReplayEventAnnotation(
+                    event_id=f"contract-rollover:{observed_at.isoformat()}:{from_contract}:{to_contract}",
+                    event_kind="换月",
+                    source_kind="chart_display",
+                    observed_at=observed_at,
+                    price=rollover.get("price"),
+                    linked_ids=[from_contract, to_contract],
+                    notes=[
+                        f"{from_contract} -> {to_contract}",
+                        "真实成交价格，未做平移",
+                        f"切换依据: {str(rollover.get('roll_reason') or '').replace('_', ' ')}",
+                    ],
+                )
+            )
+        return output
 
     def has_candles(self, symbol: str, timeframe: Timeframe) -> bool:
         """Return True if we have any chart candles for this symbol/tf."""

@@ -17,7 +17,15 @@ from atas_market_structure.history_payload_quality import (
     history_payload_chart_path_verdict,
     raw_history_row_chart_path_verdict,
 )
+from atas_market_structure.live_tail_candle_guardrails import (
+    anchor_last_candle_to_price,
+    suppress_tail_outlier_candles,
+)
 from atas_market_structure.live_tail_quote_guardrails import sanitize_live_tail_quote
+from atas_market_structure.live_tail_window_policy import (
+    prune_live_tail_seed_candles,
+    trim_live_tail_display_candles,
+)
 from atas_market_structure.models import (
     AdapterBackfillAcknowledgeRequest,
     AdapterBackfillAcknowledgeResponse,
@@ -133,6 +141,10 @@ from atas_market_structure.workbench_common import (
     parse_utc,
     payload_to_model,
 )
+from atas_market_structure.workbench_gap_fill_policy import (
+    count_fillable_gap_bars,
+    iter_fillable_gap_starts,
+)
 from atas_market_structure.workbench_replay_backfill_ranges import chunk_backfill_ranges
 
 LOGGER = logging.getLogger(__name__)
@@ -167,7 +179,6 @@ class ReplayWorkbenchService:
     # Defensive limit: never insert an unbounded amount of synthetic filler bars.
     # (UI would choke, and it usually indicates upstream history coverage issues.)
     _MAX_GAP_FILL_BARS: int = 600
-    _MAX_GAP_FILL_BARS_PER_SEGMENT: int = 30
     _BACKFILL_REQUEST_TTL = timedelta(minutes=5)
     _BACKFILL_DISPATCH_LEASE = timedelta(seconds=12)
     _BACKFILL_RECORD_RETENTION = timedelta(hours=2)
@@ -177,6 +188,7 @@ class ReplayWorkbenchService:
     def __init__(self, repository: AnalysisRepository) -> None:
         self._repository = repository
         self._replay_ai_chat_service = None
+        self._chart_candle_service = ChartCandleService(repository=repository)
         self._continuous_contract_service = ContinuousContractService(repository=repository)
         self._backfill_lock = Lock()
         self._backfill_requests: dict[str, ReplayWorkbenchAtasBackfillRecord] = {}
@@ -1163,6 +1175,11 @@ class ReplayWorkbenchService:
             )
         latest_payload: dict[str, Any] | None = matched[-1][1].observed_payload if matched else None
         latest_observed_at: datetime | None = matched[-1][0] if matched else None
+        instrument_venue = (
+            latest_payload.get("instrument", {}).get("venue")
+            if isinstance(latest_payload, dict) and isinstance(latest_payload.get("instrument"), dict)
+            else "CME"
+        )
 
         if tick_observed_at is not None and (latest_observed_at is None or tick_observed_at > latest_observed_at):
             latest_observed_at = tick_observed_at
@@ -1247,6 +1264,12 @@ class ReplayWorkbenchService:
         else:
             candle_messages = self._select_trade_active_continuous_messages(recent_messages)
             live_candles = self._build_candles(display_timeframe, candle_messages)[-max(lookback_bars, 1):]
+        live_candles = prune_live_tail_seed_candles(
+            live_candles,
+            timeframe_minutes=timeframe_minutes,
+            lookback_bars=lookback_bars,
+            reference_time=latest_observed_at,
+        )
 
         event_annotations = self._build_event_annotations(recent_messages) if recent_messages else []
         focus_regions = self._build_focus_regions(recent_messages, event_annotations) if recent_messages else []
@@ -1269,9 +1292,35 @@ class ReplayWorkbenchService:
             chart_instance_id=chart_instance_id,
             candles=live_candles,
         )
+        live_tail_freshness = self._classify_freshness(latest_observed_at)
+        live_candles, repaired_tail_count = suppress_tail_outlier_candles(
+            live_candles,
+            freshness=live_tail_freshness,
+        )
+        if repaired_tail_count > 0:
+            LOGGER.warning(
+                "get_live_tail: repaired %s suspicious tail candle(s) symbol=%s timeframe=%s chart_instance_id=%s",
+                repaired_tail_count,
+                symbol,
+                display_timeframe.value,
+                chart_instance_id,
+            )
 
         # Still expose remaining gaps as explicit synthetic bars (so UI can see missing time).
-        live_candles, candle_gaps, _ = self._fill_candle_time_gaps(live_candles, display_timeframe)
+        live_candles, _, _ = self._fill_candle_time_gaps(
+            live_candles,
+            display_timeframe,
+            instrument_venue=instrument_venue,
+        )
+        live_candles = trim_live_tail_display_candles(
+            live_candles,
+            lookback_bars=lookback_bars,
+        )
+        candle_gaps = self._detect_candle_time_gaps(
+            live_candles,
+            display_timeframe,
+            instrument_venue=instrument_venue,
+        )
 
         cache_key = None
         if live_candles:
@@ -1398,6 +1447,17 @@ class ReplayWorkbenchService:
                 chart_instance_id,
                 quote_guardrail.reason,
             )
+            live_candles, repaired_last_candle = anchor_last_candle_to_price(
+                live_candles,
+                price=latest_price,
+            )
+            if repaired_last_candle:
+                LOGGER.warning(
+                    "get_live_tail: anchored last candle to sanitized latest_price symbol=%s timeframe=%s chart_instance_id=%s",
+                    instrument_symbol,
+                    display_timeframe.value,
+                    chart_instance_id,
+                )
 
         return ReplayWorkbenchLiveTailResponse(
             schema_version=self._LIVE_TAIL_SCHEMA_VERSION,
@@ -2349,15 +2409,76 @@ class ReplayWorkbenchService:
             return self._build_snapshot_from_local_history(request, continuous_messages)
         history_candle_count = len(candles)
         continuous_overlay_count = 0
+        display_overlay_count = 0
+        display_metadata: dict[str, Any] = {}
+        display_event_annotations: list[ReplayEventAnnotation] = []
         if continuous_messages:
             candles, continuous_overlay_count = self._merge_history_candles_with_continuous_overlay(
                 history_candles=candles,
                 continuous_messages=continuous_messages,
                 timeframe=request.display_timeframe,
             )
+        display_bars, display_metadata, display_event_annotations = self._try_get_preaggregated_bars(
+            symbol=request.instrument_symbol,
+            timeframe=request.display_timeframe,
+            window_start=request.window_start,
+            window_end=request.window_end,
+            limit=max(len(candles), 5000),
+        )
+        if display_bars:
+            candles, display_overlay_count = self._overlay_replay_bars(
+                base_candles=candles,
+                overlay_bars=[
+                    ReplayChartBar(
+                        started_at=bar["started_at"],
+                        ended_at=bar["ended_at"],
+                        open=bar["open"],
+                        high=bar["high"],
+                        low=bar["low"],
+                        close=bar["close"],
+                        volume=bar["volume"],
+                        delta=bar["delta"],
+                        bid_volume=bar["bid_volume"],
+                        ask_volume=bar["ask_volume"],
+                    )
+                    for bar in display_bars
+                ],
+            )
+
+        history_coverage_start = min(payload.observed_window_start for payload in history_payloads)
+        history_coverage_end = max(payload.observed_window_end for payload in history_payloads)
+        latest_adapter_sync_at = history_coverage_end
+        if continuous_messages:
+            latest_adapter_sync_at = max(
+                latest_adapter_sync_at,
+                max(self._payload_observed_at(item.observed_payload) for item in continuous_messages),
+            )
 
         # Detect + fill any remaining candle gaps so the UI does not silently compress missing time.
-        candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(candles, request.display_timeframe)
+        candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(
+            candles,
+            request.display_timeframe,
+            instrument_venue=history_payload.instrument.venue,
+        )
+        snapshot_tail_guard_horizon = timedelta(
+            minutes=max(15, self._TIMEFRAME_MINUTES.get(request.display_timeframe, 1) * 6)
+        )
+        snapshot_tail_freshness = (
+            self._classify_freshness(latest_adapter_sync_at)
+            if request.window_end >= datetime.now(tz=UTC) - snapshot_tail_guard_horizon
+            else None
+        )
+        candles, repaired_tail_count = suppress_tail_outlier_candles(
+            candles,
+            freshness=snapshot_tail_freshness,
+        )
+        if repaired_tail_count > 0:
+            LOGGER.warning(
+                "build_snapshot_from_history_bars: repaired %s suspicious tail candle(s) symbol=%s timeframe=%s",
+                repaired_tail_count,
+                request.instrument_symbol,
+                request.display_timeframe.value,
+            )
         candles, initial_window_applied, initial_window_bar_limit, total_candle_count = self._apply_initial_snapshot_window(
             candles,
             request.display_timeframe,
@@ -2376,7 +2497,10 @@ class ReplayWorkbenchService:
             candle_gaps=candle_gaps,
             latest_backfill_request=latest_backfill_request,
         )
-        event_annotations = self._build_event_annotations(continuous_messages) if continuous_messages else []
+        event_annotations = self._merge_event_annotations(
+            self._build_event_annotations(continuous_messages) if continuous_messages else [],
+            display_event_annotations,
+        )
         focus_regions = self._build_focus_regions(continuous_messages, event_annotations) if continuous_messages else []
         if footprint_payloads:
             event_annotations.extend(self._build_footprint_event_annotations(footprint_payloads, history_payload.instrument.tick_size, request))
@@ -2384,14 +2508,6 @@ class ReplayWorkbenchService:
         strategy_candidates = self._build_strategy_candidates(event_annotations)
         ai_briefing = self._build_ai_briefing(request.instrument_symbol, strategy_candidates, focus_regions)
         footprint_digest = self._build_footprint_digest(footprint_payloads, request) if footprint_payloads else None
-        history_coverage_start = min(payload.observed_window_start for payload in history_payloads)
-        history_coverage_end = max(payload.observed_window_end for payload in history_payloads)
-        latest_adapter_sync_at = history_coverage_end
-        if continuous_messages:
-            latest_adapter_sync_at = max(
-                latest_adapter_sync_at,
-                max(self._payload_observed_at(item.observed_payload) for item in continuous_messages),
-            )
         profile_version, engine_version = self._resolve_active_versions(request.instrument_symbol)
 
         return ReplayWorkbenchSnapshotPayload(
@@ -2444,6 +2560,7 @@ class ReplayWorkbenchService:
                 "history_footprint_digest": footprint_digest,
                 "local_message_count": len(continuous_messages),
                 "continuous_overlay_candle_count": continuous_overlay_count,
+                "display_contract_overlay_candle_count": display_overlay_count,
                 "candle_gap_count": len(candle_gaps),
                 "candle_gap_missing_bar_count": sum(item["missing_bar_count"] for item in candle_gaps),
                 "candle_gap_fill_bar_count": gap_fill_bar_count,
@@ -2453,6 +2570,7 @@ class ReplayWorkbenchService:
                 "initial_window_bar_limit": initial_window_bar_limit,
                 "total_candle_count": total_candle_count,
                 "deferred_history_available": total_candle_count > len(candles),
+                "display_metadata": display_metadata,
             },
         )
 
@@ -2661,7 +2779,7 @@ class ReplayWorkbenchService:
         # ─── Fast path: try pre-aggregated ClickHouse materialized view ───────
         # Queries return sub-100ms regardless of raw message count (109k+ rows).
         # Falls back to raw-message aggregation when MV is empty or unavailable.
-        pre_bars = self._try_get_preaggregated_bars(
+        pre_bars, display_metadata, display_event_annotations = self._try_get_preaggregated_bars(
             symbol=request.instrument_symbol,
             timeframe=request.display_timeframe,
             window_start=request.window_start,
@@ -2673,6 +2791,8 @@ class ReplayWorkbenchService:
             timeframe=request.display_timeframe,
         ):
             pre_bars = []
+            display_metadata = {}
+            display_event_annotations = []
             preaggregate_fallback_used = True
         if pre_bars:
             candles = [
@@ -2696,9 +2816,12 @@ class ReplayWorkbenchService:
                 window_start=request.window_start,
                 window_end=request.window_end,
             )
-            event_annotations = self._build_event_annotations_from_preaggregated(pre_events) if pre_events else []
+            event_annotations = self._merge_event_annotations(
+                self._build_event_annotations_from_preaggregated(pre_events) if pre_events else [],
+                display_event_annotations,
+            )
             focus_regions = self._build_focus_regions_from_preaggregated(pre_events) if pre_events else []
-            history_source = "continuous_state_preaggregate"
+            history_source = display_metadata.get("chart_data_source") or "continuous_state_preaggregate"
         else:
             # ─── Slow path: aggregate from raw continuous_state messages ────────
             candle_ingestions = trade_active_messages
@@ -2706,8 +2829,43 @@ class ReplayWorkbenchService:
             event_annotations = self._build_event_annotations(ingestions) if ingestions else []
             focus_regions = self._build_focus_regions(ingestions, event_annotations) if ingestions else []
             history_source = "adapter_continuous_state"
+            display_metadata = {}
 
-        candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(candles, request.display_timeframe)
+        if last_payload is not None:
+            latest_adapter_sync_at = self._payload_observed_at(last_payload)
+        elif candles:
+            latest_adapter_sync_at = candles[-1].ended_at
+        else:
+            latest_adapter_sync_at = request.window_end
+        instrument_venue = (
+            last_payload.get("instrument", {}).get("venue")
+            if isinstance(last_payload, dict) and isinstance(last_payload.get("instrument"), dict)
+            else "CME"
+        )
+        candles, candle_gaps, gap_fill_bar_count = self._fill_candle_time_gaps(
+            candles,
+            request.display_timeframe,
+            instrument_venue=instrument_venue,
+        )
+        snapshot_tail_guard_horizon = timedelta(
+            minutes=max(15, self._TIMEFRAME_MINUTES.get(request.display_timeframe, 1) * 6)
+        )
+        snapshot_tail_freshness = (
+            self._classify_freshness(latest_adapter_sync_at)
+            if request.window_end >= datetime.now(tz=UTC) - snapshot_tail_guard_horizon
+            else None
+        )
+        candles, repaired_tail_count = suppress_tail_outlier_candles(
+            candles,
+            freshness=snapshot_tail_freshness,
+        )
+        if repaired_tail_count > 0:
+            LOGGER.warning(
+                "build_snapshot_from_local_history: repaired %s suspicious tail candle(s) symbol=%s timeframe=%s",
+                repaired_tail_count,
+                request.instrument_symbol,
+                request.display_timeframe.value,
+            )
         candles, initial_window_applied, initial_window_bar_limit, total_candle_count = self._apply_initial_snapshot_window(
             candles,
             request.display_timeframe,
@@ -2750,9 +2908,6 @@ class ReplayWorkbenchService:
         chart_instance_id = request.chart_instance_id
         if chart_instance_id is None and isinstance(source_payload, dict):
             chart_instance_id = source_payload.get("chart_instance_id")
-        latest_adapter_sync_at = actual_window_end
-        if last_payload is not None:
-            latest_adapter_sync_at = self._payload_observed_at(last_payload)
         profile_version, engine_version = self._resolve_active_versions(request.instrument_symbol)
 
         return ReplayWorkbenchSnapshotPayload(
@@ -2809,6 +2964,7 @@ class ReplayWorkbenchService:
                 "total_candle_count": total_candle_count,
                 "deferred_history_available": total_candle_count > len(candles),
                 "preaggregate_fallback_used": preaggregate_fallback_used,
+                "display_metadata": display_metadata,
             },
         )
 
@@ -2819,7 +2975,7 @@ class ReplayWorkbenchService:
         window_start: datetime,
         window_end: datetime,
         limit: int = 5000,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], list[ReplayEventAnnotation]]:
         """Query pre-aggregated bars from the chart_candles table.
 
         The chart_candles table (in ClickHouse or SQLite) is populated by
@@ -2829,44 +2985,39 @@ class ReplayWorkbenchService:
         Falls back to raw-message aggregation when no chart candles exist.
         """
         try:
-            # First check: do we have any chart candles for this symbol/timeframe?
-            count = self._repository.count_chart_candles(symbol.upper(), timeframe.value)
-            if count == 0:
-                return []
-
-            # Query pre-aggregated chart candles from chart_candles table.
-            # Both SQLite and ClickHouse repositories support this method.
-            candles = self._repository.list_chart_candles(
+            candles, display_metadata, display_event_annotations = self._chart_candle_service.get_display_candles_with_metadata(
                 symbol=symbol.upper(),
-                timeframe=timeframe.value,
+                timeframe=timeframe,
                 window_start=window_start,
                 window_end=window_end,
                 limit=limit,
             )
-            candles = ChartCandleService.sanitize_candles_for_display(candles)
-
             if not candles:
-                return []
+                return [], {}, []
 
             # Convert ChartCandle model objects to the dict format expected
             # by _build_snapshot_from_local_history.
-            return [
-                {
-                    "started_at": bar.started_at,
-                    "ended_at": bar.ended_at,
-                    "open": bar.open,
-                    "high": bar.high,
-                    "low": bar.low,
-                    "close": bar.close,
-                    "volume": bar.volume,
-                    "delta": bar.delta,
-                    "bid_volume": None,
-                    "ask_volume": None,
-                }
-                for bar in candles
-            ]
+            return (
+                [
+                    {
+                        "started_at": bar.started_at,
+                        "ended_at": bar.ended_at,
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume,
+                        "delta": bar.delta,
+                        "bid_volume": None,
+                        "ask_volume": None,
+                    }
+                    for bar in candles
+                ],
+                display_metadata,
+                display_event_annotations,
+            )
         except Exception:
-            return []
+            return [], {}, []
 
     def _preaggregated_bars_missing_coverage(
         self,
@@ -3649,6 +3800,8 @@ class ReplayWorkbenchService:
         self,
         candles: list[ReplayChartBar],
         timeframe: Timeframe,
+        *,
+        instrument_venue: str | None = None,
     ) -> list[dict[str, Any]]:
         """Detect missing-time gaps based on candle started_at spacing.
 
@@ -3666,13 +3819,15 @@ class ReplayWorkbenchService:
             if actual_seconds <= expected_seconds + tolerance_seconds:
                 continue
 
-            # Estimate how many bars should exist between these starts.
-            # If there is a remainder > tolerance, we treat it as needing one extra bar.
-            bars_between = max(1, actual_seconds // expected_seconds)
-            remainder = actual_seconds % expected_seconds
-            if remainder > tolerance_seconds:
-                bars_between += 1
-            missing = max(1, bars_between - 1)
+            missing = count_fillable_gap_bars(
+                previous_started_at=prev.started_at,
+                next_started_at=nxt.started_at,
+                timeframe=timeframe,
+                instrument_venue=instrument_venue,
+                tolerance=timedelta(seconds=tolerance_seconds),
+            )
+            if missing <= 0:
+                continue
 
             gaps.append(
                 {
@@ -3692,6 +3847,8 @@ class ReplayWorkbenchService:
         self,
         candles: list[ReplayChartBar],
         timeframe: Timeframe,
+        *,
+        instrument_venue: str | None = None,
     ) -> tuple[list[ReplayChartBar], list[dict[str, Any]], int]:
         """Fill time gaps by inserting synthetic flat bars.
 
@@ -3700,7 +3857,11 @@ class ReplayWorkbenchService:
 
         Returns (filled_candles, gaps, inserted_bar_count).
         """
-        gaps = self._detect_candle_time_gaps(candles, timeframe)
+        gaps = self._detect_candle_time_gaps(
+            candles,
+            timeframe,
+            instrument_venue=instrument_venue,
+        )
         if not gaps:
             return candles, [], 0
 
@@ -3724,21 +3885,15 @@ class ReplayWorkbenchService:
             if delta <= expected_delta + tolerance:
                 continue
 
-            # Recompute missing count deterministically from timedelta.
-            expected_seconds = expected_delta.total_seconds()
-            actual_seconds = delta.total_seconds()
-            bars_between = int(actual_seconds // expected_seconds)
-            remainder = actual_seconds % expected_seconds
-            if remainder > tolerance.total_seconds():
-                bars_between += 1
-            missing = max(1, bars_between - 1)
-            if missing > self._MAX_GAP_FILL_BARS_PER_SEGMENT:
-                continue
-
-            for j in range(1, missing + 1):
+            for start in iter_fillable_gap_starts(
+                previous_started_at=bar.started_at,
+                next_started_at=next_bar.started_at,
+                timeframe=timeframe,
+                instrument_venue=instrument_venue,
+                tolerance=tolerance,
+            ):
                 if inserted >= self._MAX_GAP_FILL_BARS:
                     return output + sorted_candles[idx + 1 :], gaps, inserted
-                start = bar.started_at + expected_delta * j
                 end = start + expected_delta - timedelta(seconds=1)
                 price = bar.close
                 filler = ReplayChartBar(
@@ -3792,6 +3947,37 @@ class ReplayWorkbenchService:
             overlay_count += 1
 
         return [merged[key] for key in sorted(merged)], overlay_count
+
+    def _overlay_replay_bars(
+        self,
+        *,
+        base_candles: list[ReplayChartBar],
+        overlay_bars: list[ReplayChartBar],
+    ) -> tuple[list[ReplayChartBar], int]:
+        if not overlay_bars:
+            return base_candles, 0
+        merged = {bar.started_at: bar for bar in base_candles}
+        overlay_count = 0
+        for bar in overlay_bars:
+            merged[bar.started_at] = bar
+            overlay_count += 1
+        return [merged[key] for key in sorted(merged)], overlay_count
+
+    def _merge_event_annotations(
+        self,
+        base_annotations: list[ReplayEventAnnotation],
+        overlay_annotations: list[ReplayEventAnnotation],
+    ) -> list[ReplayEventAnnotation]:
+        merged: dict[str, ReplayEventAnnotation] = {
+            item.event_id: item
+            for item in base_annotations
+        }
+        for item in overlay_annotations:
+            merged[item.event_id] = item
+        return sorted(
+            merged.values(),
+            key=lambda item: (item.observed_at, item.event_id),
+        )
 
 
     def _can_build_timeframe_from_history(self, source_timeframe: Timeframe, target_timeframe: Timeframe) -> bool:

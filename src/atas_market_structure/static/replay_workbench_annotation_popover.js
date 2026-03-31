@@ -50,6 +50,8 @@ export function createAnnotationPopoverController({
   els,
   onAnnotationAction,
 }) {
+  let actionsBound = false;
+
   function showAnnotationPopover(annotationId) {
     const target = (state.aiAnnotations || []).find((item) => item.id === annotationId);
     if (!target || isAnnotationDeleted(target) || !els.annotationPopover) {
@@ -133,6 +135,10 @@ export function createAnnotationPopoverController({
   }
 
   function bindAnnotationPopoverActions() {
+    if (actionsBound) {
+      return;
+    }
+    actionsBound = true;
     els.closeAnnotationPopoverButton?.addEventListener("click", hideAnnotationPopover);
     els.annotationPopover?.addEventListener("click", (event) => {
       if (event.target === els.annotationPopover) {

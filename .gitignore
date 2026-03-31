@@ -32,3 +32,4 @@ tmp_*.txt
 tmp_*.js
 tmp_*.diff
 tmp_*.out
+output/

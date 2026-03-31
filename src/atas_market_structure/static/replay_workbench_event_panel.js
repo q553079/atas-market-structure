@@ -1,3 +1,10 @@
+/*
+ * Facade-only event panel orchestration.
+ * Purpose: coordinate event-stream state, nearby-context presentation, and mutation flows.
+ * Do not add new DOM-decoration or message-linking logic here.
+ * Put new card/message decoration behavior into focused modules such as
+ * `replay_workbench_event_message_decorations.js` and nearby-context derivation modules.
+ */
 import { escapeHtml, summarizeText } from "./replay_workbench_ui_utils.js";
 import {
   canPromoteEventCandidate,
@@ -9,6 +16,13 @@ import {
   getEventSourceLabel,
   isEventCandidateMountable,
 } from "./replay_workbench_event_overlay.js";
+import {
+  captureContainerState,
+  reconcileKeyedChildren,
+  restoreContainerState,
+  updateRegionMarkup,
+} from "./replay_workbench_render_stability.js";
+import { createWorkbenchEventMessageDecorations } from "./replay_workbench_event_message_decorations.js";
 
 function toTimestamp(value) {
   const timestamp = new Date(value || 0).getTime();
@@ -118,11 +132,124 @@ function getFilteredCandidates(candidates = [], filterKind = "all") {
   return candidates.filter((candidate) => String(candidate.candidate_kind || "").trim() === normalizedFilter);
 }
 
-function buildCardMarkup(candidate, eventWorkbenchState) {
+function buildContextChips(nearbyContextItem = null) {
+  if (!nearbyContextItem) {
+    return [];
+  }
+  const chips = [];
+  if (nearbyContextItem.flags?.reply_linked) {
+    chips.push({ label: "当前回答", kind: "reply" });
+  }
+  if (nearbyContextItem.flags?.object_linked) {
+    chips.push({ label: "图上对象", kind: "object" });
+  }
+  if (nearbyContextItem.crossDayAnchor) {
+    chips.push({ label: "跨日锚点", kind: "cross-day" });
+  }
+  if (nearbyContextItem.flags?.fixed_anchor && !nearbyContextItem.crossDayAnchor) {
+    chips.push({ label: "固定锚点", kind: "fixed" });
+  }
+  if (nearbyContextItem.visibleReason) {
+    chips.push({ label: nearbyContextItem.visibleReason, kind: "reason" });
+  }
+  return chips.slice(0, 4);
+}
+
+function buildDockGroupMarkup(group = {}, eventWorkbenchState = {}) {
+  const items = Array.isArray(group?.items) ? group.items : [];
+  if (!items.length) {
+    return "";
+  }
+  return `
+    <section class="nearby-context-cluster event-nearby-group" data-nearby-group="${escapeHtml(group.key || "")}">
+      <div class="event-nearby-group-head">
+        <div class="event-nearby-group-copy">
+          <span class="nearby-context-cluster-title">${escapeHtml(group.title || "附近事件")}</span>
+          ${group.description ? `<p class="meta">${escapeHtml(group.description)}</p>` : ""}
+        </div>
+        <span class="event-candidate-badge lifecycle">${escapeHtml(String(items.length))}</span>
+      </div>
+      <div class="event-nearby-group-list">
+        ${items.map((item) => buildCardMarkup(item.candidate, eventWorkbenchState, item)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function buildDockGroupHeadMarkup(group = {}) {
+  const items = Array.isArray(group?.items) ? group.items : [];
+  return `
+    <div class="event-nearby-group-copy">
+      <span class="nearby-context-cluster-title">${escapeHtml(group.title || "附近事件")}</span>
+      ${group.description ? `<p class="meta">${escapeHtml(group.description)}</p>` : ""}
+    </div>
+    <span class="event-candidate-badge lifecycle">${escapeHtml(String(items.length))}</span>
+  `;
+}
+
+function buildDockGroupShellMarkup(group = {}) {
+  return `
+    <section class="nearby-context-cluster event-nearby-group" data-nearby-group="${escapeHtml(group.key || "")}">
+      <div class="event-nearby-group-head"></div>
+      <div class="event-nearby-group-list"></div>
+    </section>
+  `;
+}
+
+function buildHistorySummaryLabel(historyItems = []) {
+  if (!historyItems.length) {
+    return "查看更多";
+  }
+  const historicalCount = historyItems.filter((item) => item?.primaryContextKind === "historical").length;
+  return historicalCount ? `查看更多 / 历史 ${historyItems.length}` : `查看更多 ${historyItems.length}`;
+}
+
+function buildHistoryMarkup(historyItems = [], eventWorkbenchState = {}) {
+  if (!historyItems.length) {
+    return "";
+  }
+  return `
+    <details class="nearby-context-history-shell" data-nearby-group="history">
+      <summary class="nearby-context-history-summary">${escapeHtml(buildHistorySummaryLabel(historyItems))}</summary>
+      <div class="nearby-context-history-list">
+        ${historyItems.map((item) => buildCardMarkup(item.candidate, eventWorkbenchState, item)).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function buildHistoryShellMarkup(historyItems = []) {
+  return `
+    <details class="nearby-context-history-shell" data-nearby-group="history">
+      <summary class="nearby-context-history-summary">${escapeHtml(buildHistorySummaryLabel(historyItems))}</summary>
+      <div class="nearby-context-history-list"></div>
+    </details>
+  `;
+}
+
+function buildDockMarkup(model = {}, eventWorkbenchState = {}) {
+  const groups = Array.isArray(model?.groups) ? model.groups : [];
+  const historyItems = Array.isArray(model?.historyItems) ? model.historyItems : [];
+  const groupMarkup = groups.map((group) => buildDockGroupMarkup(group, eventWorkbenchState)).join("");
+  const historyMarkup = buildHistoryMarkup(historyItems, eventWorkbenchState);
+  if (!groupMarkup && !historyMarkup) {
+    return `<div class="event-stream-empty">${escapeHtml(model?.emptyMessage || "当前窗口和筛选条件下没有事件。")}</div>`;
+  }
+  return `
+    <div class="event-nearby-dock">
+      ${groupMarkup || `<div class="event-stream-empty">${escapeHtml(model?.emptyMessage || "当前窗口附近没有前台事件。")}</div>`}
+      ${historyMarkup}
+    </div>
+  `;
+}
+
+function buildCardMarkup(candidate, eventWorkbenchState, nearbyContextItem = null) {
   const presentationState = getEventPresentationState(candidate, eventWorkbenchState);
   const selected = String(eventWorkbenchState.selectedEventId || "").trim() === candidate.event_id;
   const hovered = String(eventWorkbenchState.hoverEventId || "").trim() === candidate.event_id;
   const pinned = Array.isArray(eventWorkbenchState.pinnedEventIds) && eventWorkbenchState.pinnedEventIds.includes(candidate.event_id);
+  const primaryContextKind = String(nearbyContextItem?.primaryContextKind || "historical").trim() || "historical";
+  const sourceMessageId = nearbyContextItem?.presentation?.sourceMessageId || candidate.source_message_id || "";
   const disabledPromote = !canPromoteEventCandidate(candidate);
   const disabledMount = !isEventCandidateMountable(candidate);
   const confidenceText = formatConfidence(candidate.confidence);
@@ -131,6 +258,7 @@ function buildCardMarkup(candidate, eventWorkbenchState) {
   const priceText = formatEventCandidatePriceSummary(candidate);
   const timeText = formatEventCandidateTimeSummary(candidate);
   const title = candidate.title || `${getEventKindLabel(candidate.candidate_kind)}事件`;
+  const contextChips = buildContextChips(nearbyContextItem);
   const cardClasses = [
     "event-candidate-card",
     `kind-${String(candidate.candidate_kind || "unknown").replace(/_/g, "-")}`,
@@ -140,6 +268,7 @@ function buildCardMarkup(candidate, eventWorkbenchState) {
     pinned ? "is-pinned" : "",
     presentationState === "mounted" ? "is-mounted" : "",
     presentationState === "pinned" ? "is-presentation-pinned" : "",
+    `context-${primaryContextKind.replace(/_/g, "-")}`,
   ].filter(Boolean).join(" ");
   return `
     <article
@@ -147,7 +276,8 @@ function buildCardMarkup(candidate, eventWorkbenchState) {
       data-event-id="${escapeHtml(candidate.event_id)}"
       data-candidate-kind="${escapeHtml(candidate.candidate_kind || "")}"
       data-presentation-state="${escapeHtml(presentationState)}"
-      data-source-message-id="${escapeHtml(candidate.source_message_id || "")}"
+      data-nearby-context-kind="${escapeHtml(primaryContextKind)}"
+      data-source-message-id="${escapeHtml(sourceMessageId)}"
       title="${escapeHtml(`${title} · ${priceText} · ${timeText}`)}"
     >
       <div class="event-candidate-card-head">
@@ -162,6 +292,11 @@ function buildCardMarkup(candidate, eventWorkbenchState) {
         </div>
       </div>
       <p class="event-candidate-summary">${escapeHtml(summarizeText(candidate.summary || "暂无摘要。", 160))}</p>
+      ${contextChips.length ? `
+        <div class="event-candidate-context-row">
+          ${contextChips.map((chip) => `<span class="event-candidate-badge context ${escapeHtml(chip.kind || "context")}">${escapeHtml(chip.label)}</span>`).join("")}
+        </div>
+      ` : ""}
       <div class="event-candidate-meta-grid">
         <span>${escapeHtml(priceText)}</span>
         <span>${escapeHtml(timeText)}</span>
@@ -198,10 +333,20 @@ function buildMessageEventChipMarkup(candidate) {
   `;
 }
 
+function buildMessageEventRowSignature(candidates = []) {
+  return JSON.stringify((Array.isArray(candidates) ? candidates : []).map((candidate) => ({
+    event_id: candidate?.event_id || "",
+    lifecycle_state: candidate?.lifecycle_state || "",
+    updated_at: candidate?.updated_at || "",
+    title: candidate?.title || "",
+  })));
+}
+
 export function createWorkbenchEventPanelController({
   state,
   els,
   eventApi,
+  nearbyContext = null,
   renderStatusStrip,
   persistWorkbenchState,
   getActiveThread,
@@ -211,9 +356,22 @@ export function createWorkbenchEventPanelController({
   afterMutation = null,
   onPromptTraceRequested = null,
   onOutcomeRequested = null,
+  onSurfaceItemsChanged = null,
 }) {
   let panelBindingsInstalled = false;
   let messageBindingsInstalled = false;
+  let hoverDismissBindingsInstalled = false;
+  let lastSurfaceItemsSignature = null;
+
+  const decorationController = createWorkbenchEventMessageDecorations({
+    els,
+    getEventState,
+    getCandidateById,
+    getActiveThread,
+    sortCandidates,
+    buildMessageEventChipMarkup,
+    buildMessageEventRowSignature,
+  });
   let lastRenderedListSignature = "";
   let lastRenderedEmptyState = "";
 
@@ -225,25 +383,230 @@ export function createWorkbenchEventPanelController({
     window.dispatchEvent(new CustomEvent("replay-workbench:hover-item-changed"));
   }
 
-  function buildCandidateRenderSignature(candidates = []) {
-    return JSON.stringify(cloneArray(candidates).map((candidate) => ({
-      event_id: candidate?.event_id || "",
-      updated_at: candidate?.updated_at || "",
-      created_at: candidate?.created_at || "",
-      lifecycle_state: candidate?.lifecycle_state || "",
-      candidate_kind: candidate?.candidate_kind || "",
-      title: candidate?.title || "",
-      summary: candidate?.summary || "",
-      confidence: candidate?.confidence ?? null,
-      price_lower: candidate?.price_lower ?? null,
-      price_upper: candidate?.price_upper ?? null,
-      price_ref: candidate?.price_ref ?? null,
-      anchor_start_ts: candidate?.anchor_start_ts || "",
-      anchor_end_ts: candidate?.anchor_end_ts || "",
-      source_type: candidate?.source_type || "",
-      source_message_id: candidate?.source_message_id || "",
-      source_prompt_trace_id: candidate?.source_prompt_trace_id || "",
-    })));
+  function buildCandidateRenderSignature(items = []) {
+    return JSON.stringify(cloneArray(items).map((item) => {
+      const candidate = item?.candidate || item;
+      return {
+        event_id: candidate?.event_id || "",
+        updated_at: candidate?.updated_at || "",
+        created_at: candidate?.created_at || "",
+        lifecycle_state: candidate?.lifecycle_state || "",
+        candidate_kind: candidate?.candidate_kind || "",
+        title: candidate?.title || "",
+        summary: candidate?.summary || "",
+        confidence: candidate?.confidence ?? null,
+        price_lower: candidate?.price_lower ?? null,
+        price_upper: candidate?.price_upper ?? null,
+        price_ref: candidate?.price_ref ?? null,
+        anchor_start_ts: candidate?.anchor_start_ts || "",
+        anchor_end_ts: candidate?.anchor_end_ts || "",
+        source_type: candidate?.source_type || "",
+        source_message_id: candidate?.source_message_id || "",
+        source_prompt_trace_id: candidate?.source_prompt_trace_id || "",
+        nearby_context_kind: item?.primaryContextKind || "historical",
+        visible_reason: item?.visibleReason || "",
+        cross_day_anchor: !!item?.crossDayAnchor,
+        reply_linked: !!item?.flags?.reply_linked,
+        object_linked: !!item?.flags?.object_linked,
+      };
+    }));
+  }
+
+  function buildDockTopLevelItems(nearbyContextModel = {}) {
+    const groups = Array.isArray(nearbyContextModel?.groups) ? nearbyContextModel.groups : [];
+    const historyItems = Array.isArray(nearbyContextModel?.historyItems) ? nearbyContextModel.historyItems : [];
+    const items = groups.map((group) => ({
+      key: group.key || "",
+      signature: JSON.stringify({
+        key: group.key || "",
+        title: group.title || "",
+        description: group.description || "",
+        count: Array.isArray(group.items) ? group.items.length : 0,
+      }),
+      markup: buildDockGroupShellMarkup(group),
+    }));
+    if (historyItems.length) {
+      items.push({
+        key: "history",
+        signature: JSON.stringify({
+          key: "history",
+          count: historyItems.length,
+          label: buildHistorySummaryLabel(historyItems),
+        }),
+        markup: buildHistoryShellMarkup(historyItems),
+      });
+    }
+    return items.filter((item) => item.key);
+  }
+
+  function ensureNearbyDockShell() {
+    if (!els.eventStreamList) {
+      return null;
+    }
+    if (els.eventStreamList.dataset.renderMode !== "nearby-dock") {
+      const rendered = updateRegionMarkup(
+        els.eventStreamList,
+        '<div class="event-nearby-dock" data-render-key="event-nearby-dock"></div>',
+        "nearby-dock-shell:v1",
+      );
+      if (rendered !== false || els.eventStreamList.querySelector(".event-nearby-dock")) {
+        els.eventStreamList.dataset.renderMode = "nearby-dock";
+      }
+    }
+    return els.eventStreamList.querySelector(".event-nearby-dock");
+  }
+
+  function renderNearbyDock(nearbyContextModel = {}, eventState = {}) {
+    if (!els.eventStreamList) {
+      return false;
+    }
+    const dockSnapshot = captureContainerState(els.eventStreamList, {
+      keyAttribute: "data-event-id",
+      anchorSelector: "[data-event-id], [data-nearby-group]",
+      detailsSelector: "details.nearby-context-history-shell[data-nearby-group]",
+    });
+    const dock = ensureNearbyDockShell();
+    if (!dock) {
+      return false;
+    }
+    const groups = Array.isArray(nearbyContextModel?.groups) ? nearbyContextModel.groups : [];
+    const historyItems = Array.isArray(nearbyContextModel?.historyItems) ? nearbyContextModel.historyItems : [];
+    const topLevelItems = buildDockTopLevelItems(nearbyContextModel);
+    reconcileKeyedChildren(dock, topLevelItems, {
+      keyAttribute: "data-nearby-group",
+      itemSelector: ".event-nearby-group[data-nearby-group], .nearby-context-history-shell[data-nearby-group]",
+    });
+
+    groups.forEach((group) => {
+      const groupNode = dock.querySelector(`.event-nearby-group[data-nearby-group="${CSS.escape(String(group.key || ""))}"]`);
+      if (!(groupNode instanceof HTMLElement)) {
+        return;
+      }
+      const headNode = groupNode.querySelector(".event-nearby-group-head");
+      const listNode = groupNode.querySelector(".event-nearby-group-list");
+      if (headNode instanceof HTMLElement) {
+        updateRegionMarkup(
+          headNode,
+          buildDockGroupHeadMarkup(group),
+          JSON.stringify({
+            title: group.title || "",
+            description: group.description || "",
+            count: Array.isArray(group.items) ? group.items.length : 0,
+          }),
+        );
+      }
+      if (listNode instanceof HTMLElement) {
+        reconcileKeyedChildren(
+          listNode,
+          (Array.isArray(group.items) ? group.items : []).map((item) => ({
+            key: item?.candidate?.event_id || "",
+            signature: buildCandidateRenderSignature([item]),
+            markup: buildCardMarkup(item.candidate, eventState, item),
+          })).filter((item) => item.key),
+          {
+            keyAttribute: "data-event-id",
+            itemSelector: ".event-candidate-card[data-event-id]",
+          },
+        );
+      }
+    });
+
+    const historyNode = dock.querySelector('.nearby-context-history-shell[data-nearby-group="history"]');
+    if (historyNode instanceof HTMLElement) {
+      const summaryNode = historyNode.querySelector(".nearby-context-history-summary");
+      const listNode = historyNode.querySelector(".nearby-context-history-list");
+      if (summaryNode instanceof HTMLElement) {
+        updateRegionMarkup(
+          summaryNode,
+          escapeHtml(buildHistorySummaryLabel(historyItems)),
+          JSON.stringify({
+            count: historyItems.length,
+            label: buildHistorySummaryLabel(historyItems),
+          }),
+        );
+      }
+      if (listNode instanceof HTMLElement) {
+        reconcileKeyedChildren(
+          listNode,
+          historyItems.map((item) => ({
+            key: item?.candidate?.event_id || "",
+            signature: buildCandidateRenderSignature([item]),
+            markup: buildCardMarkup(item.candidate, eventState, item),
+          })).filter((item) => item.key),
+          {
+            keyAttribute: "data-event-id",
+            itemSelector: ".event-candidate-card[data-event-id]",
+          },
+        );
+      }
+    }
+
+    restoreContainerState(els.eventStreamList, dockSnapshot, {
+      keyAttribute: "data-event-id",
+      detailsSelector: "details.nearby-context-history-shell[data-nearby-group]",
+    });
+    const restoredHistoryNode = dock.querySelector('.nearby-context-history-shell[data-nearby-group="history"]');
+    if (restoredHistoryNode instanceof HTMLDetailsElement) {
+      restoredHistoryNode.open = historyItems.length > 0 && eventState.historyExpanded === true;
+    }
+    return !els.eventStreamList.querySelector("[data-render-fallback]");
+  }
+
+  function buildNearbyContextModel(sortedCandidates = []) {
+    if (nearbyContext?.buildEventPanelModel) {
+      return nearbyContext.buildEventPanelModel({
+        candidates: sortedCandidates,
+        filterKind: state.eventStreamFilter || "all",
+      });
+    }
+    const filteredCandidates = getFilteredCandidates(sortedCandidates, state.eventStreamFilter || "all");
+    const items = sortedCandidates.map((candidate) => ({
+      candidate,
+      primaryContextKind: "nearby",
+      visibleReason: "当前窗口发生",
+      crossDayAnchor: false,
+      flags: {
+        nearby: true,
+        influencing: false,
+        fixed_anchor: false,
+        historical: false,
+        reply_linked: false,
+        object_linked: false,
+        visible_window: true,
+      },
+    }));
+    const filteredItems = filteredCandidates.map((candidate) => ({
+      candidate,
+      primaryContextKind: "nearby",
+      visibleReason: "当前窗口发生",
+      crossDayAnchor: false,
+      flags: {
+        nearby: true,
+        influencing: false,
+        fixed_anchor: false,
+        historical: false,
+        reply_linked: false,
+        object_linked: false,
+        visible_window: true,
+      },
+    }));
+    return {
+      items,
+      surfaceItems: items,
+      filteredItems,
+      visibleItems: filteredItems,
+      historyItems: [],
+      groups: [{
+        key: "nearby",
+        title: "刚发生",
+        description: "当前窗口内事件。",
+        items: filteredItems,
+      }],
+      summaryText: sortedCandidates.length
+        ? `当前前台 ${sortedCandidates.length} 条事件。`
+        : "当前会话还没有正式 EventCandidate。",
+      emptyMessage: "当前窗口和筛选条件下没有事件。",
+    };
   }
 
   function renderEmptyState(message) {
@@ -252,30 +615,13 @@ export function createWorkbenchEventPanelController({
       els.eventStreamList?.dataset?.renderMode !== "empty"
       || lastRenderedEmptyState !== nextSignature
     ) {
-      els.eventStreamList.innerHTML = `<div class="event-stream-empty">${message}</div>`;
-      els.eventStreamList.dataset.renderMode = "empty";
-      lastRenderedEmptyState = nextSignature;
-      lastRenderedListSignature = "";
-    }
-  }
-
-  function syncCardClasses() {
-    const eventState = getEventState();
-    const pinnedSet = new Set(Array.isArray(eventState.pinnedEventIds) ? eventState.pinnedEventIds : []);
-    els.eventStreamList?.querySelectorAll?.(".event-candidate-card[data-event-id]")?.forEach?.((node) => {
-      const eventId = String(node.dataset.eventId || "").trim();
-      const candidate = getCandidateById(eventId);
-      if (!candidate) {
-        return;
+      const rendered = updateRegionMarkup(els.eventStreamList, `<div class="event-stream-empty">${message}</div>`, nextSignature);
+      if (rendered !== false || els.eventStreamList?.dataset?.renderSignature === nextSignature) {
+        els.eventStreamList.dataset.renderMode = "empty";
+        lastRenderedEmptyState = nextSignature;
+        lastRenderedListSignature = "";
       }
-      const presentationState = getEventPresentationState(candidate, eventState);
-      node.classList.toggle("is-selected", eventState.selectedEventId === eventId);
-      node.classList.toggle("is-hovered", eventState.hoverEventId === eventId);
-      node.classList.toggle("is-pinned", pinnedSet.has(eventId));
-      node.classList.toggle("is-mounted", presentationState === "mounted" || presentationState === "pinned");
-      node.classList.toggle("is-presentation-pinned", presentationState === "pinned");
-      node.dataset.presentationState = presentationState;
-    });
+    }
   }
 
   function setEventEnvelope(envelope = {}) {
@@ -368,7 +714,7 @@ export function createWorkbenchEventPanelController({
       });
       setEventEnvelope(envelope || {});
       renderEventPanel();
-      decorateChatMessages();
+      decorationController.decorateChatMessages();
       dispatchOverlayChanged();
       return envelope;
     } catch (error) {
@@ -403,8 +749,9 @@ export function createWorkbenchEventPanelController({
     if (eventState.hoverEventId === normalizedId) {
       return;
     }
+    const previousHoverId = eventState.hoverEventId || null;
     eventState.hoverEventId = normalizedId || null;
-    syncCardClasses();
+    decorationController.syncCardClasses({ eventIds: [previousHoverId, eventState.hoverEventId] });
     if (render) {
       dispatchOverlayChanged();
     }
@@ -415,8 +762,9 @@ export function createWorkbenchEventPanelController({
     if (!eventState.hoverEventId) {
       return;
     }
+    const previousHoverId = eventState.hoverEventId;
     eventState.hoverEventId = null;
-    syncCardClasses();
+    decorationController.syncCardClasses({ eventIds: [previousHoverId] });
     if (render) {
       dispatchOverlayChanged();
     }
@@ -428,8 +776,9 @@ export function createWorkbenchEventPanelController({
     if (!candidate) {
       return;
     }
+    const previousSelectedId = eventState.selectedEventId || null;
     eventState.selectedEventId = candidate.event_id;
-    syncCardClasses();
+    decorationController.syncCardClasses({ eventIds: [previousSelectedId, candidate.event_id] });
     if (scrollCard) {
       scrollEventCardIntoView(candidate.event_id);
     }
@@ -442,6 +791,10 @@ export function createWorkbenchEventPanelController({
 
   function scrollEventCardIntoView(eventId) {
     const node = els.eventStreamList?.querySelector?.(`.event-candidate-card[data-event-id="${eventId}"]`);
+    const details = node?.closest?.("details");
+    if (details && !details.open) {
+      details.open = true;
+    }
     node?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }
 
@@ -454,6 +807,7 @@ export function createWorkbenchEventPanelController({
       nextPinned.add(eventId);
     }
     eventState.pinnedEventIds = Array.from(nextPinned);
+    decorationController.syncCardClasses({ eventIds: [eventId] });
     renderEventPanel();
     dispatchOverlayChanged();
     persistWorkbenchState?.();
@@ -471,7 +825,12 @@ export function createWorkbenchEventPanelController({
       const mutation = await mutationFactory(candidate);
       applyMutationEnvelope(mutation || {});
       renderEventPanel();
-      decorateChatMessages();
+      decorationController.decorateChatMessages({
+        messageIds: [
+          candidate?.source_message_id,
+          mutation?.candidate?.source_message_id,
+        ],
+      });
       selectEvent(eventId, { centerChart, scrollCard: false });
       if (typeof afterMutation === "function") {
         await afterMutation(mutation, candidate);
@@ -565,7 +924,9 @@ export function createWorkbenchEventPanelController({
       });
       applyMutationEnvelope(mutation || {});
       renderEventPanel();
-      decorateChatMessages();
+      decorationController.decorateChatMessages({
+        messageIds: [payload.source_message_id, mutation?.candidate?.source_message_id],
+      });
       selectEvent(mutation?.candidate?.event_id, { centerChart: false, scrollCard: true });
       if (typeof afterMutation === "function") {
         await afterMutation(mutation, mutation?.candidate || null);
@@ -579,12 +940,44 @@ export function createWorkbenchEventPanelController({
     }
   }
 
+  function focusNearbyCandidate(eventId) {
+    const candidate = getCandidateById(eventId);
+    if (!candidate) {
+      return false;
+    }
+    setHoveredEvent(eventId, { render: true });
+    selectEvent(eventId, { centerChart: false, scrollCard: true });
+    if (jumpToEventSource?.(candidate)) {
+      return true;
+    }
+    focusEventCandidateOnChart?.(candidate, { centerChart: true, announce: false });
+    return true;
+  }
+
   function renderEventPanel() {
     const eventState = getEventState();
     const sortedCandidates = sortCandidates(eventState.candidates || [], eventState);
-    const filteredCandidates = getFilteredCandidates(sortedCandidates, state.eventStreamFilter || "all");
-    const counts = collectCounts(sortedCandidates, eventState);
-    state.eventStreamItems = filteredCandidates;
+    const nearbyContextModel = buildNearbyContextModel(sortedCandidates);
+    const surfaceItems = Array.isArray(nearbyContextModel?.surfaceItems) ? nearbyContextModel.surfaceItems : [];
+    const visibleItems = Array.isArray(nearbyContextModel?.visibleItems) ? nearbyContextModel.visibleItems : [];
+    const historyItems = Array.isArray(nearbyContextModel?.historyItems) ? nearbyContextModel.historyItems : [];
+    if (!historyItems.length) {
+      eventState.historyExpanded = false;
+    }
+    const visibleCandidates = visibleItems.map((item) => item.candidate);
+    const totalCounts = collectCounts(sortedCandidates, eventState);
+    const visibleCounts = collectCounts(visibleCandidates, eventState);
+    state.eventStreamItems = visibleCandidates;
+    const nextSurfaceItemsSignature = visibleCandidates.map((candidate) => String(candidate?.event_id || "").trim()).join("|");
+    if (nextSurfaceItemsSignature !== lastSurfaceItemsSignature) {
+      lastSurfaceItemsSignature = nextSurfaceItemsSignature;
+      onSurfaceItemsChanged?.(visibleCandidates);
+    }
+
+    if (eventState.hoverEventId && !surfaceItems.some((item) => item?.candidate?.event_id === eventState.hoverEventId)) {
+      eventState.hoverEventId = null;
+      dispatchOverlayChanged();
+    }
 
     els.eventStreamFilterBar?.querySelectorAll?.("[data-event-stream-filter]")?.forEach?.((button) => {
       button.classList.toggle("is-active", button.dataset.eventStreamFilter === (state.eventStreamFilter || "all"));
@@ -598,7 +991,8 @@ export function createWorkbenchEventPanelController({
       } else if (!sortedCandidates.length) {
         els.eventStreamSummary.textContent = "当前会话还没有正式 EventCandidate。";
       } else {
-        els.eventStreamSummary.textContent = `当前 ${counts.total} 条事件，已上图 ${counts.mounted}，Pinned ${counts.pinned}${counts.ignored ? `，已忽略 ${counts.ignored}` : ""}。`;
+        els.eventStreamSummary.textContent = nearbyContextModel?.summaryText
+          || `当前前台 ${visibleCounts.total} 条事件${totalCounts.total > visibleCounts.total ? `，后台 ${totalCounts.total} 条` : ""}。`;
       }
     }
 
@@ -617,63 +1011,22 @@ export function createWorkbenchEventPanelController({
       renderEmptyState("当前会话还没有正式 EventCandidate。旧文本提取仅保留为 legacy fallback，不再作为主路径。");
       return;
     }
-    if (!filteredCandidates.length) {
-      renderEmptyState("当前筛选下没有事件。");
-      return;
-    }
     const nextListSignature = JSON.stringify({
       filter: state.eventStreamFilter || "all",
-      items: buildCandidateRenderSignature(filteredCandidates),
+      items: buildCandidateRenderSignature(visibleItems),
+      history: buildCandidateRenderSignature(historyItems),
     });
     if (
-      els.eventStreamList.dataset.renderMode !== "cards"
+      els.eventStreamList.dataset.renderMode !== "nearby-dock"
       || lastRenderedListSignature !== nextListSignature
     ) {
-      els.eventStreamList.innerHTML = filteredCandidates.map((candidate) => buildCardMarkup(candidate, eventState)).join("");
-      els.eventStreamList.dataset.renderMode = "cards";
-      lastRenderedListSignature = nextListSignature;
-      lastRenderedEmptyState = "";
+      const rendered = renderNearbyDock(nearbyContextModel, eventState);
+      if (rendered) {
+        lastRenderedListSignature = nextListSignature;
+        lastRenderedEmptyState = "";
+      }
     }
-    syncCardClasses();
-  }
-
-  function decorateChatMessages() {
-    if (!els.aiChatThread) {
-      return;
-    }
-    const activeSession = typeof getActiveThread === "function" ? getActiveThread() : null;
-    const candidates = cloneArray(getEventState().candidates)
-      .filter((candidate) => candidate.session_id === activeSession?.id && candidate.source_message_id);
-    const byMessage = new Map();
-    candidates.forEach((candidate) => {
-      const messageId = String(candidate.source_message_id || "").trim();
-      if (!messageId) {
-        return;
-      }
-      const bucket = byMessage.get(messageId) || [];
-      bucket.push(candidate);
-      byMessage.set(messageId, bucket);
-    });
-    els.aiChatThread.querySelectorAll("[data-message-event-row]").forEach((node) => node.remove());
-    els.aiChatThread.querySelectorAll(".chat-message[data-message-id]").forEach((messageNode) => {
-      const messageId = String(messageNode.dataset.messageId || "").trim();
-      const related = sortCandidates(byMessage.get(messageId) || [], getEventState()).slice(0, 4);
-      if (!related.length) {
-        return;
-      }
-      const bubbleBody = messageNode.querySelector(".chat-bubble-body");
-      if (!bubbleBody) {
-        return;
-      }
-      const row = document.createElement("div");
-      row.className = "message-event-chip-row";
-      row.dataset.messageEventRow = "true";
-      row.innerHTML = `
-        <span class="message-event-chip-label">本轮事件</span>
-        ${related.map((candidate) => buildMessageEventChipMarkup(candidate)).join("")}
-      `;
-      bubbleBody.appendChild(row);
-    });
+    decorationController.syncCardClasses();
   }
 
   function installPanelBindings() {
@@ -710,6 +1063,17 @@ export function createWorkbenchEventPanelController({
     });
     els.eventStreamList?.addEventListener("mouseleave", () => {
       clearHoveredEvent();
+    });
+    els.eventStreamList?.addEventListener("toggle", (event) => {
+      const historyShell = event.target;
+      if (!(historyShell instanceof HTMLDetailsElement)) {
+        return;
+      }
+      if (!historyShell.matches('.nearby-context-history-shell[data-nearby-group="history"]')) {
+        return;
+      }
+      getEventState().historyExpanded = historyShell.open;
+      persistWorkbenchState?.();
     });
     els.eventStreamList?.addEventListener("click", async (event) => {
       const actionButton = event.target?.closest?.("[data-event-action][data-event-id]");
@@ -775,7 +1139,7 @@ export function createWorkbenchEventPanelController({
       if (!card) {
         return;
       }
-      await mountEvent(card.dataset.eventId, { centerChart: true });
+      focusNearbyCandidate(card.dataset.eventId);
     });
   }
 
@@ -814,26 +1178,50 @@ export function createWorkbenchEventPanelController({
     });
   }
 
+  function installHoverDismissBindings() {
+    if (hoverDismissBindingsInstalled) {
+      return;
+    }
+    hoverDismissBindingsInstalled = true;
+    document.addEventListener("mouseover", (event) => {
+      if (!getEventState().hoverEventId) {
+        return;
+      }
+      if (decorationController.isHoverSurfaceTarget(event.target)) {
+        return;
+      }
+      clearHoveredEvent({ render: true });
+    });
+    document.addEventListener("focusin", (event) => {
+      if (!getEventState().hoverEventId) {
+        return;
+      }
+      if (decorationController.isHoverSurfaceTarget(event.target)) {
+        return;
+      }
+      clearHoveredEvent({ render: true });
+    });
+  }
+
   function handleOverlayEventClick(eventId) {
     selectEvent(eventId, { centerChart: false, scrollCard: true });
   }
 
   function handleOverlayEventEnter(eventId) {
     setHoveredEvent(eventId, { render: false });
-    syncCardClasses();
   }
 
   function handleOverlayEventLeave() {
     clearHoveredEvent({ render: false });
-    syncCardClasses();
   }
 
   installPanelBindings();
   installMessageBindings();
+  installHoverDismissBindings();
 
   return {
     renderEventPanel,
-    decorateChatMessages,
+    decorateChatMessages: (options = {}) => decorationController.decorateChatMessages(options),
     syncActiveSessionEventStream,
     markDirty,
     setHoveredEvent,

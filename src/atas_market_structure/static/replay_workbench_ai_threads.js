@@ -1,9 +1,32 @@
-import { createMessageId, createPlanId, escapeHtml, formatPrice, summarizeText, writeStorage } from "./replay_workbench_ui_utils.js";
+/*
+ * Facade-heavy thread controller retained for compatibility.
+ * Purpose: coordinate session state, AI thread activation, and chat-surface wiring.
+ * Do not add new hot-path rendering or attention-surface business logic here.
+ * Put new message-list, attention-panel, or auxiliary-strip logic into focused modules.
+ */
+import { createMessageId, createPlanId, escapeHtml, formatPrice, readStorage, summarizeText, writeStorage } from "./replay_workbench_ui_utils.js";
 import {
   applyAnnotationPreferences,
   isAnnotationDeleted,
   normalizeWorkbenchPlanCard,
 } from "./replay_workbench_annotation_utils.js";
+import {
+  buildAssistantDensityMap,
+  canRenderStructuredAssistantMessage,
+  renderStructuredAnswerCard,
+  renderStructuredAssistantMessage,
+} from "./replay_workbench_answer_cards.js";
+import { createWorkbenchContextRecipeController } from "./replay_workbench_context_recipe.js";
+import {
+  createWorkbenchChangeInspectorController,
+  normalizeChangeInspectorMode,
+} from "./replay_workbench_change_inspector.js";
+import {
+  captureContainerState,
+  reconcileKeyedChildren,
+  restoreContainerState,
+  updateRegionMarkup,
+} from "./replay_workbench_render_stability.js";
 
 function isImageAttachment(attachment) {
   const kind = String(attachment?.kind || "").toLowerCase();
@@ -155,6 +178,215 @@ function clonePlainData(value, fallback = null) {
   }
 }
 
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergePlainObjects(base = {}, patch = {}) {
+  const merged = { ...(isPlainObject(base) ? base : {}) };
+  Object.entries(isPlainObject(patch) ? patch : {}).forEach(([key, value]) => {
+    if (isPlainObject(value) && isPlainObject(merged[key])) {
+      merged[key] = mergePlainObjects(merged[key], value);
+      return;
+    }
+    merged[key] = value;
+  });
+  return merged;
+}
+
+function mergeMessageMeta(baseMeta = {}, patchMeta = {}) {
+  const safeBase = isPlainObject(baseMeta) ? clonePlainData(baseMeta, {}) || {} : {};
+  const safePatch = isPlainObject(patchMeta) ? clonePlainData(patchMeta, {}) || {} : {};
+  const baseWorkbenchUi = mergePlainObjects(
+    isPlainObject(safeBase.workbenchUi) ? safeBase.workbenchUi : {},
+    isPlainObject(safeBase.workbench_ui) ? safeBase.workbench_ui : {},
+  );
+  const patchWorkbenchUi = mergePlainObjects(
+    isPlainObject(safePatch.workbenchUi) ? safePatch.workbenchUi : {},
+    isPlainObject(safePatch.workbench_ui) ? safePatch.workbench_ui : {},
+  );
+  const merged = {
+    ...safeBase,
+    ...safePatch,
+  };
+  const workbenchUi = mergePlainObjects(baseWorkbenchUi, patchWorkbenchUi);
+  if (Object.keys(workbenchUi).length) {
+    merged.workbench_ui = workbenchUi;
+  } else {
+    delete merged.workbench_ui;
+  }
+  delete merged.workbenchUi;
+  return merged;
+}
+
+function pickFirstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && !(typeof value === "number" && Number.isNaN(value))) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getWorkbenchUiMeta(meta = {}) {
+  const merged = mergePlainObjects(
+    isPlainObject(meta?.workbenchUi) ? meta.workbenchUi : {},
+    isPlainObject(meta?.workbench_ui) ? meta.workbench_ui : {},
+  );
+  return Object.keys(merged).length ? merged : null;
+}
+
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+  }
+  const text = String(value ?? "").trim();
+  return text ? [text] : [];
+}
+
+function toFiniteNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function formatCompactDateTime(value) {
+  const timestamp = Date.parse(String(value || ""));
+  if (!Number.isFinite(timestamp)) {
+    return "--";
+  }
+  const date = new Date(timestamp);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${month}/${day} ${hours}:${minutes}`;
+}
+
+function buildReplyWindowLabel(workbenchUi = {}) {
+  const replyWindow = isPlainObject(workbenchUi?.reply_window)
+    ? workbenchUi.reply_window
+    : (isPlainObject(workbenchUi?.replyWindow) ? workbenchUi.replyWindow : {});
+  const startTime = pickFirstDefined(
+    replyWindow.window_start,
+    replyWindow.windowStart,
+    workbenchUi.window_start,
+    workbenchUi.windowStart,
+  );
+  const endTime = pickFirstDefined(
+    replyWindow.window_end,
+    replyWindow.windowEnd,
+    workbenchUi.window_end,
+    workbenchUi.windowEnd,
+  );
+  if (startTime || endTime) {
+    return `${formatCompactDateTime(startTime)} -> ${formatCompactDateTime(endTime)}`;
+  }
+  const anchor = String(pickFirstDefined(workbenchUi.reply_window_anchor, workbenchUi.replyWindowAnchor) || "").trim();
+  return anchor || "未记录";
+}
+
+function getReplyObjectCount(message = {}) {
+  const workbenchUi = getWorkbenchUiMeta(message.meta);
+  return toFiniteNumber(
+    pickFirstDefined(
+      workbenchUi?.object_count,
+      workbenchUi?.objectCount,
+      message.meta?.annotationCount,
+      message.meta?.object_count,
+      message.meta?.objectCount,
+      message.annotations?.length,
+    ),
+    0,
+  );
+}
+
+function getAssistantMessages(session = {}) {
+  return (Array.isArray(session.messages) ? session.messages : [])
+    .filter((message) => message?.role === "assistant");
+}
+
+function findAssistantMessageById(messages = [], messageId = null) {
+  if (!messageId) {
+    return null;
+  }
+  return messages.find((message) => message?.message_id === messageId) || null;
+}
+
+function buildAssistantReplyLabel(message, fallbackIndex = 0) {
+  const title = String(message?.replyTitle || message?.meta?.replyTitle || "").trim()
+    || summarizeText(message?.content || `AI 回复 ${fallbackIndex + 1}`, 28);
+  const updatedLabel = formatCompactDateTime(message?.updated_at || message?.created_at);
+  return updatedLabel === "--" ? title : `${title} · ${updatedLabel}`;
+}
+
+function buildReplySummaryText(message, limit = 120) {
+  return summarizeText(
+    String(message?.content || message?.replyTitle || message?.meta?.replyTitle || "暂无回复摘要"),
+    limit,
+  );
+}
+
+function applyFocusedReplyState(session, message) {
+  if (!session || !message || message.role !== "assistant") {
+    return false;
+  }
+  let changed = false;
+  const nextReplyId = typeof message.message_id === "string" && message.message_id.trim()
+    ? message.message_id.trim()
+    : null;
+  if (session.activeReplyId !== nextReplyId) {
+    session.activeReplyId = nextReplyId;
+    changed = true;
+  }
+  const workbenchUi = getWorkbenchUiMeta(message.meta);
+  const nextAnchor = String(pickFirstDefined(workbenchUi?.reply_window_anchor, workbenchUi?.replyWindowAnchor) || "").trim() || null;
+  const nextContextVersion = String(pickFirstDefined(workbenchUi?.context_version, workbenchUi?.contextVersion) || "").trim() || null;
+  if ((session.activeReplyWindowAnchor || null) !== nextAnchor) {
+    session.activeReplyWindowAnchor = nextAnchor;
+    changed = true;
+  }
+  if ((session.lastContextVersion || null) !== nextContextVersion) {
+    session.lastContextVersion = nextContextVersion;
+    changed = true;
+  }
+  return changed;
+}
+
+function focusReplyMessage(state, renderAiChat, onReplyFocusChanged, messageId, {
+  sessionId = null,
+  render = true,
+} = {}) {
+  const targetSession = sessionId
+    ? getSessionById(state, sessionId)
+    : (state.aiThreads || []).find((item) => item.id === state.activeAiThreadId || item.sessionId === state.activeAiThreadId)
+      || state.aiThreads?.[0]
+      || null;
+  if (!targetSession || !messageId) {
+    return false;
+  }
+  const targetMessage = (targetSession.messages || []).find((item) => item?.message_id === messageId && item.role === "assistant");
+  if (!targetMessage) {
+    return false;
+  }
+  const changed = applyFocusedReplyState(targetSession, targetMessage);
+  if (!changed) {
+    return false;
+  }
+  if (state.changeInspector?.open && !state.changeInspector?.pinned) {
+    state.changeInspector.compareReplyId = targetMessage.message_id;
+    state.changeInspector.baselineReplyId = null;
+    state.changeInspector.mode = normalizeChangeInspectorMode(state.changeInspector?.mode, { open: true });
+  }
+  persistSessions(state);
+  if (render) {
+    renderAiChat();
+  }
+  onReplyFocusChanged?.(targetSession, targetMessage);
+  return true;
+}
+
 function buildLongTextMarkup(text, { limit = 220, expanded = false, messageId = "" } = {}) {
   const raw = String(text || "").replace(/\r\n/g, "\n");
   const safe = escapeHtml(raw);
@@ -187,29 +419,39 @@ function mapServerPlanCard(planCard, sessionId = null, messageId = null) {
 
 function mapServerMessage(message, planCardsByMessage = new Map()) {
   const messageId = message.message_id || message.id || createMessageId();
-  const attachments = normalizeAttachmentList(message.attachments);
+  const serverMeta = mergeMessageMeta(message.meta, {
+    workbenchUi: isPlainObject(message.workbenchUi) ? message.workbenchUi : undefined,
+    workbench_ui: isPlainObject(message.workbench_ui) ? message.workbench_ui : undefined,
+  });
+  const attachments = normalizeAttachmentList(
+    Array.isArray(message.attachments) ? message.attachments : (Array.isArray(serverMeta.attachments) ? serverMeta.attachments : [])
+  );
+  const resolvedPlanCards = planCardsByMessage.get(messageId) || (Array.isArray(serverMeta.planCards) ? serverMeta.planCards : []);
+  const compatibilityMeta = {
+    model: message.model || serverMeta.model || null,
+    replyTitle: message.reply_title || message.replyTitle || serverMeta.replyTitle || serverMeta.reply_title || null,
+    promptTraceId: message.prompt_trace_id || message.promptTraceId || serverMeta.promptTraceId || serverMeta.prompt_trace_id || null,
+    prompt_trace_id: message.prompt_trace_id || message.promptTraceId || serverMeta.prompt_trace_id || serverMeta.promptTraceId || null,
+    parent_message_id: message.parent_message_id || message.parentMessageId || serverMeta.parent_message_id || null,
+    attachments,
+    planCards: resolvedPlanCards,
+  };
+  const mergedMeta = mergeMessageMeta(serverMeta, compatibilityMeta);
   return {
     message_id: messageId,
     sessionId: message.session_id || message.sessionId || null,
-    parent_message_id: message.parent_message_id || message.parentMessageId || null,
-    promptTraceId: message.prompt_trace_id || message.promptTraceId || null,
+    parent_message_id: message.parent_message_id || message.parentMessageId || mergedMeta.parent_message_id || null,
+    promptTraceId: message.prompt_trace_id || message.promptTraceId || mergedMeta.promptTraceId || mergedMeta.prompt_trace_id || null,
     role: message.role,
     content: message.content || "",
     status: message.status || (message.role === "assistant" ? "completed" : "sent"),
-    replyTitle: message.reply_title || message.replyTitle || null,
-    model: message.model || null,
-    annotations: Array.isArray(message.annotations) ? message.annotations : [],
-    planCards: planCardsByMessage.get(messageId) || [],
+    replyTitle: message.reply_title || message.replyTitle || mergedMeta.replyTitle || mergedMeta.reply_title || null,
+    model: message.model || mergedMeta.model || null,
+    annotations: Array.isArray(message.annotations) ? message.annotations : (Array.isArray(serverMeta.annotations) ? serverMeta.annotations : []),
+    planCards: resolvedPlanCards,
     mountedToChart: !!message.mounted_to_chart,
     mountedObjectIds: Array.isArray(message.mounted_object_ids) ? message.mounted_object_ids : [],
-    meta: {
-      model: message.model || null,
-      replyTitle: message.reply_title || message.replyTitle || null,
-      promptTraceId: message.prompt_trace_id || message.promptTraceId || null,
-      parent_message_id: message.parent_message_id || message.parentMessageId || null,
-      attachments,
-      planCards: planCardsByMessage.get(messageId) || [],
-    },
+    meta: mergedMeta,
     created_at: message.created_at || new Date().toISOString(),
     updated_at: message.updated_at || message.created_at || new Date().toISOString(),
   };
@@ -268,19 +510,26 @@ function normalizeMessageShape(message) {
   if (!message || typeof message !== "object") {
     return message;
   }
-  const meta = message.meta && typeof message.meta === "object" ? message.meta : {};
+  const meta = isPlainObject(message.meta) ? message.meta : {};
+  const normalizedMeta = mergeMessageMeta(meta, {
+    workbenchUi: isPlainObject(message.workbenchUi) ? message.workbenchUi : undefined,
+    workbench_ui: isPlainObject(message.workbench_ui) ? message.workbench_ui : undefined,
+    promptTraceId: message.promptTraceId || message.prompt_trace_id || meta.promptTraceId || meta.prompt_trace_id || null,
+    prompt_trace_id: message.promptTraceId || message.prompt_trace_id || meta.prompt_trace_id || meta.promptTraceId || null,
+    parent_message_id: message.parent_message_id || message.parentMessageId || meta.parent_message_id || null,
+    attachments: normalizeAttachmentList(
+      Array.isArray(meta.attachments) ? meta.attachments : (Array.isArray(message.attachments) ? message.attachments : [])
+    ),
+  });
   return {
     ...message,
-    parent_message_id: message.parent_message_id || message.parentMessageId || meta.parent_message_id || null,
-    promptTraceId: message.promptTraceId || message.prompt_trace_id || meta.promptTraceId || meta.prompt_trace_id || null,
-    meta: {
-      ...meta,
-      promptTraceId: message.promptTraceId || message.prompt_trace_id || meta.promptTraceId || meta.prompt_trace_id || null,
-      parent_message_id: message.parent_message_id || message.parentMessageId || meta.parent_message_id || null,
-      attachments: normalizeAttachmentList(
-        Array.isArray(meta.attachments) ? meta.attachments : (Array.isArray(message.attachments) ? message.attachments : [])
-      ),
-    },
+    parent_message_id: message.parent_message_id || message.parentMessageId || normalizedMeta.parent_message_id || null,
+    promptTraceId: message.promptTraceId || message.prompt_trace_id || normalizedMeta.promptTraceId || normalizedMeta.prompt_trace_id || null,
+    replyTitle: message.replyTitle || message.reply_title || normalizedMeta.replyTitle || normalizedMeta.reply_title || null,
+    model: message.model || normalizedMeta.model || null,
+    annotations: Array.isArray(message.annotations) ? message.annotations : (Array.isArray(normalizedMeta.annotations) ? normalizedMeta.annotations : []),
+    planCards: Array.isArray(message.planCards) ? message.planCards : (Array.isArray(normalizedMeta.planCards) ? normalizedMeta.planCards : []),
+    meta: normalizedMeta,
   };
 }
 
@@ -338,6 +587,19 @@ function normalizeSessionShape(session, fallback = {}) {
   session.includeMemorySummary = !!session.includeMemorySummary;
   session.includeRecentMessages = !!session.includeRecentMessages;
   session.mountedReplyIds = Array.isArray(session.mountedReplyIds) ? session.mountedReplyIds : [];
+  session.activeReplyId = typeof session.activeReplyId === "string" && session.activeReplyId.trim()
+    ? session.activeReplyId.trim()
+    : null;
+  session.activeReplyWindowAnchor = typeof session.activeReplyWindowAnchor === "string" && session.activeReplyWindowAnchor.trim()
+    ? session.activeReplyWindowAnchor.trim()
+    : null;
+  session.contextRecipeExpanded = !!session.contextRecipeExpanded;
+  session.answerCardDensity = ["full", "compact", "skim"].includes(String(session.answerCardDensity || "").trim().toLowerCase())
+    ? String(session.answerCardDensity).trim().toLowerCase()
+    : "compact";
+  session.lastContextVersion = typeof session.lastContextVersion === "string" && session.lastContextVersion.trim()
+    ? session.lastContextVersion.trim()
+    : null;
   session.activePlanId = session.activePlanId || null;
   session.recapItems = Array.isArray(session.recapItems)
     ? session.recapItems.map((item, index) => normalizeRecapItem(item, session, index)).filter(Boolean)
@@ -733,10 +995,13 @@ function renderAttachmentPreview(attachment) {
   return `<div class="attachment-chip">${buildAttachmentPreviewMarkup(attachment)}<div class="attachment-chip-meta"><span>${label}</span><span class="meta">${kind}</span></div></div>`;
 }
 
-function renderMessage(message, { expandedLongText = false } = {}) {
+function renderMessage(message, { expandedLongText = false, assistantDensity = "full" } = {}) {
   const metaChips = [];
   if (message.status && message.role === "assistant") {
     metaChips.push(`<span class="chip ${escapeHtml(message.status)}">${escapeHtml(message.status)}</span>`);
+  }
+  if (message.isActiveReply) {
+    metaChips.push(`<span class="chip emphasis">当前回复</span>`);
   }
   if (message.parent_message_id || message.meta?.parent_message_id) {
     metaChips.push(`<span class="chip emphasis">重新生成</span>`);
@@ -756,6 +1021,18 @@ function renderMessage(message, { expandedLongText = false } = {}) {
   const attachments = Array.isArray(message.meta?.attachments) ? message.meta.attachments : [];
   const replyObjectCount = Number(message.meta?.annotationCount ?? message.meta?.objectCount ?? message.annotations?.length ?? 0);
   const canProjectReply = message.role === "assistant" && replyObjectCount > 0;
+  if (canRenderStructuredAssistantMessage(message)) {
+    return renderStructuredAssistantMessage({
+      message,
+      density: assistantDensity,
+      expandedLongText,
+      replyObjectCount,
+      canProjectReply,
+      renderLongTextMarkup: (text, options = {}) => buildLongTextMarkup(text, options),
+      renderAttachmentPreview,
+      buildPlanCardMarkup,
+    });
+  }
   const messageActionMarkup = message.role === "assistant"
     ? `
       <div class="chat-message-actions">
@@ -795,7 +1072,7 @@ function renderMessage(message, { expandedLongText = false } = {}) {
     metaChips.push(`<span class="chip">${escapeHtml(`对象 ${replyObjectCount}`)}</span>`);
   }
   return `
-    <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}" data-message-id="${escapeHtml(message.message_id || "")}">
+    <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} ${message.isActiveReply ? "is-reply-focus" : ""}" data-message-id="${escapeHtml(message.message_id || "")}">
       <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}">
         <div class="chat-bubble-body">
           ${buildLongTextMarkup(message.content || "", {
@@ -1240,21 +1517,73 @@ function persistSessions(state) {
       includeRecentMessages: !!session.includeRecentMessages,
     };
   }));
+  const persistedWorkbench = readStorage("workbench", {});
   writeStorage("workbench", {
+    ...((persistedWorkbench && typeof persistedWorkbench === "object" && !Array.isArray(persistedWorkbench)) ? persistedWorkbench : {}),
     activeAiThreadId: state.activeAiThreadId,
     drawerState: state.drawerState,
     topBar: state.topBar,
     pinnedPlanId: state.pinnedPlanId || null,
     layerState: state.layerState || null,
     chartViewportRegistry: state.chartViewportRegistry || {},
+    changeInspector: {
+      open: !!state.changeInspector?.open,
+      mode: normalizeChangeInspectorMode(state.changeInspector?.mode, { open: !!state.changeInspector?.open }),
+      baselineReplyId: state.changeInspector?.baselineReplyId || null,
+      compareReplyId: state.changeInspector?.compareReplyId || null,
+      pinned: !!state.changeInspector?.pinned,
+    },
   });
 }
 
-export function createAiThreadController({ state, els, onPlanAction = null, onMountedRepliesChanged = null, onPromptBlocksChanged = null, fetchJson = null, renderStatusStrip = null, onSessionActivated = null, onPlanMetaAction = null }) {
+export function createAiThreadController({
+  state,
+  els,
+  onPlanAction = null,
+  onMountedRepliesChanged = null,
+  onPromptBlocksChanged = null,
+  getPromptTrace = null,
+  ensurePromptTrace = null,
+  onPromptTraceRequested = null,
+  fetchJson = null,
+  renderStatusStrip = null,
+  onSessionActivated = null,
+  onPlanMetaAction = null,
+  onReplyFocusChanged = null,
+  hasVisibleNearbyContext = null,
+}) {
   const CHAT_FOLLOW_THRESHOLD = 48;
   const DRAFT_SYNC_DELAY_MS = 420;
   const draftSyncTimers = new Map();
+  const contextRecipeController = createWorkbenchContextRecipeController({
+    state,
+    els,
+    persistSessions: () => persistSessions(state),
+    requestRender: () => renderAiChat(),
+    getPromptTrace,
+    ensurePromptTrace,
+    onPromptTraceRequested,
+    getWorkbenchUiMeta,
+    buildReplyWindowLabel,
+    buildAssistantReplyLabel,
+    buildReplySummaryText,
+    getReplyObjectCount,
+  });
+  const changeInspectorController = createWorkbenchChangeInspectorController({
+    state,
+    els,
+    persistState: () => persistSessions(state),
+    requestRender: () => renderAiChat(),
+    focusReply: (session, messageId, options = {}) => focusReplyMessage(state, renderAiChat, onReplyFocusChanged, messageId, {
+      sessionId: session?.id || session?.sessionId || null,
+      render: options.render !== false,
+    }),
+    buildReplyWindowLabel,
+    buildAssistantReplyLabel,
+    getReplyObjectCount,
+  });
   let sessionWorkspaceQuery = "";
+  let chatThreadBindingsInstalled = false;
 
   function getWorkspaceRole(session, fallback = "analyst") {
     return String(session?.workspaceRole || fallback || "analyst").trim().toLowerCase() || "analyst";
@@ -2320,24 +2649,6 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
       wrap.appendChild(closeBtn);
       els.aiThreadTabs.appendChild(wrap);
     });
-    const addWrap = document.createElement("div");
-    addWrap.className = "thread-tab-add-wrap";
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "thread-tab thread-tab-add";
-    addBtn.textContent = "+";
-    addBtn.title = "新建行情分析会话";
-    addBtn.setAttribute("aria-label", "新建行情分析会话");
-    addBtn.addEventListener("click", async () => {
-      try {
-        await createNewAnalystSession({ activate: true });
-      } catch (error) {
-        console.warn("新建会话失败:", error);
-        renderStatusStrip?.([{ label: error?.message || String(error), variant: "warn" }]);
-      }
-    });
-    addWrap.appendChild(addBtn);
-    els.aiThreadTabs.appendChild(addWrap);
     window.requestAnimationFrame(() => {
       const activeTab = els.aiThreadTabs?.querySelector(".thread-tab.active");
       activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -2348,12 +2659,11 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
   function appendAiChatMessage(role, content, meta = {}, threadId = null, threadTitle = "01") {
     const session = ensureSession(state, threadId || state.activeAiThreadId, threadTitle);
     const activeDraftAttachments = getDraftAttachments(session);
-    const mergedMeta = {
-      ...meta,
+    const mergedMeta = mergeMessageMeta(meta, {
       attachments: normalizeAttachmentList(meta.attachments || (role === "user" ? activeDraftAttachments : [])),
-    };
+    });
     const message = {
-      message_id: createMessageId(),
+      message_id: mergedMeta.message_id || mergedMeta.messageId || createMessageId(),
       sessionId: session.id,
       parent_message_id: mergedMeta.parent_message_id || mergedMeta.parentMessageId || null,
       promptTraceId: mergedMeta.promptTraceId || mergedMeta.prompt_trace_id || null,
@@ -2409,46 +2719,255 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     els.sessionMemorySummary.textContent = summaryText || "";
   }
 
-  function renderAiChat() {
-    const session = getActiveThread();
-    const shouldAutoFollow = session.autoFollowChat !== false || isNearChatBottom();
-    const expandedLongTextMessageIds = new Set(getExpandedLongTextMessageIds(session));
-    syncSessionMemorySummary(session);
-    renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
-    renderAttachments(session);
-    if (session.loadingFromServer) {
-      els.aiChatThread.innerHTML = `<div class="chat-empty-state">正在从后端加载会话内容…</div>`;
-      if (els.aiChatScrollToBottomButton) {
-        els.aiChatScrollToBottomButton.hidden = true;
-        els.aiChatScrollToBottomButton.textContent = getScrollToBottomLabel(session);
-        els.aiChatScrollToBottomButton.classList.remove("has-unread");
-      }
-      return;
-    }
-    if (!session.messages.length) {
-      els.aiChatThread.innerHTML = `<div class="chat-empty-state">还没有消息。可直接发送；需要图表分析时先加载图表。</div>`;
-      if (els.aiChatScrollToBottomButton) {
-        els.aiChatScrollToBottomButton.hidden = true;
-        els.aiChatScrollToBottomButton.textContent = getScrollToBottomLabel(session);
-        els.aiChatScrollToBottomButton.classList.remove("has-unread");
-      }
-      return;
-    }
-    els.aiChatThread.innerHTML = session.messages.map((message) => renderMessage({
+function resolveReplyAttentionState(session) {
+  const assistantMessages = getAssistantMessages(session);
+  const activeMessage = findAssistantMessageById(assistantMessages, session.activeReplyId)
+    || assistantMessages[assistantMessages.length - 1]
+    || null;
+  const activeUi = getWorkbenchUiMeta(activeMessage?.meta) || null;
+  return {
+    assistantMessages,
+    activeMessage,
+    activeUi,
+  };
+}
+
+function buildActiveReplyWorkspaceSignature(activeMessage, activeUi = {}) {
+  return JSON.stringify({
+    messageId: activeMessage?.message_id || "",
+    status: activeMessage?.status || "",
+    updatedAt: activeMessage?.updated_at || activeMessage?.created_at || "",
+    contentLength: String(activeMessage?.content || "").length,
+    replyWindowAnchor: String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim(),
+    contextVersion: String(pickFirstDefined(activeUi?.context_version, activeUi?.contextVersion) || "").trim(),
+    promptTraceId: activeMessage?.promptTraceId || activeMessage?.meta?.promptTraceId || "",
+    objectCount: getReplyObjectCount(activeMessage),
+  });
+}
+
+function buildLegacyActiveReplyWorkspaceMarkup(activeMessage, activeUi = null) {
+  const title = buildAssistantReplyLabel(activeMessage, 0);
+  const summary = buildReplySummaryText(activeMessage, 220);
+  const timeLabel = buildReplyWindowLabel(activeUi || {});
+  return `
+    <article class="answer-card answer-card-full" data-structured-answer-card="false" data-card-density="full">
+      <header class="answer-card-head">
+        <div class="answer-card-chip-row">
+          <span class="answer-card-chip is-active">当前回复</span>
+          <span class="answer-card-chip">Legacy</span>
+        </div>
+        <div class="answer-card-title-row">
+          <div class="answer-card-title-copy">
+            <span class="answer-card-kicker">${escapeHtml(title)}</span>
+            <strong class="answer-card-title">${escapeHtml(summary || "当前回复")}</strong>
+          </div>
+          <div class="answer-card-time-meta">${escapeHtml(timeLabel || "未记录")}</div>
+        </div>
+      </header>
+      <section class="answer-card-section" data-answer-section="note">
+        <span class="answer-card-section-label">当前答复</span>
+        <div class="answer-card-section-value">${escapeHtml(summary || String(activeMessage?.content || "").trim() || "未记录")}</div>
+      </section>
+    </article>
+  `;
+}
+
+function buildActiveReplyWorkspaceMarkup(activeMessage, activeUi = null) {
+  if (!activeMessage) {
+    return "";
+  }
+  if (canRenderStructuredAssistantMessage(activeMessage)) {
+    return renderStructuredAnswerCard({
+      message: {
+        ...activeMessage,
+        isActiveReply: true,
+      },
+      density: "full",
+      expandedLongText: false,
+      replyObjectCount: getReplyObjectCount(activeMessage),
+      canProjectReply: false,
+      includeMessageActions: false,
+      includeAttachments: false,
+      includePlanCards: false,
+      renderLongTextMarkup: (text, options = {}) => buildLongTextMarkup(text, options),
+    });
+  }
+  return buildLegacyActiveReplyWorkspaceMarkup(activeMessage, activeUi);
+}
+
+function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
+    const sourceEventIds = normalizeStringArray(pickFirstDefined(activeUi?.source_event_ids, activeUi?.sourceEventIds));
+    const sourceObjectIds = normalizeStringArray(pickFirstDefined(activeUi?.source_object_ids, activeUi?.sourceObjectIds));
+    const crossDayAnchorCount = toFiniteNumber(pickFirstDefined(activeUi?.cross_day_anchor_count, activeUi?.crossDayAnchorCount), 0);
+    const alignmentState = String(pickFirstDefined(activeUi?.alignment_state, activeUi?.alignmentState) || "").trim() || "未记录";
+    const assertionLevel = String(pickFirstDefined(activeUi?.assertion_level, activeUi?.assertionLevel) || "").trim() || "未记录";
+    const replyWindowAnchor = String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim() || "未记录";
+    const objectCount = getReplyObjectCount(activeMessage);
+    const buildIdChipRow = (title, values) => values.length
+      ? `
+        <div class="nearby-context-cluster">
+          <span class="nearby-context-cluster-title">${escapeHtml(title)}</span>
+          <div class="strip-chip-row">
+            ${values.slice(0, 6).map((value) => `<span class="mini-chip">${escapeHtml(value)}</span>`).join("")}
+            ${values.length > 6 ? `<span class="mini-chip">+${escapeHtml(String(values.length - 6))}</span>` : ""}
+          </div>
+        </div>
+      `
+      : "";
+  return `
+      <div class="answer-workspace-hero">
+        <strong>当前回答邻近上下文</strong>
+        <p>Nearby Context 已并入 AI 主阅读路径。前台只保留当前窗口附近、仍在影响当前窗口、或被固定保留的事件。</p>
+      </div>
+      <div class="answer-workspace-grid nearby-context-grid">
+        <article class="answer-workspace-stat">
+          <span>窗口锚点</span>
+          <strong>${escapeHtml(replyWindowAnchor)}</strong>
+        </article>
+        <article class="answer-workspace-stat">
+          <span>关联事件</span>
+          <strong>${escapeHtml(`${sourceEventIds.length} 条`)}</strong>
+        </article>
+        <article class="answer-workspace-stat">
+          <span>关联对象</span>
+          <strong>${escapeHtml(`${sourceObjectIds.length} 个`)}</strong>
+        </article>
+        <article class="answer-workspace-stat">
+          <span>上图对象</span>
+          <strong>${escapeHtml(String(objectCount))}</strong>
+        </article>
+        <article class="answer-workspace-stat">
+          <span>对齐状态</span>
+          <strong>${escapeHtml(alignmentState)}</strong>
+        </article>
+        <article class="answer-workspace-stat">
+          <span>断言强度</span>
+          <strong>${escapeHtml(assertionLevel)}</strong>
+        </article>
+      </div>
+      <div class="nearby-context-body">
+        ${buildIdChipRow("事件来源", sourceEventIds)}
+        ${buildIdChipRow("对象来源", sourceObjectIds)}
+        ${crossDayAnchorCount > 0 ? `<div class="attention-first-note">跨日锚点 ${escapeHtml(String(crossDayAnchorCount))} 个，表示当前回答压缩时引用了前一交易日窗口。</div>` : ""}
+      </div>
+    `;
+}
+
+  function buildNearbyContextDockSignature(activeMessage, activeUi = {}) {
+    return JSON.stringify({
+      messageId: activeMessage?.message_id || "",
+      sourceEventIds: normalizeStringArray(pickFirstDefined(activeUi?.source_event_ids, activeUi?.sourceEventIds)),
+      sourceObjectIds: normalizeStringArray(pickFirstDefined(activeUi?.source_object_ids, activeUi?.sourceObjectIds)),
+      crossDayAnchorCount: toFiniteNumber(pickFirstDefined(activeUi?.cross_day_anchor_count, activeUi?.crossDayAnchorCount), 0),
+      replyWindowAnchor: String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim(),
+      objectCount: getReplyObjectCount(activeMessage),
+      contextVersion: String(pickFirstDefined(activeUi?.context_version, activeUi?.contextVersion) || "").trim(),
+    });
+  }
+
+  function buildChatMessageRenderSignature(message, {
+    activeReplyId = null,
+    assistantDensity = "full",
+    expandedLongText = false,
+    annotationCount = 0,
+  } = {}) {
+    return JSON.stringify({
+      messageId: message?.message_id || "",
+      role: message?.role || "",
+      status: message?.status || "",
+      content: message?.content || "",
+      replyTitle: message?.replyTitle || message?.meta?.replyTitle || message?.meta?.reply_title || "",
+      model: message?.model || message?.meta?.model || "",
+      createdAt: message?.created_at || "",
+      updatedAt: message?.updated_at || "",
+      mountedToChart: !!message?.mountedToChart,
+      mountedObjectIds: Array.isArray(message?.mountedObjectIds) ? message.mountedObjectIds : [],
+      parentMessageId: message?.parent_message_id || message?.meta?.parent_message_id || "",
+      promptTraceId: message?.promptTraceId || message?.meta?.prompt_trace_id || message?.meta?.promptTraceId || "",
+      activeReply: message?.role === "assistant" && activeReplyId && message?.message_id === activeReplyId,
+      assistantDensity,
+      expandedLongText,
+      annotationCount,
+      attachments: normalizeAttachmentList(message?.meta?.attachments || []).map((item) => ({
+        name: item?.name || "",
+        kind: item?.kind || item?.media_type || "",
+        preview_url: item?.preview_url || "",
+        size: item?.size || 0,
+      })),
+      planCards: (Array.isArray(message?.planCards) ? message.planCards : (Array.isArray(message?.meta?.planCards) ? message.meta.planCards : []))
+        .map((plan) => ({
+          id: plan?.id || plan?.plan_id || "",
+          status: plan?.status || "",
+          title: plan?.title || "",
+          summary: plan?.summary || plan?.notes || "",
+        })),
+      workbenchUi: getWorkbenchUiMeta(message?.meta) || null,
+    });
+  }
+
+  function buildRenderedChatMessage(message, session, {
+    activeReplyId = null,
+    assistantDensityMap = new Map(),
+    expandedLongTextMessageIds = new Set(),
+    annotationCountByMessage = new Map(),
+  } = {}) {
+    const messageId = String(message?.message_id || "").trim();
+    const annotationCount = annotationCountByMessage.get(messageId) || 0;
+    const assistantDensity = assistantDensityMap.get(messageId) || "full";
+    const expandedLongText = expandedLongTextMessageIds.has(messageId);
+    const renderableMessage = {
       ...message,
+      isActiveReply: message.role === "assistant" && activeReplyId && messageId === activeReplyId,
       meta: {
         ...(message.meta || {}),
-        annotationCount: (state.aiAnnotations || []).filter((annotation) => annotation.session_id === session.id && annotation.message_id === message.message_id).length,
+        annotationCount,
         planCards: Array.isArray(message.planCards) && message.planCards.length ? message.planCards : message.meta?.planCards,
       },
-    }, {
-      expandedLongText: expandedLongTextMessageIds.has(String(message.message_id || "")),
-    })).join("");
-    els.aiChatThread.querySelectorAll("button[data-plan-action]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const planId = button.dataset.planId;
-        const action = button.dataset.planAction;
-        const messageNode = button.closest(".chat-message");
+    };
+    return {
+      key: messageId,
+      signature: buildChatMessageRenderSignature(message, {
+        activeReplyId,
+        assistantDensity,
+        expandedLongText,
+        annotationCount,
+      }),
+      markup: renderMessage(renderableMessage, {
+        expandedLongText,
+        assistantDensity,
+      }),
+    };
+  }
+
+  function renderChatThreadEmptyState(session, mode, message) {
+    updateRegionMarkup(
+      els.aiChatThread,
+      `<div class="chat-empty-state">${message}</div>`,
+      `${mode}:${session?.id || ""}:${message}`,
+    );
+    els.aiChatThread.dataset.renderMode = mode;
+    if (els.aiChatScrollToBottomButton) {
+      els.aiChatScrollToBottomButton.hidden = true;
+      els.aiChatScrollToBottomButton.textContent = getScrollToBottomLabel(session);
+      els.aiChatScrollToBottomButton.classList.remove("has-unread");
+    }
+  }
+
+  function installChatThreadDelegatedBindings() {
+    if (chatThreadBindingsInstalled || !els.aiChatThread) {
+      return;
+    }
+    chatThreadBindingsInstalled = true;
+    els.aiChatThread.addEventListener("click", (event) => {
+      const planButton = event.target?.closest?.("button[data-plan-action]");
+      if (planButton && els.aiChatThread.contains(planButton)) {
+        const session = getActiveThread();
+        if (!session) {
+          return;
+        }
+        const planId = planButton.dataset.planId;
+        const action = planButton.dataset.planAction;
+        const messageNode = planButton.closest(".chat-message[data-message-id]");
         const messageId = messageNode?.dataset.messageId || null;
         if (action === "pin") {
           state.pinnedPlanId = planId;
@@ -2532,23 +3051,31 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
           }
           onPlanAction({ action, planId, messageId, sessionId: session.id });
         }
-      });
-    });
-    els.aiChatThread.querySelectorAll("button[data-longtext-toggle]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const block = button.closest("[data-longtext]");
-        if (!block) return;
+        return;
+      }
+
+      const longTextButton = event.target?.closest?.("button[data-longtext-toggle]");
+      if (longTextButton && els.aiChatThread.contains(longTextButton)) {
+        const session = getActiveThread();
+        const block = longTextButton.closest("[data-longtext]");
+        if (!session || !block) {
+          return;
+        }
         const preview = block.querySelector(".longtext-preview");
         const full = block.querySelector(".longtext-full");
-        const currentlyExpanded = button.dataset.longtextToggle === "collapse";
+        const currentlyExpanded = longTextButton.dataset.longtextToggle === "collapse";
         const nextExpanded = !currentlyExpanded;
-        const messageId = String(button.dataset.longtextMessageId || block.dataset.longtextMessageId || "").trim();
-        if (preview) preview.hidden = nextExpanded;
-        if (full) full.hidden = !nextExpanded;
+        const messageId = String(longTextButton.dataset.longtextMessageId || block.dataset.longtextMessageId || "").trim();
+        if (preview) {
+          preview.hidden = nextExpanded;
+        }
+        if (full) {
+          full.hidden = !nextExpanded;
+        }
         block.classList.toggle("is-expanded", nextExpanded);
-        button.dataset.longtextToggle = nextExpanded ? "collapse" : "expand";
-        button.textContent = nextExpanded ? "收起" : "展开全文";
-        button.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+        longTextButton.dataset.longtextToggle = nextExpanded ? "collapse" : "expand";
+        longTextButton.textContent = nextExpanded ? "收起" : "展开全文";
+        longTextButton.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
         if (messageId) {
           const nextIds = new Set(getExpandedLongTextMessageIds(session));
           if (nextExpanded) {
@@ -2559,10 +3086,163 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
           session.expandedLongTextMessageIds = Array.from(nextIds);
           persistSessions(state);
         }
+        return;
+      }
+
+      const messageNode = event.target?.closest?.(".chat-message.assistant[data-message-id]");
+      if (!messageNode || !els.aiChatThread.contains(messageNode)) {
+        return;
+      }
+      if (event.target?.closest("button, a, input, select, textarea, label, summary")) {
+        return;
+      }
+      const session = getActiveThread();
+      const messageId = messageNode.dataset.messageId;
+      const nextMessage = (session?.messages || []).find((item) => item?.message_id === messageId && item.role === "assistant");
+      if (!session || !nextMessage || nextMessage.message_id === session.activeReplyId) {
+        return;
+      }
+      focusReplyMessage(state, renderAiChat, onReplyFocusChanged, nextMessage.message_id, {
+        sessionId: session.id,
+        render: true,
       });
     });
+  }
+
+  function renderAttentionFirstPanels(session) {
+    const {
+      assistantMessages,
+      activeMessage,
+      activeUi,
+    } = resolveReplyAttentionState(session);
+    const hasActiveReply = !!activeMessage;
+    const sourceEventIds = normalizeStringArray(pickFirstDefined(activeUi?.source_event_ids, activeUi?.sourceEventIds));
+    const sourceObjectIds = normalizeStringArray(pickFirstDefined(activeUi?.source_object_ids, activeUi?.sourceObjectIds));
+    const crossDayAnchorCount = toFiniteNumber(pickFirstDefined(activeUi?.cross_day_anchor_count, activeUi?.crossDayAnchorCount), 0);
+    const derivedNearbyContext = typeof hasVisibleNearbyContext === "function"
+      ? hasVisibleNearbyContext(session, activeMessage, activeUi)
+      : false;
+    const hasNearbyContext = !!activeMessage && (
+      sourceEventIds.length > 0
+      || sourceObjectIds.length > 0
+      || crossDayAnchorCount > 0
+      || getReplyObjectCount(activeMessage) > 0
+      || !!String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim()
+      || derivedNearbyContext
+    );
+
+    if (!hasActiveReply) {
+      els.aiAnswerWorkspace.hidden = true;
+      els.aiAnswerWorkspace.setAttribute("aria-hidden", "true");
+      if (els.activeReplyWorkspaceCard) {
+        els.activeReplyWorkspaceCard.hidden = true;
+        els.activeReplyWorkspaceCard.setAttribute("aria-hidden", "true");
+      }
+      contextRecipeController.hide();
+      changeInspectorController.hide();
+      if (els.changeInspectorToggle) {
+        els.changeInspectorToggle.hidden = true;
+        els.changeInspectorToggle.setAttribute("aria-expanded", "false");
+        els.changeInspectorToggle.classList.remove("is-active");
+      }
+      els.nearbyContextDock.hidden = true;
+      els.nearbyContextDock.setAttribute("aria-hidden", "true");
+      return;
+    }
+
+    if (els.activeReplyWorkspaceCard) {
+      updateRegionMarkup(
+        els.activeReplyWorkspaceCard,
+        buildActiveReplyWorkspaceMarkup(activeMessage, activeUi),
+        buildActiveReplyWorkspaceSignature(activeMessage, activeUi || {}),
+      );
+      els.activeReplyWorkspaceCard.hidden = false;
+      els.activeReplyWorkspaceCard.setAttribute("aria-hidden", "false");
+    }
+    contextRecipeController.render({ session, activeMessage, activeUi });
+    changeInspectorController.render({ session, assistantMessages, activeMessage });
+
+    els.nearbyContextDock.hidden = !hasNearbyContext;
+    els.nearbyContextDock.setAttribute("aria-hidden", hasNearbyContext ? "false" : "true");
+    if (hasNearbyContext && els.nearbyContextDockSummary) {
+      updateRegionMarkup(
+        els.nearbyContextDockSummary,
+        buildNearbyContextDockMarkup(activeMessage, activeUi),
+        buildNearbyContextDockSignature(activeMessage, activeUi),
+      );
+    }
+
+    const inspectorVisible = !els.changeInspectorPanel?.hidden;
+    const showWorkspace = hasActiveReply || inspectorVisible;
+    els.aiAnswerWorkspace.hidden = !showWorkspace;
+    els.aiAnswerWorkspace.setAttribute("aria-hidden", showWorkspace ? "false" : "true");
+  }
+
+  function renderAiChat() {
+    const session = getActiveThread();
+    const { activeMessage } = resolveReplyAttentionState(session);
+    const activeReplyId = activeMessage?.message_id || null;
+    const assistantDensityMap = buildAssistantDensityMap(session.messages || [], activeReplyId);
+    if (activeReplyId) {
+      assistantDensityMap.set(activeReplyId, "compact");
+    }
+    const shouldAutoFollow = session.autoFollowChat !== false || isNearChatBottom();
+    const expandedLongTextMessageIds = new Set(getExpandedLongTextMessageIds(session));
+    installChatThreadDelegatedBindings();
+    syncSessionMemorySummary(session);
+    renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
+    renderAttentionFirstPanels(session);
+    renderAttachments(session);
+    if (session.loadingFromServer) {
+      renderChatThreadEmptyState(session, "loading", "正在从后端加载会话内容…");
+      return;
+    }
+    if (!session.messages.length) {
+      renderChatThreadEmptyState(session, "empty", "还没有消息。可直接发送；需要图表分析时先加载图表。");
+      return;
+    }
+
+    const annotationCountByMessage = new Map();
+    (state.aiAnnotations || []).forEach((annotation) => {
+      if (annotation?.session_id !== session.id) {
+        return;
+      }
+      const messageId = String(annotation?.message_id || "").trim();
+      if (!messageId) {
+        return;
+      }
+      annotationCountByMessage.set(messageId, (annotationCountByMessage.get(messageId) || 0) + 1);
+    });
+
+    const chatSnapshot = shouldAutoFollow
+      ? null
+      : captureContainerState(els.aiChatThread, { keyAttribute: "data-message-id" });
+    els.aiChatThread.dataset.renderMode = "messages";
+    Array.from(els.aiChatThread.children).forEach((child) => {
+      if (!(child instanceof HTMLElement) || !child.matches(".chat-message[data-message-id]")) {
+        child.remove();
+      }
+    });
+    const renderItems = session.messages
+      .map((message) => buildRenderedChatMessage(message, session, {
+        activeReplyId,
+        assistantDensityMap,
+        expandedLongTextMessageIds,
+        annotationCountByMessage,
+      }))
+      .filter((item) => item.key);
+    reconcileKeyedChildren(els.aiChatThread, renderItems, {
+      keyAttribute: "data-message-id",
+      itemSelector: ".chat-message[data-message-id]",
+    });
+
     if (shouldAutoFollow) {
       scrollChatToBottom({ behavior: "auto", markRead: true, persist: false });
+    } else if (chatSnapshot) {
+      session.autoFollowChat = false;
+      session.hasUnreadChatBelow = true;
+      restoreContainerState(els.aiChatThread, chatSnapshot, { keyAttribute: "data-message-id" });
+      updateChatFollowState({ persist: false });
     } else {
       session.hasUnreadChatBelow = true;
       restoreChatScroll(session);
@@ -2939,6 +3619,7 @@ export function createAiThreadController({ state, els, onPlanAction = null, onMo
     bindChatScrollBehavior,
     scrollChatToBottom,
     updateChatFollowState,
+    focusReplyMessage: (messageId, options = {}) => focusReplyMessage(state, renderAiChat, onReplyFocusChanged, messageId, options),
     scheduleDraftStateSync,
     persistSessions: () => persistSessions(state),
   };

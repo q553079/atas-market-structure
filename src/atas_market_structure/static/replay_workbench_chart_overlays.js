@@ -1,4 +1,73 @@
-import { isAnnotationDeleted } from "./replay_workbench_annotation_utils.js";
+import { isAnnotationDeleted } from "./replay_workbench_annotation_utils.js?v=20260330-window-event-context-v1";
+
+const VIEWPORT_CONTEXT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
+function toTimestampMs(value) {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function buildViewportContextWindow(visibleStartTime, visibleEndTime, contextLookbackMs = VIEWPORT_CONTEXT_LOOKBACK_MS) {
+  if (!Number.isFinite(visibleStartTime) || !Number.isFinite(visibleEndTime)) {
+    return null;
+  }
+  return {
+    startMs: visibleStartTime - Math.max(0, Number(contextLookbackMs) || 0),
+    endMs: visibleEndTime,
+  };
+}
+
+function timeRangeOverlapsWindow(startMs, endMs, windowStartMs, windowEndMs) {
+  const normalizedStart = Number.isFinite(startMs) ? startMs : endMs;
+  const normalizedEnd = Number.isFinite(endMs) ? endMs : startMs;
+  if (!Number.isFinite(normalizedStart) || !Number.isFinite(normalizedEnd)) {
+    return false;
+  }
+  return normalizedEnd >= windowStartMs && normalizedStart <= windowEndMs;
+}
+
+function resolveAnnotationTimeWindow(item = {}) {
+  const pathTimes = Array.isArray(item.path_points)
+    ? item.path_points
+      .map((point) => toTimestampMs(point?.time || point?.started_at || point?.ended_at))
+      .filter(Number.isFinite)
+      .sort((left, right) => left - right)
+    : [];
+  const anchorTime = toTimestampMs(item.anchor_time);
+  let startMs = toTimestampMs(item.start_time) ?? anchorTime ?? pathTimes[0] ?? toTimestampMs(item.created_at) ?? toTimestampMs(item.updated_at);
+  let endMs = toTimestampMs(item.end_time) ?? toTimestampMs(item.expires_at) ?? anchorTime ?? pathTimes[pathTimes.length - 1] ?? startMs;
+  if (!Number.isFinite(startMs) && !Number.isFinite(endMs)) {
+    return null;
+  }
+  if (!Number.isFinite(startMs)) {
+    startMs = endMs;
+  }
+  if (!Number.isFinite(endMs)) {
+    endMs = startMs;
+  }
+  if (endMs < startMs) {
+    return { startMs: endMs, endMs: startMs };
+  }
+  return { startMs, endMs };
+}
+
+function resolveRenderedHorizontalSpan(startMs, endMs, timeToX, clampChartX, padding = 8, minimumWidthPx = 14) {
+  let x1 = clampChartX(timeToX(startMs), padding);
+  let x2 = clampChartX(timeToX(endMs), padding);
+  if (!Number.isFinite(x1) || !Number.isFinite(x2)) {
+    return null;
+  }
+  const left = Math.min(x1, x2);
+  const right = Math.max(x1, x2);
+  if ((right - left) >= minimumWidthPx) {
+    return { x1: left, x2: right };
+  }
+  const center = (left + right) / 2;
+  return {
+    x1: clampChartX(center - minimumWidthPx / 2, padding),
+    x2: clampChartX(center + minimumWidthPx / 2, padding),
+  };
+}
 
 function shouldRenderAnnotation(item, state) {
   if (!item || item.visible === false || isAnnotationDeleted(item)) {
@@ -52,6 +121,8 @@ export function appendChartOverlayMarkup({
   events,
   visibleCandles,
   visibleCandlesLength,
+  visibleStartTime = null,
+  visibleEndTime = null,
   withinVisibleWindow,
   timeToX,
   priceToY,
@@ -66,6 +137,7 @@ export function appendChartOverlayMarkup({
   clampChartY,
   state,
 }) {
+  const viewportContextWindow = buildViewportContextWindow(visibleStartTime, visibleEndTime);
   focusRegions.forEach((region) => {
     const regionEnd = region.ended_at || snapshot.window_end;
     if (!withinVisibleWindow(region.started_at) && !withinVisibleWindow(regionEnd)) {
@@ -123,8 +195,21 @@ export function appendChartOverlayMarkup({
   });
 
   aiAnnotations.filter((item) => shouldRenderAnnotation(item, state)).forEach((item) => {
-    const start = item.start_time || snapshot.window_start;
-    const end = item.end_time || snapshot.window_end;
+    const annotationWindow = resolveAnnotationTimeWindow(item);
+    if (!annotationWindow) {
+      return;
+    }
+    if (
+      viewportContextWindow
+      && !timeRangeOverlapsWindow(
+        annotationWindow.startMs,
+        annotationWindow.endMs,
+        viewportContextWindow.startMs,
+        viewportContextWindow.endMs,
+      )
+    ) {
+      return;
+    }
     const isSelected = state.selectedAnnotationId === item.id;
     const strokeWidth = isSelected ? 2.8 : 1.8;
     const opacity = item.status === "triggered" ? 1 : item.status === "invalidated" ? 0.38 : item.status === "completed" ? 0.48 : 0.86;
@@ -134,8 +219,11 @@ export function appendChartOverlayMarkup({
       if (price == null) {
         return;
       }
-      const x1 = clampChartX(timeToX(start), 8);
-      const x2 = clampChartX(timeToX(end), 8);
+      const horizontalSpan = resolveRenderedHorizontalSpan(annotationWindow.startMs, annotationWindow.endMs, timeToX, clampChartX, 8);
+      if (!horizontalSpan) {
+        return;
+      }
+      const { x1, x2 } = horizontalSpan;
       const y = clampChartY(priceToY(price), 8);
       const color = item.type === "entry_line"
         ? (item.side === "sell" ? "#f97316" : "#14b8a6")
@@ -143,12 +231,12 @@ export function appendChartOverlayMarkup({
           ? "#ef4444"
           : item.tp_level === 1 ? "#22c55e" : item.tp_level === 2 ? "#86efac" : "#bbf7d0";
       const dash = item.type === "stop_loss" ? "7 5" : item.type === "take_profit" && item.tp_level > 1 ? "5 5" : "";
-      markupParts.push(`<line x1="${Math.min(x1, x2)}" y1="${y}" x2="${Math.max(x1, x2)}" y2="${y}" stroke="${color}" stroke-width="${strokeWidth}" opacity="${opacity}" ${dash ? `stroke-dasharray="${dash}"` : ""} />`);
-      markupParts.push(`<line x1="${Math.min(x1, x2)}" y1="${y}" x2="${Math.max(x1, x2)}" y2="${y}" stroke="transparent" stroke-width="14" ${hit} />`);
-      markupParts.push(`<text x="${Math.min(x1, x2) + 8}" y="${y - 8}" font-size="12" fill="${color}" opacity="${opacity}">${escapeHtml(item.label)}</text>`);
+      markupParts.push(`<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${color}" stroke-width="${strokeWidth}" opacity="${opacity}" ${dash ? `stroke-dasharray="${dash}"` : ""} />`);
+      markupParts.push(`<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="transparent" stroke-width="14" ${hit} />`);
+      markupParts.push(`<text x="${x1 + 8}" y="${y - 8}" font-size="12" fill="${color}" opacity="${opacity}">${escapeHtml(item.label)}</text>`);
       if (["tp_hit", "sl_hit", "expired", "invalidated"].includes(item.status)) {
         const marker = item.status === "tp_hit" ? "●" : item.status === "sl_hit" ? "✕" : item.status === "expired" ? "•" : "✕";
-        markupParts.push(`<text x="${Math.max(x1, x2) + 6}" y="${y + 4}" font-size="12" fill="${color}">${marker}</text>`);
+        markupParts.push(`<text x="${x2 + 6}" y="${y + 4}" font-size="12" fill="${color}">${marker}</text>`);
       }
     }
     if (["support_zone", "resistance_zone", "no_trade_zone", "zone"].includes(item.type)) {
@@ -157,8 +245,11 @@ export function appendChartOverlayMarkup({
       if (low == null || high == null) {
         return;
       }
-      const x1 = clampChartX(timeToX(start), 8);
-      const x2 = clampChartX(timeToX(end), 8);
+      const horizontalSpan = resolveRenderedHorizontalSpan(annotationWindow.startMs, annotationWindow.endMs, timeToX, clampChartX, 8);
+      if (!horizontalSpan) {
+        return;
+      }
+      const { x1, x2 } = horizontalSpan;
       const y1 = clampChartY(priceToY(high), 8);
       const y2 = clampChartY(priceToY(low), 8);
       const fill = item.type === "support_zone"
@@ -175,20 +266,27 @@ export function appendChartOverlayMarkup({
           : item.type === "zone"
             ? "#3b82f6"
             : "#ef4444";
-      markupParts.push(`<rect x="${Math.min(x1, x2)}" y="${Math.min(y1, y2)}" width="${Math.max(2, Math.abs(x2 - x1))}" height="${Math.max(2, Math.abs(y2 - y1))}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" rx="8" opacity="${opacity}" ${hit} />`);
-      markupParts.push(`<text x="${Math.min(x1, x2) + 8}" y="${Math.min(y1, y2) + 14}" font-size="12" fill="${stroke}">${escapeHtml(item.label)}</text>`);
+      markupParts.push(`<rect x="${x1}" y="${Math.min(y1, y2)}" width="${Math.max(2, x2 - x1)}" height="${Math.max(2, Math.abs(y2 - y1))}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" rx="8" opacity="${opacity}" ${hit} />`);
+      markupParts.push(`<text x="${x1 + 8}" y="${Math.min(y1, y2) + 14}" font-size="12" fill="${stroke}">${escapeHtml(item.label)}</text>`);
       if (["invalidated", "completed", "expired"].includes(item.status)) {
         const suffix = item.status === "invalidated" ? "已失效" : item.status === "completed" ? "已完成" : "已过期";
-        markupParts.push(`<text x="${Math.min(x1, x2) + 8}" y="${Math.min(y1, y2) + 30}" font-size="11" fill="${stroke}" opacity="0.9">${suffix}</text>`);
+        markupParts.push(`<text x="${x1 + 8}" y="${Math.min(y1, y2) + 30}" font-size="11" fill="${stroke}" opacity="0.9">${suffix}</text>`);
       }
     }
     if (item.type === "path_arrow" && Array.isArray(item.path_points) && item.path_points.length >= 2) {
-      const points = item.path_points.map((point) => `${clampChartX(timeToX(point.time || point.started_at || start), 8)},${clampChartY(priceToY(point.price), 8)}`).join(" ");
-      const last = item.path_points[item.path_points.length - 1];
-      const prev = item.path_points[item.path_points.length - 2];
-      const lx = clampChartX(timeToX(last.time || last.started_at || end), 8);
+      const pathPoints = item.path_points.filter((point) => {
+        const pointTime = toTimestampMs(point?.time || point?.started_at || point?.ended_at);
+        return !viewportContextWindow || timeRangeOverlapsWindow(pointTime, pointTime, viewportContextWindow.startMs, viewportContextWindow.endMs);
+      });
+      if (pathPoints.length < 2) {
+        return;
+      }
+      const points = pathPoints.map((point) => `${clampChartX(timeToX(point.time || point.started_at || annotationWindow.startMs), 8)},${clampChartY(priceToY(point.price), 8)}`).join(" ");
+      const last = pathPoints[pathPoints.length - 1];
+      const prev = pathPoints[pathPoints.length - 2];
+      const lx = clampChartX(timeToX(last.time || last.started_at || annotationWindow.endMs), 8);
       const ly = clampChartY(priceToY(last.price), 8);
-      const px = clampChartX(timeToX(prev.time || prev.started_at || start), 8);
+      const px = clampChartX(timeToX(prev.time || prev.started_at || annotationWindow.startMs), 8);
       const py = clampChartY(priceToY(prev.price), 8);
       const angle = Math.atan2(ly - py, lx - px);
       const ah = 10;

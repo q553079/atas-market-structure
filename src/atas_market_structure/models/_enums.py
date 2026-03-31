@@ -223,6 +223,7 @@ class ContinuousAdjustmentMode(str, Enum):
 
     NONE = "none"
     GAP_SHIFT = "gap_shift"
+    LATEST_GAP_SHIFT = "latest_gap_shift"
 
 
 class RegimeKind(str, Enum):
