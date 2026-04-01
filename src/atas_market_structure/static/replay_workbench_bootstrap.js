@@ -2310,9 +2310,32 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     bindChatScrollBehavior,
     scrollChatToBottom,
     updateChatFollowState,
+    collapseExpandedSkimDetails,
     scheduleDraftStateSync,
     persistSessions,
   } = threadController;
+
+  function bindSkimCollapseOutsideSurface(node, eventNames = ["pointerdown"], { force = true } = {}) {
+    if (!node) {
+      return;
+    }
+    const boundEvents = node.__workbenchSkimCollapseBoundEvents instanceof Set
+      ? node.__workbenchSkimCollapseBoundEvents
+      : new Set();
+    node.__workbenchSkimCollapseBoundEvents = boundEvents;
+    eventNames.forEach((eventName) => {
+      if (boundEvents.has(eventName)) {
+        return;
+      }
+      boundEvents.add(eventName);
+      node.addEventListener(eventName, (event) => {
+        collapseExpandedSkimDetails?.({
+          target: force ? null : event.target,
+          force,
+        });
+      });
+    });
+  }
 
   const eventApi = createWorkbenchEventApi({ fetchJson });
 
@@ -2932,6 +2955,12 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     }
     if (nextOpen) {
       renderSecondaryAiPanels({ force: true });
+      requestAnimationFrame(() => {
+        els.aiSecondaryControls?.scrollIntoView?.({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
     } else {
       markSecondaryAiPanelsClosed();
     }
@@ -5648,6 +5677,18 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
     bindChatScrollBehavior();
     installButtonFeedback();
     syncQuickActionButtonState();
+    [
+      els.aiChatInput,
+      els.aiAnswerWorkspace,
+      els.nearbyContextDock,
+      els.contextRecipePanel,
+      els.changeInspectorPanel,
+      els.chartContainer,
+      els.chartFrame,
+      els.chartSvg,
+      els.chartEventRail,
+    ].forEach((node) => bindSkimCollapseOutsideSurface(node));
+    bindSkimCollapseOutsideSurface(els.aiChatInput, ["pointerdown", "click", "focus"]);
     const screenshotAttachmentButtons = [
       els.aiScreenshotButton,
       els.chartScreenshotButton,
@@ -6282,10 +6323,6 @@ export function bootReplayWorkbench({ renderChart, getRenderSnapshot, getBuildRe
 
     bindClickAction(els.annotationManagerButton, () => {
       state.annotationPanelOpen = true;
-      renderSnapshot();
-    });
-    bindClickAction(els.toggleAnnotationPanelButton, () => {
-      state.annotationPanelOpen = !state.annotationPanelOpen;
       renderSnapshot();
     });
     bindClickAction(els.closeAnnotationPanelButton, () => {

@@ -1,7 +1,8 @@
 param(
     [switch]$ForceRestart,
     [switch]$SkipCollectorDeploy,
-    [switch]$WaitForAtasExitBeforeDeploy
+    [switch]$WaitForAtasExitBeforeDeploy,
+    [switch]$SkipDatabaseStart
 )
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -79,6 +80,20 @@ if (-not $SkipCollectorDeploy) {
     }
     else {
         & $deployScript -Build -SkipIfAtasRunning
+    }
+}
+
+if (-not $SkipDatabaseStart) {
+    $databaseBootstrapScript = Join-Path $PSScriptRoot "ensure-clickhouse.ps1"
+    if (-not (Test-Path -LiteralPath $databaseBootstrapScript)) {
+        throw "ClickHouse bootstrap script not found: $databaseBootstrapScript"
+    }
+
+    try {
+        & $databaseBootstrapScript
+    }
+    catch {
+        Write-Warning ("ClickHouse bootstrap failed. Continuing with degraded-mode startup. Error: {0}" -f $_.Exception.Message)
     }
 }
 

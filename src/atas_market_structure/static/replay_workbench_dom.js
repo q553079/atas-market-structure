@@ -201,7 +201,6 @@ export function createWorkbenchElements(doc = document) {
     sessionMoreMenu: doc.getElementById("sessionMoreMenu"),
 
     annotationManagerButton: doc.getElementById("annotationManagerButton"),
-    toggleAnnotationPanelButton: doc.getElementById("toggleAnnotationPanelButton"),
     annotationPanel: doc.getElementById("annotationPanel"),
     closeAnnotationPanelButton: doc.getElementById("closeAnnotationPanelButton"),
     filterOnlyCurrentSession: doc.getElementById("filterOnlyCurrentSession"),

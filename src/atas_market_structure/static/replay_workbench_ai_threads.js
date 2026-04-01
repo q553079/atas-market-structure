@@ -13,7 +13,6 @@ import {
 import {
   buildAssistantDensityMap,
   canRenderStructuredAssistantMessage,
-  renderStructuredAnswerCard,
   renderStructuredAssistantMessage,
 } from "./replay_workbench_answer_cards.js";
 import { createWorkbenchContextRecipeController } from "./replay_workbench_context_recipe.js";
@@ -21,6 +20,7 @@ import {
   createWorkbenchChangeInspectorController,
   normalizeChangeInspectorMode,
 } from "./replay_workbench_change_inspector.js";
+import { createWorkbenchAttentionPanelsController } from "./replay_workbench_attention_panels.js";
 import {
   captureContainerState,
   reconcileKeyedChildren,
@@ -379,6 +379,11 @@ function focusReplyMessage(state, renderAiChat, onReplyFocusChanged, messageId, 
     state.changeInspector.baselineReplyId = null;
     state.changeInspector.mode = normalizeChangeInspectorMode(state.changeInspector?.mode, { open: true });
   }
+  clearExpandedSkimMessageIds(targetSession, {
+    persist: false,
+    render: false,
+    renderAiChatFn: renderAiChat,
+  });
   persistSessions(state);
   if (render) {
     renderAiChat();
@@ -619,6 +624,9 @@ function normalizeSessionShape(session, fallback = {}) {
   session.expandedLongTextMessageIds = Array.isArray(session.expandedLongTextMessageIds)
     ? Array.from(new Set(session.expandedLongTextMessageIds.map((item) => String(item || "").trim()).filter(Boolean)))
     : [];
+  session.expandedSkimMessageIds = Array.isArray(session.expandedSkimMessageIds)
+    ? Array.from(new Set(session.expandedSkimMessageIds.map((item) => String(item || "").trim()).filter(Boolean)))
+    : [];
   session.analysisTemplate = session.analysisTemplate && typeof session.analysisTemplate === "object"
     ? {
         type: session.analysisTemplate.type || "recent_20_bars",
@@ -687,6 +695,59 @@ function getExpandedLongTextMessageIds(session) {
   return session.expandedLongTextMessageIds;
 }
 
+function getExpandedSkimMessageIds(session) {
+  if (!session) {
+    return [];
+  }
+  session.expandedSkimMessageIds = Array.isArray(session.expandedSkimMessageIds)
+    ? Array.from(new Set(session.expandedSkimMessageIds.map((item) => String(item || "").trim()).filter(Boolean)))
+    : [];
+  return session.expandedSkimMessageIds;
+}
+
+function clearExpandedSkimMessageIds(session, {
+  persist = true,
+  render = false,
+  persistSessionsFn = null,
+  renderAiChatFn = null,
+} = {}) {
+  if (!session || !Array.isArray(session.expandedSkimMessageIds) || !session.expandedSkimMessageIds.length) {
+    return false;
+  }
+  session.expandedSkimMessageIds = [];
+  if (persist && typeof persistSessionsFn === "function") {
+    persistSessionsFn();
+  }
+  if (render && typeof renderAiChatFn === "function") {
+    renderAiChatFn();
+  }
+  return true;
+}
+
+function collapseExpandedSkimDetails(getActiveThread, els, {
+  target = null,
+  persist = true,
+  render = true,
+  force = false,
+  persistSessionsFn = null,
+  renderAiChatFn = null,
+} = {}) {
+  const session = getActiveThread?.();
+  if (!session || !getExpandedSkimMessageIds(session).length) {
+    return false;
+  }
+  const nextTarget = target instanceof Node ? target : null;
+  if (!force && nextTarget && els.aiChatThread?.contains(nextTarget)) {
+    return false;
+  }
+  return clearExpandedSkimMessageIds(session, {
+    persist,
+    render,
+    persistSessionsFn,
+    renderAiChatFn,
+  });
+}
+
 function isTrulyBlankSession(thread) {
   const attachments = getDraftAttachments(thread);
   return !(thread.messages?.length)
@@ -744,6 +805,7 @@ function ensureSession(state, sessionId, title = "01", overrides = {}) {
       draftAttachments: [],
       attachmentPreviewCollapsed: false,
       expandedLongTextMessageIds: [],
+      expandedSkimMessageIds: [],
       analysisTemplate: {
         type: activeSession?.analysisTemplate?.type || "recent_20_bars",
         range: activeSession?.analysisTemplate?.range || "current_window",
@@ -995,7 +1057,10 @@ function renderAttachmentPreview(attachment) {
   return `<div class="attachment-chip">${buildAttachmentPreviewMarkup(attachment)}<div class="attachment-chip-meta"><span>${label}</span><span class="meta">${kind}</span></div></div>`;
 }
 
-function renderMessage(message, { expandedLongText = false, assistantDensity = "full" } = {}) {
+function renderMessage(message, { expandedLongText = false, assistantDensity = "full", skimExpanded = false } = {}) {
+  const resolvedAssistantDensity = ["full", "compact", "skim"].includes(String(assistantDensity || "").trim().toLowerCase())
+    ? String(assistantDensity || "").trim().toLowerCase()
+    : "full";
   const metaChips = [];
   if (message.status && message.role === "assistant") {
     metaChips.push(`<span class="chip ${escapeHtml(message.status)}">${escapeHtml(message.status)}</span>`);
@@ -1024,8 +1089,9 @@ function renderMessage(message, { expandedLongText = false, assistantDensity = "
   if (canRenderStructuredAssistantMessage(message)) {
     return renderStructuredAssistantMessage({
       message,
-      density: assistantDensity,
+      density: resolvedAssistantDensity,
       expandedLongText,
+      skimExpanded,
       replyObjectCount,
       canProjectReply,
       renderLongTextMarkup: (text, options = {}) => buildLongTextMarkup(text, options),
@@ -1071,19 +1137,40 @@ function renderMessage(message, { expandedLongText = false, assistantDensity = "
   if (canProjectReply) {
     metaChips.push(`<span class="chip">${escapeHtml(`对象 ${replyObjectCount}`)}</span>`);
   }
+  const skimRailMarkup = message.role === "assistant" && resolvedAssistantDensity === "skim"
+    ? `
+      <div class="chat-skim-rail-head">
+        <div class="chat-skim-rail-copy">
+          <span class="chat-skim-rail-title">${escapeHtml(summarizeText(message.replyTitle || message.content || "AI 回复", 20))}</span>
+          <span class="chat-skim-rail-time">${escapeHtml(formatCompactDateTime(message.updated_at || message.created_at))}</span>
+        </div>
+        <button
+          type="button"
+          class="secondary tiny answer-card-skim-toggle"
+          data-skim-toggle="${skimExpanded ? "collapse" : "expand"}"
+          data-message-id="${escapeHtml(message.message_id || "")}"
+          aria-expanded="${skimExpanded ? "true" : "false"}"
+        >${skimExpanded ? "收起" : "细节"}</button>
+      </div>
+    `
+    : "";
   return `
-    <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} ${message.isActiveReply ? "is-reply-focus" : ""}" data-message-id="${escapeHtml(message.message_id || "")}">
-      <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")}">
+    <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} density-${escapeHtml(resolvedAssistantDensity)} ${message.isActiveReply ? "is-reply-focus" : ""}" data-message-id="${escapeHtml(message.message_id || "")}"${message.role === "assistant" ? ` data-message-density="${escapeHtml(resolvedAssistantDensity)}"${resolvedAssistantDensity === "skim" ? ` tabindex="0" data-skim-expanded="${skimExpanded ? "true" : "false"}"` : ""}` : ""}>
+      <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} density-${escapeHtml(resolvedAssistantDensity)}">
         <div class="chat-bubble-body">
-          ${buildLongTextMarkup(message.content || "", {
-            expanded: expandedLongText,
-            messageId: message.message_id || "",
-          })}
-          ${(message.parent_message_id || message.meta?.parent_message_id) ? `<div class="chat-regenerate-note">由上一条回复重新生成</div>` : ""}
-          ${attachments.length ? `<div class="chat-attachment-list">${attachments.map((item) => renderAttachmentPreview(item)).join("")}</div>` : ""}
-          ${metaChips.length ? `<div class="chat-meta">${metaChips.join("")}</div>` : ""}
-          ${messageActionMarkup}
-          ${planCards.length ? `<div class="chat-plan-card-list">${planCards.map((item) => buildPlanCardMarkup(item)).join("")}</div>` : ""}
+          ${skimRailMarkup}
+          <div class="${message.role === "assistant" && resolvedAssistantDensity === "skim" ? "chat-skim-rail-detail" : ""}">
+            ${buildLongTextMarkup(message.content || "", {
+              expanded: expandedLongText,
+              messageId: message.message_id || "",
+              limit: resolvedAssistantDensity === "skim" ? 120 : (resolvedAssistantDensity === "compact" ? 180 : 220),
+            })}
+            ${(message.parent_message_id || message.meta?.parent_message_id) ? `<div class="chat-regenerate-note">由上一条回复重新生成</div>` : ""}
+            ${attachments.length ? `<div class="chat-attachment-list">${attachments.map((item) => renderAttachmentPreview(item)).join("")}</div>` : ""}
+            ${metaChips.length ? `<div class="chat-meta">${metaChips.join("")}</div>` : ""}
+            ${messageActionMarkup}
+            ${planCards.length ? `<div class="chat-plan-card-list">${planCards.map((item) => buildPlanCardMarkup(item)).join("")}</div>` : ""}
+          </div>
         </div>
       </div>
     </div>
@@ -1582,8 +1669,20 @@ export function createAiThreadController({
     buildAssistantReplyLabel,
     getReplyObjectCount,
   });
+  const attentionPanelsController = createWorkbenchAttentionPanelsController({
+    els,
+    contextRecipeController,
+    changeInspectorController,
+    hasVisibleNearbyContext,
+    buildAssistantReplyLabel,
+    buildReplySummaryText,
+    buildReplyWindowLabel,
+    getReplyObjectCount,
+    buildLongTextMarkup,
+  });
   let sessionWorkspaceQuery = "";
   let chatThreadBindingsInstalled = false;
+  let skimAutoCollapseBindingsInstalled = false;
 
   function getWorkspaceRole(session, fallback = "analyst") {
     return String(session?.workspaceRole || fallback || "analyst").trim().toLowerCase() || "analyst";
@@ -1914,11 +2013,58 @@ export function createAiThreadController({
   }
 
   function bindChatScrollBehavior() {
+    bindSkimAutoCollapseBehavior();
     els.aiChatThread?.addEventListener("scroll", () => {
       updateChatFollowState({ persist: false });
     });
     els.aiChatScrollToBottomButton?.addEventListener("click", () => {
       scrollChatToBottom({ behavior: "smooth", markRead: true, persist: true });
+    });
+  }
+
+  function bindSkimAutoCollapseBehavior() {
+    if (skimAutoCollapseBindingsInstalled) {
+      return;
+    }
+    skimAutoCollapseBindingsInstalled = true;
+    const collapseIfOutside = (target) => {
+      return collapseExpandedSkimDetails(getActiveThread, els, {
+        target,
+        persist: true,
+        render: true,
+        persistSessionsFn: () => persistSessions(state),
+        renderAiChatFn: renderAiChat,
+      });
+    };
+    document.addEventListener("pointerdown", (event) => {
+      collapseIfOutside(event.target);
+    }, true);
+    document.addEventListener("click", (event) => {
+      collapseIfOutside(event.target);
+    }, true);
+    els.aiWorkspaceSurface?.addEventListener("click", (event) => {
+      collapseIfOutside(event.target);
+    });
+    els.aiChatInput?.addEventListener("pointerdown", () => {
+      collapseIfOutside(els.aiChatInput);
+    });
+    els.aiChatInput?.addEventListener("focus", () => {
+      collapseIfOutside(els.aiChatInput);
+    });
+    els.aiChatInput?.addEventListener("click", () => {
+      collapseIfOutside(els.aiChatInput);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      collapseExpandedSkimDetails(getActiveThread, els, {
+        persist: true,
+        render: true,
+        force: true,
+        persistSessionsFn: () => persistSessions(state),
+        renderAiChatFn: renderAiChat,
+      });
     });
   }
 
@@ -2732,143 +2878,11 @@ function resolveReplyAttentionState(session) {
   };
 }
 
-function buildActiveReplyWorkspaceSignature(activeMessage, activeUi = {}) {
-  return JSON.stringify({
-    messageId: activeMessage?.message_id || "",
-    status: activeMessage?.status || "",
-    updatedAt: activeMessage?.updated_at || activeMessage?.created_at || "",
-    contentLength: String(activeMessage?.content || "").length,
-    replyWindowAnchor: String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim(),
-    contextVersion: String(pickFirstDefined(activeUi?.context_version, activeUi?.contextVersion) || "").trim(),
-    promptTraceId: activeMessage?.promptTraceId || activeMessage?.meta?.promptTraceId || "",
-    objectCount: getReplyObjectCount(activeMessage),
-  });
-}
-
-function buildLegacyActiveReplyWorkspaceMarkup(activeMessage, activeUi = null) {
-  const title = buildAssistantReplyLabel(activeMessage, 0);
-  const summary = buildReplySummaryText(activeMessage, 220);
-  const timeLabel = buildReplyWindowLabel(activeUi || {});
-  return `
-    <article class="answer-card answer-card-full" data-structured-answer-card="false" data-card-density="full">
-      <header class="answer-card-head">
-        <div class="answer-card-chip-row">
-          <span class="answer-card-chip is-active">当前回复</span>
-          <span class="answer-card-chip">Legacy</span>
-        </div>
-        <div class="answer-card-title-row">
-          <div class="answer-card-title-copy">
-            <span class="answer-card-kicker">${escapeHtml(title)}</span>
-            <strong class="answer-card-title">${escapeHtml(summary || "当前回复")}</strong>
-          </div>
-          <div class="answer-card-time-meta">${escapeHtml(timeLabel || "未记录")}</div>
-        </div>
-      </header>
-      <section class="answer-card-section" data-answer-section="note">
-        <span class="answer-card-section-label">当前答复</span>
-        <div class="answer-card-section-value">${escapeHtml(summary || String(activeMessage?.content || "").trim() || "未记录")}</div>
-      </section>
-    </article>
-  `;
-}
-
-function buildActiveReplyWorkspaceMarkup(activeMessage, activeUi = null) {
-  if (!activeMessage) {
-    return "";
-  }
-  if (canRenderStructuredAssistantMessage(activeMessage)) {
-    return renderStructuredAnswerCard({
-      message: {
-        ...activeMessage,
-        isActiveReply: true,
-      },
-      density: "full",
-      expandedLongText: false,
-      replyObjectCount: getReplyObjectCount(activeMessage),
-      canProjectReply: false,
-      includeMessageActions: false,
-      includeAttachments: false,
-      includePlanCards: false,
-      renderLongTextMarkup: (text, options = {}) => buildLongTextMarkup(text, options),
-    });
-  }
-  return buildLegacyActiveReplyWorkspaceMarkup(activeMessage, activeUi);
-}
-
-function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
-    const sourceEventIds = normalizeStringArray(pickFirstDefined(activeUi?.source_event_ids, activeUi?.sourceEventIds));
-    const sourceObjectIds = normalizeStringArray(pickFirstDefined(activeUi?.source_object_ids, activeUi?.sourceObjectIds));
-    const crossDayAnchorCount = toFiniteNumber(pickFirstDefined(activeUi?.cross_day_anchor_count, activeUi?.crossDayAnchorCount), 0);
-    const alignmentState = String(pickFirstDefined(activeUi?.alignment_state, activeUi?.alignmentState) || "").trim() || "未记录";
-    const assertionLevel = String(pickFirstDefined(activeUi?.assertion_level, activeUi?.assertionLevel) || "").trim() || "未记录";
-    const replyWindowAnchor = String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim() || "未记录";
-    const objectCount = getReplyObjectCount(activeMessage);
-    const buildIdChipRow = (title, values) => values.length
-      ? `
-        <div class="nearby-context-cluster">
-          <span class="nearby-context-cluster-title">${escapeHtml(title)}</span>
-          <div class="strip-chip-row">
-            ${values.slice(0, 6).map((value) => `<span class="mini-chip">${escapeHtml(value)}</span>`).join("")}
-            ${values.length > 6 ? `<span class="mini-chip">+${escapeHtml(String(values.length - 6))}</span>` : ""}
-          </div>
-        </div>
-      `
-      : "";
-  return `
-      <div class="answer-workspace-hero">
-        <strong>当前回答邻近上下文</strong>
-        <p>Nearby Context 已并入 AI 主阅读路径。前台只保留当前窗口附近、仍在影响当前窗口、或被固定保留的事件。</p>
-      </div>
-      <div class="answer-workspace-grid nearby-context-grid">
-        <article class="answer-workspace-stat">
-          <span>窗口锚点</span>
-          <strong>${escapeHtml(replyWindowAnchor)}</strong>
-        </article>
-        <article class="answer-workspace-stat">
-          <span>关联事件</span>
-          <strong>${escapeHtml(`${sourceEventIds.length} 条`)}</strong>
-        </article>
-        <article class="answer-workspace-stat">
-          <span>关联对象</span>
-          <strong>${escapeHtml(`${sourceObjectIds.length} 个`)}</strong>
-        </article>
-        <article class="answer-workspace-stat">
-          <span>上图对象</span>
-          <strong>${escapeHtml(String(objectCount))}</strong>
-        </article>
-        <article class="answer-workspace-stat">
-          <span>对齐状态</span>
-          <strong>${escapeHtml(alignmentState)}</strong>
-        </article>
-        <article class="answer-workspace-stat">
-          <span>断言强度</span>
-          <strong>${escapeHtml(assertionLevel)}</strong>
-        </article>
-      </div>
-      <div class="nearby-context-body">
-        ${buildIdChipRow("事件来源", sourceEventIds)}
-        ${buildIdChipRow("对象来源", sourceObjectIds)}
-        ${crossDayAnchorCount > 0 ? `<div class="attention-first-note">跨日锚点 ${escapeHtml(String(crossDayAnchorCount))} 个，表示当前回答压缩时引用了前一交易日窗口。</div>` : ""}
-      </div>
-    `;
-}
-
-  function buildNearbyContextDockSignature(activeMessage, activeUi = {}) {
-    return JSON.stringify({
-      messageId: activeMessage?.message_id || "",
-      sourceEventIds: normalizeStringArray(pickFirstDefined(activeUi?.source_event_ids, activeUi?.sourceEventIds)),
-      sourceObjectIds: normalizeStringArray(pickFirstDefined(activeUi?.source_object_ids, activeUi?.sourceObjectIds)),
-      crossDayAnchorCount: toFiniteNumber(pickFirstDefined(activeUi?.cross_day_anchor_count, activeUi?.crossDayAnchorCount), 0),
-      replyWindowAnchor: String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim(),
-      objectCount: getReplyObjectCount(activeMessage),
-      contextVersion: String(pickFirstDefined(activeUi?.context_version, activeUi?.contextVersion) || "").trim(),
-    });
-  }
-
   function buildChatMessageRenderSignature(message, {
     activeReplyId = null,
     assistantDensity = "full",
     expandedLongText = false,
+    skimExpanded = false,
     annotationCount = 0,
   } = {}) {
     return JSON.stringify({
@@ -2887,6 +2901,7 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
       activeReply: message?.role === "assistant" && activeReplyId && message?.message_id === activeReplyId,
       assistantDensity,
       expandedLongText,
+      skimExpanded,
       annotationCount,
       attachments: normalizeAttachmentList(message?.meta?.attachments || []).map((item) => ({
         name: item?.name || "",
@@ -2909,12 +2924,14 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
     activeReplyId = null,
     assistantDensityMap = new Map(),
     expandedLongTextMessageIds = new Set(),
+    expandedSkimMessageIds = new Set(),
     annotationCountByMessage = new Map(),
   } = {}) {
     const messageId = String(message?.message_id || "").trim();
     const annotationCount = annotationCountByMessage.get(messageId) || 0;
     const assistantDensity = assistantDensityMap.get(messageId) || "full";
     const expandedLongText = expandedLongTextMessageIds.has(messageId);
+    const skimExpanded = assistantDensity === "skim" && expandedSkimMessageIds.has(messageId);
     const renderableMessage = {
       ...message,
       isActiveReply: message.role === "assistant" && activeReplyId && messageId === activeReplyId,
@@ -2930,11 +2947,13 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
         activeReplyId,
         assistantDensity,
         expandedLongText,
+        skimExpanded,
         annotationCount,
       }),
       markup: renderMessage(renderableMessage, {
         expandedLongText,
         assistantDensity,
+        skimExpanded,
       }),
     };
   }
@@ -2954,6 +2973,7 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
   }
 
   function installChatThreadDelegatedBindings() {
+    bindSkimAutoCollapseBehavior();
     if (chatThreadBindingsInstalled || !els.aiChatThread) {
       return;
     }
@@ -3044,13 +3064,37 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
           }
           return;
         }
-        if (typeof onPlanAction === "function") {
-          if (action === "focus") {
-            session.activePlanId = planId || null;
-            persistSessions(state);
+      if (typeof onPlanAction === "function") {
+        if (action === "focus") {
+          session.activePlanId = planId || null;
+          persistSessions(state);
           }
           onPlanAction({ action, planId, messageId, sessionId: session.id });
         }
+        return;
+      }
+
+      const skimToggleButton = event.target?.closest?.("button[data-skim-toggle]");
+      if (skimToggleButton && els.aiChatThread.contains(skimToggleButton)) {
+        event.stopPropagation();
+        const session = getActiveThread();
+        const messageId = String(
+          skimToggleButton.dataset.messageId
+          || skimToggleButton.closest(".chat-message.assistant[data-message-id]")?.dataset.messageId
+          || "",
+        ).trim();
+        if (!session || !messageId) {
+          return;
+        }
+        const nextIds = new Set(getExpandedSkimMessageIds(session));
+        const nextExpanded = skimToggleButton.dataset.skimToggle !== "collapse";
+        nextIds.clear();
+        if (nextExpanded) {
+          nextIds.add(messageId);
+        }
+        session.expandedSkimMessageIds = Array.from(nextIds);
+        persistSessions(state);
+        renderAiChat();
         return;
       }
 
@@ -3109,89 +3153,26 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
     });
   }
 
-  function renderAttentionFirstPanels(session) {
-    const {
-      assistantMessages,
-      activeMessage,
-      activeUi,
-    } = resolveReplyAttentionState(session);
-    const hasActiveReply = !!activeMessage;
-    const sourceEventIds = normalizeStringArray(pickFirstDefined(activeUi?.source_event_ids, activeUi?.sourceEventIds));
-    const sourceObjectIds = normalizeStringArray(pickFirstDefined(activeUi?.source_object_ids, activeUi?.sourceObjectIds));
-    const crossDayAnchorCount = toFiniteNumber(pickFirstDefined(activeUi?.cross_day_anchor_count, activeUi?.crossDayAnchorCount), 0);
-    const derivedNearbyContext = typeof hasVisibleNearbyContext === "function"
-      ? hasVisibleNearbyContext(session, activeMessage, activeUi)
-      : false;
-    const hasNearbyContext = !!activeMessage && (
-      sourceEventIds.length > 0
-      || sourceObjectIds.length > 0
-      || crossDayAnchorCount > 0
-      || getReplyObjectCount(activeMessage) > 0
-      || !!String(pickFirstDefined(activeUi?.reply_window_anchor, activeUi?.replyWindowAnchor) || "").trim()
-      || derivedNearbyContext
-    );
-
-    if (!hasActiveReply) {
-      els.aiAnswerWorkspace.hidden = true;
-      els.aiAnswerWorkspace.setAttribute("aria-hidden", "true");
-      if (els.activeReplyWorkspaceCard) {
-        els.activeReplyWorkspaceCard.hidden = true;
-        els.activeReplyWorkspaceCard.setAttribute("aria-hidden", "true");
-      }
-      contextRecipeController.hide();
-      changeInspectorController.hide();
-      if (els.changeInspectorToggle) {
-        els.changeInspectorToggle.hidden = true;
-        els.changeInspectorToggle.setAttribute("aria-expanded", "false");
-        els.changeInspectorToggle.classList.remove("is-active");
-      }
-      els.nearbyContextDock.hidden = true;
-      els.nearbyContextDock.setAttribute("aria-hidden", "true");
-      return;
-    }
-
-    if (els.activeReplyWorkspaceCard) {
-      updateRegionMarkup(
-        els.activeReplyWorkspaceCard,
-        buildActiveReplyWorkspaceMarkup(activeMessage, activeUi),
-        buildActiveReplyWorkspaceSignature(activeMessage, activeUi || {}),
-      );
-      els.activeReplyWorkspaceCard.hidden = false;
-      els.activeReplyWorkspaceCard.setAttribute("aria-hidden", "false");
-    }
-    contextRecipeController.render({ session, activeMessage, activeUi });
-    changeInspectorController.render({ session, assistantMessages, activeMessage });
-
-    els.nearbyContextDock.hidden = !hasNearbyContext;
-    els.nearbyContextDock.setAttribute("aria-hidden", hasNearbyContext ? "false" : "true");
-    if (hasNearbyContext && els.nearbyContextDockSummary) {
-      updateRegionMarkup(
-        els.nearbyContextDockSummary,
-        buildNearbyContextDockMarkup(activeMessage, activeUi),
-        buildNearbyContextDockSignature(activeMessage, activeUi),
-      );
-    }
-
-    const inspectorVisible = !els.changeInspectorPanel?.hidden;
-    const showWorkspace = hasActiveReply || inspectorVisible;
-    els.aiAnswerWorkspace.hidden = !showWorkspace;
-    els.aiAnswerWorkspace.setAttribute("aria-hidden", showWorkspace ? "false" : "true");
-  }
-
   function renderAiChat() {
     const session = getActiveThread();
-    const { activeMessage } = resolveReplyAttentionState(session);
-    const activeReplyId = activeMessage?.message_id || null;
+    const attentionState = resolveReplyAttentionState(session);
+    const activeReplyId = attentionState.activeMessage?.message_id || null;
     const assistantDensityMap = buildAssistantDensityMap(session.messages || [], activeReplyId);
     if (activeReplyId) {
       assistantDensityMap.set(activeReplyId, "compact");
     }
     const shouldAutoFollow = session.autoFollowChat !== false || isNearChatBottom();
     const expandedLongTextMessageIds = new Set(getExpandedLongTextMessageIds(session));
+    const expandedSkimMessageIds = new Set(getExpandedSkimMessageIds(session));
     installChatThreadDelegatedBindings();
     syncSessionMemorySummary(session);
     renderAuxiliaryStrips(session, els, state, onPlanAction, fetchJson, onPromptBlocksChanged);
-    renderAttentionFirstPanels(session);
+    attentionPanelsController.render({
+      session,
+      assistantMessages: attentionState.assistantMessages,
+      activeMessage: attentionState.activeMessage,
+      activeUi: attentionState.activeUi,
+    });
     renderAttachments(session);
     if (session.loadingFromServer) {
       renderChatThreadEmptyState(session, "loading", "正在从后端加载会话内容…");
@@ -3228,6 +3209,7 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
         activeReplyId,
         assistantDensityMap,
         expandedLongTextMessageIds,
+        expandedSkimMessageIds,
         annotationCountByMessage,
       }))
       .filter((item) => item.key);
@@ -3620,6 +3602,11 @@ function buildNearbyContextDockMarkup(activeMessage, activeUi = null) {
     scrollChatToBottom,
     updateChatFollowState,
     focusReplyMessage: (messageId, options = {}) => focusReplyMessage(state, renderAiChat, onReplyFocusChanged, messageId, options),
+    collapseExpandedSkimDetails: (options = {}) => collapseExpandedSkimDetails(getActiveThread, els, {
+      ...options,
+      persistSessionsFn: () => persistSessions(state),
+      renderAiChatFn: renderAiChat,
+    }),
     scheduleDraftStateSync,
     persistSessions: () => persistSessions(state),
   };

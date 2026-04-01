@@ -415,7 +415,7 @@ test("structured answer cards take priority over legacy bubbles and expose cauti
   await expect(page.locator('.chat-message[data-message-id="msg-insufficient"] .chat-plan-card')).toHaveCount(0);
 
   const uncertaintyCard = page.locator('.chat-message[data-message-id="msg-high"] [data-structured-answer-card="true"]');
-  await expect(uncertaintyCard).toHaveAttribute("data-card-density", "compact");
+  await expect(uncertaintyCard).toHaveAttribute("data-card-density", "skim");
   await expect(page.locator('.chat-message[data-message-id="msg-high"]')).toContainText("不确定");
 
   const conditionalCard = page.locator('.chat-message[data-message-id="msg-conditional"] [data-structured-answer-card="true"]');
@@ -431,7 +431,7 @@ test("structured answer cards take priority over legacy bubbles and expose cauti
   await expect(page.locator('#activeReplyWorkspaceCard [data-structured-answer-card="true"]')).toHaveAttribute("data-card-density", "full");
   await expect(page.locator("#activeReplyWorkspaceCard")).toContainText("高不确定");
   await expect(page.locator('#activeReplyWorkspaceCard [data-answer-section="uncertainty"]')).toBeVisible();
-  await expect(page.locator('.chat-message[data-message-id="msg-insufficient"] [data-structured-answer-card="true"]')).toHaveAttribute("data-card-density", "compact");
+  await expect(page.locator('.chat-message[data-message-id="msg-insufficient"] [data-structured-answer-card="true"]')).toHaveAttribute("data-card-density", "skim");
 
   const persistedActiveReplyId = await page.evaluate(({ storagePrefix }) => {
     const sessions = JSON.parse(window.localStorage.getItem(`${storagePrefix}:sessions`) || "[]");

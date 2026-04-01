@@ -1,7 +1,8 @@
 param(
     [switch]$ValidateOnly,
     [switch]$Background,
-    [switch]$SkipCollectorDeploy
+    [switch]$SkipCollectorDeploy,
+    [switch]$SkipDatabaseStart
 )
 
 Set-StrictMode -Version Latest
@@ -86,9 +87,23 @@ if ($Background) {
     if (-not (Test-Path -LiteralPath $backgroundScript)) {
         throw "Background script not found: $backgroundScript"
     }
-    & $backgroundScript -SkipCollectorDeploy:$SkipCollectorDeploy
+    & $backgroundScript -SkipCollectorDeploy:$SkipCollectorDeploy -SkipDatabaseStart:$SkipDatabaseStart
     Write-Host 'Server start requested in background.'
     return
+}
+
+if (-not $SkipDatabaseStart) {
+    $databaseBootstrapScript = Join-Path $PSScriptRoot 'ensure-clickhouse.ps1'
+    if (-not (Test-Path -LiteralPath $databaseBootstrapScript)) {
+        throw "ClickHouse bootstrap script not found: $databaseBootstrapScript"
+    }
+
+    try {
+        & $databaseBootstrapScript
+    }
+    catch {
+        Write-Warning ('ClickHouse bootstrap failed. Continuing with degraded-mode startup. Error: {0}' -f $_.Exception.Message)
+    }
 }
 
 Push-Location $repoRoot

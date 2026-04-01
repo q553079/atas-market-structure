@@ -187,6 +187,15 @@ python -m atas_market_structure.server
 .\scripts\start-service-background.ps1
 ```
 
+说明：
+
+- 当 `ATAS_MS_STORAGE_MODE=clickhouse` 时，标准启动脚本会先自动拉起本地 ClickHouse 并初始化基础表结构。
+- 如果你只想保留纯 degraded mode 启动，可显式跳过这一步：
+
+```powershell
+.\scripts\start-service-background.ps1 -SkipDatabaseStart
+```
+
 打开 replay workbench：
 
 ```text
@@ -367,6 +376,12 @@ Docker compose：
 
 ```powershell
 docker compose -f .\docker-compose.yml up --build -d
+```
+
+如果只需要本地 ClickHouse 数据库而不是整套 compose 服务，可以直接运行：
+
+```powershell
+.\scripts\ensure-clickhouse.ps1
 ```
 
 ## 仓库结构

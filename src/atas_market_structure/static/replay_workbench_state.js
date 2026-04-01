@@ -41,6 +41,7 @@ function createDefaultSession(index = 0) {
     draftAttachments: [],
     attachmentPreviewCollapsed: false,
     expandedLongTextMessageIds: [],
+    expandedSkimMessageIds: [],
     analysisTemplate: {
       type: "recent_20_bars",
       range: "current_window",
@@ -117,6 +118,7 @@ export function createWorkbenchState() {
         draftAttachments: Array.isArray(session?.draftAttachments) ? session.draftAttachments : (Array.isArray(session?.attachments) ? session.attachments : []),
         attachmentPreviewCollapsed: !!session?.attachmentPreviewCollapsed,
         expandedLongTextMessageIds: Array.isArray(session?.expandedLongTextMessageIds) ? session.expandedLongTextMessageIds : [],
+        expandedSkimMessageIds: Array.isArray(session?.expandedSkimMessageIds) ? session.expandedSkimMessageIds : [],
         selectedPromptBlockIds: Array.isArray(session?.selectedPromptBlockIds) ? session.selectedPromptBlockIds : [],
         pinnedContextBlockIds: Array.isArray(session?.pinnedContextBlockIds) ? session.pinnedContextBlockIds : [],
         includeMemorySummary: !!session?.includeMemorySummary,

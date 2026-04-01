@@ -109,6 +109,103 @@ function parseVisibleBars(text) {
   return match ? Number(match[1]) : null;
 }
 
+async function collectVisibleFirstScreenAttentionControls(page) {
+  return page.evaluate(() => {
+    const isVisible = (node) => {
+      if (!(node instanceof HTMLElement) || node.hidden) {
+        return false;
+      }
+      const closedDetails = node.closest("details:not([open])");
+      if (closedDetails instanceof HTMLDetailsElement) {
+        const summary = closedDetails.querySelector(":scope > summary");
+        if (!(summary instanceof HTMLElement) || (node !== summary && !summary.contains(node))) {
+          return false;
+        }
+      }
+      const style = window.getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+        return false;
+      }
+      return node.getClientRects().length > 0;
+    };
+    const readLabel = (node) => {
+      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) {
+        return text;
+      }
+      const title = String(node.getAttribute("title") || "").trim();
+      if (title) {
+        return title;
+      }
+      const ariaLabel = String(node.getAttribute("aria-label") || "").trim();
+      if (ariaLabel) {
+        return ariaLabel;
+      }
+      return node.id || node.tagName.toLowerCase();
+    };
+    const seen = new Set();
+    const controls = [];
+    const nodes = [
+      document.querySelector("#buildButton"),
+      document.querySelector("#chartToolbarSecondary > summary") || document.querySelector("#chartToolbarSecondary summary"),
+      ...Array.from(document.querySelectorAll("#aiPrimaryActions > button, #aiPrimaryActions > summary")),
+      document.querySelector("#chatComposerToolsMenu > summary"),
+      document.querySelector("#aiChatSendButton"),
+    ];
+    nodes.forEach((node) => {
+      if (!(node instanceof HTMLElement) || !isVisible(node) || node.id === "aiChatStopButton") {
+        return;
+      }
+      const key = node.id || `${node.tagName}:${readLabel(node)}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      controls.push({
+        id: node.id || "",
+        label: readLabel(node),
+      });
+    });
+    return controls;
+  });
+}
+
+async function collectVisibleAnnotationManagerEntries(page) {
+  return page.evaluate(() => {
+    const isVisible = (node) => {
+      if (!(node instanceof HTMLElement) || node.hidden) {
+        return false;
+      }
+      const closedDetails = node.closest("details:not([open])");
+      if (closedDetails instanceof HTMLDetailsElement) {
+        const summary = closedDetails.querySelector(":scope > summary");
+        if (!(summary instanceof HTMLElement) || (node !== summary && !summary.contains(node))) {
+          return false;
+        }
+      }
+      const style = window.getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+        return false;
+      }
+      return node.getClientRects().length > 0;
+    };
+    return Array.from(document.querySelectorAll("button, summary"))
+      .filter((node) => {
+        const text = (node.textContent || "").replace(/\s+/g, " ").trim();
+        return (
+          node.id === "annotationManagerButton"
+          || node.id === "toggleAnnotationPanelButton"
+          || text === "标记管理"
+        );
+      })
+      .filter(isVisible)
+      .map((node) => ({
+        id: node.id || "",
+        label: (node.textContent || "").replace(/\s+/g, " ").trim(),
+      }));
+  });
+}
+
 function buildAttentionReply(messageId, {
   title,
   content,
@@ -908,6 +1005,12 @@ test("attention-first first screen keeps primary modules bounded and secondary n
   await expect(page.locator("#eventScribePanel")).toBeHidden();
   await expect(page.locator("#replyExtractionPanel")).toBeHidden();
   await expect(page.locator("#changeInspectorPanel")).toBeHidden();
+  const nearbyDockBox = await page.locator("#nearbyContextDock").boundingBox();
+  const contextRecipeBox = await page.locator("#contextRecipePanel").boundingBox();
+  if (!nearbyDockBox || !contextRecipeBox) {
+    throw new Error("Nearby Context dock or Context Recipe panel is missing a visible layout box.");
+  }
+  expect(nearbyDockBox.y).toBeLessThan(contextRecipeBox.y);
 
   const visiblePrimaryModuleCount = await page.evaluate(() => {
     const selectors = [
@@ -925,11 +1028,305 @@ test("attention-first first screen keeps primary modules bounded and secondary n
       return style.display !== "none" && style.visibility !== "hidden";
     }).length;
   });
-  const visiblePrimaryActionCount = await page.locator("[data-attention-primary-action]:visible").count();
+  const visibleAttentionControls = await collectVisibleFirstScreenAttentionControls(page);
+  const visibleAnnotationManagerEntries = await collectVisibleAnnotationManagerEntries(page);
   expect(visiblePrimaryModuleCount).toBeLessThanOrEqual(4);
   expect(visiblePrimaryModuleCount).toBe(4);
-  expect(visiblePrimaryActionCount).toBeLessThanOrEqual(6);
-  expect(visiblePrimaryActionCount).toBe(6);
+  expect(visibleAttentionControls.length).toBeLessThanOrEqual(6);
+  expect(visibleAttentionControls.map((item) => item.label)).toEqual([
+    "加载图表",
+    "图表工具",
+    "分析当前窗口",
+    "更多工具",
+    "附加",
+    "发送",
+  ]);
+  expect(visibleAnnotationManagerEntries).toEqual([]);
+});
+
+test("nearby context dock stays inside the AI workspace instead of overlapping lower sections", async ({ page }) => {
+  await page.setViewportSize({ width: 920, height: 780 });
+  await page.goto(`http://127.0.0.1:${PORT}/workbench/replay`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("#buildButton")).toBeVisible();
+
+  const layout = await page.evaluate(() => {
+    document.querySelector("#aiSidebar")?.classList.add("open");
+
+    const setVisible = (selector) => {
+      const node = document.querySelector(selector);
+      if (node instanceof HTMLElement) {
+        node.hidden = false;
+        node.removeAttribute("hidden");
+        node.setAttribute("aria-hidden", "false");
+      }
+      return node;
+    };
+
+    setVisible("#aiAnswerWorkspace");
+    setVisible("#activeReplyWorkspaceCard");
+    setVisible("#nearbyContextDock");
+
+    const activeReply = document.querySelector("#activeReplyWorkspaceCard");
+    if (activeReply instanceof HTMLElement) {
+      activeReply.innerHTML = `
+        <div class="answer-workspace-hero">
+          <strong>当前答复</strong>
+          <p>模拟一条较长的当前答复，用来验证附近事件区在内容膨胀时仍然会被约束在自己的工作区内。</p>
+        </div>
+      `;
+    }
+
+    const summary = document.querySelector("#eventStreamSummary");
+    if (summary instanceof HTMLElement) {
+      summary.textContent = "模拟高内容量事件流，验证事件区不会压住聊天区和下面的更多工具区域。";
+    }
+
+    const eventStreamList = document.querySelector("#eventStreamList");
+    if (eventStreamList instanceof HTMLElement) {
+      eventStreamList.innerHTML = Array.from({ length: 10 }, (_, index) => `
+        <article class="event-candidate-card kind-market-event context-nearby" data-event-id="layout-${index}">
+          <div class="event-candidate-card-head">
+            <div class="event-candidate-title-wrap">
+              <strong>模拟事件 ${index + 1}</strong>
+              <div class="event-candidate-kicker">market_event</div>
+            </div>
+            <div class="event-candidate-badge-row">
+              <span class="event-candidate-badge lifecycle">PENDING</span>
+              <span class="event-candidate-badge confidence">0%</span>
+            </div>
+          </div>
+          <p class="event-candidate-summary">这里放一段更长的摘要，用来模拟真实事件流里的多行内容和较高卡片密度。</p>
+          <div class="event-candidate-context-row">
+            <span class="event-candidate-badge context reply">当前回答</span>
+            <span class="event-candidate-badge context object">图上对象</span>
+            <span class="event-candidate-badge context reason">当前窗口 + 图上对象</span>
+          </div>
+          <div class="event-candidate-meta-grid">
+            <span>21520-21528</span>
+            <span>03/22 23:11</span>
+            <span>手工</span>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    const rect = (selector) => {
+      const node = document.querySelector(selector);
+      if (!(node instanceof HTMLElement) || node.hidden) {
+        return null;
+      }
+      const box = node.getBoundingClientRect();
+      return {
+        top: box.top,
+        bottom: box.bottom,
+        height: box.height,
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+      };
+    };
+
+    return {
+      aiAnswerWorkspace: rect("#aiAnswerWorkspace"),
+      nearbyContextDock: rect("#nearbyContextDock"),
+      eventStreamList: rect("#eventStreamList"),
+      chatThreadShell: rect(".chat-thread-shell"),
+      aiSecondaryControls: rect("#aiSecondaryControls"),
+    };
+  });
+
+  expect(layout.aiAnswerWorkspace).not.toBeNull();
+  expect(layout.nearbyContextDock).not.toBeNull();
+  expect(layout.eventStreamList).not.toBeNull();
+  expect(layout.chatThreadShell).not.toBeNull();
+  expect(layout.aiSecondaryControls).not.toBeNull();
+
+  expect(layout.nearbyContextDock.bottom).toBeLessThanOrEqual(layout.aiAnswerWorkspace.bottom + 0.5);
+  expect(layout.nearbyContextDock.bottom).toBeLessThanOrEqual(layout.chatThreadShell.top + 0.5);
+  expect(layout.chatThreadShell.bottom).toBeLessThanOrEqual(layout.aiSecondaryControls.top + 0.5);
+  expect(layout.eventStreamList.scrollHeight).toBeGreaterThan(layout.eventStreamList.clientHeight);
+});
+
+test("more tools expands inside its own card instead of spilling over adjacent areas", async ({ page }) => {
+  await page.setViewportSize({ width: 920, height: 780 });
+  await page.goto(`http://127.0.0.1:${PORT}/workbench/replay`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("#buildButton")).toBeVisible();
+
+  await page.evaluate(() => document.querySelector("#aiSidebar")?.classList.add("open"));
+  await page.click("#aiMoreButton");
+  await expect(page.locator("#aiSecondaryControls")).toHaveJSProperty("open", true);
+
+  const layout = await page.evaluate(() => {
+    const rect = (selector) => {
+      const node = document.querySelector(selector);
+      if (!(node instanceof HTMLElement) || node.hidden) {
+        return null;
+      }
+      const box = node.getBoundingClientRect();
+      return {
+        top: box.top,
+        bottom: box.bottom,
+        height: box.height,
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+      };
+    };
+
+    return {
+      aiWorkspaceSurface: rect("#aiWorkspaceSurface"),
+      aiSecondaryControls: rect("#aiSecondaryControls"),
+      aiSecondaryControlsBody: rect("#aiSecondaryControls .ai-secondary-controls-body"),
+      spillsBelowVisibleCard: (() => {
+        const details = document.querySelector("#aiSecondaryControls");
+        if (!(details instanceof HTMLElement)) {
+          return null;
+        }
+        const detailsRect = details.getBoundingClientRect();
+        const sampleX = Math.min(detailsRect.left + 24, window.innerWidth - 4);
+        const sampleY = Math.min(detailsRect.bottom + 4, window.innerHeight - 4);
+        const hit = document.elementFromPoint(sampleX, sampleY);
+        return !!hit?.closest?.("#aiSecondaryControls .ai-secondary-controls-body");
+      })(),
+    };
+  });
+
+  expect(layout.aiWorkspaceSurface).not.toBeNull();
+  expect(layout.aiSecondaryControls).not.toBeNull();
+  expect(layout.aiSecondaryControlsBody).not.toBeNull();
+  expect(layout.spillsBelowVisibleCard).not.toBeNull();
+
+  expect(layout.aiSecondaryControls.top).toBeGreaterThanOrEqual(layout.aiWorkspaceSurface.bottom - 0.5);
+  expect(layout.aiSecondaryControlsBody.scrollHeight).toBeGreaterThan(layout.aiSecondaryControlsBody.clientHeight);
+  expect(layout.spillsBelowVisibleCard).toBe(false);
+});
+
+test("older thread replies stay skim until hover or click reveals detail without breaking reply focus", async ({ page }) => {
+  const session = buildAttentionFirstSession();
+  const serverSession = buildServerSessionSummary(session);
+
+  await page.addInitScript(({ seededSession, storagePrefix }) => {
+    window.localStorage.clear();
+    window.localStorage.setItem(`${storagePrefix}:sessions`, JSON.stringify([seededSession]));
+    window.localStorage.setItem(`${storagePrefix}:workbench`, JSON.stringify({
+      activeAiThreadId: seededSession.id,
+      topBar: {
+        symbol: seededSession.symbol,
+        timeframe: seededSession.timeframe,
+        quickRange: "7d",
+      },
+      changeInspector: {
+        open: false,
+        mode: "semantic",
+        baselineReplyId: null,
+        compareReplyId: null,
+        pinned: false,
+      },
+    }));
+  }, {
+    seededSession: session,
+    storagePrefix: STORAGE_PREFIX,
+  });
+
+  await page.route("**/api/v1/workbench/chat/sessions?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ sessions: [serverSession] }),
+    });
+  });
+
+  await page.goto(`http://127.0.0.1:${PORT}/workbench/replay`, { waitUntil: "domcontentloaded" });
+
+  const olderReply = page.locator('#aiChatThread .chat-message[data-message-id="msg-assistant-1"]');
+  const activeReply = page.locator('#aiChatThread .chat-message[data-message-id="msg-assistant-2"]');
+  const olderPeek = olderReply.locator(".answer-card-skim-peek");
+  const olderToggle = olderReply.getByRole("button", { name: "细节" });
+
+  await expect(olderReply).toHaveAttribute("data-message-density", "skim");
+  await expect(olderReply).toHaveAttribute("data-skim-expanded", "false");
+  await expect(olderReply.locator('[data-card-density="skim"]')).toHaveCount(1);
+  await expect(activeReply).toHaveAttribute("data-message-density", "compact");
+  await expect(olderToggle).toBeVisible();
+
+  const beforeHover = await olderPeek.evaluate((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      opacity: Number(style.opacity),
+      maxHeight: style.maxHeight,
+      visibility: style.visibility,
+    };
+  });
+  expect(beforeHover.opacity).toBeLessThan(0.1);
+  expect(beforeHover.maxHeight).toBe("0px");
+  expect(beforeHover.visibility).toBe("hidden");
+
+  await olderReply.hover();
+  await page.waitForTimeout(220);
+
+  const afterHover = await olderPeek.evaluate((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      opacity: Number(style.opacity),
+      maxHeight: style.maxHeight,
+      visibility: style.visibility,
+    };
+  });
+  expect(afterHover.opacity).toBeGreaterThan(0.9);
+  expect(afterHover.maxHeight).not.toBe("0px");
+  expect(afterHover.visibility).toBe("visible");
+
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(220);
+
+  await olderToggle.click();
+  await expect(olderReply).toHaveAttribute("data-skim-expanded", "true");
+  await expect(olderReply.getByRole("button", { name: "收起" })).toBeVisible();
+  await expect(activeReply).toHaveAttribute("data-message-density", "compact");
+
+  const persistedAfterToggle = await page.evaluate(({ storagePrefix }) => {
+    const sessions = JSON.parse(window.localStorage.getItem(`${storagePrefix}:sessions`) || "[]");
+    return {
+      activeReplyId: sessions[0]?.activeReplyId || null,
+      expandedSkimMessageIds: Array.isArray(sessions[0]?.expandedSkimMessageIds) ? sessions[0].expandedSkimMessageIds : [],
+    };
+  }, {
+    storagePrefix: STORAGE_PREFIX,
+  });
+  expect(persistedAfterToggle.activeReplyId).toBe("msg-assistant-2");
+  expect(persistedAfterToggle.expandedSkimMessageIds).toEqual(["msg-assistant-1"]);
+
+  await page.locator("#aiChatInput").click();
+  await expect(olderReply).toHaveAttribute("data-skim-expanded", "false");
+
+  const persistedAfterOutsideCollapse = await page.evaluate(({ storagePrefix }) => {
+    const sessions = JSON.parse(window.localStorage.getItem(`${storagePrefix}:sessions`) || "[]");
+    return {
+      activeReplyId: sessions[0]?.activeReplyId || null,
+      expandedSkimMessageIds: Array.isArray(sessions[0]?.expandedSkimMessageIds) ? sessions[0].expandedSkimMessageIds : [],
+    };
+  }, {
+    storagePrefix: STORAGE_PREFIX,
+  });
+  expect(persistedAfterOutsideCollapse.activeReplyId).toBe("msg-assistant-2");
+  expect(persistedAfterOutsideCollapse.expandedSkimMessageIds).toEqual([]);
+
+  await olderReply.getByRole("button", { name: "细节" }).click();
+  await expect(olderReply).toHaveAttribute("data-skim-expanded", "true");
+
+  await olderReply.locator(".answer-card-skim-title").click();
+  await expect(olderReply).toHaveClass(/is-reply-focus/);
+  await expect(olderReply).toHaveAttribute("data-message-density", "compact");
+
+  const persistedAfterFocus = await page.evaluate(({ storagePrefix }) => {
+    const sessions = JSON.parse(window.localStorage.getItem(`${storagePrefix}:sessions`) || "[]");
+    return {
+      activeReplyId: sessions[0]?.activeReplyId || null,
+      expandedSkimMessageIds: Array.isArray(sessions[0]?.expandedSkimMessageIds) ? sessions[0].expandedSkimMessageIds : [],
+    };
+  }, {
+    storagePrefix: STORAGE_PREFIX,
+  });
+  expect(persistedAfterFocus.activeReplyId).toBe("msg-assistant-1");
+  expect(persistedAfterFocus.expandedSkimMessageIds).toEqual([]);
 });
 
 test("answer workspace and change inspector follow assistant reply focus", async ({ page }) => {

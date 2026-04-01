@@ -181,9 +181,6 @@
               <button id="drawerRecapButton" class="drawer-tab" type="button">复盘简报</button>
               <button id="drawerGammaButton" class="drawer-tab" type="button">Gamma</button>
             </div>
-            <div class="panel-actions header-deck-actions">
-              <button id="annotationManagerButton" class="secondary" type="button">标记管理</button>
-            </div>
           </div>
           <details class="chart-toolbar-secondary-shell card-surface" id="chartToolbarSecondary">
             <summary class="chart-toolbar-secondary-summary" data-attention-primary-action="chart-tools">图表工具</summary>
@@ -204,6 +201,7 @@
               <button id="cancelEventCandidateToolButton" class="secondary" type="button" hidden>取消事件工具</button>
               <button id="chartToolbarScreenshotButton" class="secondary" type="button">图表截图</button>
               <button id="sendViewportButton" class="secondary" type="button">发送视区</button>
+              <button id="annotationManagerButton" class="secondary" type="button">标记管理</button>
               <span class="meta" id="chartViewportMeta">视图未初始化</span>
               <span class="meta" id="eventToolMeta">L 建关键位，Z 建区域，R 建风险。</span>
             </div>
@@ -306,7 +304,6 @@
                     aria-controls="changeInspectorPanel"
                     hidden
                   >变化对比</button>
-                  <button id="toggleAnnotationPanelButton" class="secondary tiny" type="button">标记管理</button>
                 </div>
               </div>
 
@@ -392,6 +389,27 @@
 
           <section class="ai-answer-workspace attention-first-phase1-shell" id="aiAnswerWorkspace" hidden aria-hidden="true">
             <section class="active-reply-workspace-card attention-first-panel card-surface" id="activeReplyWorkspaceCard" hidden aria-hidden="true"></section>
+            <section class="nearby-context-dock attention-first-panel card-surface" id="nearbyContextDock" data-attention-primary-module="nearby-context" hidden aria-hidden="true">
+              <section class="event-stream-panel-body" id="eventStreamPanel">
+                <div class="workspace-section-header compact nearby-context-panel-header">
+                  <div>
+                    <h2>Nearby Context</h2>
+                    <p id="eventStreamSummary">当前窗口附近的正式事件会出现在这里。</p>
+                  </div>
+                </div>
+                <div class="event-outcome-summary-panel" id="eventOutcomeSummary"></div>
+                <div class="event-outcome-focus-panel" id="eventOutcomeFocus" hidden></div>
+                <div class="mini-filter-bar" id="eventStreamFilterBar" aria-label="事件流筛选">
+                  <button type="button" class="secondary tiny is-active" data-event-stream-filter="all">全部</button>
+                  <button type="button" class="secondary tiny" data-event-stream-filter="key_level">关键位</button>
+                  <button type="button" class="secondary tiny" data-event-stream-filter="price_zone">区域</button>
+                  <button type="button" class="secondary tiny" data-event-stream-filter="market_event">事件</button>
+                  <button type="button" class="secondary tiny" data-event-stream-filter="risk_note">风险</button>
+                </div>
+                <div class="event-stream-list" id="eventStreamList"></div>
+              </section>
+              <div class="nearby-context-dock-summary" id="nearbyContextDockSummary"></div>
+            </section>
             <section class="context-recipe-panel attention-first-panel card-surface" id="contextRecipePanel" hidden aria-hidden="true">
               <div class="strip-head attention-first-panel-head">
                 <span class="strip-title">Context Recipe</span>
@@ -421,28 +439,6 @@
                   Default-collapsed Phase 1 skeleton. Semantic diff content mounts here later.
                 </div>
               </div>
-            </section>
-          </section>
-
-          <section class="nearby-context-dock attention-first-panel card-surface" id="nearbyContextDock" data-attention-primary-module="nearby-context" hidden aria-hidden="true">
-            <div class="nearby-context-dock-summary" id="nearbyContextDockSummary"></div>
-            <section class="event-stream-panel-body" id="eventStreamPanel">
-              <div class="workspace-section-header compact nearby-context-panel-header">
-                <div>
-                  <h2>Nearby Context</h2>
-                  <p id="eventStreamSummary">当前窗口附近的正式事件会出现在这里。</p>
-                </div>
-              </div>
-              <div class="event-outcome-summary-panel" id="eventOutcomeSummary"></div>
-              <div class="event-outcome-focus-panel" id="eventOutcomeFocus" hidden></div>
-              <div class="mini-filter-bar" id="eventStreamFilterBar" aria-label="事件流筛选">
-                <button type="button" class="secondary tiny is-active" data-event-stream-filter="all">全部</button>
-                <button type="button" class="secondary tiny" data-event-stream-filter="key_level">关键位</button>
-                <button type="button" class="secondary tiny" data-event-stream-filter="price_zone">区域</button>
-                <button type="button" class="secondary tiny" data-event-stream-filter="market_event">事件</button>
-                <button type="button" class="secondary tiny" data-event-stream-filter="risk_note">风险</button>
-              </div>
-              <div class="event-stream-list" id="eventStreamList"></div>
             </section>
           </section>
 

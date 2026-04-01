@@ -766,6 +766,42 @@ Implementation should follow the approved plan instead of improvising broad rewr
 - Rollback notes
   Restore the prior multi-column shell and thread-first AI surface while keeping additive metadata, stored chat replies, event history, and prompt-trace data intact.
 
+## 2026-03-31 Replay Workbench Attention-First Acceptance Hardening And Panel Split
+- Goal
+  Tighten the first-screen attention-budget acceptance so it measures real visible controls rather than opt-in tags, remove duplicate visible annotation-manager entry points, and extract the attention-first answer-surface rendering out of `replay_workbench_ai_threads.js`.
+- Scope
+  Limit this pass to frontend shell visibility, Playwright acceptance semantics, and focused module extraction for the answer workspace / nearby dock surface. Keep all backend contracts, event semantics, and current attention-first UI behavior unchanged.
+- Files expected to change
+  `PLANS.md`
+  `src/atas_market_structure/static/replay_workbench.html`
+  `src/atas_market_structure/static/replay_workbench.css`
+  `src/atas_market_structure/static/replay_workbench_dom.js`
+  `src/atas_market_structure/static/replay_workbench_bootstrap.js`
+  `src/atas_market_structure/static/replay_workbench_ai_threads.js`
+  `src/atas_market_structure/static/replay_workbench_attention_panels.js`
+  `tests/playwright_replay_ui_fix.spec.js`
+  `tests/playwright_event_structured_priority.spec.js`
+- Invariants to preserve
+  Event/public backend contracts, `schema_version`, enums, degraded mode names, and deterministic recognition pipeline stay unchanged.
+  `activeReplyId`, `activeReplyWindowAnchor`, active reply compact/full behavior, nearby context visibility, context recipe visibility, and default-collapsed change inspector behavior stay unchanged.
+  No new production dependency is added.
+- Migration / compatibility strategy
+  Keep one annotation-manager entrypoint on a secondary surface and remove duplicate default-visible entrypoints without deleting annotation-panel capability.
+  Move attention-surface markup/signature/render orchestration into a focused module and leave `replay_workbench_ai_threads.js` responsible for thread/session orchestration plus compatibility wiring.
+  Upgrade Playwright acceptance to count real visible first-screen prominent controls from stable surface selectors instead of only relying on `data-attention-primary-action`.
+- Tests to run
+  `python -m pytest tests\\test_contract_schema_versions.py tests\\test_workbench_event_service.py tests\\test_workbench_event_api.py tests\\test_chat_backend_e2e.py tests\\test_workbench_prompt_trace_service.py tests\\test_app_chat_routes.py -q`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_bootstrap.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_ai_threads.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_attention_panels.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_answer_cards.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_context_recipe.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_change_inspector.js`
+  `node --check src\\atas_market_structure\\static\\replay_workbench_dom.js`
+  `npx playwright test "tests/playwright_replay_ui_fix.spec.js" "tests/playwright_workbench_event_interaction.spec.js" "tests/playwright_event_structured_priority.spec.js"`
+- Rollback notes
+  Restore the duplicate annotation-manager entrypoint and inline attention-surface rendering in `replay_workbench_ai_threads.js` while leaving all additive state and metadata untouched.
+
 ## 2026-03-31 Replay Workbench Attention-First Performance Hot Path Cleanup
 - Scope
   Tighten the frontend hot paths for region drag, AI/event local rerender boundaries, and attention-first acceptance checks without redesigning the workbench or changing backend semantics. Extract the region drag runtime, render routing, and event/chat decoration ownership out of the existing bootstrap and event-panel facades so the split is structural, not cosmetic.

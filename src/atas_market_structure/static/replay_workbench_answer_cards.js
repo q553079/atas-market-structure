@@ -384,6 +384,42 @@ function buildMetaChipMarkup(message = {}, sections = {}, replyObjectCount = 0) 
   return chips.join("");
 }
 
+function buildSkimRailMetaChipMarkup(message = {}, sections = {}, replyObjectCount = 0) {
+  const chips = [];
+  const status = String(message.status || "").trim().toLowerCase();
+  if (status && status !== "completed") {
+    chips.push(renderChip(status, `status-${status}`));
+  }
+  if (replyObjectCount > 0) {
+    chips.push(renderChip(`对象 ${replyObjectCount}`, "is-objects"));
+  } else if (sections.objectChips.length) {
+    chips.push(renderChip(sections.objectChips[0], "is-objects"));
+  }
+  if (sections.assertionMeta.label) {
+    chips.push(renderChip(sections.assertionMeta.label, `assertion-${sections.assertionMeta.tone}`));
+  }
+  if (sections.staleLabel) {
+    chips.push(renderChip(sections.staleLabel, "is-stale"));
+  }
+  if (message.parent_message_id || message.meta?.parent_message_id) {
+    chips.push(renderChip("重新生成", "is-regenerated"));
+  }
+  return chips.join("");
+}
+
+function renderSkimPeekLine(label, value, sectionKey) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return `
+    <div class="answer-card-skim-peek-line" data-answer-section="${escapeHtml(sectionKey || "note")}">
+      <span class="answer-card-skim-peek-label">${escapeHtml(label || "说明")}</span>
+      <span class="answer-card-skim-peek-value">${escapeHtml(text)}</span>
+    </div>
+  `;
+}
+
 function renderCautionBlock(sections = {}) {
   if (sections.conditional && sections.invalidation) {
     return `
@@ -514,10 +550,24 @@ function renderSkimCard({
   replyTitle,
   replyObjectCount,
   messageActionMarkup,
+  skimExpanded = false,
 }) {
   const cautionText = sections.conditional
     ? "需失效条件"
     : (sections.highUncertainty ? "不确定性高" : (sections.insufficientContext ? "上下文不足" : ""));
+  const skimPeekMarkup = [
+    renderSkimPeekLine("结论", summarizeText(sections.conclusion, 72), "conclusion"),
+    renderSkimPeekLine(
+      sections.conditional ? "失效" : "风险",
+      summarizeText(sections.conditional ? sections.invalidation : sections.risk, 64),
+      sections.conditional ? "invalidation" : "risk",
+    ),
+    renderSkimPeekLine(
+      sections.evidence ? "证据" : "观察",
+      summarizeText(sections.evidence || sections.nextObservation || sections.shortNote, 68),
+      sections.evidence ? "evidence" : "note",
+    ),
+  ].filter(Boolean).join("");
   return `
     <article
       class="answer-card answer-card-skim ${sections.insufficientContext ? "is-insufficient-context" : ""}"
@@ -527,12 +577,22 @@ function renderSkimCard({
     >
       <header class="answer-card-skim-head">
         <span class="answer-card-skim-title">${escapeHtml(summarizeText(replyTitle || sections.conclusion, 20))}</span>
-        <span class="answer-card-skim-time" data-answer-section="time">${escapeHtml(sections.timeLabel)}</span>
+        <div class="answer-card-skim-tools">
+          <span class="answer-card-skim-time" data-answer-section="time">${escapeHtml(sections.timeLabel)}</span>
+          <button
+            type="button"
+            class="secondary tiny answer-card-skim-toggle"
+            data-skim-toggle="${skimExpanded ? "collapse" : "expand"}"
+            data-message-id="${escapeHtml(message.message_id || "")}"
+            aria-expanded="${skimExpanded ? "true" : "false"}"
+          >${skimExpanded ? "收起" : "细节"}</button>
+        </div>
       </header>
       <div class="answer-card-skim-meta">
-        ${buildMetaChipMarkup(message, sections, replyObjectCount)}
+        ${buildSkimRailMetaChipMarkup(message, sections, replyObjectCount)}
         ${cautionText ? `<span class="answer-card-skim-note" ${sections.conditional ? 'data-answer-section="invalidation"' : 'data-answer-section="uncertainty"'}>${escapeHtml(cautionText)}</span>` : ""}
       </div>
+      ${skimPeekMarkup ? `<div class="answer-card-skim-peek">${skimPeekMarkup}</div>` : ""}
       ${messageActionMarkup}
     </article>
   `;
@@ -547,12 +607,6 @@ export function buildAssistantDensityMap(messages = [], activeReplyId = null) {
   const fallbackActiveId = String(activeReplyId || "").trim() || String(assistantMessages[assistantMessages.length - 1]?.message_id || "").trim();
   if (fallbackActiveId) {
     densityMap.set(fallbackActiveId, "full");
-  }
-  const newestNonActive = [...assistantMessages]
-    .reverse()
-    .find((message) => String(message?.message_id || "").trim() && String(message?.message_id || "").trim() !== fallbackActiveId);
-  if (newestNonActive?.message_id) {
-    densityMap.set(String(newestNonActive.message_id), "compact");
   }
   assistantMessages.forEach((message) => {
     const messageId = String(message?.message_id || "").trim();
@@ -583,6 +637,7 @@ export function renderStructuredAnswerCard({
   message,
   density = "full",
   expandedLongText = false,
+  skimExpanded = false,
   replyObjectCount = 0,
   canProjectReply = false,
   includeMessageActions = false,
@@ -657,6 +712,7 @@ export function renderStructuredAnswerCard({
       replyTitle,
       replyObjectCount,
       messageActionMarkup,
+      skimExpanded,
     });
   } else if (resolvedDensity === "compact") {
     cardMarkup = renderCompactCard({
@@ -685,6 +741,7 @@ export function renderStructuredAssistantMessage({
   message,
   density = "full",
   expandedLongText = false,
+  skimExpanded = false,
   replyObjectCount = 0,
   canProjectReply = false,
   renderLongTextMarkup,
@@ -695,6 +752,7 @@ export function renderStructuredAssistantMessage({
     message,
     density,
     expandedLongText,
+    skimExpanded,
     replyObjectCount,
     canProjectReply,
     includeMessageActions: true,
@@ -709,9 +767,12 @@ export function renderStructuredAssistantMessage({
   const resolvedDensity = ["full", "compact", "skim"].includes(String(density || "").trim().toLowerCase())
     ? String(density || "").trim().toLowerCase()
     : "full";
+  const threadDensityAttrs = message.role === "assistant"
+    ? ` data-message-density="${escapeHtml(resolvedDensity)}"${resolvedDensity === "skim" ? ` tabindex="0" data-skim-expanded="${skimExpanded ? "true" : "false"}"` : ""}`
+    : "";
   return `
-    <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} structured-answer-message ${message.isActiveReply ? "is-reply-focus" : ""}" data-message-id="${escapeHtml(message.message_id || "")}">
-      <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} answer-card-shell density-${escapeHtml(resolvedDensity)} assertion-${escapeHtml(sections.assertionMeta.tone || "legacy")}">
+    <div class="chat-message ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} structured-answer-message density-${escapeHtml(resolvedDensity)} ${message.isActiveReply ? "is-reply-focus" : ""}" data-message-id="${escapeHtml(message.message_id || "")}"${threadDensityAttrs}>
+      <div class="chat-bubble ${escapeHtml(message.role)} ${escapeHtml(message.status || "")} answer-card-shell density-${escapeHtml(resolvedDensity)} assertion-${escapeHtml(sections.assertionMeta.tone || "legacy")}" data-card-shell-density="${escapeHtml(resolvedDensity)}">
         <div class="chat-bubble-body">
           ${cardMarkup}
           ${(message.parent_message_id || message.meta?.parent_message_id) ? `<div class="chat-regenerate-note">由上一条回复重新生成</div>` : ""}
